@@ -5,7 +5,7 @@
 	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
-    import { goto } from '$lib/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
@@ -19,6 +19,7 @@
 				summary: string
 				policy: any
 				draft_only?: boolean
+				custom_path?: string
 		  }
 		| undefined = undefined
 	let redraw = 0
@@ -58,7 +59,8 @@
 							path: app_w_draft_.path,
 							policy: app_w_draft_.policy
 					  }
-					: undefined
+					: undefined,
+			custom_path: app_w_draft_.custom_path
 		}
 
 		if (stateLoadedFromUrl) {
@@ -202,14 +204,24 @@
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
+				on:savedNewAppPath={(event) => {
+					goto(`/apps/edit/${event.detail}`)
+					if (app) {
+						app.path = event.detail
+					}
+				}}
 				on:restore={onRestore}
 				summary={app.summary}
 				app={app.value}
-				path={app.path}
+				newPath={app.path}
+				path={$page.params.path}
 				policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
+				newApp={false}
+				replaceStateFn={(path) => replaceState(path, $page.state)}
+				gotoFn={(path, opt) => goto(path, opt)}
 			/>
 		</div>
 	{/if}

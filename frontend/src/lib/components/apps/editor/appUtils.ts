@@ -912,6 +912,7 @@ export function connectInput(
 	if (connectingInput) {
 		if (connectingInput.onConnect) {
 			connectingInput.onConnect({ componentId, path })
+			sendUserToast(`Connected to ${componentId}.${path}`, false)
 		}
 
 		connectingInput = {

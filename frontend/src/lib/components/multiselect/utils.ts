@@ -53,7 +53,11 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 			})
 		}
 		observer.disconnect()
-	})
+	}, {
+  root: null, // or specify a scrolling parent if needed
+  rootMargin: '0px 1000px', // Essentially making horizontal checks irrelevant
+  threshold: 0.1 // Adjust threshold to control when observer should trigger
+})
 	observer.observe(elem)
 
 	return observer // return for testing

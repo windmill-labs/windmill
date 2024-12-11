@@ -3,8 +3,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 name: Build and publish windmill for RHEL9
-on:
-  workflow_dispatch
+on: workflow_dispatch
 
 permissions: write-all
 
@@ -65,7 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,kafka
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -74,7 +73,7 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}-amd64
             org.opencontainers.image.licenses=Windmill-Enterprise-License
-      
+
       - name: Build and push publicly ee arm64
         uses: depot/build-push-action@v1
         with:
@@ -82,7 +81,7 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,kafka
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -108,7 +107,7 @@ jobs:
         run: |
           mv "${{ steps.extract-ee-amd64.outputs.destination }}/windmill" "${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9"
           mv "${{ steps.extract-ee-arm64.outputs.destination }}/windmill" "${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9"
-      
+
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-amd64 build

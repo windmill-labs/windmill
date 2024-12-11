@@ -25,6 +25,7 @@
 		encodeState,
 		formatCron,
 		orderedJsonStringify,
+		replaceFalseWithUndefined,
 		sleep,
 		type Value
 	} from '$lib/utils'
@@ -32,7 +33,7 @@
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import { setContext, tick, type ComponentType } from 'svelte'
+	import { onMount, setContext, tick, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -85,6 +86,7 @@
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
+	import type { AiProviderTypes } from './copilot/lib'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -105,6 +107,7 @@
 	export let disabledFlowInputs = false
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let version: number | undefined = undefined
+	export let setSavedraftCb:  ((cb: () => void) => void) | undefined = undefined
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = undefined // Value to diff against
@@ -144,7 +147,7 @@
 			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
 			: undefined
 	)
-
+	const simplifiedPoll = writable(false)
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
@@ -179,7 +182,7 @@
 	let loadingSave = false
 	let loadingDraft = false
 
-	async function saveDraft(forceSave = false): Promise<void> {
+	export async function saveDraft(forceSave = false): Promise<void> {
 		if (!newFlow && !savedFlow) {
 			return
 		}
@@ -276,6 +279,10 @@
 		loadingDraft = false
 	}
 
+	onMount(() => {
+		setSavedraftCb?.(() => saveDraft())
+	})
+
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
 			getAllModules(flow.value.modules, flow.value.failure_module)
@@ -293,12 +300,21 @@
 			// We need it for diff
 			await syncWithDeployed()
 
-			// Handle through confirmation modal
-			confirmCallback = async () => {
+			if (
+				deployedValue &&
+				$flowStore &&
+				orderedJsonStringify(deployedValue) ===
+					orderedJsonStringify(replaceFalseWithUndefined({ ...$flowStore, path: $pathStore }))
+			) {
 				await saveFlow(deploymentMsg)
+			} else {
+				// Handle through confirmation modal
+				confirmCallback = async () => {
+					await saveFlow(deploymentMsg)
+				}
+				// Open confirmation modal
+				open = true
 			}
-			// Open confirmation modal
-			open = true
 		}
 	}
 	async function syncWithDeployed() {
@@ -307,18 +323,12 @@
 			path: initialPath,
 			withStarredInfo: true
 		})
-		deployedValue = {
+		deployedValue = replaceFalseWithUndefined({
 			...flow,
-			starred: undefined,
-			id: undefined,
 			edited_at: undefined,
 			edited_by: undefined,
-			workspace_id: undefined,
-			archived: undefined,
-			same_worker: undefined,
-			visible_to_runner_only: undefined,
-			ws_error_handler_muted: undefined
-		}
+			workspace_id: undefined
+		})
 		deployedBy = flow.edited_by
 	}
 
@@ -468,7 +478,7 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 
 	export function getSelectedId() {
@@ -490,7 +500,14 @@
 	}
 
 	function selectTrigger(
-		selectedTrigger: 'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		selectedTrigger:
+			| 'webhooks'
+			| 'emails'
+			| 'schedules'
+			| 'cli'
+			| 'routes'
+			| 'websockets'
+			| 'scheduledPoll'
 	) {
 		selectedTriggerStore.set(selectedTrigger)
 	}
@@ -517,7 +534,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
-		triggersCount
+		triggersCount,
+		simplifiedPoll
 	})
 
 	async function loadTriggers() {
@@ -781,6 +799,7 @@
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
+			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 
 			copilotLoading = true
 			copilotStatus = "Generating code for step '" + module.id + "'..."
@@ -876,7 +895,6 @@
 			await tick()
 			select(module.id)
 			await tick()
-			await tick()
 			focusCopilot()
 
 			let isFirstInLoop = false
@@ -911,7 +929,8 @@
 						  })
 						: undefined,
 					isFirstInLoop,
-					abortController
+					abortController,
+					aiProvider
 				)
 				unsubscribe()
 			}
@@ -927,7 +946,7 @@
 						pastModule.value.type === 'script')
 				) {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_openai_resource_path) {
+					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
 						const { inputs, allExprs } = await glueCopilot(
@@ -937,7 +956,8 @@
 								value: RawScript | PathScript
 							},
 							isFirstInLoop,
-							abortController
+							abortController,
+							aiProvider
 						)
 
 						// create flow inputs used by AI for autocompletion
@@ -985,11 +1005,7 @@
 							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
-						if (
-							isHubStep &&
-							pastModule !== undefined &&
-							!$copilotInfo.exists_openai_resource_path
-						) {
+						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource) {
 							sendUserToast(
 								'For better input generation, enable Windmill AI in the workspace settings',
 								true

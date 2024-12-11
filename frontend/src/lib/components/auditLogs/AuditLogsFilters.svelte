@@ -221,7 +221,7 @@
 		JOBS_DISAPPROVAL: 'jobs.disapproval',
 		JOBS_DELETE: 'jobs.delete',
 		ACCOUNT_DELETE: 'account.delete',
-		OPENAI_REQUEST: 'openai.request',
+		AI_REQUEST: 'ai.request',
 		RESOURCES_CREATE: 'resources.create',
 		RESOURCES_UPDATE: 'resources.update',
 		RESOURCES_DELETE: 'resources.delete',
@@ -342,6 +342,12 @@
 		<span class="text-xs absolute -top-4">Resource</span>
 
 		<AutoComplete
+			create
+			onCreate={(resource) => {
+				resources.push(resource)
+				return resource
+			}}
+			createText="Press enter to use this value"
 			noInputStyles
 			items={resources}
 			value={resource}

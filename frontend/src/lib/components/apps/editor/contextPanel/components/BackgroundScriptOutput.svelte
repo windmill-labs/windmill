@@ -12,8 +12,9 @@
 	export let first: boolean = false
 </script>
 
-<OutputHeader renamable={false} selectable={true} {id} {name} color="blue" {first}>
+<OutputHeader let:render renamable={false} selectable={true} {id} {name} color="blue" {first}>
 	<ComponentOutputViewer
+		{render}
 		componentId={id}
 		on:select={({ detail }) => {
 			$connectingInput = connectInput($connectingInput, id, detail)

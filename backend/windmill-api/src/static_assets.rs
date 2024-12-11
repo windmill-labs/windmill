@@ -23,7 +23,7 @@ pub async fn static_handler(OriginalUri(original_uri): OriginalUri) -> StaticFil
 }
 
 #[derive(RustEmbed)]
-#[folder = "../../frontend/build/"]
+#[folder = "${FRONTEND_BUILD_DIR:-../../frontend/build/}"]
 struct Asset;
 pub struct StaticFile(Uri);
 

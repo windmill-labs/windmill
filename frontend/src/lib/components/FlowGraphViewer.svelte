@@ -7,6 +7,7 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
+	import { workspaceStore } from '$lib/stores'
 
 	export let flow: {
 		summary: string
@@ -22,6 +23,7 @@
 	export let noGraph = false
 	export let triggerNode = false
 	export let stepDetail: FlowModule | string | undefined = undefined
+	export let workspace: string | undefined = $workspaceStore
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -34,9 +36,12 @@
 		>
 			<FlowGraphV2
 				{triggerNode}
+				earlyStop={flow.value.skip_expr !== undefined}
+				cache={flow.value.cache_ttl !== undefined}
 				path={flow?.path}
 				{download}
 				minHeight={400}
+				{workspace}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
 				preprocessorModule={flow?.value?.preprocessor_module}

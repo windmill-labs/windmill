@@ -5,7 +5,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
@@ -22,6 +22,10 @@
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
+	import FlowPlugConnect from '$lib/components/FlowPlugConnect.svelte'
+
+	import PropPickerWrapper, { CONNECT } from '../propPicker/PropPickerWrapper.svelte'
+	import type { PropPickerContext } from '$lib/components/prop_picker'
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -34,6 +38,9 @@
 
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'early-stop'
+
+	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+	flowPropPickerConfig.set(undefined)
 
 	$: stepPropPicker = getStepPropPicker(
 		$flowStateStore,
@@ -53,6 +60,17 @@
 	let iteratorGen: IteratorGen | undefined = undefined
 
 	$: previewIterationArgs = $flowStateStore[mod.id]?.previewArgs ?? {}
+
+	function setExpr(code: string) {
+		if (mod.value.type === 'forloopflow') {
+			mod.value.iterator = {
+				type: 'javascript',
+				expr: code
+			}
+		}
+		editor?.setCode('')
+		editor?.insertAtCursor(code)
+	}
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
@@ -142,6 +160,27 @@
 								over. Example : ["banana", "apple", flow_input.my_fruit].
 							</Tooltip>
 						</div>
+						<FlowPlugConnect
+							connecting={$flowPropPickerConfig?.insertionMode == CONNECT}
+							on:click={() => {
+								const config = {
+									insertionMode: CONNECT,
+									onSelect: (code) => {
+										setExpr(code)
+										return true
+									},
+									clearFocus: () => {
+										flowPropPickerConfig.set(undefined)
+									}
+								}
+								flowPropPickerConfig.set({
+									...config,
+									clearFocus: () => {
+										flowPropPickerConfig.set(undefined)
+									}
+								})
+							}}
+						/>
 						{#if enableAi}
 							<IteratorGen
 								bind:this={iteratorGen}
@@ -151,14 +190,7 @@
 									editor?.setSuggestion(e.detail)
 								}}
 								on:setExpr={(e) => {
-									if (mod.value.type === 'forloopflow') {
-										mod.value.iterator = {
-											type: 'javascript',
-											expr: e.detail
-										}
-									}
-									editor?.setCode('')
-									editor?.insertAtCursor(e.detail)
+									setExpr(e.detail)
 								}}
 								pickableProperties={stepPropPicker.pickableProperties}
 							/>
@@ -173,9 +205,15 @@
 							on:keyup={iteratorGen?.onKeyUp}
 						>
 							<PropPickerWrapper
+								alwaysOn
 								notSelectable
 								pickableProperties={stepPropPicker.pickableProperties}
 								on:select={({ detail }) => {
+									if ($flowPropPickerConfig?.insertionMode == CONNECT) {
+										setExpr(detail)
+										flowPropPickerConfig.set(undefined)
+										return
+									}
 									editor?.insertAtCursor(detail)
 									editor?.focus()
 								}}

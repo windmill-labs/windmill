@@ -1304,6 +1304,8 @@ try {{
                 job.args.as_ref()
             };
 
+            append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), db).await;
+
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
                 inner_content.clone(),
@@ -1324,14 +1326,7 @@ try {{
                 "Executed native code in {}ms",
                 started_at.elapsed().as_millis()
             );
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                format!("{}\n{}", init_logs, result.1),
-                db,
-            )
-            .await;
-            return Ok(result.0);
+            return Ok(result);
         }
     }
     append_logs(&job.id, &job.workspace_id, init_logs, db).await;
@@ -1525,6 +1520,15 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     }
     if let Some(ref node_path) = NODE_PATH.as_ref() {
         bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        bun_envs.insert("SystemRoot".to_string(), crate::SYSTEM_ROOT.to_string());
+        bun_envs.insert(
+            "USERPROFILE".to_string(),
+            crate::USERPROFILE_ENV.to_string(),
+        );
     }
 
     return bun_envs;

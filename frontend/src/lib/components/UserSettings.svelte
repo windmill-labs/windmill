@@ -12,8 +12,6 @@
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import { page } from '$app/stores'
-	import { goto as gotoUrl } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
 	import Version from './Version.svelte'
@@ -50,11 +48,9 @@
 	}
 
 	function removeHash() {
-		const index = $page.url.href.lastIndexOf('#')
-		if (index === -1) return
-		const hashRemoved = $page.url.href.slice(0, index)
-		gotoUrl(hashRemoved)
+		window.location.hash = ''
 	}
+
 	async function setPassword(): Promise<void> {
 		if (newPassword) {
 			await UserService.setPassword({

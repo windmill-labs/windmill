@@ -23,8 +23,8 @@
 		GitFork,
 		Trash,
 		List,
-		FileUp,
-		Globe,
+		FolderOpen,
+		ChevronUpSquare,
 		Calendar,
 		Share,
 		Archive,
@@ -179,7 +179,7 @@
 					},
 					{
 						displayName: 'Move/Rename',
-						icon: FileUp,
+						icon: FolderOpen,
 						action: () => {
 							moveDrawer.openDrawer(path, flow.summary, 'flow')
 						},
@@ -197,7 +197,7 @@
 						? [
 								{
 									displayName: 'Deploy to staging/prod',
-									icon: Globe,
+									icon: ChevronUpSquare,
 									action: () => {
 										deploymentDrawer.openDrawer(path, 'flow')
 									},

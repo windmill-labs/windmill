@@ -19,6 +19,7 @@ import Slack from './Slack.svelte'
 import TogglIcon from './TogglIcon.svelte'
 import WindmillIcon from './WindmillIcon.svelte'
 import WindmillIcon2 from './WindmillIcon2.svelte'
+import SchedulePollIcon from './SchedulePollIcon.svelte'
 import MailchimpIcon from './MailchimpIcon.svelte'
 import SendgridIcon from './SendgridIcon.svelte'
 import SendflakeIcon from './SendflakeIcon.svelte'
@@ -92,7 +93,7 @@ import JumpCloudIcon from './JumpCloudIcon.svelte'
 import KeycloakIcon from './KeycloakIcon.svelte'
 import ZitadelIcon from './ZitadelIcon.svelte'
 import SpotifyIcon from './SpotifyIcon.svelte'
-
+import XeroIcon from './XeroIcon.svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,
@@ -190,7 +191,8 @@ export const APP_TO_ICON_COMPONENT = {
 	jumpcloud: JumpCloudIcon,
 	keycloak: KeycloakIcon,
 	zitadel: ZitadelIcon,
-	spotify: SpotifyIcon
+	spotify: SpotifyIcon,
+	xero: XeroIcon
 } as const
 
 export {
@@ -215,6 +217,7 @@ export {
 	TogglIcon,
 	WindmillIcon,
 	WindmillIcon2,
+	SchedulePollIcon,
 	MailchimpIcon,
 	SendgridIcon,
 	LinkedinIcon,
@@ -281,5 +284,6 @@ export {
 	VismaIcon,
 	JumpCloudIcon,
 	KeycloakIcon,
-	ZitadelIcon
+	ZitadelIcon,
+	XeroIcon
 }

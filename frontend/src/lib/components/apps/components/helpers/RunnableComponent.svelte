@@ -26,6 +26,7 @@
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import { ctxRegex } from '../../utils'
+	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
 
 	// Component props
 	export let id: string
@@ -376,11 +377,14 @@
 						: runnable
 
 					if (inlineScript) {
+						if (inlineScript.id !== undefined) {
+							requestBody['id'] = inlineScript.id
+						}
 						requestBody['raw_code'] = {
-							content: inlineScript.content,
+							content: inlineScript.id === undefined ? inlineScript.content : '',
 							language: inlineScript.language ?? '',
 							path: inlineScript.path,
-							lock: inlineScript.lock,
+							lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
 							cache_ttl: inlineScript.cache_ttl
 						}
 					}
@@ -389,9 +393,13 @@
 					requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
 				}
 
+				if ($app.version !== undefined) {
+					requestBody['version'] = $app.version
+				}
+
 				const uuid = await AppService.executeComponent({
 					workspace,
-					path: defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
+					path: defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
 					requestBody
 				})
 				if (isEditor) {
@@ -671,6 +679,14 @@
 			return undefined
 		}
 	}
+
+	function computeS3ForceViewerPolicies() {
+		if (!isEditor) {
+			return undefined
+		}
+		const policy = computeWorkspaceS3FileInputPolicy()
+		return policy
+	}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
@@ -754,6 +770,9 @@
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
 					schema={schemaStripped}
+					appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+					{computeS3ForceViewerPolicies}
+					{workspace}
 					bind:this={schemaForm}
 					bind:args
 					on:inputClicked={handleInputClick}

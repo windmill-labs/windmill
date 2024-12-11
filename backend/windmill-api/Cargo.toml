@@ -19,6 +19,7 @@ parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/par
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 openidconnect = ["dep:openidconnect"]
 tantivy = ["dep:windmill-indexer"]
+kafka = ["dep:rdkafka"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -76,7 +77,6 @@ async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
 async_zip.workspace = true
-rsmq_async.workspace = true
 regex.workspace = true
 bytes.workspace = true
 samael = { workspace = true, optional = true }
@@ -96,6 +96,8 @@ url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit.workspace = true
 tokio-tungstenite.workspace = true
+rdkafka = { workspace = true, optional = true }
+const_format.workspace = true
 
 pin-project.workspace = true
 http.workspace = true

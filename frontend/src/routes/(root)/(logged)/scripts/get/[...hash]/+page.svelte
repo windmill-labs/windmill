@@ -57,7 +57,7 @@
 		History,
 		Loader2,
 		Pen,
-		Server,
+		ChevronUpSquare,
 		Share,
 		Table2,
 		Trash,
@@ -84,6 +84,7 @@
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
+	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -407,7 +408,7 @@
 		if (isDeployable('script', script?.path ?? '', deployUiSettings)) {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
-				Icon: Server,
+				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer.openDrawer(script?.path ?? '', 'script')
 				}
@@ -719,6 +720,11 @@
 			<svelte:fragment slot="websockets">
 				<div class="p-2">
 					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="kafka">
+				<div class="p-2">
+					<KafkaTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="emails">

@@ -15,7 +15,7 @@
 	export let first: boolean = false
 	export let nested: boolean = false
 	export let expanded: boolean = false
-
+	export let renderRec: boolean = true
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
@@ -41,14 +41,22 @@
 	)
 </script>
 
-<OutputHeader id={gridItem.id} name={getComponentNameById(gridItem.id)} {first} {nested}>
+<OutputHeader
+	render={renderRec}
+	let:render
+	id={gridItem.id}
+	name={getComponentNameById(gridItem.id)}
+	{first}
+	{nested}
+>
 	<ComponentOutputViewer
+		{render}
 		componentId={gridItem.id}
 		on:select={({ detail }) => {
 			connectOutput(connectingInput, gridItem?.data?.type, gridItem.data.id, detail)
 		}}
 	/>
-	<SubGridOutput {name} {nameOverrides} {expanded} {subGrids} parentId={gridItem.id} />
-	<TableActionsOutput {gridItem} />
-	<MenuItemsOutput {gridItem} />
+	<SubGridOutput {render} {name} {nameOverrides} {expanded} {subGrids} parentId={gridItem.id} />
+	<TableActionsOutput {render} {gridItem} />
+	<MenuItemsOutput {render} {gridItem} />
 </OutputHeader>

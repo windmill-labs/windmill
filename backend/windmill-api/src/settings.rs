@@ -24,6 +24,9 @@ use axum::{
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
 
+#[cfg(feature = "enterprise")]
+use crate::utils::require_devops_role;
+
 use serde::Deserialize;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
@@ -58,7 +61,16 @@ pub fn global_service() -> Router {
         )
         .route("/renew_license_key", post(renew_license_key))
         .route("/customer_portal", post(create_customer_portal_session))
-        .route("/test_critical_channels", post(test_critical_channels));
+        .route("/test_critical_channels", post(test_critical_channels))
+        .route("/critical_alerts", get(get_critical_alerts))
+        .route(
+            "/critical_alerts/:id/acknowledge",
+            post(acknowledge_critical_alert),
+        )
+        .route(
+            "/critical_alerts/acknowledge_all",
+            post(acknowledge_all_critical_alerts),
+        );
 
     #[cfg(feature = "parquet")]
     {
@@ -429,4 +441,50 @@ pub async fn test_critical_channels(
 #[cfg(not(feature = "enterprise"))]
 pub async fn test_critical_channels() -> Result<String> {
     Ok("Critical channels require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_critical_alerts(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Query(params): Query<crate::utils::AlertQueryParams>,
+) -> JsonResult<serde_json::Value> {
+    require_devops_role(&db, &authed.email).await?;
+
+    crate::utils::get_critical_alerts(db, params, None).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn get_critical_alerts() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_critical_alert(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(id): Path<i32>,
+) -> error::Result<String> {
+    require_devops_role(&db, &authed.email).await?;
+    crate::utils::acknowledge_critical_alert(db, None, id).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_critical_alert() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn acknowledge_all_critical_alerts(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    crate::utils::acknowledge_all_critical_alerts(db, None).await
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn acknowledge_all_critical_alerts() -> error::Error {
+    error::Error::NotFound("Critical Alerts require EE".to_string())
 }

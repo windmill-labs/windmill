@@ -8,7 +8,7 @@
 	export let componentId: string
 	export let hasContent: boolean = false
 	export let suffix: string = ''
-
+	export let render: boolean = true
 	const { worldStore, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const { search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
@@ -39,14 +39,18 @@
 	$: $hasResult[componentId] = Object.keys(filtered).length > 0
 </script>
 
-{#if object != undefined && Object.keys(object).length > 0}
+{#if render && object != undefined && Object.keys(object).length > 0}
 	{#if $hasResult[componentId] || $search == ''}
-		<ObjectViewer
-			json={filtered}
-			on:select
-			topBrackets={false}
-			pureViewer={!$connectingInput.opened}
-		/>
+		<div class="pl-2 !cursor-pointer" data-connection-button>
+			<ObjectViewer
+				json={filtered}
+				on:select
+				topBrackets={false}
+				pureViewer={!$connectingInput.opened}
+				allowCopy={!$connectingInput.opened}
+				connecting={$connectingInput.opened}
+			/>
+		</div>
 	{:else if $search.length > 0}
 		<div class="text-xs pl-2 text-tertiary">No results</div>
 	{:else}

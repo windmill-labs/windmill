@@ -41,6 +41,39 @@
 		{ label: 'Runs', href: `${base}/runs`, icon: Play },
 		{ label: 'Schedules', href: `${base}/schedules`, icon: Calendar }
 	]
+
+	let secondMenuLinks = [
+		{
+			label: 'Schedules',
+			href: `${base}/schedules`
+		},
+		{
+			label: 'Resources',
+			href: `${base}/resources`
+		},
+		{
+			label: 'Variables',
+			href: `${base}/variables`
+		},
+		{
+			label: 'Audit Logs',
+			href: `${base}/audit_logs`
+		},
+		{
+			label: 'Groups',
+			href: `${base}/groups`
+		},
+		{
+			label: 'Folders',
+			href: `${base}/folders`
+		},
+		{
+			label: 'Workers',
+			href: `${base}/workers`
+		}
+	]
+
+	let moreOpen = false
 </script>
 
 <Menu>
@@ -137,6 +170,27 @@
 				<LogOut size={14} />
 				Sign out
 			</MenuItem>
+		</div>
+		<div
+			on:mouseenter={() => (moreOpen = true)}
+			on:mouseleave={() => (moreOpen = false)}
+			class="divide-y"
+			role="none"
+		>
+			{#if moreOpen == false}
+				<div class="px-2 text-tertiary text-2xs">More...</div>
+			{:else}
+				{#each secondMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+					<div>
+						<a
+							href={menuLink.href}
+							class="flex flex-row gap-3.5 items-center px-2 py-0.5 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer"
+						>
+							{menuLink.label}
+						</a>
+					</div>
+				{/each}
+			{/if}
 		</div>
 	</div>
 	{#if $enterpriseLicense}

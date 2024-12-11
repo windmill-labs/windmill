@@ -145,6 +145,11 @@
       },
       {
         "ordinal": 28,
+        "name": "cron_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 29,
         "name": "jobs",
         "type_info": "JsonArray"
       }
@@ -181,6 +186,7 @@
       true,
       true,
       false,
+      true,
       true,
       true,
       true,

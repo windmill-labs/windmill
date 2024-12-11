@@ -57,6 +57,7 @@
 		{#if flowModule.sleep && schema.properties['sleep']}
 			<div class="border">
 				<PropPickerWrapper
+					noFlowPlugConnect={true}
 					notSelectable
 					{result}
 					displayContext={false}
@@ -72,6 +73,7 @@
 						{schema}
 						{previousModuleId}
 						argExtra={{ seconds: true }}
+						bind:editor
 					/>
 				</PropPickerWrapper>
 			</div>

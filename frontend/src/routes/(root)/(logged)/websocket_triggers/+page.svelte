@@ -45,20 +45,22 @@
 		loading = false
 	}
 
-	let status: {
-		[path: string]: { error: string | undefined; last_server_ping: string | undefined }
-	} = {}
-
 	let interval = setInterval(async () => {
 		try {
-			status = (
-				await WebsocketTriggerService.listWebsocketTriggers({
-					workspace: $workspaceStore!
-				})
-			).reduce((acc, x) => {
-				acc[x.path] = x
-				return acc
-			}, {})
+			const newTriggers = await WebsocketTriggerService.listWebsocketTriggers({
+				workspace: $workspaceStore!
+			})
+			for (let i = 0; i < triggers.length; i++) {
+				const newTrigger = newTriggers.find((x) => x.path === triggers[i].path)
+				if (newTrigger) {
+					triggers[i] = {
+						...triggers[i],
+						error: newTrigger.error,
+						last_server_ping: newTrigger.last_server_ping,
+						enabled: newTrigger.enabled
+					}
+				}
+			}
 		} catch (err) {
 			console.error(err)
 		}
@@ -258,7 +260,7 @@
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, enabled } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-					{@const wsStatus = status[path] ?? { error, last_server_ping }}
+					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -278,7 +280,11 @@
 											{@html marked}
 										</span>
 									{:else}
-										{url}
+										{url.startsWith('$script:')
+											? 'URL: ' + url.replace('$script:', 'result of script ')
+											: url.startsWith('$flow:')
+											? 'URL: ' + url.replace('$flow:', 'result of flow ')
+											: url}
 									{/if}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
@@ -294,34 +300,30 @@
 							</div>
 
 							<div class="w-10">
-								{#if enabled}
-									{@const ping = wsStatus.last_server_ping
-										? new Date(wsStatus.last_server_ping)
-										: undefined}
-									{#if !ping || ping.getTime() < new Date().getTime() - 15 * 1000 || wsStatus.error}
-										<Popover notClickable>
-											<span class="flex h-4 w-4">
-												<Circle
-													class="text-red-600 animate-ping absolute inline-flex fill-current"
-													size={12}
-												/>
-												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
-											</span>
-											<div slot="text">
-												Websocket is not connected{wsStatus.error ? ': ' + wsStatus.error : ''}
-											</div>
-										</Popover>
-									{:else}
-										<Popover notClickable>
-											<span class="flex h-4 w-4">
-												<Circle
-													class="text-green-600 relative inline-flex fill-current"
-													size={12}
-												/>
-											</span>
-											<div slot="text"> Websocket is connected </div>
-										</Popover>
-									{/if}
+								{#if (enabled && (!ping || ping.getTime() < new Date().getTime() - 15 * 1000 || error)) || (!enabled && error)}
+									<Popover notClickable>
+										<span class="flex h-4 w-4">
+											<Circle
+												class="text-red-600 animate-ping absolute inline-flex fill-current"
+												size={12}
+											/>
+											<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
+										</span>
+										<div slot="text">
+											{#if enabled}
+												Websocket is not connected{error ? ': ' + error : ''}
+											{:else}
+												Websocket was disabled because of an error: {error}
+											{/if}
+										</div>
+									</Popover>
+								{:else if enabled}
+									<Popover notClickable>
+										<span class="flex h-4 w-4">
+											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
+										</span>
+										<div slot="text"> Websocket is connected </div>
+									</Popover>
 								{/if}
 							</div>
 

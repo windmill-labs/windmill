@@ -7,3 +7,4 @@ CaddyfileRemoteMalo
 *.swp
 **/.idea/
 .direnv
+.vscode

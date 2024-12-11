@@ -25,7 +25,6 @@ use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
-use git_version::git_version;
 use http::HeaderValue;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -39,12 +38,13 @@ use tower_http::{
     trace::TraceLayer,
 };
 use windmill_common::db::UserDB;
-use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
-use windmill_common::{BASE_URL, INSTANCE_NAME};
+use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
 
+mod ai;
 mod apps;
 mod audit;
 mod capture;
@@ -63,13 +63,17 @@ mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
+
+#[cfg(feature = "enterprise")]
+mod apps_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+mod kafka_triggers_ee;
 pub mod oauth2_ee;
 mod oidc_ee;
-mod openai;
 mod raw_apps;
 mod resources;
 mod saml_ee;
@@ -92,9 +96,6 @@ mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
-
-pub const GIT_VERSION: &str =
-    git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
@@ -154,35 +155,23 @@ pub async fn add_webhook_allowed_origin(
 type IndexReader = ();
 
 #[cfg(not(feature = "tantivy"))]
-type IndexWriter = ();
+type ServiceLogIndexReader = ();
 
 #[cfg(feature = "tantivy")]
-type IndexReader = windmill_indexer::indexer_ee::IndexReader;
+type IndexReader = windmill_indexer::completed_runs_ee::IndexReader;
 #[cfg(feature = "tantivy")]
-type IndexWriter = windmill_indexer::indexer_ee::IndexWriter;
+type ServiceLogIndexReader = windmill_indexer::service_logs_ee::ServiceLogIndexReader;
 
 pub async fn run_server(
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    index_reader: Option<IndexReader>,
-    index_writer: Option<IndexWriter>,
+    job_index_reader: Option<IndexReader>,
+    log_index_reader: Option<ServiceLogIndexReader>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
     base_internal_url: String,
 ) -> anyhow::Result<()> {
-    if let Some(mut rsmq) = rsmq.clone() {
-        for tag in ALL_TAGS.read().await.iter() {
-            let r =
-                rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
-            if let Err(e) = r {
-                tracing::info!("Redis queue {tag} could not be created: {e:#}");
-            } else {
-                tracing::info!("Redis queue {tag} created");
-            }
-        }
-    }
     let user_db = UserDB::new(db.clone());
 
     #[cfg(feature = "enterprise")]
@@ -202,11 +191,11 @@ pub async fn run_server(
 
     let middleware_stack = ServiceBuilder::new()
         .layer(Extension(db.clone()))
-        .layer(Extension(rsmq.clone()))
         .layer(Extension(user_db.clone()))
         .layer(Extension(auth_cache.clone()))
-        .layer(Extension(index_reader))
-        .layer(Extension(index_writer))
+        .layer(Extension(job_index_reader))
+        .layer(Extension(log_index_reader))
+        // .layer(Extension(index_writer))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
         .layer(DefaultBodyLimit::max(
@@ -228,13 +217,15 @@ pub async fn run_server(
             db: db.clone(),
             user_db: user_db,
             auth_cache: auth_cache.clone(),
-            rsmq: rsmq.clone(),
             base_internal_url: base_internal_url.clone(),
         });
         if let Err(err) = smtp_server.start_listener_thread(addr).await {
             tracing::error!("Error starting SMTP server: {err:#}");
         }
     }
+
+    // #[cfg(feature = "kafka")]
+    // start_listening().await;
 
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
@@ -248,9 +239,27 @@ pub async fn run_server(
         }
     };
 
+    let kafka_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            kafka_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "kafka")))]
+        {
+            Router::new()
+        }
+    };
+
     if !*CLOUD_HOSTED {
         let ws_killpill_rx = rx.resubscribe();
-        websocket_triggers::start_websockets(db.clone(), rsmq, ws_killpill_rx).await;
+        websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
+
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            let kafka_killpill_rx = rx.resubscribe();
+            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
+        }
     }
 
     // build our application with a route
@@ -281,7 +290,7 @@ pub async fn run_server(
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/oauth", oauth2_ee::workspaced_service())
-                        .nest("/openai", openai::workspaced_service())
+                        .nest("/ai", ai::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())
@@ -297,7 +306,8 @@ pub async fn run_server(
                         .nest(
                             "/websocket_triggers",
                             websocket_triggers::workspaced_service(),
-                        ),
+                        )
+                        .nest("/kafka_triggers", kafka_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -322,6 +332,7 @@ pub async fn run_server(
                     "/srch/w/:workspace_id/index",
                     indexer_ee::workspaced_service(),
                 )
+                .nest("/srch/index", indexer_ee::global_service())
                 .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",
@@ -334,6 +345,17 @@ pub async fn run_server(
                 )
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
+                .nest("/apps_u", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        apps_ee::global_unauthed_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest(
                     "/w/:workspace_id/apps_u",
                     apps::unauthed_service()

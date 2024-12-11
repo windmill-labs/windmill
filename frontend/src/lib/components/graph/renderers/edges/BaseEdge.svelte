@@ -86,45 +86,6 @@
 				}}
 			/>
 		</div>
-		{#if data.enableTrigger}
-			<div
-				class="edgeButtonContainer nodrag nopan"
-				style:transform="translate(100%, 50%) translate({sourceX}px,{sourceY + 2}px)"
-			>
-				<InsertModuleButton
-					disableAi={data.disableAi}
-					on:new={(e) => {
-						// console.log('new', e)
-						data?.eventHandlers.insert({
-							modules: data.modules,
-							index: data.index,
-							kind: e.detail.kind,
-							inlineScript: e.detail.inlineScript
-						})
-					}}
-					on:pickScript={(e) => {
-						// console.log('pickScript', e)
-						data?.eventHandlers.insert({
-							modules: data.modules,
-							index: data.index,
-							script: e.detail,
-							kind: e.detail.kind
-						})
-					}}
-					on:pickFlow={(e) => {
-						// console.log('pickFlow', e)
-						data?.eventHandlers.insert({
-							modules: data.modules,
-							index: data.index,
-							flow: e.detail
-						})
-					}}
-					kind="trigger"
-					index={data?.index ?? 0}
-					modules={data?.modules ?? []}
-				/>
-			</div>
-		{/if}
 	{/if}
 
 	{#if data?.moving}

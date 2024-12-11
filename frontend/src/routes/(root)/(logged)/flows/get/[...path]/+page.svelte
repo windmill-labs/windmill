@@ -27,7 +27,7 @@
 		FolderOpen,
 		Archive,
 		Trash,
-		Server,
+		ChevronUpSquare,
 		Share,
 		Badge,
 		Loader2,
@@ -61,6 +61,7 @@
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
+	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -294,7 +295,7 @@
 			menuItems.push({
 				label: 'Deploy to staging/prod',
 				onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
-				Icon: Server
+				Icon: ChevronUpSquare
 			})
 		}
 
@@ -539,6 +540,13 @@
 				<WebsocketTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
+
+		<svelte:fragment slot="kafka">
+			<div class="p-2">
+				<KafkaTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+
 		<svelte:fragment slot="emails">
 			<div class="p-2">
 				<EmailTriggerPanel

@@ -62,6 +62,8 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "lokalise" => "python-lokalise-api",
     "msgraph" => "msgraph-sdk",
     "pythonjsonlogger" => "python-json-logger",
+    "socks" => "PySocks",
+    "taiga" => "python-taiga",
 };
 
 fn replace_import(x: String) -> String {

@@ -93,6 +93,12 @@ pub fn parse_python_signature(
                 .iter()
                 .enumerate()
                 .map(|(i, x)| {
+                    let mut typ = x
+                        .as_arg()
+                        .annotation
+                        .as_ref()
+                        .map_or(Typ::Unknown, |e| parse_expr(e));
+
                     let default = if i >= def_arg_start {
                         params
                             .defaults()
@@ -103,17 +109,26 @@ pub fn parse_python_signature(
                         None
                     };
 
-                    let mut typ = x
-                        .as_arg()
-                        .annotation
-                        .as_ref()
-                        .map_or(Typ::Unknown, |e| parse_expr(e));
+                    let should_get_type_from_default = match &typ {
+                        Typ::Unknown => true,
+                        // if the type is a list of unknowns, we should get the type from the default
+                        Typ::List(inner) => matches!(inner.as_ref(), Typ::Unknown),
+                        _ => false,
+                    };
 
-                    if typ == Typ::Unknown
+                    if should_get_type_from_default
                         && default.is_some()
                         && default != Some(json!(FUNCTION_CALL))
                     {
                         typ = json_to_typ(default.as_ref().unwrap());
+                    }
+
+                    // if the type is still a list of unknowns after checking the default, we set it to a list of strings to not break past behavior
+                    match typ {
+                        Typ::List(inner) if matches!(inner.as_ref(), Typ::Unknown) => {
+                            typ = Typ::List(Box::new(Typ::Str(None)));
+                        }
+                        _ => {}
                     }
 
                     Arg {
@@ -193,7 +208,7 @@ fn parse_typ(id: &str) -> Typ {
         "int" => Typ::Int,
         "bool" => Typ::Bool,
         "dict" => Typ::Object(vec![]),
-        "list" => Typ::List(Box::new(Typ::Str(None))),
+        "list" => Typ::List(Box::new(Typ::Unknown)),
         "bytes" => Typ::Bytes,
         "datetime" => Typ::Datetime,
         "datetime.datetime" => Typ::Datetime,
@@ -588,6 +603,71 @@ def main(): return
                 args: vec![],
                 no_main_func: Some(false),
                 has_preprocessor: Some(true)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_8() -> anyhow::Result<()> {
+        let code = r#"
+from typing import List
+def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b"]): return
+"#;
+        println!(
+            "{}",
+            serde_json::to_string(&parse_python_signature(code, None)?)?
+        );
+        assert_eq!(
+            parse_python_signature(code, None)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: None,
+                        name: "a".to_string(),
+                        typ: Typ::List(Box::new(Typ::Str(None))),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "e".to_string(),
+                        typ: Typ::List(Box::new(Typ::Int)),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "b".to_string(),
+                        typ: Typ::List(Box::new(Typ::Int)),
+                        default: Some(json!([1, 2, 3, 4])),
+                        has_default: true,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "c".to_string(),
+                        typ: Typ::List(Box::new(Typ::Int)),
+                        default: Some(json!([1, 2, 3, 4])),
+                        has_default: true,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "d".to_string(),
+                        typ: Typ::List(Box::new(Typ::Str(None))),
+                        default: Some(json!(["a", "b"])),
+                        has_default: true,
+                        oidx: None
+                    }
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false)
             }
         );
 

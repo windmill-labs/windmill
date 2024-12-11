@@ -53,7 +53,6 @@
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
 			}
 			collection = nc
-			console.log('collection', collection)
 			if (expressOAuthSetup && nc.length > 0) {
 				value = nc[0].value
 				valueSelect = nc[0]
@@ -202,6 +201,7 @@
 								path: valueSelect.label
 							})
 							await loadResources(resourceType)
+							value = undefined
 							valueSelect = undefined
 						}
 					}}
@@ -216,6 +216,7 @@
 					btnClasses="w-8 px-0.5 py-1.5"
 					size="sm"
 					on:click={() => {
+						refreshCount += 1
 						open = true
 						drawer?.openDrawer?.()
 					}}

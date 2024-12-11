@@ -5,10 +5,12 @@
 	import {
 		Bed,
 		Database,
+		ExternalLink,
 		Gauge,
 		GitFork,
 		Pen,
 		PhoneIncoming,
+		RefreshCcw,
 		Repeat,
 		Save,
 		Square,
@@ -106,7 +108,8 @@
 	{/if}
 	{#if module.value.type === 'script'}
 		<div class="w-2" />
-		{#if !module.value.path.startsWith('hub/')}
+
+		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
 			<Button
 				size="xs"
 				color="light"
@@ -126,7 +129,9 @@
 				Edit {#if module.value.hash != undefined} (locked hash){/if}
 			</Button>
 		{/if}
-		<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
+		{#if customUi?.tagEdit != false}
+			<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
+		{/if}
 		{#if customUi?.scriptFork != false}
 			<Button
 				size="xs"
@@ -138,6 +143,32 @@
 				Fork
 			</Button>
 		{/if}
+	{/if}
+	{#if module.value.type === 'flow'}
+		<Button
+			size="xs"
+			color="light"
+			on:click={async () => {
+				if (module.value.type == 'flow') {
+					window.open(`/flows/edit/${module.value.path}`, '_blank', 'noopener,noreferrer')
+				}
+			}}
+			startIcon={{ icon: Pen }}
+			iconOnly={false}
+		>
+			Edit <ExternalLink size={12} />
+		</Button>
+		<Button
+			size="xs"
+			color="light"
+			on:click={async () => {
+				dispatch('reload')
+			}}
+			startIcon={{
+				icon: RefreshCcw
+			}}
+			iconOnly={true}
+		/>
 	{/if}
 	<div class="px-0.5" />
 	{#if module.value.type === 'rawscript'}

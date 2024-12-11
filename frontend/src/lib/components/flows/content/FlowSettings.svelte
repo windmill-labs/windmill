@@ -107,7 +107,7 @@
 						elementType="textarea"
 						elementProps={{
 							id: 'inp',
-							placeholder: 'What this flow does and how to use it.'
+							placeholder: 'What this flow does and how to use it'
 						}}
 					/>
 				</Label>
@@ -135,9 +135,10 @@
 								}
 							}}
 							options={{
-								right: 'Worker Group Tag (Queue)',
+								right: 'Worker group tag (queue)',
 								rightTooltip:
-									"When a worker group tag is defined at the flow level, any steps inside the flow will run on any worker group that listen to that tag, regardless of the steps tag. If no worker group tags is defined, the flow controls will be executed with the default tag 'flow' and the steps will be executed with their respective tag"
+									"When a worker group tag is defined at the flow level, any steps inside the flow will run on any worker group that listen to that tag, regardless of the steps tag. If no worker group tags is defined, the flow controls will be executed with the default tag 'flow' and the steps will be executed with their respective tag",
+								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/worker_groups'
 							}}
 							class="py-1"
 						/>
@@ -183,7 +184,10 @@
 								}
 							}}
 							options={{
-								right: 'Cache the results for each possible inputs'
+								right: 'Cache the results for each possible inputs',
+								rightTooltip:
+									'When enabled, the flow will cache the results of the flow for each possible set of inputs.',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/cache#cache-flows'
 							}}
 							class="py-1"
 						/>
@@ -221,8 +225,10 @@
 							options={{
 								right: 'Early stop if condition met',
 								rightTooltip:
-									'If defined, at the beginning of the step the predicate expression will be evaluated' +
-									'to decide if the flow should stop early.'
+									'If the inputs meet the predefined condition, the flow will not run.' +
+									'to decide if the flow should stop early.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/flows/early_stop#early-stop-for-flow'
 							}}
 							class="py-1"
 						/>
@@ -272,7 +278,8 @@
 							options={{
 								right: 'Early return for sync webhooks',
 								rightTooltip:
-									'If defined, sync endpoints will return early at the node defined here while the rest of the flow continue asynchronously.'
+									'If defined, sync endpoints will return early at the node defined here while the rest of the flow continue asynchronously.',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/early_return'
 							}}
 							class="py-1"
 						/>
@@ -306,11 +313,13 @@
 						size="xs"
 						bind:checked={$flowStore.value.same_worker}
 						options={{
-							right: 'Same Worker + Shared Directory on `./shared`',
+							right: 'Same Worker + Shared directory on `./shared`',
 							rightTooltip:
 								'Steps will share a folder at `./shared` in which they can store heavier data and ' +
 								'pass them to the next step. Beware that the `./shared` folder is not ' +
-								'preserved across suspends and sleeps.'
+								'preserved across suspends and sleeps.',
+							rightDocumentationLink:
+								'https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill#shared-directory'
 						}}
 						class="py-1"
 					/>
@@ -332,7 +341,9 @@
 					options={{
 						right: 'Make runs invisible to others',
 						rightTooltip:
-							'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.'
+							'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.',
+						rightDocumentationLink:
+							'https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#invisible-runs'
 					}}
 					class="py-1"
 				/>
@@ -358,26 +369,29 @@
 				<!-- Concurrency Section -->
 				{#if customUi?.settingsTabs?.concurrency != false}
 					<div>
-						<Toggle
-							textClass="font-normal text-sm"
-							color="nord"
-							size="xs"
-							disabled={!$enterpriseLicense}
-							checked={Boolean($flowStore.value.concurrent_limit)}
-							on:change={() => {
-								if ($flowStore.value.concurrent_limit) {
-									$flowStore.value.concurrent_limit = undefined
-								} else {
-									$flowStore.value.concurrent_limit = 1
-								}
-							}}
-							options={{
-								right: 'Concurrency Limits',
-								rightTooltip: 'Allowed concurrency within a given timeframe'
-							}}
-							class="py-1"
-							eeOnly={true}
-						/>
+						<div class="flex flex-row items-center gap-2">
+							<Toggle
+								textClass="font-normal text-sm"
+								color="nord"
+								size="xs"
+								disabled={!$enterpriseLicense}
+								checked={Boolean($flowStore.value.concurrent_limit)}
+								on:change={() => {
+									if ($flowStore.value.concurrent_limit) {
+										$flowStore.value.concurrent_limit = undefined
+									} else {
+										$flowStore.value.concurrent_limit = 1
+									}
+								}}
+								options={{
+									right: 'Concurrency limits',
+									rightTooltip: 'Allowed concurrency within a given timeframe',
+									rightDocumentationLink: 'https://www.windmill.dev/docs/flows/concurrency_limit'
+								}}
+								class="py-1"
+								eeOnly={true}
+							/>
+						</div>
 
 						{#if $flowStore.value.concurrent_limit}
 							<div class="flex flex-col gap-4">
@@ -443,7 +457,8 @@
 						right: `Label as high priority`,
 						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first. ${
 							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
-						}`
+						}`,
+						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/priority'
 					}}
 					class="py-1 relative"
 				>
@@ -474,25 +489,30 @@
 				</Toggle>
 
 				<div>
-					<Toggle
-						textClass="font-normal text-sm"
-						color="nord"
-						size="xs"
-						disabled={!$enterpriseLicense || isCloudHosted()}
-						checked={Boolean($flowStore.dedicated_worker)}
-						on:change={() => {
-							if ($flowStore.dedicated_worker) {
-								$flowStore.dedicated_worker = undefined
-							} else {
-								$flowStore.dedicated_worker = true
-							}
-						}}
-						options={{
-							right: 'Flow is run on dedicated workers'
-						}}
-						class="py-1"
-						eeOnly={true}
-					/>
+					<div class="flex flex-row items-center gap-2">
+						<Toggle
+							textClass="font-normal text-sm"
+							color="nord"
+							size="xs"
+							disabled={!$enterpriseLicense || isCloudHosted()}
+							checked={Boolean($flowStore.dedicated_worker)}
+							on:change={() => {
+								if ($flowStore.dedicated_worker) {
+									$flowStore.dedicated_worker = undefined
+								} else {
+									$flowStore.dedicated_worker = true
+								}
+							}}
+							options={{
+								right: 'Flow is run on dedicated workers',
+								rightTooltip: 'When enabled, the flow will be executed on a dedicated worker.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/core_concepts/jobs#high-priority-jobs'
+							}}
+							class="py-1"
+							eeOnly={true}
+						/>
+					</div>
 
 					{#if $flowStore.dedicated_worker}
 						<div>

@@ -128,8 +128,10 @@
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode: false
 	let isListJson = false
+	let hasIsListJsonChanged = false
 
 	let el: HTMLTextAreaElement | undefined = undefined
+
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
@@ -169,6 +171,43 @@
 	computeDefaultValue()
 
 	$: computeDefaultValue(value, inputCat, defaultValue, nullable)
+
+	let lastValue: any = undefined
+
+	// By setting isListJson to true, we can render inputs even if the value is not an array of the correct type
+	// This avoids the issue of the input being rendered as a string with value: [object Object], or as a number with value: NaN
+	function checkArrayValueType() {
+		try {
+			if (Array.isArray(value) && value.length > 0) {
+				const firstItem = value?.[0]
+				const type = itemsType?.type
+
+				switch (type) {
+					case 'string':
+						if (typeof firstItem !== 'string') {
+							isListJson = true
+						}
+						break
+					case 'number':
+						if (typeof firstItem !== 'number') {
+							isListJson = true
+						}
+						break
+				}
+			}
+		} catch (e) {
+			console.error(e)
+		}
+
+		lastValue = value
+	}
+
+	$: !isListJson &&
+		inputCat === 'list' &&
+		value != lastValue &&
+		itemsType?.type &&
+		!hasIsListJsonChanged &&
+		checkArrayValueType()
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 
@@ -379,6 +418,9 @@
 									bind:selected={value}
 									options={itemsType?.multiselect ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
@@ -389,6 +431,9 @@
 									bind:selected={value}
 									options={itemsType?.enum ?? []}
 									selectedOptionsDraggable={true}
+									on:open={() => {
+										dispatch('focus')
+									}}
 								/>
 							</div>
 						{:else}
@@ -518,6 +563,11 @@
 					<div class="mt-2 mr-4">
 						<Toggle
 							on:change={(e) => {
+								// Once the user has changed the input type, we should not change it back automatically
+								if (!hasIsListJsonChanged) {
+									hasIsListJsonChanged = true
+								}
+
 								evalValueToRaw()
 								isListJson = !isListJson
 							}}
@@ -609,60 +659,67 @@
 				{#if oneOf && oneOf.length >= 2}
 					<div class="flex flex-col gap-2 w-full">
 						{#if oneOf && oneOf.length >= 2}
-							<ToggleButtonGroup bind:selected={oneOfSelected}>
+							<ToggleButtonGroup
+								on:selected={() => {
+									value = {}
+									redraw += 1
+								}}
+								bind:selected={oneOfSelected}
+							>
 								{#each oneOf as obj}
 									<ToggleButton value={obj.title} label={obj.title} />
 								{/each}
 							</ToggleButtonGroup>
-
 							{#if oneOfSelected}
 								{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
 								{@const obj = oneOf[objIdx]}
 								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
-									<div class="p-4 pl-8 border rounded w-full">
-										{#if orderEditable}
-											<SchemaFormDnd
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												schema={{
-													properties: Object.fromEntries(
-														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-													),
-													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
-												args={value}
-												dndType={`nested-${title}`}
-												on:reorder={(e) => {
-													if (oneOf && oneOf[objIdx]) {
-														const keys = e.detail
-														oneOf[objIdx].order = keys
-													}
-												}}
-												on:change
-											/>
-										{:else}
-											<SchemaForm
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												noDelete
-												schema={{
-													properties: Object.fromEntries(
-														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-													),
-													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
-												bind:args={value}
-											/>
-										{/if}
-									</div>
+									{#key redraw}
+										<div class="p-4 pl-8 border rounded w-full">
+											{#if orderEditable}
+												<SchemaFormDnd
+													{onlyMaskPassword}
+													{disablePortal}
+													{disabled}
+													schema={{
+														properties: Object.fromEntries(
+															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+														),
+														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														$schema: '',
+														required: obj.required ?? [],
+														type: 'object'
+													}}
+													args={value}
+													dndType={`nested-${title}`}
+													on:reorder={(e) => {
+														if (oneOf && oneOf[objIdx]) {
+															const keys = e.detail
+															oneOf[objIdx].order = keys
+														}
+													}}
+													on:change
+												/>
+											{:else}
+												<SchemaForm
+													{onlyMaskPassword}
+													{disablePortal}
+													{disabled}
+													noDelete
+													schema={{
+														properties: Object.fromEntries(
+															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+														),
+														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														$schema: '',
+														required: obj.required ?? [],
+														type: 'object'
+													}}
+													bind:args={value}
+												/>
+											{/if}
+										</div>
+									{/key}
 								{:else if disabled}
 									<textarea disabled />
 								{:else}
@@ -772,6 +829,12 @@
 						bind:value
 						{enum_}
 						{autofocus}
+						on:focus={() => {
+							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
 						enumLabels={extra['enumLabels']}
 					/>
 				</div>
@@ -840,14 +903,16 @@
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
-							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-								<input type="text" bind:value />
-							{:else if onlyMaskPassword}
-								<Password
-									{disabled}
-									bind:password={value}
-									placeholder={placeholder ?? defaultValue ?? ''}
-								/>
+							{#if onlyMaskPassword}
+								{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+									<input type="text" bind:value />
+								{:else}
+									<Password
+										{disabled}
+										bind:password={value}
+										placeholder={placeholder ?? defaultValue ?? ''}
+									/>
+								{/if}
 							{:else}
 								<PasswordArgInput {disabled} bind:value />
 							{/if}

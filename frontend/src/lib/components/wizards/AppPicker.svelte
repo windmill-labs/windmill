@@ -35,8 +35,8 @@
 		loadApps()
 
 		if (selecteValue === '') {
-			selecteValue = appPath
-			value = appPath
+			selecteValue = $appPath
+			value = $appPath
 		}
 	})
 </script>
@@ -56,7 +56,7 @@
 		items={apps.map((app) => {
 			return {
 				value: app.path,
-				label: app.path === appPath ? `${app.path} (current app)` : app.path
+				label: app.path === $appPath ? `${app.path} (current app)` : app.path
 			}
 		})}
 		placeholder="Pick an app"
@@ -71,7 +71,7 @@
 			Current app is not selectable until you have deployed this app at least once.
 		</Alert>
 	{/if}
-	{#if appPath && appPath === value}
+	{#if appPath && $appPath === value}
 		<div class="text-2xs">
 			The current app is selected. If the path changes, the path needs to be updated manually.
 		</div>

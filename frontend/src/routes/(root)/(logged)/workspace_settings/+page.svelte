@@ -15,7 +15,13 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
-	import { OauthService, WorkspaceService, JobService, ResourceService } from '$lib/gen'
+	import {
+		OauthService,
+		WorkspaceService,
+		JobService,
+		ResourceService,
+		SettingService
+	} from '$lib/gen'
 	import {
 		enterpriseLicense,
 		copilotInfo,
@@ -23,7 +29,8 @@
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore,
-		hubBaseUrlStore
+		hubBaseUrlStore,
+		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, tryEvery } from '$lib/utils'
@@ -43,7 +50,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
+	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { fade } from 'svelte/transition'
@@ -56,6 +63,10 @@
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
 	import { hubPaths } from '$lib/hub'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import type { AiProviderTypes } from '$lib/components/copilot/lib'
+	import Description from '$lib/components/Description.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -99,7 +110,10 @@
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
-	let openaiResourceInitialPath: string | undefined = undefined
+	let criticalAlertUIMuted: boolean | undefined = undefined
+	let initialCriticalAlertUIMuted: boolean | undefined = undefined
+	let aiResourceInitialPath: string | undefined = undefined
+	let aiResourceInitialProvider: string | undefined = undefined
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -128,6 +142,7 @@
 	let workspaceReencryptionInProgress: boolean = false
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
 	let codeCompletionEnabled: boolean = false
+	let selected: AiProviderTypes = 'openai'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -175,31 +190,37 @@
 		}
 	}
 
-	async function editCopilotConfig(openaiResourcePath: string): Promise<void> {
+	async function editCopilotConfig(aiResourcePath: string, aiProvider: string): Promise<void> {
 		// in JS, an empty string is also falsy
-		openaiResourceInitialPath = openaiResourcePath
-		if (openaiResourcePath) {
+		aiResourceInitialPath = aiResourcePath
+		aiResourceInitialProvider = aiProvider
+		if (aiResourcePath) {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					openai_resource_path: openaiResourcePath,
+					ai_resource: {
+						path: aiResourcePath,
+						provider: aiProvider
+					},
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
 			copilotInfo.set({
-				exists_openai_resource_path: true,
+				ai_provider: aiProvider,
+				exists_ai_resource: true,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		} else {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					openai_resource_path: undefined,
+					ai_resource: undefined,
 					code_completion_enabled: codeCompletionEnabled
 				}
 			})
 			copilotInfo.set({
-				exists_openai_resource_path: true,
+				ai_provider: '',
+				exists_ai_resource: false,
 				code_completion_enabled: codeCompletionEnabled
 			})
 		}
@@ -373,11 +394,15 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
-		openaiResourceInitialPath = settings.openai_resource_path
+		aiResourceInitialPath = settings.ai_resource?.path
+		aiResourceInitialProvider = settings.ai_resource?.provider
+		selected = aiResourceInitialProvider as AiProviderTypes ?? 'openai'
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
+		criticalAlertUIMuted = settings.mute_critical_alerts
+		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -574,6 +599,22 @@
 			timeout: 5000
 		})
 	}
+
+	async function editCriticalAlertMuteSetting() {
+		await SettingService.workspaceMuteCriticalAlertsUi({
+			workspace: $workspaceStore!,
+			requestBody: {
+				mute_critical_alerts: criticalAlertUIMuted
+			}
+		})
+		sendUserToast(
+			`Critical alert UI mute setting for workspace is set to ${criticalAlertUIMuted}\nreloading page...`
+		)
+		// reload page after change of setting
+		setTimeout(() => {
+			window.location.reload()
+		}, 3000)
+	}
 </script>
 
 <Portal name="workspace-settings">
@@ -631,7 +672,7 @@
 				<Tab size="xs" value="error_handler">
 					<div class="flex gap-2 items-center my-1">Error Handler</div>
 				</Tab>
-				<Tab size="xs" value="openai">
+				<Tab size="xs" value="ai">
 					<div class="flex gap-2 items-center my-1">Windmill AI</div>
 				</Tab>
 				<Tab size="xs" value="windmill_lfs">
@@ -653,18 +694,12 @@
 		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">
+					<div class="text-primary text-lg font-semibold">
 						Link this workspace to another Staging / Prod workspace
 					</div>
-					<div class="text-tertiary text-xs">
-						Connecting this workspace with another staging/production workspace enables web-based
-						deployment to that workspace.
-						<a
-							href="https://www.windmill.dev/docs/core_concepts/staging_prod"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					<Description link="https://www.windmill.dev/docs/core_concepts/staging_prod">
+						Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace.
+					</Description>
 				</div>
 			</div>
 			{#if $enterpriseLicense}
@@ -682,15 +717,10 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Connect workspace to Slack </div>
-					<div class="text-tertiary text-xs">
+					<Description link="https://www.windmill.dev/docs/integrations/slack">
 						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
 						with a '/windmill' command or to configure Slack error handlers.
-						<a
-							href="https://www.windmill.dev/docs/integrations/slack"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					</Description>
 				</div>
 
 				{#if team_name}
@@ -851,15 +881,10 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
-					<div class="text-tertiary text-xs">
+					<Description link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook">
 						Connect your Windmill workspace to an external service to sync or get notified about any
 						change.
-						<a
-							href="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					</Description>
 				</div>
 			</div>
 			<div class="flex flex-col gap-4 my-4">
@@ -886,20 +911,15 @@
 			{/if}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Workspace Error Handler</div>
-					<div class="text-tertiary text-xs">
+					<div class="text-primary text-lg font-semibold"> Workspace Error Handler</div>
+					<Description link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler">
 						Define a script or flow to be executed automatically in case of error in the workspace.
-						<a
-							href="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					</Description>
 				</div>
 			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-base font-semibold">
+					<div class="text-primary text-base font-semibold">
 						Script or flow to run as error handler</div
 					>
 				</div>
@@ -959,36 +979,74 @@
 					Save
 				</Button>
 			</div>
-		{:else if tab == 'openai'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Windmill AI</div>
-					<div class="text-tertiary text-xs">
-						Select an OpenAI resource to unlock Windmill AI features.
-					</div>
-					<div class="text-tertiary text-xs">
-						Windmill AI uses OpenAI's GPT-4o for all AI features.
-						<a
-							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
+					<div class="text-primary text-lg font-semibold"> Workspace Critical Alerts</div>
+					<Description link="https://www.windmill.dev/docs/core_concepts/critical_alerts">
+						Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification.
+					</Description>
+					<div class="flex flex-col mt-5 gap-5 items-start">
+						<Button
+							disabled={!$enterpriseLicense}
+							size="sm"
+							on:click={() => isCriticalAlertsUIOpen.set(true)}
+						>
+							Show Critical Alerts
+						</Button>
+						<Toggle
+							disabled={!$enterpriseLicense}
+							bind:checked={criticalAlertUIMuted}
+							options={{ right: 'Mute critical alerts UI for this workspace' }}
+						/>
+						<Button
+							disabled={!$enterpriseLicense || criticalAlertUIMuted == initialCriticalAlertUIMuted}
+							size="sm"
+							on:click={editCriticalAlertMuteSetting}
+						>
+							Save Mute Setting
+						</Button>
 					</div>
 				</div>
 			</div>
+		{:else if tab == 'ai'}
+			<div class="flex flex-col gap-4 my-8">
+				<div class="flex flex-col gap-1">
+					<div class="text-primary text-lg font-semibold"> Windmill AI</div>
+					<Description>
+						Select an OpenAI resource to unlock Windmill AI features.
+					</Description>
+					<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
+						Windmill AI supports integration with your preferred AI provider for all AI features.
+					</Description>
+				</div>
+			</div>
+			<ToggleButtonGroup
+				bind:selected
+				on:selected={() => {
+					aiResourceInitialPath = ''
+					aiResourceInitialProvider = ''
+				}}
+			>
+				<ToggleButton value="openai" label="OpenAI" />
+				<ToggleButton value="anthropic" label="Anthropic" />
+				<ToggleButton value="mistral" label="Mistral" />
+			</ToggleButtonGroup>
 			<div class="mt-5 flex gap-1">
-				{#key [openaiResourceInitialPath, usingOpenaiClientCredentialsOauth]}
+				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth, selected]}
 					<ResourcePicker
 						resourceType={usingOpenaiClientCredentialsOauth
 							? 'openai_client_credentials_oauth'
-							: 'openai'}
-						initialValue={openaiResourceInitialPath}
+							: selected}
+						initialValue={aiResourceInitialPath}
 						on:change={(ev) => {
-							editCopilotConfig(ev.detail)
+							editCopilotConfig(ev.detail, selected)
 						}}
 					/>
+					<TestAiKey
+						disabled={!aiResourceInitialPath || aiResourceInitialProvider != selected}
+						aiProvider={selected}
+					/>
 				{/key}
-				<TestOpenaiKey disabled={!openaiResourceInitialPath} />
 			</div>
 			<div class="mt-3">
 				<Toggle
@@ -996,25 +1054,17 @@
 					bind:checked={codeCompletionEnabled}
 					options={{ right: 'Enable code completion' }}
 					on:change={() => {
-						editCopilotConfig(openaiResourceInitialPath || '')
+						editCopilotConfig(aiResourceInitialPath || '', aiResourceInitialProvider || '')
 					}}
 				/>
 			</div>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"
-						>Workspace object storage (S3/Azure Blob)</div
-					>
-					<div class="text-tertiary text-xs">
-						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable
-						users to read and write from S3 without having to have access to the credentials.
-						<a
-							href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					<div class="text-primary text-lg font-semibold">Workspace object storage (S3/Azure Blob)</div>
+					<Description link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage">
+						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable users to read and write from S3 without having to have access to the credentials.
+					</Description>
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
@@ -1190,16 +1240,10 @@
 		{:else if tab == 'git_sync'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Git Sync </div>
-					<div class="text-tertiary text-xs">
-						Connect the Windmill workspace to a Git repository to automatically commit and push
-						scripts, flows, and apps to the repository on each deploy.
-						<a
-							href="https://www.windmill.dev/docs/advanced/git_sync"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					<div class="text-primary text-lg font-semibold">Git Sync</div>
+					<Description link="https://www.windmill.dev/docs/advanced/git_sync">
+						Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows, and apps to the repository on each deploy.
+					</Description>
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
@@ -1644,20 +1688,13 @@ git push</code
 		{:else if tab == 'default_app'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">Workspace default app</div>
-					<div class="text-tertiary text-xs">
-						If configured, users who are operators in this workspace will be redirected to this app
-						automatically when logging into this workspace.
-					</div>
-					<div class="text-tertiary text-xs">
-						Make sure the default app is shared with all the operators of this workspace before
-						turning this feature on.
-						<a
-							href="https://www.windmill.dev/docs/apps/default_app"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					<div class="text-primary text-lg font-semibold">Workspace default app</div>
+					<Description>
+						If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace.
+					</Description>
+					<Description link="https://www.windmill.dev/docs/apps/default_app">
+						Make sure the default app is shared with all the operators of this workspace before turning this feature on.
+					</Description>
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
@@ -1683,21 +1720,13 @@ git push</code
 		{:else if tab == 'encryption'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">Workspace secret encryption</div>
-					<div class="text-tertiary text-xs">
-						When updating the encryption key of a workspace, all secrets will be re-encrypted with
-						the new key and the previous key will be replaced by the new one.
-					</div>
-					<div class="text-tertiary text-xs">
-						If you're manually updating the key to match another workspace key from another Windmill
-						instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're
-						using it, make sure it the salt matches across both instances.
-						<a
-							href="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
-							target="_blank"
-							class="text-blue-500">Learn more</a
-						>.
-					</div>
+					<div class="text-primary text-lg font-semibold">Workspace secret encryption</div>
+					<Description>
+						When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one.
+					</Description>
+					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption">
+						If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances.
+					</Description>
 				</div>
 			</div>
 			<div class="mt-5 flex gap-1 mb-10">

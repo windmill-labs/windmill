@@ -8,7 +8,6 @@
 
 use crate::push;
 use crate::PushIsolationLevel;
-use crate::QueueTransaction;
 use anyhow::Context;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
@@ -23,15 +22,15 @@ use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
     users::username_to_permissioned_as,
-    utils::{now_from_db, StripPath},
+    utils::{now_from_db, ScheduleType, StripPath},
 };
 
-pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+pub async fn push_scheduled_job<'c>(
     db: &DB,
-    mut tx: QueueTransaction<'c, R>,
+    mut tx: Transaction<'c, Postgres>,
     schedule: &Schedule,
     authed: Option<&Authed>,
-) -> Result<QueueTransaction<'c, R>> {
+) -> Result<Transaction<'c, Postgres>> {
     if !*LICENSE_KEY_VALID.read().await {
         return Err(error::Error::BadRequest(
             "License key is not valid. Go to your superadmin settings to update your license key."
@@ -39,13 +38,12 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         ));
     }
 
-    let sched = cron::Schedule::from_str(schedule.schedule.as_ref())
-        .map_err(|e| error::Error::BadRequest(e.to_string()))?;
+    let sched = ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref())?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
-    let now = now_from_db(&mut tx).await?;
+    let now = now_from_db(&mut *tx).await?;
 
     let starting_from = match schedule.paused_until {
         Some(paused_until) if paused_until > now => paused_until.with_timezone(&tz),
@@ -56,7 +54,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     &schedule.workspace_id,
                     &schedule.path
                 )
-                .execute(&mut tx)
+                .execute(&mut *tx)
                 .await
                 .context("Failed to clear paused_until for schedule")?;
             }
@@ -64,10 +62,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     };
 
-    let next = sched
-        .after(&starting_from)
-        .next()
-        .expect("a schedule should have a next event");
+    let next = sched.find_next(&starting_from);
 
     // println!("next event ({:?}): {}", tz, next);
     // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
@@ -81,7 +76,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         &schedule.path,
         next
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -114,7 +109,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             &schedule.script_path,
             &schedule.workspace_id,
         )
-        .fetch_optional(&mut tx)
+        .fetch_optional(&mut *tx)
         .await?;
         let (tag, dedicated_worker) = r
             .map(|x| (x.tag, x.dedicated_worker))
@@ -141,7 +136,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             priority,
             timeout,
         ) = windmill_common::get_latest_hash_for_path(
-            tx.transaction_mut(),
+            &mut tx,
             &schedule.workspace_id,
             &schedule.script_path,
         )
@@ -209,7 +204,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         &schedule.workspace_id,
         &schedule.path
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await
     {
         tracing::error!(

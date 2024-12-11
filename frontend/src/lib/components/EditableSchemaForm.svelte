@@ -349,6 +349,7 @@
 													{isAppInput}
 													on:change={() => {
 														schema = schema
+														// console.log('schema', schema)
 														dispatch('change', schema)
 													}}
 												>

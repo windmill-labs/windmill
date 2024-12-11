@@ -24,16 +24,10 @@
 		return { minTs, maxTs }
 	}
 
-	const manualDates: {
+	const fixedManualDates: {
 		label: string
 		computeMinMax: () => { minTs: string; maxTs: string | undefined } | undefined
 	}[] = [
-		{
-			label: loadText ?? 'Last 1000 runs',
-			computeMinMax: () => {
-				return undefined
-			}
-		},
 		...(!serviceLogsChoices
 			? [
 					{
@@ -66,6 +60,17 @@
 			label: 'Within last month',
 			computeMinMax: () => computeMinMaxInc(30 * 24 * 60 * 60 * 1000)
 		}
+	]
+
+	$: manualDates = [
+		{
+			label: loadText ?? 'Last 1000 runs',
+			computeMinMax: () => {
+				return undefined
+			}
+		},
+		...fixedManualDates
+
 	]
 
 	const dispatch = createEventDispatcher()

@@ -18,9 +18,19 @@
 </div>
 
 {#if enableSourceHandle}
-	<Handle type="source" position={Position.Bottom} style={`margin-left: ${offset / 2}px;`} />
+	<Handle
+		type="source"
+		isConnectable={false}
+		position={Position.Bottom}
+		style={`margin-left: ${offset / 2}px;`}
+	/>
 {/if}
 
 {#if enableTargetHandle}
-	<Handle type="target" position={Position.Top} style={`margin-left: ${offset / 2}px;`} />
+	<Handle
+		type="target"
+		isConnectable={false}
+		position={Position.Top}
+		style={`margin-left: ${offset / 2}px;`}
+	/>
 {/if}

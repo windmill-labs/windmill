@@ -17,6 +17,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import TriggerTokens from '../triggers/TriggerTokens.svelte'
 	let userSettings: UserSettings
+	import Description from '$lib/components/Description.svelte'
 
 	export let token: string
 	export let scopes: string[] = []
@@ -39,7 +40,13 @@
 
 	let requestType: 'hash' | 'path' = 'path'
 
-	function emailAddress() {
+	function emailAddress(
+		requestType: 'hash' | 'path',
+		path: string,
+		hash: string | undefined,
+		isFlow: boolean,
+		token: string
+	) {
 		const pathOrHash = requestType === 'hash' ? hash : path.replaceAll('/', '.')
 		const plainPrefix = `${$workspaceStore}+${
 			(requestType === 'hash' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
@@ -54,7 +61,7 @@
 
 	export let email: string = ''
 
-	$: email = emailAddress()
+	$: email = emailAddress(requestType, path, hash, isFlow, token)
 
 	let triggerTokens: TriggerTokens | undefined = undefined
 </script>
@@ -73,6 +80,11 @@
 />
 
 <div class="flex flex-col w-full gap-4">
+	<Description link="https://www.windmill.dev/docs/advanced/email_triggers">
+		Email triggers execute scripts and flows when emails are sent to specific addresses. Each
+		trigger has its own unique email address that can be used to invoke the script or flow.
+	</Description>
+
 	{#if loading}
 		<Skeleton layout={[[18]]} />
 	{:else}

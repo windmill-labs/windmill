@@ -4,6 +4,7 @@ pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const OAUTH_SETTING: &str = "oauths";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
+pub const MONITOR_LOGS_ON_OBJECT_STORE_SETTING: &str = "monitor_logs_on_s3";
 pub const JOB_DEFAULT_TIMEOUT_SECS_SETTING: &str = "job_default_timeout";
 pub const REQUEST_SIZE_LIMIT_SETTING: &str = "request_size_limit_mb";
 pub const LICENSE_KEY_SETTING: &str = "license_key";
@@ -16,6 +17,7 @@ pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
+pub const INDEXER_SETTING: &str = "indexer_settings";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
@@ -30,11 +32,13 @@ pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
+pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
+pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 52] = [
+pub const ENV_SETTINGS: [&str; 54] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -87,4 +91,7 @@ pub const ENV_SETTINGS: [&str; 52] = [
     "WORKER_GROUP",
     "SAML_METADATA",
     "INSTANCE_IS_DEV",
+    "OTEL_METRICS",
+    "OTEL_TRACING",
+    "OTEL_LOGS",
 ];

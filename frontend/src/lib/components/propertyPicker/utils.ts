@@ -1,44 +1,35 @@
-function filterByKey(obj: Object, key: string): Object {
-	if (Object(obj) !== obj) {
-		return obj
+function filterByKey(obj: Object, key: string): any {
+	if (typeof obj !== 'object' || obj === null) {
+		return undefined
 	} else if (Array.isArray(obj)) {
-		return obj.map((o) => filterByKey(o, key))
-	} else {
-		return Object.fromEntries(
-			Object.entries(obj)
-				.filter(([k, v]) => !k.includes(key))
-				.map(([k, v]) => [k, filterByKey(v, key)])
-		)
-	}
-}
-
-function diff(target: Object, source: Object): Object {
-	if (Array.isArray(target)) {
-		return target
-	}
-
-	const result = {}
-
-	Object.keys(target ?? {}).forEach((key: string) => {
-		if (typeof source[key] === 'object') {
-			const difference = diff(target[key], source[key])
-
-			if (Object.keys(difference).length > 0) {
-				result[key] = difference
-			}
-		} else if (source[key] !== target[key]) {
-			result[key] = target[key]
+		let a = obj
+			.map((k, o) =>
+				typeof o == 'object' ? filterByKey(o, key) : String(k - 1).includes(key) ? o : undefined
+			)
+			.filter((v) => v !== undefined)
+		if (a.length === 0) {
+			return undefined
+		} else {
+			return a
 		}
-	})
-
-	return result
+	} else {
+		let o = Object.fromEntries(
+			Object.entries(obj)
+				.map(([k, v]) => (k.includes(key) ? [k, v] : [k, filterByKey(v, key)]))
+				.filter(([k, v]) => v !== undefined)
+		)
+		if (Object.keys(o).length === 0) {
+			return undefined
+		}
+		return o
+	}
 }
 
 export function keepByKey(json: Object | undefined, key: string): Object {
 	if (!json) {
 		return {}
 	}
-	return diff(json, filterByKey(json, key))
+	return filterByKey(json, key) ?? {}
 }
 
 // https://stackoverflow.com/questions/23377217/way-to-test-if-a-string-is-valid-identifier-name-in-javascript

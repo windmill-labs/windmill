@@ -92,7 +92,12 @@
 	function handleItems() {
 		listItems = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
-					if (!item || typeof item !== 'object') {
+					if (typeof item == 'string') {
+						return {
+							label: item,
+							value: JSON.stringify(item)
+						}
+					} else if (!item || typeof item !== 'object') {
 						console.error('Select component items should be an array of objects')
 						return {
 							label: 'not object',
@@ -113,7 +118,12 @@
 		if (resolvedConfig.defaultValue !== undefined) {
 			rawValue = resolvedConfig.defaultValue
 		} else if (listItems.length > 0 && resolvedConfig?.preselectFirst) {
-			rawValue = resolvedConfig.items[0].value
+			let firstItem = resolvedConfig.items[0]
+			if (typeof firstItem === 'string') {
+				rawValue = firstItem
+			} else {
+				rawValue = resolvedConfig.items[0].value
+			}
 		}
 		if (rawValue !== undefined && rawValue !== null) {
 			value = JSON.stringify(rawValue)

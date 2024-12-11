@@ -59,11 +59,15 @@ pub enum Error {
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
     #[error("{0}")]
-    OpenAIError(String),
+    AiError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
     #[error("Find python error: {0}")]
     FindPythonError(String),
+    #[error("{0}")]
+    Utf8(#[from] std::string::FromUtf8Error),
+    #[error("Encoding/decoding error: {0}")]
+    SerdeJson(#[from] serde_json::Error),
 }
 
 impl Error {
@@ -92,7 +96,7 @@ impl IntoResponse for Error {
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
             Self::SqlErr(_)
             | Self::BadRequest(_)
-            | Self::OpenAIError(_)
+            | Self::AiError(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };

@@ -23,6 +23,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { instanceSettingsSelectedTab } from '$lib/stores'
 	let drawer: Drawer
 	let filter = ''
 
@@ -55,6 +56,9 @@
 	$: listUsers(activeOnly)
 
 	let tab: 'users' | string = 'users'
+
+	$: $instanceSettingsSelectedTab, (tab = $instanceSettingsSelectedTab)
+	$: tab, instanceSettingsSelectedTab.set(tab)
 
 	let nbDisplayed = 50
 
@@ -129,7 +133,7 @@
 			</div>
 			<div class="pt-4 h-full">
 				<Tabs bind:selected={tab}>
-					<Tab value="users">Global users</Tab>
+					<Tab value="users">Users</Tab>
 					{#each settingsKeys as category}
 						<Tab value={category}>{category}</Tab>
 					{/each}
@@ -213,7 +217,7 @@
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, login_type, name, username, operator_only } (email)}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only } (email)}
 													<tr class="border">
 														<td>{email}</td>
 														<td>{login_type}</td>
@@ -248,33 +252,67 @@
 														{/if}
 														<td>
 															<ToggleButtonGroup
-																selected={super_admin}
+																selected={super_admin ? 'super_admin' : devops ? 'devops' : 'user'}
 																on:selected={async (e) => {
 																	if (email == $userStore?.email) {
 																		sendUserToast('You cannot demote yourself', true)
 																		listUsers(activeOnly)
 																		return
 																	}
-																	await UserService.globalUserUpdate({
-																		email,
-																		requestBody: {
-																			is_super_admin: !super_admin
-																		}
-																	})
+
+																	let role = e.detail
+
+																	if (role === 'super_admin') {
+																		await UserService.globalUserUpdate({
+																			email,
+																			requestBody: {
+																				is_super_admin: true,
+																				is_devops: false
+																			}
+																		})
+																	}
+																	if (role === 'devops') {
+																		await UserService.globalUserUpdate({
+																			email,
+																			requestBody: {
+																				is_super_admin: false,
+																				is_devops: true
+																			}
+																		})
+																	}
+																	if (role === 'user') {
+																		await UserService.globalUserUpdate({
+																			email,
+																			requestBody: {
+																				is_super_admin: false,
+																				is_devops: false
+																			}
+																		})
+																	}
 																	sendUserToast('User updated')
 																	listUsers(activeOnly)
 																}}
 															>
-																<ToggleButton value={false} size="xs" label="User" />
-																<ToggleButton value={true} size="xs" label="Superadmin" />
+																<ToggleButton value={'user'} size="xs" label="User" />
+																<ToggleButton
+																	value={'devops'}
+																	size="xs"
+																	label="Devops"
+																	tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
+																/>
+																<ToggleButton value={'super_admin'} size="xs" label="Superadmin" />
 															</ToggleButtonGroup>
 														</td>
 														<td>
 															<div class="flex flex-row gap-x-1 justify-end">
 																<InstanceNameEditor
+																	{login_type}
 																	value={name}
 																	{username}
 																	{email}
+																	on:refresh={() => {
+																		listUsers(activeOnly)
+																	}}
 																	on:save={(e) => {
 																		updateName(e.detail, email)
 																	}}
@@ -317,7 +355,13 @@
 							</div>
 						</TabContent>
 						<TabContent value="" values={settingsKeys}>
-							<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} />
+							<InstanceSettings
+								bind:this={instanceSettings}
+								hideTabs
+								hideSave
+								{tab}
+								{closeDrawer}
+							/>
 						</TabContent>
 					</svelte:fragment>
 				</Tabs>

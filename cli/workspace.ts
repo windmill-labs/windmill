@@ -285,8 +285,8 @@ export async function removeWorkspace(
     }
     return;
   }
-  if (silent) {
-    log.info(colors.yellow(`Replacing existing workspace ${name}`));
+  if (!silent) {
+    log.info(colors.yellow(`Removing existing workspace ${name}`));
   }
 
   await Deno.writeTextFile(

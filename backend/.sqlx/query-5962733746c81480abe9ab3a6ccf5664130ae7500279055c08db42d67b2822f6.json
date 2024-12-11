@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE kafka_trigger SET kafka_resource_path = $1, group_id = $2, topics = $3, script_path = $4, path = $5, is_flow = $6, edited_by = $7, email = $8, edited_at = now(), server_id = NULL, last_server_ping = NULL, error = NULL\n            WHERE workspace_id = $9 AND path = $10",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5962733746c81480abe9ab3a6ccf5664130ae7500279055c08db42d67b2822f6"
+}

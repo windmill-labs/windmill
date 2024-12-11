@@ -225,6 +225,8 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
+			lineDecorationsWidth: 6,
+			lineNumbersMinChars: 2,
 			// overflowWidgetsDomNode: widgets,
 			fontSize: small ? 12 : 14
 		})
@@ -241,6 +243,7 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			loadExtraLib()
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				code = getCode()
@@ -405,6 +408,15 @@
 			editor && editor.dispose()
 		} catch (err) {}
 	})
+
+	export function setCursorToEnd(): void {
+		if (editor) {
+			const lastLine = editor.getModel()?.getLineCount() ?? 1
+			const lastColumn = editor.getModel()?.getLineMaxColumn(lastLine) ?? 1
+			editor.setPosition({ lineNumber: lastLine, column: lastColumn })
+			editor.focus()
+		}
+	}
 </script>
 
 <EditorTheme />

@@ -90,6 +90,8 @@ pub fn global_service() -> Router {
         .route("/accept_invite", post(accept_invite))
         .route("/list_as_super_admin", get(list_users_as_super_admin))
         .route("/setpassword", post(set_password))
+        .route("/set_password_of/:user", post(set_password_of_user))
+        .route("/set_login_type/:user", post(set_login_type))
         .route("/create", post(create_user))
         .route("/update/:user", post(update_user))
         .route("/delete/:user", delete(delete_user))
@@ -129,7 +131,8 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
         Some(label)
             if label.starts_with("webhook-")
                 || label.starts_with("http-")
-                || label.starts_with("email-") =>
+                || label.starts_with("email-")
+                || label.starts_with("ws-") =>
         {
             Some(label)
         }
@@ -510,6 +513,10 @@ pub struct Tokened {
     pub token: String,
 }
 
+pub struct OptTokened {
+    pub token: Option<String>,
+}
+
 struct BruteForceCounter {
     counter: AtomicU64,
     last_reset: AtomicI64,
@@ -563,6 +570,30 @@ where
                 BRUTE_FORCE_COUNTER.increment().await;
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
             }
+        }
+    }
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for OptTokened
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        if parts.method == http::Method::OPTIONS {
+            return Ok(OptTokened { token: None });
+        };
+        let already_tokened = parts.extensions.get::<Tokened>();
+        if let Some(tokened) = already_tokened {
+            Ok(OptTokened { token: Some(tokened.token.clone()) })
+        } else {
+            let token_o = extract_token(parts, state).await;
+            Ok(OptTokened { token: token_o })
         }
     }
 }
@@ -742,20 +773,30 @@ pub async fn fetch_api_authed(
     email: String,
     w_id: &str,
     db: &DB,
-    username_override: String,
+    username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
     let permissioned_as = username_to_permissioned_as(username.as_str());
+    fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
+}
+
+pub async fn fetch_api_authed_from_permissioned_as(
+    permissioned_as: String,
+    email: String,
+    w_id: &str,
+    db: &DB,
+    username_override: Option<String>,
+) -> error::Result<ApiAuthed> {
     let authed =
         fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
     Ok(ApiAuthed {
-        username: username,
+        username: authed.username,
         email: email,
         is_admin: authed.is_admin,
         is_operator: authed.is_operator,
         groups: authed.groups,
         folders: authed.folders,
         scopes: authed.scopes,
-        username_override: Some(username_override),
+        username_override: username_override,
     })
 }
 
@@ -782,6 +823,7 @@ pub struct GlobalUserInfo {
     email: String,
     login_type: Option<String>,
     super_admin: bool,
+    devops: bool,
     verified: bool,
     name: Option<String>,
     company: Option<String>,
@@ -805,6 +847,7 @@ pub struct UserInfo {
     pub folders_read: Vec<String>,
     pub folders: Vec<String>,
     pub folders_owners: Vec<String>,
+    pub name: Option<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -839,6 +882,7 @@ pub struct DeclineInvite {
 #[derive(Deserialize)]
 pub struct EditUser {
     pub is_super_admin: Option<bool>,
+    pub is_devops: Option<bool>,
     pub name: Option<String>,
 }
 
@@ -853,6 +897,11 @@ pub struct EditWorkspaceUser {
 #[derive(Deserialize)]
 pub struct EditPassword {
     pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct EditLoginType {
+    pub login_type: String,
 }
 
 #[derive(FromRow, Serialize)]
@@ -1022,10 +1071,10 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, name, company, username
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
             FROM password
             WHERE email IN (SELECT email FROM active_users)
-            ORDER BY super_admin DESC
+            ORDER BY super_admin DESC, devops DESC
             LIMIT $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -1035,7 +1084,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -1170,6 +1219,7 @@ async fn whoami(
             workspace_id: w_id,
             email: email.clone(),
             username: email,
+            name: None,
             is_admin,
             is_super_admin: is_admin,
             created_at: chrono::Utc::now(),
@@ -1198,7 +1248,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
          email = $1",
         email
     )
@@ -1213,6 +1263,7 @@ async fn global_whoami(
             email: email.clone(),
             login_type: Some("superadmin_secret".to_string()),
             super_admin: true,
+            devops: false,
             verified: true,
             name: None,
             company: None,
@@ -1257,22 +1308,30 @@ async fn get_usage(
     Ok(usage.to_string())
 }
 
+#[derive(FromRow, Serialize)]
+pub struct User2 {
+    pub workspace_id: String,
+    pub email: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub operator: bool,
+    pub disabled: bool,
+    pub role: Option<String>,
+    pub super_admin: bool,
+    pub name: Option<String>,
+}
+
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
-        User,
-        "SELECT * FROM usr where username = $1 AND workspace_id = $2",
+        User2,
+        "SELECT usr.*, password.super_admin, password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        ",
         username,
         w_id
     )
     .fetch_optional(db)
     .await?;
-    let is_super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
-        user.as_ref().map(|x| &x.email)
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
     let groups = get_groups_for_user(
         &w_id,
         username,
@@ -1290,8 +1349,9 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         workspace_id: usr.workspace_id,
         email: usr.email,
         username: usr.username,
+        name: usr.name,
         is_admin: usr.is_admin,
-        is_super_admin,
+        is_super_admin: usr.super_admin,
         created_at: usr.created_at,
         operator: usr.operator,
         disabled: usr.disabled,
@@ -1456,7 +1516,7 @@ async fn whois(
 // ) -> Result<(StatusCode, String)> {
 
 //     let mut tx = db.begin().await?;
-//     require_super_admin(&mut tx, email).await?;
+//     require_super_admin(&mut *tx, email).await?;
 
 //     sqlx::query!(
 //         "INSERT INTO invite_code
@@ -1465,7 +1525,7 @@ async fn whois(
 //         nu.code,
 //         nu.seats
 //     )
-//     .execute(&mut tx)
+//     .execute(&mut *tx)
 //     .await?;
 
 //     tx.commit().await?;
@@ -1527,7 +1587,6 @@ async fn accept_invite(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
@@ -1590,7 +1649,6 @@ async fn accept_invite(
             &nu.workspace_id,
             windmill_git_sync::DeployedObject::User { email: authed.email.clone() },
             Some(format!("User '{}' accepted invite", &authed.email)),
-            rsmq,
             true,
         )
         .await?;
@@ -1760,7 +1818,6 @@ async fn get_workspace_user(
 async fn update_workspace_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
 ) -> Result<String> {
@@ -1829,7 +1886,6 @@ async fn update_workspace_user(
         &w_id,
         windmill_git_sync::DeployedObject::User { email: user_email.clone() },
         Some(format!("Updated user '{}'", &user_email)),
-        rsmq,
         true,
     )
     .await?;
@@ -1850,6 +1906,16 @@ async fn update_user(
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
             sa,
+            &email_to_update
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(dv) = eu.is_devops {
+        sqlx::query_scalar!(
+            "UPDATE password SET devops = $1 WHERE email = $2",
+            dv,
             &email_to_update
         )
         .execute(&mut *tx)
@@ -1939,16 +2005,14 @@ async fn create_user(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
-    crate::users_ee::create_user(authed, db, webhook, argon2, rsmq, nu).await
+    crate::users_ee::create_user(authed, db, webhook, argon2, nu).await
 }
 
 async fn delete_workspace_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -2003,7 +2067,6 @@ async fn delete_workspace_user(
             "Removed user '{}' from workspace",
             &email_to_delete
         )),
-        rsmq,
         true,
     )
     .await?;
@@ -2017,7 +2080,54 @@ async fn set_password(
     authed: ApiAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
-    crate::users_ee::set_password(db, argon2, authed, ep).await
+    let email = authed.email.clone();
+    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+}
+
+async fn set_password_of_user(
+    Extension(db): Extension<DB>,
+    Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Path(email): Path<String>,
+    authed: ApiAuthed,
+    Json(ep): Json<EditPassword>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    crate::users_ee::set_password(db, argon2, authed, &email, ep).await
+}
+
+async fn set_login_type(
+    Extension(db): Extension<DB>,
+    Path(email): Path<String>,
+    authed: ApiAuthed,
+    Json(et): Json<EditLoginType>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE password SET login_type = $1 WHERE email = $2",
+        et.login_type,
+        email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.set_login_type",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!(
+        "login type of {} updated to {}",
+        email, et.login_type
+    ))
 }
 
 async fn login(
@@ -2937,6 +3047,15 @@ async fn update_username_in_workpsace<'c>(
 
     sqlx::query!(
         r#"UPDATE flow_version SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id

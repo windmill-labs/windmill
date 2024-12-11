@@ -56,7 +56,7 @@ export async function displayWorkerGroups(opts: void) {
 async function pullWorkerGroups(opts: InstanceSyncOptions) {
   await pickInstance(opts, true);
 
-  const totalChanges =  await pullInstanceConfigs(true) ?? 0;
+  const totalChanges =  await pullInstanceConfigs(opts, true) ?? 0;
 
   if (totalChanges === 0) {
     log.info("No changes to apply");
@@ -72,14 +72,14 @@ async function pullWorkerGroups(opts: InstanceSyncOptions) {
   }
 
   if (confirm) {
-    await pullInstanceConfigs(false);
+    await pullInstanceConfigs(opts, false);
   }
 }
 
 async function pushWorkerGroups(opts: InstanceSyncOptions) {
   await pickInstance(opts, true);
 
-  const totalChanges = await pushInstanceConfigs(true) ?? 0;
+  const totalChanges = await pushInstanceConfigs(opts, true) ?? 0;
 
   if (totalChanges === 0) {
     log.info("No changes to apply");
@@ -95,7 +95,7 @@ async function pushWorkerGroups(opts: InstanceSyncOptions) {
   }
 
   if (confirm) {
-    await pushInstanceConfigs(false);
+    await pushInstanceConfigs(opts, false);
   }
 }
 

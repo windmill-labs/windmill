@@ -171,6 +171,7 @@
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
+	import type { AiProviderTypes } from './copilot/lib'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -213,6 +214,7 @@
 	export let small = false
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
+	export let lineNumbersMinChars = 3
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -369,7 +371,39 @@
 			code = getCode()
 			if (lang != 'shell') {
 				if ($formatOnSave != false) {
-					await editor?.getAction('editor.action.formatDocument')?.run()
+					if (scriptLang == 'deno' && languageClients.length > 0) {
+						languageClients.forEach(async (x) => {
+							let edits = await x.sendRequest(new RequestType('textDocument/formatting'), {
+								textDocument: { uri },
+								options: {
+									tabSize: 2,
+									insertSpaces: true
+								}
+							})
+							console.debug(edits)
+							if (Array.isArray(edits)) {
+								edits = edits.map((edit) =>
+									edit.range.start != undefined &&
+									edit.range.end != undefined &&
+									edit.newText != undefined
+										? {
+												range: {
+													startLineNumber: edit.range.start.line + 1,
+													startColumn: edit.range.start.character + 1,
+													endLineNumber: edit.range.end.line + 1,
+													endColumn: edit.range.end.character + 1
+												},
+												text: edit.newText
+										  }
+										: {}
+								)
+								//@ts-ignore
+								editor?.executeEdits('fmt', edits)
+							}
+						})
+					} else {
+						await editor?.getAction('editor.action.formatDocument')?.run()
+					}
 				}
 				code = getCode()
 			}
@@ -593,11 +627,13 @@
 							token.onCancellationRequested(() => {
 								abortController?.abort()
 							})
+							const aiProvider = $copilotInfo.ai_provider
 							const insertText = await editorCodeCompletion(
 								textUntilPosition,
 								textAfterPosition,
 								lang,
-								abortController
+								abortController,
+								aiProvider as AiProviderTypes
 							)
 							if (insertText) {
 								items = [
@@ -624,7 +660,7 @@
 		)
 	}
 
-	$: $copilotInfo.exists_openai_resource_path &&
+	$: $copilotInfo.exists_ai_resource &&
 		$copilotInfo.code_completion_enabled &&
 		$codeCompletionSessionEnabled &&
 		initialized &&
@@ -1096,6 +1132,7 @@
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
 			fontSize: !small ? 14 : 12,
+			lineNumbersMinChars,
 			// overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2,
 			folding

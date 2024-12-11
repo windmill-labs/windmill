@@ -15,7 +15,6 @@ pub async fn create_user(
     _db: DB,
     _webhook: WebhookShared,
     _argon2: Arc<Argon2<'_>>,
-    _rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut _nu: NewUser,
 ) -> Result<(StatusCode, String)> {
     Err(Error::InternalErr(
@@ -27,6 +26,7 @@ pub async fn set_password(
     _db: DB,
     _argon2: Arc<Argon2<'_>>,
     _authed: ApiAuthed,
+    _user_email: &str,
     _ep: EditPassword,
 ) -> Result<String> {
     Err(Error::InternalErr(

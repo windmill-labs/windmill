@@ -18,7 +18,7 @@
 	})
 </script>
 
-<Menu let:open as="div" class="relative hover:z-50 flex w-full h-8">
+<Menu  let:open as="div" class="relative hover:z-50 flex w-full h-8">
 	<ResolveOpen {open} on:open on:close />
 	<div use:floatingRef class="w-full">
 		<MenuButton class={twMerge('w-full', justifyEnd ? 'flex justify-end' : '')}>

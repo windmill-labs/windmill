@@ -6,7 +6,12 @@ import {
 	type InputTransform,
 	type Script
 } from '$lib/gen'
-import { addResourceTypes, deltaCodeCompletion, getNonStreamingCompletion } from './lib'
+import {
+	addResourceTypes,
+	deltaCodeCompletion,
+	getNonStreamingCompletion,
+	type AiProviderTypes
+} from './lib'
 import type { Writable } from 'svelte/store'
 import type Editor from '../Editor.svelte'
 import type { Drawer } from '../common'
@@ -14,7 +19,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 
 export type FlowCopilotModule = {
 	id: string
-	type: 'trigger' | 'script' 
+	type: 'trigger' | 'script'
 	description: string
 	code: string
 	source: 'hub' | 'custom' | undefined
@@ -106,7 +111,6 @@ To maintain state across runs, you can use get_state() and set_state(value) whic
 {additionalInformation}`
 }
 
-
 // const preprocessorPrompts: {
 // 	bun: string
 // 	python3: string
@@ -128,7 +132,7 @@ To maintain state across runs, you can use get_state() and set_state(value) whic
 // 			headers: Record<string, string>
 // 		}
 // 	},
-// 	/* your other args */ 
+// 	/* your other args */
 // ) {
 // 	return {
 // 		// return the args to be passed to the flow
@@ -167,7 +171,6 @@ To maintain state across runs, you can use get_state() and set_state(value) whic
 
 // {additionalInformation}`
 // }
-
 
 const firstActionPrompt = `I'm building a workflow which is a sequence of script steps. Write a script in {codeLang} which should {description}.
 Return the script's output.
@@ -255,7 +258,8 @@ export async function stepCopilot(
 		  })
 		| undefined,
 	isFirstInLoop: boolean,
-	abortController: AbortController
+	abortController: AbortController,
+	aiProvider: AiProviderTypes
 ) {
 	if (module.source !== 'custom') {
 		throw new Error('Not a custom module')
@@ -265,9 +269,9 @@ export async function stepCopilot(
 	let prompt =
 		module.type === 'trigger'
 			? triggerPrompts[lang]
-			// : module.type === 'preprocessor'
+			: // : module.type === 'preprocessor'
 			// 	? preprocessorPrompts[lang]
-			: pastModule === undefined
+			pastModule === undefined
 			? firstActionPrompt
 			: isFirstInLoop
 			? loopActionPrompt
@@ -310,7 +314,8 @@ export async function stepCopilot(
 			}
 		],
 		deltaCodeStore,
-		abortController
+		abortController,
+		aiProvider
 	)
 	return code
 }
@@ -322,7 +327,8 @@ export async function glueCopilot(
 		value: RawScript | PathScript
 	},
 	isFirstInLoop: boolean,
-	abortController: AbortController
+	abortController: AbortController,
+	aiProvider: AiProviderTypes
 ) {
 	const { prevCode, prevLang } = await getPreviousStepContent(pastModule, workspace)
 
@@ -357,7 +363,8 @@ export async function glueCopilot(
 					)
 			}
 		],
-		abortController
+		abortController,
+		aiProvider
 	)
 
 	const matches = response.matchAll(/([a-zA-Z_0-9.]+): (.+)/g)

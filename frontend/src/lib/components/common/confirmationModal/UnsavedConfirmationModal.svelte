@@ -4,13 +4,19 @@
 	import { goto as gotoUrl } from '$app/navigation'
 	import Button from '../button/Button.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		orderedJsonStringify,
+		replaceFalseWithUndefined,
+		type Value
+	} from '$lib/utils'
 	import { tick } from 'svelte'
 	import { page } from '$app/stores'
 
 	export let savedValue: Value | undefined = undefined
 	export let modifiedValue: Value | undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let additionalExitAction: () => void = () => {}
 
 	let bypassBeforeNavigate = false
 	let open = false
@@ -36,8 +42,12 @@
 					path: undefined
 				})
 				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
-				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
+				if (
+					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
+					orderedJsonStringify(replaceFalseWithUndefined(current))
+				) {
 					bypassBeforeNavigate = true
+					additionalExitAction?.()
 					gotoUrl(goingTo)
 				} else {
 					open = true
@@ -61,6 +71,7 @@
 	on:confirmed={() => {
 		if (goingTo) {
 			bypassBeforeNavigate = true
+			additionalExitAction?.()
 			gotoUrl(goingTo)
 		}
 	}}
@@ -90,6 +101,7 @@
 							onClick: () => {
 								if (goingTo) {
 									bypassBeforeNavigate = true
+									additionalExitAction?.()
 									gotoUrl(goingTo)
 								}
 							}

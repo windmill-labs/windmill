@@ -200,7 +200,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 					<div
@@ -228,7 +228,11 @@
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									runnable: {script_path}
+									{#if static_asset_config}
+										file: {static_asset_config.s3}
+									{:else}
+										runnable: {script_path}
+									{/if}
 								</div>
 							</a>
 

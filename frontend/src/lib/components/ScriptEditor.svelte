@@ -317,9 +317,10 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
-			<div class="pl-2 h-full !overflow-visible bg-gray-50 dark:bg-[#272D38]">
+			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38]">
 				{#key lang}
 					<Editor
+						lineNumbersMinChars={4}
 						folding
 						{path}
 						bind:code

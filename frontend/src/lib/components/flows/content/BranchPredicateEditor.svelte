@@ -37,12 +37,14 @@
 
 {#if open}
 	<PropPickerWrapper
+		alwaysOn
 		notSelectable
 		pickableProperties={stepPropPicker.pickableProperties}
 		on:select={({ detail }) => {
 			editor?.insertAtCursor(detail)
 			editor?.focus()
 		}}
+		paneClass="max-h-[320px] overflow-auto"
 	>
 		<div class="border border-gray-400">
 			<SimpleEditor

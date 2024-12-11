@@ -450,10 +450,11 @@
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
 			// overflowWidgetsDomNode: widgets,
-			lineNumbers: 'off',
+			// lineNumbers: 'on',
+			lineDecorationsWidth: 6,
+			lineNumbersMinChars: 2,
 			fontSize,
-			suggestOnTriggerCharacters: true,
-			lineDecorationsWidth: 14
+			suggestOnTriggerCharacters: true
 		})
 
 		editor.onDidFocusEditorText(() => {

@@ -29,6 +29,8 @@ export type FlowBuilderWhitelabelCustomUi = {
 	stepAdvancedSettings?: boolean
 	languages?: (SupportedLanguage | 'docker' | 'bunnative')[]
 	scriptFork?: boolean
+	scriptEdit?: boolean
+	tagEdit?: boolean
 	editorBar?: EditorBarUi
 	downloadLogs?: boolean
 }

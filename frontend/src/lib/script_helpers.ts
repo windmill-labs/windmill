@@ -514,14 +514,22 @@ export async function main(approver?: string) {
 const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
 			method: string
-			params: Record<string, string>
-			query: Record<string, string>
+			params: Record<string, string> // path parameters
+			query: Record<string, string> // query parameters
 			headers: Record<string, string>
+		},
+		websocket?: {
+			url: string // The websocket url
+		},
+		kafka?: {
+			brokers: string[]
+			topic: string
+			group_id: string
 		}
 	},
 	/* your other args */ 
@@ -535,14 +543,22 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'wehbook' | 'websocket',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
 			method: string
-			params: Record<string, string>
-			query: Record<string, string>
+			params: Record<string, string> // path parameters
+			query: Record<string, string> // query parameters
 			headers: Record<string, string>
+		},
+		websocket?: {
+			url: string // The websocket url
+		},
+		kafka?: {
+			brokers: string[]
+			topic: string
+			group_id: string
 		}
 	},
 	/* your other args */ 
@@ -590,9 +606,19 @@ class Http(TypedDict):
 	query: dict[str, str]
 	headers: dict[str, str]
 
+class Websocket(TypedDict):
+	url: str # The websocket url
+
+class Kafka(TypedDict):
+	topic: str
+	brokers: list[str]
+	group_id: str
+
 class WmTrigger(TypedDict):
-    kind: Literal["http", "email", "webhook", "websocket"]
-    http: Http | None
+	kind: Literal["http", "email", "webhook", "websocket", "kafka"]
+	http: Http | None
+	websocket: Websocket | None
+	kafka: Kafka | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,
@@ -604,8 +630,11 @@ def preprocessor(
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
-# Bash script that calls docker as a client to the host daemon
-# See documentation: https://www.windmill.dev/docs/advanced/docker
+# docker
+# The annotation "docker" above is important, it tells windmill that after 
+# the end of the bash script, it should manage the container at id $WM_JOB_ID:
+# pipe logs, monitor memory usage, kill container if job is cancelled.
+
 msg="\${1:-world}"
 
 IMAGE="alpine:latest"
@@ -613,7 +642,9 @@ COMMAND="/bin/echo Hello $msg"
 
 # ensure that the image is up-to-date
 docker pull $IMAGE
-docker run --rm $IMAGE $COMMAND
+
+# if using the 'docker' mode, name it with $WM_JOB_ID for windmill to monitor it
+docker run --name $WM_JOB_ID -it -d $IMAGE $COMMAND
 `
 
 const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
@@ -640,6 +671,7 @@ inventory:
   #   target:  ./config_template.j2
   # - variable: u/user/ssh_key
   #   target:  ./ssh_key
+  #   mode: '0600'
 
 # Define the arguments of the windmill script
 extra_vars:

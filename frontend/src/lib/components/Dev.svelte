@@ -39,7 +39,6 @@
 	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
-	import { workspacedOpenai } from './copilot/lib'
 	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
 	import { pickScript } from './flows/flowStateUtils'
 	import {
@@ -49,6 +48,9 @@
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
+	import { initAllAiWorkspace } from './copilot/lib'
+	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
+	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
 	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
 	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
@@ -108,12 +110,13 @@
 
 	async function setCopilotInfo() {
 		if (workspace) {
-			workspacedOpenai.init(workspace, token)
+			initAllAiWorkspace(workspace)
 			try {
 				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
 			} catch (err) {
 				copilotInfo.set({
-					exists_openai_resource_path: false,
+					ai_provider: '',
+					exists_ai_resource: false,
 					code_completion_enabled: false
 				})
 
@@ -476,7 +479,7 @@
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets'
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
 	>('webhooks')
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
@@ -484,7 +487,8 @@
 	setContext<TriggerContext>('TriggerContext', {
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
-		triggersCount: triggersCount
+		triggersCount: triggersCount,
+		simplifiedPoll: writable(false)
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -502,7 +506,10 @@
 		customUi: {},
 		insertButtonOpen: writable(false)
 	})
-
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 	$: updateFlow($flowStore)
 
 	let lastSent: OpenFlow | undefined = undefined

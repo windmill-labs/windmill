@@ -153,7 +153,19 @@
 {#if value}
 	<div class="h-screen">
 		{#key value}
-			<AppEditor {summary} app={value} path={''} {policy} fromHub={hubId != null} />
+			<AppEditor
+				on:savedNewAppPath={(event) => {
+					goto(`/apps/edit/${event.detail}`)
+				}}
+				{summary}
+				app={value}
+				path={''}
+				{policy}
+				fromHub={hubId != null}
+				newApp={true}
+				replaceStateFn={(path) => replaceState(path, $page.state)}
+				gotoFn={(path, opt) => goto(path, opt)}
+			/>
 		{/key}
 	</div>
 {/if}

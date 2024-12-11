@@ -1,7 +1,7 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import type { FlowModule, FlowModuleValue } from '$lib/gen'
-	import { GitBranchPlus } from 'lucide-svelte'
+	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import type { GraphModuleState } from '../../model'
@@ -37,27 +37,41 @@
 	$: flowJobs = state?.flow_jobs
 		? {
 				flowJobs: state?.flow_jobs,
-				selected: state?.selectedForloopIndex ?? -1,
+				selected: state?.selectedForloopIndex ?? 0,
+				selectedManually: state?.selectedForLoopSetManually,
 				flowJobsSuccess: state?.flow_jobs_success
 		  }
 		: (undefined as any)
 
-	let selectedIteration = -1
 </script>
 
+
+
 <NodeWrapper offset={data.offset} let:darkMode>
+	{#if data.module.value.type == 'flow'}
+		<button
+			title="Unexpand subflow"
+			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-150 hover:bg-surface-hover"
+			on:click|preventDefault|stopPropagation={() => {
+				if (data.module.value.type == 'flow') {
+					data.eventHandlers.expandSubflow(data.module.id, data.module.value.path)
+				}
+			}}
+		>
+			<Maximize2 size={12} />
+		</button>
+	{/if}
 	<MapItem
 		mod={data.module}
 		insertable={data.insertable}
 		annotation={flowJobs &&
 		(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 			? 'Iteration: ' +
-			  (selectedIteration >= 0 ? selectedIteration : state?.flow_jobs?.length) +
+			  ((state?.selectedForloopIndex ?? 0) >= 0 ? (state?.selectedForloopIndex ?? 0) + 1 : state?.flow_jobs?.length) +
 			  '/' +
 			  (state?.iteration_total ?? '?')
 			: ''}
 		bgColor={getStateColor(type, darkMode, true, state?.skipped)}
-		modules={data.modules ?? []}
 		moving={data.moving}
 		duration_ms={state?.duration_ms}
 		retries={data.retries}
@@ -81,7 +95,6 @@
 			data.eventHandlers.select(e.detail)
 		}}
 		on:selectedIteration={(e) => {
-			selectedIteration = e.detail.index + 1
 			data.eventHandlers.selectedIteration(e.detail, data.module.id)
 		}}
 	/>

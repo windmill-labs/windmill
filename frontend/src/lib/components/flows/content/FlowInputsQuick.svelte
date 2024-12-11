@@ -41,6 +41,7 @@
 	export let kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
 	export let selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure' =
 		kind
+	export let displayPath = false
 
 	let lang: FlowCopilotModule['lang'] = undefined
 	let selectedCompletion: FlowCopilotModule['selectedCompletion'] = undefined
@@ -86,7 +87,7 @@
 	}
 
 	async function onGenerate() {
-		if (!selectedCompletion && !$copilotInfo.exists_openai_resource_path) {
+		if (!selectedCompletion && !$copilotInfo.exists_ai_resource) {
 			sendUserToast(
 				'Windmill AI is not enabled, you can activate it in the workspace settings',
 				true
@@ -216,7 +217,7 @@
 			{#if ['script', 'trigger', 'approval', 'preprocessor', 'failure'].includes(selectedKind)}
 				{#if (preFilter === 'all' && owners.length > 0) || preFilter === 'workspace'}
 					{#if preFilter !== 'workspace'}
-						<div class="pb-0 text-2xs font-light text-secondary ml-2">Workspace Folders</div>
+						<div class="pb-0 text-2xs font-light text-secondary ml-2">Folders</div>
 					{/if}
 
 					{#if owners.length > 0}
@@ -306,7 +307,7 @@
 		{/if}
 
 		{#if inlineScripts?.length > 0}
-			<div class="pb-0 flex flex-row items-center gap-2">
+			<div class="pb-0 flex flex-row items-center gap-2 -mt-[3px]">
 				<div class=" text-2xs font-light text-secondary ml-2"
 					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
 				>
@@ -424,6 +425,7 @@
 				selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
 				on:pickScript
 				on:pickFlow
+				{displayPath}
 			/>
 		{/if}
 
@@ -446,6 +448,7 @@
 						topLevelNodes.length}
 					on:pickScript
 					bind:loading
+					{displayPath}
 				/>
 			{/if}
 		{/if}

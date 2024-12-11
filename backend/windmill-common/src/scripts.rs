@@ -71,9 +71,15 @@ impl ScriptLang {
     }
 }
 
-#[derive(PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
+
+impl Into<u64> for ScriptHash {
+    fn into(self) -> u64 {
+        self.0 as u64
+    }
+}
 
 #[derive(PartialEq, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]

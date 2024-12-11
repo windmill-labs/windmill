@@ -484,7 +484,7 @@
 						Show
 					</Button>
 				</div>
-				<div class="flex gap-2 items-center">
+				<div class="flex gap-2 items-center flex-wrap">
 					<div class="!text-2xs">Full height</div>
 					{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
 						<Toggle
@@ -543,7 +543,7 @@
 					</Button>
 				</div>
 
-				<div class="grid grid-cols-2 gap-1 text-tertiary">
+				<div class="overflow-auto grid grid-cols-2 gap-1 text-tertiary">
 					<div>
 						<span class="text-secondary text-xs">Copy:</span>
 					</div>

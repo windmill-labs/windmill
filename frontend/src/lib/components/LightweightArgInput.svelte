@@ -61,6 +61,18 @@
 	export let render = true
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+	export let appPath: string | undefined = undefined
+	export let computeS3ForceViewerPolicies:
+		| (() =>
+				| {
+						allowed_resources: string[]
+						allow_user_resources: boolean
+						allow_workspace_resource: boolean
+						file_key_regex: string
+				  }
+				| undefined)
+		| undefined = undefined
+	export let workspace: string | undefined = undefined
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -158,18 +170,23 @@
 			error = 'Required'
 			valid && (valid = false)
 		} else {
-			if (pattern && !testRegex(pattern, v)) {
-				if (!emptyString(customErrorMessage)) {
-					error = customErrorMessage ?? ''
-				} else if (format == 'email') {
-					error = 'invalid email address'
-				} else {
-					error = `should match ${pattern}`
-				}
-				valid && (valid = false)
-			} else {
+			if (!required && (v == undefined || v == null || v === '')) {
 				error = ''
 				!valid && (valid = true)
+			} else {
+				if (pattern && !testRegex(pattern, v)) {
+					if (!emptyString(customErrorMessage)) {
+						error = customErrorMessage ?? ''
+					} else if (format == 'email') {
+						error = 'invalid email address'
+					} else {
+						error = `should match ${pattern}`
+					}
+					valid && (valid = false)
+				} else {
+					error = ''
+					!valid && (valid = true)
+				}
 			}
 		}
 	}
@@ -315,6 +332,7 @@
 									options={itemsType?.multiselect ?? []}
 									selectedOptionsDraggable={true}
 									{disabled}
+									--sms-open-z-index={20}
 								/>
 							</div>
 						{:else if Array.isArray(itemsType?.enum) && Array.isArray(value)}
@@ -325,6 +343,7 @@
 									options={itemsType?.enum ?? []}
 									selectedOptionsDraggable={true}
 									{disabled}
+									--sms-open-z-index={20}
 								/>
 							</div>
 						{:else if Array.isArray(enum_) && Array.isArray(value)}
@@ -335,6 +354,7 @@
 									options={enum_ ?? []}
 									selectedOptionsDraggable={true}
 									{disabled}
+									--sms-open-z-index={20}
 								/>
 							</div>
 						{:else}
@@ -428,6 +448,9 @@
 						.toLowerCase() == 's3object'}
 					<div class="flex flex-col w-full gap-1">
 						<FileUpload
+							{appPath}
+							computeForceViewerPolicies={computeS3ForceViewerPolicies}
+							{workspace}
 							allowMultiple={false}
 							randomFileKey={true}
 							on:addition={(evt) => {

@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise.ts';
 import { OpenAPI } from './core/OpenAPI.ts';
 import { request as __request } from './core/request.ts';
-import type { BackendVersionResponse, BackendUptodateResponse, GetLicenseIdResponse, GetOpenApiYamlResponse, GetAuditLogData, GetAuditLogResponse, ListAuditLogsData, ListAuditLogsResponse, LoginData, LoginResponse, LogoutResponse, GetUserData, GetUserResponse, UpdateUserData, UpdateUserResponse, IsOwnerOfPathData, IsOwnerOfPathResponse, SetPasswordData, SetPasswordResponse, CreateUserGloballyData, CreateUserGloballyResponse, GlobalUserUpdateData, GlobalUserUpdateResponse, GlobalUsernameInfoData, GlobalUsernameInfoResponse, GlobalUserRenameData, GlobalUserRenameResponse, GlobalUserDeleteData, GlobalUserDeleteResponse, GlobalUsersOverwriteData, GlobalUsersOverwriteResponse, GlobalUsersExportResponse, DeleteUserData, DeleteUserResponse, ListWorkspacesResponse, IsDomainAllowedResponse, ListUserWorkspacesResponse, ListWorkspacesAsSuperAdminData, ListWorkspacesAsSuperAdminResponse, CreateWorkspaceData, CreateWorkspaceResponse, ExistsWorkspaceData, ExistsWorkspaceResponse, ExistsUsernameData, ExistsUsernameResponse, GetGlobalData, GetGlobalResponse, SetGlobalData, SetGlobalResponse, GetLocalResponse, TestSmtpData, TestSmtpResponse, TestCriticalChannelsData, TestCriticalChannelsResponse, TestLicenseKeyData, TestLicenseKeyResponse, TestObjectStorageConfigData, TestObjectStorageConfigResponse, SendStatsResponse, GetLatestKeyRenewalAttemptResponse, RenewLicenseKeyData, RenewLicenseKeyResponse, CreateCustomerPortalSessionData, CreateCustomerPortalSessionResponse, TestMetadataData, TestMetadataResponse, ListGlobalSettingsResponse, GetCurrentEmailResponse, RefreshUserTokenResponse, GetTutorialProgressResponse, UpdateTutorialProgressData, UpdateTutorialProgressResponse, LeaveInstanceResponse, GetUsageResponse, GetRunnableResponse, GlobalWhoamiResponse, ListWorkspaceInvitesResponse, WhoamiData, WhoamiResponse, AcceptInviteData, AcceptInviteResponse, DeclineInviteData, DeclineInviteResponse, InviteUserData, InviteUserResponse, AddUserData, AddUserResponse, DeleteInviteData, DeleteInviteResponse, ArchiveWorkspaceData, ArchiveWorkspaceResponse, UnarchiveWorkspaceData, UnarchiveWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, LeaveWorkspaceData, LeaveWorkspaceResponse, GetWorkspaceNameData, GetWorkspaceNameResponse, ChangeWorkspaceNameData, ChangeWorkspaceNameResponse, ChangeWorkspaceIdData, ChangeWorkspaceIdResponse, WhoisData, WhoisResponse, ExistsEmailData, ExistsEmailResponse, ListUsersAsSuperAdminData, ListUsersAsSuperAdminResponse, ListPendingInvitesData, ListPendingInvitesResponse, GetSettingsData, GetSettingsResponse, GetDeployToData, GetDeployToResponse, GetIsPremiumData, GetIsPremiumResponse, GetPremiumInfoData, GetPremiumInfoResponse, SetAutomaticBillingData, SetAutomaticBillingResponse, EditSlackCommandData, EditSlackCommandResponse, RunSlackMessageTestJobData, RunSlackMessageTestJobResponse, EditDeployToData, EditDeployToResponse, EditAutoInviteData, EditAutoInviteResponse, EditWebhookData, EditWebhookResponse, EditCopilotConfigData, EditCopilotConfigResponse, GetCopilotInfoData, GetCopilotInfoResponse, EditErrorHandlerData, EditErrorHandlerResponse, EditLargeFileStorageConfigData, EditLargeFileStorageConfigResponse, EditWorkspaceGitSyncConfigData, EditWorkspaceGitSyncConfigResponse, EditWorkspaceDeployUiSettingsData, EditWorkspaceDeployUiSettingsResponse, EditWorkspaceDefaultAppData, EditWorkspaceDefaultAppResponse, EditDefaultScriptsData, EditDefaultScriptsResponse, GetDefaultScriptsData, GetDefaultScriptsResponse, SetEnvironmentVariableData, SetEnvironmentVariableResponse, GetWorkspaceEncryptionKeyData, GetWorkspaceEncryptionKeyResponse, SetWorkspaceEncryptionKeyData, SetWorkspaceEncryptionKeyResponse, GetWorkspaceDefaultAppData, GetWorkspaceDefaultAppResponse, GetLargeFileStorageConfigData, GetLargeFileStorageConfigResponse, GetWorkspaceUsageData, GetWorkspaceUsageResponse, ListUsersData, ListUsersResponse, ListUsersUsageData, ListUsersUsageResponse, ListUsernamesData, ListUsernamesResponse, UsernameToEmailData, UsernameToEmailResponse, CreateTokenData, CreateTokenResponse, CreateTokenImpersonateData, CreateTokenImpersonateResponse, DeleteTokenData, DeleteTokenResponse, ListTokensData, ListTokensResponse, GetOidcTokenData, GetOidcTokenResponse, CreateVariableData, CreateVariableResponse, EncryptValueData, EncryptValueResponse, DeleteVariableData, DeleteVariableResponse, UpdateVariableData, UpdateVariableResponse, GetVariableData, GetVariableResponse, GetVariableValueData, GetVariableValueResponse, ExistsVariableData, ExistsVariableResponse, ListVariableData, ListVariableResponse, ListContextualVariablesData, ListContextualVariablesResponse, LoginWithOauthData, LoginWithOauthResponse, ConnectSlackCallbackData, ConnectSlackCallbackResponse, ConnectSlackCallbackInstanceData, ConnectSlackCallbackInstanceResponse, ConnectCallbackData, ConnectCallbackResponse, CreateAccountData, CreateAccountResponse, RefreshTokenData, RefreshTokenResponse, DisconnectAccountData, DisconnectAccountResponse, DisconnectSlackData, DisconnectSlackResponse, ListOauthLoginsResponse, ListOauthConnectsResponse, GetOauthConnectData, GetOauthConnectResponse, CreateResourceData, CreateResourceResponse, DeleteResourceData, DeleteResourceResponse, UpdateResourceData, UpdateResourceResponse, UpdateResourceValueData, UpdateResourceValueResponse, GetResourceData, GetResourceResponse, GetResourceValueInterpolatedData, GetResourceValueInterpolatedResponse, GetResourceValueData, GetResourceValueResponse, ExistsResourceData, ExistsResourceResponse, ListResourceData, ListResourceResponse, ListSearchResourceData, ListSearchResourceResponse, ListResourceNamesData, ListResourceNamesResponse, CreateResourceTypeData, CreateResourceTypeResponse, FileResourceTypeToFileExtMapData, FileResourceTypeToFileExtMapResponse, DeleteResourceTypeData, DeleteResourceTypeResponse, UpdateResourceTypeData, UpdateResourceTypeResponse, GetResourceTypeData, GetResourceTypeResponse, ExistsResourceTypeData, ExistsResourceTypeResponse, ListResourceTypeData, ListResourceTypeResponse, ListResourceTypeNamesData, ListResourceTypeNamesResponse, QueryResourceTypesData, QueryResourceTypesResponse, ListHubIntegrationsData, ListHubIntegrationsResponse, ListHubFlowsResponse, GetHubFlowByIdData, GetHubFlowByIdResponse, ListHubAppsResponse, GetHubAppByIdData, GetHubAppByIdResponse, GetHubScriptContentByPathData, GetHubScriptContentByPathResponse, GetHubScriptByPathData, GetHubScriptByPathResponse, GetTopHubScriptsData, GetTopHubScriptsResponse, QueryHubScriptsData, QueryHubScriptsResponse, ListSearchScriptData, ListSearchScriptResponse, ListScriptsData, ListScriptsResponse, ListScriptPathsData, ListScriptPathsResponse, CreateDraftData, CreateDraftResponse, DeleteDraftData, DeleteDraftResponse, CreateScriptData, CreateScriptResponse, ToggleWorkspaceErrorHandlerForScriptData, ToggleWorkspaceErrorHandlerForScriptResponse, GetCustomTagsResponse, GeDefaultTagsResponse, IsDefaultTagsPerWorkspaceResponse, ArchiveScriptByPathData, ArchiveScriptByPathResponse, ArchiveScriptByHashData, ArchiveScriptByHashResponse, DeleteScriptByHashData, DeleteScriptByHashResponse, DeleteScriptByPathData, DeleteScriptByPathResponse, GetScriptByPathData, GetScriptByPathResponse, GetScriptByPathWithDraftData, GetScriptByPathWithDraftResponse, GetScriptHistoryByPathData, GetScriptHistoryByPathResponse, UpdateScriptHistoryData, UpdateScriptHistoryResponse, RawScriptByPathData, RawScriptByPathResponse, RawScriptByPathTokenedData, RawScriptByPathTokenedResponse, ExistsScriptByPathData, ExistsScriptByPathResponse, GetScriptByHashData, GetScriptByHashResponse, RawScriptByHashData, RawScriptByHashResponse, GetScriptDeploymentStatusData, GetScriptDeploymentStatusResponse, RunScriptByPathData, RunScriptByPathResponse, OpenaiSyncScriptByPathData, OpenaiSyncScriptByPathResponse, RunWaitResultScriptByPathData, RunWaitResultScriptByPathResponse, RunWaitResultScriptByPathGetData, RunWaitResultScriptByPathGetResponse, OpenaiSyncFlowByPathData, OpenaiSyncFlowByPathResponse, RunWaitResultFlowByPathData, RunWaitResultFlowByPathResponse, ResultByIdData, ResultByIdResponse, ListFlowPathsData, ListFlowPathsResponse, ListSearchFlowData, ListSearchFlowResponse, ListFlowsData, ListFlowsResponse, GetFlowHistoryData, GetFlowHistoryResponse, GetFlowVersionData, GetFlowVersionResponse, UpdateFlowHistoryData, UpdateFlowHistoryResponse, GetFlowByPathData, GetFlowByPathResponse, ToggleWorkspaceErrorHandlerForFlowData, ToggleWorkspaceErrorHandlerForFlowResponse, GetFlowByPathWithDraftData, GetFlowByPathWithDraftResponse, ExistsFlowByPathData, ExistsFlowByPathResponse, CreateFlowData, CreateFlowResponse, UpdateFlowData, UpdateFlowResponse, ArchiveFlowByPathData, ArchiveFlowByPathResponse, DeleteFlowByPathData, DeleteFlowByPathResponse, ListRawAppsData, ListRawAppsResponse, ExistsRawAppData, ExistsRawAppResponse, GetRawAppDataData, GetRawAppDataResponse, ListSearchAppData, ListSearchAppResponse, ListAppsData, ListAppsResponse, CreateAppData, CreateAppResponse, ExistsAppData, ExistsAppResponse, GetAppByPathData, GetAppByPathResponse, GetAppByPathWithDraftData, GetAppByPathWithDraftResponse, GetAppHistoryByPathData, GetAppHistoryByPathResponse, UpdateAppHistoryData, UpdateAppHistoryResponse, GetPublicAppBySecretData, GetPublicAppBySecretResponse, GetPublicResourceData, GetPublicResourceResponse, GetPublicSecretOfAppData, GetPublicSecretOfAppResponse, GetAppByVersionData, GetAppByVersionResponse, CreateRawAppData, CreateRawAppResponse, UpdateRawAppData, UpdateRawAppResponse, DeleteRawAppData, DeleteRawAppResponse, DeleteAppData, DeleteAppResponse, UpdateAppData, UpdateAppResponse, ExecuteComponentData, ExecuteComponentResponse, RunFlowByPathData, RunFlowByPathResponse, RestartFlowAtStepData, RestartFlowAtStepResponse, RunScriptByHashData, RunScriptByHashResponse, RunScriptPreviewData, RunScriptPreviewResponse, RunCodeWorkflowTaskData, RunCodeWorkflowTaskResponse, RunRawScriptDependenciesData, RunRawScriptDependenciesResponse, RunFlowPreviewData, RunFlowPreviewResponse, ListQueueData, ListQueueResponse, GetQueueCountData, GetQueueCountResponse, GetCompletedCountData, GetCompletedCountResponse, ListFilteredUuidsData, ListFilteredUuidsResponse, CancelSelectionData, CancelSelectionResponse, ListCompletedJobsData, ListCompletedJobsResponse, ListJobsData, ListJobsResponse, GetDbClockResponse, CountJobsByTagData, CountJobsByTagResponse, GetJobData, GetJobResponse, GetRootJobIdData, GetRootJobIdResponse, GetJobLogsData, GetJobLogsResponse, GetJobArgsData, GetJobArgsResponse, GetJobUpdatesData, GetJobUpdatesResponse, GetLogFileFromStoreData, GetLogFileFromStoreResponse, GetFlowDebugInfoData, GetFlowDebugInfoResponse, GetCompletedJobData, GetCompletedJobResponse, GetCompletedJobResultData, GetCompletedJobResultResponse, GetCompletedJobResultMaybeData, GetCompletedJobResultMaybeResponse, DeleteCompletedJobData, DeleteCompletedJobResponse, CancelQueuedJobData, CancelQueuedJobResponse, CancelPersistentQueuedJobsData, CancelPersistentQueuedJobsResponse, ForceCancelQueuedJobData, ForceCancelQueuedJobResponse, CreateJobSignatureData, CreateJobSignatureResponse, GetResumeUrlsData, GetResumeUrlsResponse, ResumeSuspendedJobGetData, ResumeSuspendedJobGetResponse, ResumeSuspendedJobPostData, ResumeSuspendedJobPostResponse, SetFlowUserStateData, SetFlowUserStateResponse, GetFlowUserStateData, GetFlowUserStateResponse, ResumeSuspendedFlowAsOwnerData, ResumeSuspendedFlowAsOwnerResponse, CancelSuspendedJobGetData, CancelSuspendedJobGetResponse, CancelSuspendedJobPostData, CancelSuspendedJobPostResponse, GetSuspendedJobFlowData, GetSuspendedJobFlowResponse, PreviewScheduleData, PreviewScheduleResponse, CreateScheduleData, CreateScheduleResponse, UpdateScheduleData, UpdateScheduleResponse, SetScheduleEnabledData, SetScheduleEnabledResponse, DeleteScheduleData, DeleteScheduleResponse, GetScheduleData, GetScheduleResponse, ExistsScheduleData, ExistsScheduleResponse, ListSchedulesData, ListSchedulesResponse, ListSchedulesWithJobsData, ListSchedulesWithJobsResponse, SetDefaultErrorOrRecoveryHandlerData, SetDefaultErrorOrRecoveryHandlerResponse, CreateHttpTriggerData, CreateHttpTriggerResponse, UpdateHttpTriggerData, UpdateHttpTriggerResponse, DeleteHttpTriggerData, DeleteHttpTriggerResponse, GetHttpTriggerData, GetHttpTriggerResponse, ListHttpTriggersData, ListHttpTriggersResponse, ExistsHttpTriggerData, ExistsHttpTriggerResponse, ExistsRouteData, ExistsRouteResponse, UsedData, UsedResponse, ListInstanceGroupsResponse, GetInstanceGroupData, GetInstanceGroupResponse, CreateInstanceGroupData, CreateInstanceGroupResponse, UpdateInstanceGroupData, UpdateInstanceGroupResponse, DeleteInstanceGroupData, DeleteInstanceGroupResponse, AddUserToInstanceGroupData, AddUserToInstanceGroupResponse, RemoveUserFromInstanceGroupData, RemoveUserFromInstanceGroupResponse, ExportInstanceGroupsResponse, OverwriteInstanceGroupsData, OverwriteInstanceGroupsResponse, ListGroupsData, ListGroupsResponse, ListGroupNamesData, ListGroupNamesResponse, CreateGroupData, CreateGroupResponse, UpdateGroupData, UpdateGroupResponse, DeleteGroupData, DeleteGroupResponse, GetGroupData, GetGroupResponse, AddUserToGroupData, AddUserToGroupResponse, RemoveUserToGroupData, RemoveUserToGroupResponse, ListFoldersData, ListFoldersResponse, ListFolderNamesData, ListFolderNamesResponse, CreateFolderData, CreateFolderResponse, UpdateFolderData, UpdateFolderResponse, DeleteFolderData, DeleteFolderResponse, GetFolderData, GetFolderResponse, GetFolderUsageData, GetFolderUsageResponse, AddOwnerToFolderData, AddOwnerToFolderResponse, RemoveOwnerToFolderData, RemoveOwnerToFolderResponse, ListWorkersData, ListWorkersResponse, ExistsWorkerWithTagData, ExistsWorkerWithTagResponse, GetQueueMetricsResponse, ListWorkerGroupsResponse, GetConfigData, GetConfigResponse, UpdateConfigData, UpdateConfigResponse, DeleteConfigData, DeleteConfigResponse, ListConfigsResponse, GetGranularAclsData, GetGranularAclsResponse, AddGranularAclsData, AddGranularAclsResponse, RemoveGranularAclsData, RemoveGranularAclsResponse, UpdateCaptureData, UpdateCaptureResponse, CreateCaptureData, CreateCaptureResponse, GetCaptureData, GetCaptureResponse, StarData, StarResponse, UnstarData, UnstarResponse, GetInputHistoryData, GetInputHistoryResponse, GetArgsFromHistoryOrSavedInputData, GetArgsFromHistoryOrSavedInputResponse, ListInputsData, ListInputsResponse, CreateInputData, CreateInputResponse, UpdateInputData, UpdateInputResponse, DeleteInputData, DeleteInputResponse, DuckdbConnectionSettingsData, DuckdbConnectionSettingsResponse, DuckdbConnectionSettingsV2Data, DuckdbConnectionSettingsV2Response, PolarsConnectionSettingsData, PolarsConnectionSettingsResponse, PolarsConnectionSettingsV2Data, PolarsConnectionSettingsV2Response, S3ResourceInfoData, S3ResourceInfoResponse, DatasetStorageTestConnectionData, DatasetStorageTestConnectionResponse, ListStoredFilesData, ListStoredFilesResponse, LoadFileMetadataData, LoadFileMetadataResponse, LoadFilePreviewData, LoadFilePreviewResponse, LoadParquetPreviewData, LoadParquetPreviewResponse, LoadTableRowCountData, LoadTableRowCountResponse, LoadCsvPreviewData, LoadCsvPreviewResponse, DeleteS3FileData, DeleteS3FileResponse, MoveS3FileData, MoveS3FileResponse, FileUploadData, FileUploadResponse, FileDownloadData, FileDownloadResponse, FileDownloadParquetAsCsvData, FileDownloadParquetAsCsvResponse, GetJobMetricsData, GetJobMetricsResponse, SetJobProgressData, SetJobProgressResponse, GetJobProgressData, GetJobProgressResponse, ListLogFilesData, ListLogFilesResponse, GetLogFileData, GetLogFileResponse, ListConcurrencyGroupsResponse, DeleteConcurrencyGroupData, DeleteConcurrencyGroupResponse, GetConcurrencyKeyData, GetConcurrencyKeyResponse, ListExtendedJobsData, ListExtendedJobsResponse, SearchJobsIndexData, SearchJobsIndexResponse } from './types.gen.ts';
+import type { BackendVersionResponse, BackendUptodateResponse, GetLicenseIdResponse, GetOpenApiYamlResponse, GetAuditLogData, GetAuditLogResponse, ListAuditLogsData, ListAuditLogsResponse, LoginData, LoginResponse, LogoutResponse, GetUserData, GetUserResponse, UpdateUserData, UpdateUserResponse, IsOwnerOfPathData, IsOwnerOfPathResponse, SetPasswordData, SetPasswordResponse, SetPasswordForUserData, SetPasswordForUserResponse, SetLoginTypeForUserData, SetLoginTypeForUserResponse, CreateUserGloballyData, CreateUserGloballyResponse, GlobalUserUpdateData, GlobalUserUpdateResponse, GlobalUsernameInfoData, GlobalUsernameInfoResponse, GlobalUserRenameData, GlobalUserRenameResponse, GlobalUserDeleteData, GlobalUserDeleteResponse, GlobalUsersOverwriteData, GlobalUsersOverwriteResponse, GlobalUsersExportResponse, DeleteUserData, DeleteUserResponse, ListWorkspacesResponse, IsDomainAllowedResponse, ListUserWorkspacesResponse, ListWorkspacesAsSuperAdminData, ListWorkspacesAsSuperAdminResponse, CreateWorkspaceData, CreateWorkspaceResponse, ExistsWorkspaceData, ExistsWorkspaceResponse, ExistsUsernameData, ExistsUsernameResponse, GetGlobalData, GetGlobalResponse, SetGlobalData, SetGlobalResponse, GetLocalResponse, TestSmtpData, TestSmtpResponse, TestCriticalChannelsData, TestCriticalChannelsResponse, GetCriticalAlertsData, GetCriticalAlertsResponse, AcknowledgeCriticalAlertData, AcknowledgeCriticalAlertResponse, AcknowledgeAllCriticalAlertsResponse, TestLicenseKeyData, TestLicenseKeyResponse, TestObjectStorageConfigData, TestObjectStorageConfigResponse, SendStatsResponse, GetLatestKeyRenewalAttemptResponse, RenewLicenseKeyData, RenewLicenseKeyResponse, CreateCustomerPortalSessionData, CreateCustomerPortalSessionResponse, TestMetadataData, TestMetadataResponse, ListGlobalSettingsResponse, GetCurrentEmailResponse, RefreshUserTokenResponse, GetTutorialProgressResponse, UpdateTutorialProgressData, UpdateTutorialProgressResponse, LeaveInstanceResponse, GetUsageResponse, GetRunnableResponse, GlobalWhoamiResponse, ListWorkspaceInvitesResponse, WhoamiData, WhoamiResponse, AcceptInviteData, AcceptInviteResponse, DeclineInviteData, DeclineInviteResponse, InviteUserData, InviteUserResponse, AddUserData, AddUserResponse, DeleteInviteData, DeleteInviteResponse, ArchiveWorkspaceData, ArchiveWorkspaceResponse, UnarchiveWorkspaceData, UnarchiveWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, LeaveWorkspaceData, LeaveWorkspaceResponse, GetWorkspaceNameData, GetWorkspaceNameResponse, ChangeWorkspaceNameData, ChangeWorkspaceNameResponse, ChangeWorkspaceIdData, ChangeWorkspaceIdResponse, WhoisData, WhoisResponse, ExistsEmailData, ExistsEmailResponse, ListUsersAsSuperAdminData, ListUsersAsSuperAdminResponse, ListPendingInvitesData, ListPendingInvitesResponse, GetSettingsData, GetSettingsResponse, GetDeployToData, GetDeployToResponse, GetIsPremiumData, GetIsPremiumResponse, GetPremiumInfoData, GetPremiumInfoResponse, SetAutomaticBillingData, SetAutomaticBillingResponse, EditSlackCommandData, EditSlackCommandResponse, RunSlackMessageTestJobData, RunSlackMessageTestJobResponse, EditDeployToData, EditDeployToResponse, EditAutoInviteData, EditAutoInviteResponse, EditWebhookData, EditWebhookResponse, EditCopilotConfigData, EditCopilotConfigResponse, GetCopilotInfoData, GetCopilotInfoResponse, EditErrorHandlerData, EditErrorHandlerResponse, EditLargeFileStorageConfigData, EditLargeFileStorageConfigResponse, EditWorkspaceGitSyncConfigData, EditWorkspaceGitSyncConfigResponse, EditWorkspaceDeployUiSettingsData, EditWorkspaceDeployUiSettingsResponse, EditWorkspaceDefaultAppData, EditWorkspaceDefaultAppResponse, EditDefaultScriptsData, EditDefaultScriptsResponse, GetDefaultScriptsData, GetDefaultScriptsResponse, SetEnvironmentVariableData, SetEnvironmentVariableResponse, GetWorkspaceEncryptionKeyData, GetWorkspaceEncryptionKeyResponse, SetWorkspaceEncryptionKeyData, SetWorkspaceEncryptionKeyResponse, GetWorkspaceDefaultAppData, GetWorkspaceDefaultAppResponse, GetLargeFileStorageConfigData, GetLargeFileStorageConfigResponse, GetWorkspaceUsageData, GetWorkspaceUsageResponse, GetUsedTriggersData, GetUsedTriggersResponse, ListUsersData, ListUsersResponse, ListUsersUsageData, ListUsersUsageResponse, ListUsernamesData, ListUsernamesResponse, UsernameToEmailData, UsernameToEmailResponse, CreateTokenData, CreateTokenResponse, CreateTokenImpersonateData, CreateTokenImpersonateResponse, DeleteTokenData, DeleteTokenResponse, ListTokensData, ListTokensResponse, GetOidcTokenData, GetOidcTokenResponse, CreateVariableData, CreateVariableResponse, EncryptValueData, EncryptValueResponse, DeleteVariableData, DeleteVariableResponse, UpdateVariableData, UpdateVariableResponse, GetVariableData, GetVariableResponse, GetVariableValueData, GetVariableValueResponse, ExistsVariableData, ExistsVariableResponse, ListVariableData, ListVariableResponse, ListContextualVariablesData, ListContextualVariablesResponse, WorkspaceGetCriticalAlertsData, WorkspaceGetCriticalAlertsResponse, WorkspaceAcknowledgeCriticalAlertData, WorkspaceAcknowledgeCriticalAlertResponse, WorkspaceAcknowledgeAllCriticalAlertsData, WorkspaceAcknowledgeAllCriticalAlertsResponse, WorkspaceMuteCriticalAlertsUiData, WorkspaceMuteCriticalAlertsUiResponse, LoginWithOauthData, LoginWithOauthResponse, ConnectSlackCallbackData, ConnectSlackCallbackResponse, ConnectSlackCallbackInstanceData, ConnectSlackCallbackInstanceResponse, ConnectCallbackData, ConnectCallbackResponse, CreateAccountData, CreateAccountResponse, RefreshTokenData, RefreshTokenResponse, DisconnectAccountData, DisconnectAccountResponse, DisconnectSlackData, DisconnectSlackResponse, ListOauthLoginsResponse, ListOauthConnectsResponse, GetOauthConnectData, GetOauthConnectResponse, CreateResourceData, CreateResourceResponse, DeleteResourceData, DeleteResourceResponse, UpdateResourceData, UpdateResourceResponse, UpdateResourceValueData, UpdateResourceValueResponse, GetResourceData, GetResourceResponse, GetResourceValueInterpolatedData, GetResourceValueInterpolatedResponse, GetResourceValueData, GetResourceValueResponse, ExistsResourceData, ExistsResourceResponse, ListResourceData, ListResourceResponse, ListSearchResourceData, ListSearchResourceResponse, ListResourceNamesData, ListResourceNamesResponse, CreateResourceTypeData, CreateResourceTypeResponse, FileResourceTypeToFileExtMapData, FileResourceTypeToFileExtMapResponse, DeleteResourceTypeData, DeleteResourceTypeResponse, UpdateResourceTypeData, UpdateResourceTypeResponse, GetResourceTypeData, GetResourceTypeResponse, ExistsResourceTypeData, ExistsResourceTypeResponse, ListResourceTypeData, ListResourceTypeResponse, ListResourceTypeNamesData, ListResourceTypeNamesResponse, QueryResourceTypesData, QueryResourceTypesResponse, ListHubIntegrationsData, ListHubIntegrationsResponse, ListHubFlowsResponse, GetHubFlowByIdData, GetHubFlowByIdResponse, ListHubAppsResponse, GetHubAppByIdData, GetHubAppByIdResponse, GetHubScriptContentByPathData, GetHubScriptContentByPathResponse, GetHubScriptByPathData, GetHubScriptByPathResponse, GetTopHubScriptsData, GetTopHubScriptsResponse, QueryHubScriptsData, QueryHubScriptsResponse, ListSearchScriptData, ListSearchScriptResponse, ListScriptsData, ListScriptsResponse, ListScriptPathsData, ListScriptPathsResponse, CreateDraftData, CreateDraftResponse, DeleteDraftData, DeleteDraftResponse, CreateScriptData, CreateScriptResponse, ToggleWorkspaceErrorHandlerForScriptData, ToggleWorkspaceErrorHandlerForScriptResponse, GetCustomTagsResponse, GeDefaultTagsResponse, IsDefaultTagsPerWorkspaceResponse, ArchiveScriptByPathData, ArchiveScriptByPathResponse, ArchiveScriptByHashData, ArchiveScriptByHashResponse, DeleteScriptByHashData, DeleteScriptByHashResponse, DeleteScriptByPathData, DeleteScriptByPathResponse, GetScriptByPathData, GetScriptByPathResponse, GetTriggersCountOfScriptData, GetTriggersCountOfScriptResponse, ListTokensOfScriptData, ListTokensOfScriptResponse, GetScriptByPathWithDraftData, GetScriptByPathWithDraftResponse, GetScriptHistoryByPathData, GetScriptHistoryByPathResponse, GetScriptLatestVersionData, GetScriptLatestVersionResponse, UpdateScriptHistoryData, UpdateScriptHistoryResponse, RawScriptByPathData, RawScriptByPathResponse, RawScriptByPathTokenedData, RawScriptByPathTokenedResponse, ExistsScriptByPathData, ExistsScriptByPathResponse, GetScriptByHashData, GetScriptByHashResponse, RawScriptByHashData, RawScriptByHashResponse, GetScriptDeploymentStatusData, GetScriptDeploymentStatusResponse, RunScriptByPathData, RunScriptByPathResponse, OpenaiSyncScriptByPathData, OpenaiSyncScriptByPathResponse, RunWaitResultScriptByPathData, RunWaitResultScriptByPathResponse, RunWaitResultScriptByPathGetData, RunWaitResultScriptByPathGetResponse, OpenaiSyncFlowByPathData, OpenaiSyncFlowByPathResponse, RunWaitResultFlowByPathData, RunWaitResultFlowByPathResponse, ResultByIdData, ResultByIdResponse, ListFlowPathsData, ListFlowPathsResponse, ListSearchFlowData, ListSearchFlowResponse, ListFlowsData, ListFlowsResponse, GetFlowHistoryData, GetFlowHistoryResponse, GetFlowLatestVersionData, GetFlowLatestVersionResponse, GetFlowVersionData, GetFlowVersionResponse, UpdateFlowHistoryData, UpdateFlowHistoryResponse, GetFlowByPathData, GetFlowByPathResponse, GetTriggersCountOfFlowData, GetTriggersCountOfFlowResponse, ListTokensOfFlowData, ListTokensOfFlowResponse, ToggleWorkspaceErrorHandlerForFlowData, ToggleWorkspaceErrorHandlerForFlowResponse, GetFlowByPathWithDraftData, GetFlowByPathWithDraftResponse, ExistsFlowByPathData, ExistsFlowByPathResponse, CreateFlowData, CreateFlowResponse, UpdateFlowData, UpdateFlowResponse, ArchiveFlowByPathData, ArchiveFlowByPathResponse, DeleteFlowByPathData, DeleteFlowByPathResponse, ListRawAppsData, ListRawAppsResponse, ExistsRawAppData, ExistsRawAppResponse, GetRawAppDataData, GetRawAppDataResponse, ListSearchAppData, ListSearchAppResponse, ListAppsData, ListAppsResponse, CreateAppData, CreateAppResponse, ExistsAppData, ExistsAppResponse, GetAppByPathData, GetAppByPathResponse, GetAppByPathWithDraftData, GetAppByPathWithDraftResponse, GetAppHistoryByPathData, GetAppHistoryByPathResponse, GetAppLatestVersionData, GetAppLatestVersionResponse, UpdateAppHistoryData, UpdateAppHistoryResponse, GetPublicAppBySecretData, GetPublicAppBySecretResponse, GetPublicResourceData, GetPublicResourceResponse, GetPublicSecretOfAppData, GetPublicSecretOfAppResponse, GetAppByVersionData, GetAppByVersionResponse, CreateRawAppData, CreateRawAppResponse, UpdateRawAppData, UpdateRawAppResponse, DeleteRawAppData, DeleteRawAppResponse, DeleteAppData, DeleteAppResponse, UpdateAppData, UpdateAppResponse, ExecuteComponentData, ExecuteComponentResponse, RunFlowByPathData, RunFlowByPathResponse, RestartFlowAtStepData, RestartFlowAtStepResponse, RunScriptByHashData, RunScriptByHashResponse, RunScriptPreviewData, RunScriptPreviewResponse, RunCodeWorkflowTaskData, RunCodeWorkflowTaskResponse, RunRawScriptDependenciesData, RunRawScriptDependenciesResponse, RunFlowPreviewData, RunFlowPreviewResponse, ListQueueData, ListQueueResponse, GetQueueCountData, GetQueueCountResponse, GetCompletedCountData, GetCompletedCountResponse, CountCompletedJobsData, CountCompletedJobsResponse, ListFilteredUuidsData, ListFilteredUuidsResponse, CancelSelectionData, CancelSelectionResponse, ListCompletedJobsData, ListCompletedJobsResponse, ListJobsData, ListJobsResponse, GetDbClockResponse, CountJobsByTagData, CountJobsByTagResponse, GetJobData, GetJobResponse, GetRootJobIdData, GetRootJobIdResponse, GetJobLogsData, GetJobLogsResponse, GetJobArgsData, GetJobArgsResponse, GetJobUpdatesData, GetJobUpdatesResponse, GetLogFileFromStoreData, GetLogFileFromStoreResponse, GetFlowDebugInfoData, GetFlowDebugInfoResponse, GetCompletedJobData, GetCompletedJobResponse, GetCompletedJobResultData, GetCompletedJobResultResponse, GetCompletedJobResultMaybeData, GetCompletedJobResultMaybeResponse, DeleteCompletedJobData, DeleteCompletedJobResponse, CancelQueuedJobData, CancelQueuedJobResponse, CancelPersistentQueuedJobsData, CancelPersistentQueuedJobsResponse, ForceCancelQueuedJobData, ForceCancelQueuedJobResponse, CreateJobSignatureData, CreateJobSignatureResponse, GetResumeUrlsData, GetResumeUrlsResponse, ResumeSuspendedJobGetData, ResumeSuspendedJobGetResponse, ResumeSuspendedJobPostData, ResumeSuspendedJobPostResponse, SetFlowUserStateData, SetFlowUserStateResponse, GetFlowUserStateData, GetFlowUserStateResponse, ResumeSuspendedFlowAsOwnerData, ResumeSuspendedFlowAsOwnerResponse, CancelSuspendedJobGetData, CancelSuspendedJobGetResponse, CancelSuspendedJobPostData, CancelSuspendedJobPostResponse, GetSuspendedJobFlowData, GetSuspendedJobFlowResponse, PreviewScheduleData, PreviewScheduleResponse, CreateScheduleData, CreateScheduleResponse, UpdateScheduleData, UpdateScheduleResponse, SetScheduleEnabledData, SetScheduleEnabledResponse, DeleteScheduleData, DeleteScheduleResponse, GetScheduleData, GetScheduleResponse, ExistsScheduleData, ExistsScheduleResponse, ListSchedulesData, ListSchedulesResponse, ListSchedulesWithJobsData, ListSchedulesWithJobsResponse, SetDefaultErrorOrRecoveryHandlerData, SetDefaultErrorOrRecoveryHandlerResponse, CreateHttpTriggerData, CreateHttpTriggerResponse, UpdateHttpTriggerData, UpdateHttpTriggerResponse, DeleteHttpTriggerData, DeleteHttpTriggerResponse, GetHttpTriggerData, GetHttpTriggerResponse, ListHttpTriggersData, ListHttpTriggersResponse, ExistsHttpTriggerData, ExistsHttpTriggerResponse, ExistsRouteData, ExistsRouteResponse, CreateWebsocketTriggerData, CreateWebsocketTriggerResponse, UpdateWebsocketTriggerData, UpdateWebsocketTriggerResponse, DeleteWebsocketTriggerData, DeleteWebsocketTriggerResponse, GetWebsocketTriggerData, GetWebsocketTriggerResponse, ListWebsocketTriggersData, ListWebsocketTriggersResponse, ExistsWebsocketTriggerData, ExistsWebsocketTriggerResponse, SetWebsocketTriggerEnabledData, SetWebsocketTriggerEnabledResponse, ListInstanceGroupsResponse, GetInstanceGroupData, GetInstanceGroupResponse, CreateInstanceGroupData, CreateInstanceGroupResponse, UpdateInstanceGroupData, UpdateInstanceGroupResponse, DeleteInstanceGroupData, DeleteInstanceGroupResponse, AddUserToInstanceGroupData, AddUserToInstanceGroupResponse, RemoveUserFromInstanceGroupData, RemoveUserFromInstanceGroupResponse, ExportInstanceGroupsResponse, OverwriteInstanceGroupsData, OverwriteInstanceGroupsResponse, ListGroupsData, ListGroupsResponse, ListGroupNamesData, ListGroupNamesResponse, CreateGroupData, CreateGroupResponse, UpdateGroupData, UpdateGroupResponse, DeleteGroupData, DeleteGroupResponse, GetGroupData, GetGroupResponse, AddUserToGroupData, AddUserToGroupResponse, RemoveUserToGroupData, RemoveUserToGroupResponse, ListFoldersData, ListFoldersResponse, ListFolderNamesData, ListFolderNamesResponse, CreateFolderData, CreateFolderResponse, UpdateFolderData, UpdateFolderResponse, DeleteFolderData, DeleteFolderResponse, GetFolderData, GetFolderResponse, GetFolderUsageData, GetFolderUsageResponse, AddOwnerToFolderData, AddOwnerToFolderResponse, RemoveOwnerToFolderData, RemoveOwnerToFolderResponse, ListWorkersData, ListWorkersResponse, ExistsWorkerWithTagData, ExistsWorkerWithTagResponse, GetQueueMetricsResponse, GetCountsOfJobsWaitingPerTagResponse, ListWorkerGroupsResponse, GetConfigData, GetConfigResponse, UpdateConfigData, UpdateConfigResponse, DeleteConfigData, DeleteConfigResponse, ListConfigsResponse, ListAutoscalingEventsData, ListAutoscalingEventsResponse, GetGranularAclsData, GetGranularAclsResponse, AddGranularAclsData, AddGranularAclsResponse, RemoveGranularAclsData, RemoveGranularAclsResponse, UpdateCaptureData, UpdateCaptureResponse, CreateCaptureData, CreateCaptureResponse, GetCaptureData, GetCaptureResponse, StarData, StarResponse, UnstarData, UnstarResponse, GetInputHistoryData, GetInputHistoryResponse, GetArgsFromHistoryOrSavedInputData, GetArgsFromHistoryOrSavedInputResponse, ListInputsData, ListInputsResponse, CreateInputData, CreateInputResponse, UpdateInputData, UpdateInputResponse, DeleteInputData, DeleteInputResponse, DuckdbConnectionSettingsData, DuckdbConnectionSettingsResponse, DuckdbConnectionSettingsV2Data, DuckdbConnectionSettingsV2Response, PolarsConnectionSettingsData, PolarsConnectionSettingsResponse, PolarsConnectionSettingsV2Data, PolarsConnectionSettingsV2Response, S3ResourceInfoData, S3ResourceInfoResponse, DatasetStorageTestConnectionData, DatasetStorageTestConnectionResponse, ListStoredFilesData, ListStoredFilesResponse, LoadFileMetadataData, LoadFileMetadataResponse, LoadFilePreviewData, LoadFilePreviewResponse, LoadParquetPreviewData, LoadParquetPreviewResponse, LoadTableRowCountData, LoadTableRowCountResponse, LoadCsvPreviewData, LoadCsvPreviewResponse, DeleteS3FileData, DeleteS3FileResponse, MoveS3FileData, MoveS3FileResponse, FileUploadData, FileUploadResponse, FileDownloadData, FileDownloadResponse, FileDownloadParquetAsCsvData, FileDownloadParquetAsCsvResponse, GetJobMetricsData, GetJobMetricsResponse, SetJobProgressData, SetJobProgressResponse, GetJobProgressData, GetJobProgressResponse, ListLogFilesData, ListLogFilesResponse, GetLogFileData, GetLogFileResponse, ListConcurrencyGroupsResponse, DeleteConcurrencyGroupData, DeleteConcurrencyGroupResponse, GetConcurrencyKeyData, GetConcurrencyKeyResponse, ListExtendedJobsData, ListExtendedJobsResponse, SearchJobsIndexData, SearchJobsIndexResponse, SearchLogsIndexData, SearchLogsIndexResponse, CountSearchLogsIndexData, CountSearchLogsIndexResponse } from './types.gen.ts';
 
 /**
  * get backend version
@@ -134,7 +134,7 @@ export const logout = (): CancelablePromise<LogoutResponse> => { return __reques
  */
 export const getUser = (data: GetUserData): CancelablePromise<GetUserResponse> => { return __request(OpenAPI, {
     method: 'GET',
-    url: '/w/{workspace}/users/{username}',
+    url: '/w/{workspace}/users/get/{username}',
     path: {
         workspace: data.workspace,
         username: data.username
@@ -188,6 +188,42 @@ export const isOwnerOfPath = (data: IsOwnerOfPathData): CancelablePromise<IsOwne
 export const setPassword = (data: SetPasswordData): CancelablePromise<SetPasswordResponse> => { return __request(OpenAPI, {
     method: 'POST',
     url: '/users/setpassword',
+    body: data.requestBody,
+    mediaType: 'application/json'
+}); };
+
+/**
+ * set password for a specific user (require super admin)
+ * @param data The data for the request.
+ * @param data.user
+ * @param data.requestBody set password
+ * @returns string password set
+ * @throws ApiError
+ */
+export const setPasswordForUser = (data: SetPasswordForUserData): CancelablePromise<SetPasswordForUserResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/users/set_password_of/{user}',
+    path: {
+        user: data.user
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
+}); };
+
+/**
+ * set login type for a specific user (require super admin)
+ * @param data The data for the request.
+ * @param data.user
+ * @param data.requestBody set login type
+ * @returns string login type set
+ * @throws ApiError
+ */
+export const setLoginTypeForUser = (data: SetLoginTypeForUserData): CancelablePromise<SetLoginTypeForUserResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/users/set_login_type/{user}',
+    path: {
+        user: data.user
+    },
     body: data.requestBody,
     mediaType: 'application/json'
 }); };
@@ -471,6 +507,50 @@ export const testCriticalChannels = (data: TestCriticalChannelsData): Cancelable
     url: '/settings/test_critical_channels',
     body: data.requestBody,
     mediaType: 'application/json'
+}); };
+
+/**
+ * Get all critical alerts
+ * @param data The data for the request.
+ * @param data.page
+ * @param data.pageSize
+ * @param data.acknowledged
+ * @returns CriticalAlert Successfully retrieved all critical alerts
+ * @throws ApiError
+ */
+export const getCriticalAlerts = (data: GetCriticalAlertsData = {}): CancelablePromise<GetCriticalAlertsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/settings/critical_alerts',
+    query: {
+        page: data.page,
+        page_size: data.pageSize,
+        acknowledged: data.acknowledged
+    }
+}); };
+
+/**
+ * Acknowledge a critical alert
+ * @param data The data for the request.
+ * @param data.id The ID of the critical alert to acknowledge
+ * @returns string Successfully acknowledged the critical alert
+ * @throws ApiError
+ */
+export const acknowledgeCriticalAlert = (data: AcknowledgeCriticalAlertData): CancelablePromise<AcknowledgeCriticalAlertResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/settings/critical_alerts/{id}/acknowledge',
+    path: {
+        id: data.id
+    }
+}); };
+
+/**
+ * Acknowledge all unacknowledged critical alerts
+ * @returns string Successfully acknowledged all unacknowledged critical alerts.
+ * @throws ApiError
+ */
+export const acknowledgeAllCriticalAlerts = (): CancelablePromise<AcknowledgeAllCriticalAlertsResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/settings/critical_alerts/acknowledge_all'
 }); };
 
 /**
@@ -914,6 +994,7 @@ export const existsEmail = (data: ExistsEmailData): CancelablePromise<ExistsEmai
  * @param data The data for the request.
  * @param data.page which page to return (start at 1, default 1)
  * @param data.perPage number of items to return for a given page (default 30, max 100)
+ * @param data.activeOnly filter only active users
  * @returns GlobalUserInfo user
  * @throws ApiError
  */
@@ -922,7 +1003,8 @@ export const listUsersAsSuperAdmin = (data: ListUsersAsSuperAdminData = {}): Can
     url: '/users/list_as_super_admin',
     query: {
         page: data.page,
-        per_page: data.perPage
+        per_page: data.perPage,
+        active_only: data.activeOnly
     }
 }); };
 
@@ -1362,6 +1444,21 @@ export const getWorkspaceUsage = (data: GetWorkspaceUsageData): CancelablePromis
 }); };
 
 /**
+ * get used triggers
+ * @param data The data for the request.
+ * @param data.workspace
+ * @returns unknown status
+ * @throws ApiError
+ */
+export const getUsedTriggers = (data: GetUsedTriggersData): CancelablePromise<GetUsedTriggersResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/workspaces/used_triggers',
+    path: {
+        workspace: data.workspace
+    }
+}); };
+
+/**
  * list users
  * @param data The data for the request.
  * @param data.workspace
@@ -1679,6 +1776,79 @@ export const listContextualVariables = (data: ListContextualVariablesData): Canc
     path: {
         workspace: data.workspace
     }
+}); };
+
+/**
+ * Get all critical alerts for this workspace
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.page
+ * @param data.pageSize
+ * @param data.acknowledged
+ * @returns CriticalAlert Successfully retrieved all critical alerts
+ * @throws ApiError
+ */
+export const workspaceGetCriticalAlerts = (data: WorkspaceGetCriticalAlertsData): CancelablePromise<WorkspaceGetCriticalAlertsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/workspaces/critical_alerts',
+    path: {
+        workspace: data.workspace
+    },
+    query: {
+        page: data.page,
+        page_size: data.pageSize,
+        acknowledged: data.acknowledged
+    }
+}); };
+
+/**
+ * Acknowledge a critical alert for this workspace
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.id The ID of the critical alert to acknowledge
+ * @returns string Successfully acknowledged the critical alert
+ * @throws ApiError
+ */
+export const workspaceAcknowledgeCriticalAlert = (data: WorkspaceAcknowledgeCriticalAlertData): CancelablePromise<WorkspaceAcknowledgeCriticalAlertResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/workspaces/critical_alerts/{id}/acknowledge',
+    path: {
+        workspace: data.workspace,
+        id: data.id
+    }
+}); };
+
+/**
+ * Acknowledge all unacknowledged critical alerts for this workspace
+ * @param data The data for the request.
+ * @param data.workspace
+ * @returns string Successfully acknowledged all unacknowledged critical alerts.
+ * @throws ApiError
+ */
+export const workspaceAcknowledgeAllCriticalAlerts = (data: WorkspaceAcknowledgeAllCriticalAlertsData): CancelablePromise<WorkspaceAcknowledgeAllCriticalAlertsResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/workspaces/critical_alerts/acknowledge_all',
+    path: {
+        workspace: data.workspace
+    }
+}); };
+
+/**
+ * Mute critical alert UI for this workspace
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.requestBody Boolean flag to mute critical alerts.
+ * @returns string Successfully updated mute critical alert settings.
+ * @throws ApiError
+ */
+export const workspaceMuteCriticalAlertsUi = (data: WorkspaceMuteCriticalAlertsUiData): CancelablePromise<WorkspaceMuteCriticalAlertsUiResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/workspaces/critical_alerts/mute',
+    path: {
+        workspace: data.workspace
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
 }); };
 
 /**
@@ -2656,6 +2826,40 @@ export const getScriptByPath = (data: GetScriptByPathData): CancelablePromise<Ge
 }); };
 
 /**
+ * get triggers count of script
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns TriggersCount triggers count
+ * @throws ApiError
+ */
+export const getTriggersCountOfScript = (data: GetTriggersCountOfScriptData): CancelablePromise<GetTriggersCountOfScriptResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/scripts/get_triggers_count/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
+ * get tokens with script scope
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns TruncatedToken tokens list
+ * @throws ApiError
+ */
+export const listTokensOfScript = (data: ListTokensOfScriptData): CancelablePromise<ListTokensOfScriptResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/scripts/list_tokens/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
  * get script by path with draft
  * @param data The data for the request.
  * @param data.workspace
@@ -2683,6 +2887,23 @@ export const getScriptByPathWithDraft = (data: GetScriptByPathWithDraftData): Ca
 export const getScriptHistoryByPath = (data: GetScriptHistoryByPathData): CancelablePromise<GetScriptHistoryByPathResponse> => { return __request(OpenAPI, {
     method: 'GET',
     url: '/w/{workspace}/scripts/history/p/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
+ * get scripts's latest version (hash)
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns ScriptHistory Script version/hash
+ * @throws ApiError
+ */
+export const getScriptLatestVersion = (data: GetScriptLatestVersionData): CancelablePromise<GetScriptLatestVersionResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/scripts/get_latest_version/{path}',
     path: {
         workspace: data.workspace,
         path: data.path
@@ -3141,6 +3362,23 @@ export const getFlowHistory = (data: GetFlowHistoryData): CancelablePromise<GetF
 }); };
 
 /**
+ * get flow's latest version
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns FlowVersion Flow version
+ * @throws ApiError
+ */
+export const getFlowLatestVersion = (data: GetFlowLatestVersionData): CancelablePromise<GetFlowLatestVersionResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/flows/get_latest_version/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
  * get flow version
  * @param data The data for the request.
  * @param data.workspace
@@ -3199,6 +3437,40 @@ export const getFlowByPath = (data: GetFlowByPathData): CancelablePromise<GetFlo
     },
     query: {
         with_starred_info: data.withStarredInfo
+    }
+}); };
+
+/**
+ * get triggers count of flow
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns TriggersCount triggers count
+ * @throws ApiError
+ */
+export const getTriggersCountOfFlow = (data: GetTriggersCountOfFlowData): CancelablePromise<GetTriggersCountOfFlowResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/flows/get_triggers_count/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
+ * get tokens with flow scope
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns TruncatedToken tokens list
+ * @throws ApiError
+ */
+export const listTokensOfFlow = (data: ListTokensOfFlowData): CancelablePromise<ListTokensOfFlowResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/flows/list_tokens/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
     }
 }); };
 
@@ -3540,6 +3812,23 @@ export const getAppByPathWithDraft = (data: GetAppByPathWithDraftData): Cancelab
 export const getAppHistoryByPath = (data: GetAppHistoryByPathData): CancelablePromise<GetAppHistoryByPathResponse> => { return __request(OpenAPI, {
     method: 'GET',
     url: '/w/{workspace}/apps/history/p/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
+ * get apps's latest version
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns AppHistory App version
+ * @throws ApiError
+ */
+export const getAppLatestVersion = (data: GetAppLatestVersionData): CancelablePromise<GetAppLatestVersionResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/apps/get_latest_version/{path}',
     path: {
         workspace: data.workspace,
         path: data.path
@@ -4058,6 +4347,31 @@ export const getCompletedCount = (data: GetCompletedCountData): CancelablePromis
     url: '/w/{workspace}/jobs/completed/count',
     path: {
         workspace: data.workspace
+    }
+}); };
+
+/**
+ * count number of completed jobs with filter
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.completedAfterSAgo
+ * @param data.success
+ * @param data.tags
+ * @param data.allWorkspaces
+ * @returns number Count of completed jobs
+ * @throws ApiError
+ */
+export const countCompletedJobs = (data: CountCompletedJobsData): CancelablePromise<CountCompletedJobsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/jobs/completed/count_jobs',
+    path: {
+        workspace: data.workspace
+    },
+    query: {
+        completed_after_s_ago: data.completedAfterSAgo,
+        success: data.success,
+        tags: data.tags,
+        all_workspaces: data.allWorkspaces
     }
 }); };
 
@@ -5142,18 +5456,139 @@ export const existsRoute = (data: ExistsRouteData): CancelablePromise<ExistsRout
 }); };
 
 /**
- * whether http triggers are used
+ * create websocket trigger
  * @param data The data for the request.
  * @param data.workspace
- * @returns boolean whether http triggers are used
+ * @param data.requestBody new websocket trigger
+ * @returns string websocket trigger created
  * @throws ApiError
  */
-export const used = (data: UsedData): CancelablePromise<UsedResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/w/{workspace}/http_triggers/used',
+export const createWebsocketTrigger = (data: CreateWebsocketTriggerData): CancelablePromise<CreateWebsocketTriggerResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/websocket_triggers/create',
     path: {
         workspace: data.workspace
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
+}); };
+
+/**
+ * update websocket trigger
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @param data.requestBody updated trigger
+ * @returns string websocket trigger updated
+ * @throws ApiError
+ */
+export const updateWebsocketTrigger = (data: UpdateWebsocketTriggerData): CancelablePromise<UpdateWebsocketTriggerResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/websocket_triggers/update/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
+}); };
+
+/**
+ * delete websocket trigger
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns string websocket trigger deleted
+ * @throws ApiError
+ */
+export const deleteWebsocketTrigger = (data: DeleteWebsocketTriggerData): CancelablePromise<DeleteWebsocketTriggerResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/w/{workspace}/websocket_triggers/delete/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
     }
+}); };
+
+/**
+ * get websocket trigger
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns WebsocketTrigger websocket trigger deleted
+ * @throws ApiError
+ */
+export const getWebsocketTrigger = (data: GetWebsocketTriggerData): CancelablePromise<GetWebsocketTriggerResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/websocket_triggers/get/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
+ * list websocket triggers
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.page which page to return (start at 1, default 1)
+ * @param data.perPage number of items to return for a given page (default 30, max 100)
+ * @param data.path filter by path
+ * @param data.isFlow
+ * @param data.pathStart
+ * @returns WebsocketTrigger websocket trigger list
+ * @throws ApiError
+ */
+export const listWebsocketTriggers = (data: ListWebsocketTriggersData): CancelablePromise<ListWebsocketTriggersResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/websocket_triggers/list',
+    path: {
+        workspace: data.workspace
+    },
+    query: {
+        page: data.page,
+        per_page: data.perPage,
+        path: data.path,
+        is_flow: data.isFlow,
+        path_start: data.pathStart
+    }
+}); };
+
+/**
+ * does websocket trigger exists
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns boolean websocket trigger exists
+ * @throws ApiError
+ */
+export const existsWebsocketTrigger = (data: ExistsWebsocketTriggerData): CancelablePromise<ExistsWebsocketTriggerResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/websocket_triggers/exists/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
+ * set enabled websocket trigger
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @param data.requestBody updated websocket trigger enable
+ * @returns string websocket trigger enabled set
+ * @throws ApiError
+ */
+export const setWebsocketTriggerEnabled = (data: SetWebsocketTriggerEnabledData): CancelablePromise<SetWebsocketTriggerEnabledResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/websocket_triggers/setenabled/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
 }); };
 
 /**
@@ -5654,6 +6089,16 @@ export const getQueueMetrics = (): CancelablePromise<GetQueueMetricsResponse> =>
 }); };
 
 /**
+ * get counts of jobs waiting for an executor per tag
+ * @returns number queue counts
+ * @throws ApiError
+ */
+export const getCountsOfJobsWaitingPerTag = (): CancelablePromise<GetCountsOfJobsWaitingPerTagResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/workers/queue_counts'
+}); };
+
+/**
  * list worker groups
  * @returns unknown a list of worker group configs
  * @throws ApiError
@@ -5719,6 +6164,21 @@ export const deleteConfig = (data: DeleteConfigData): CancelablePromise<DeleteCo
 export const listConfigs = (): CancelablePromise<ListConfigsResponse> => { return __request(OpenAPI, {
     method: 'GET',
     url: '/configs/list'
+}); };
+
+/**
+ * List autoscaling events
+ * @param data The data for the request.
+ * @param data.workerGroup
+ * @returns AutoscalingEvent List of autoscaling events
+ * @throws ApiError
+ */
+export const listAutoscalingEvents = (data: ListAutoscalingEventsData): CancelablePromise<ListAutoscalingEventsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/configs/list_autoscaling_events/{worker_group}',
+    path: {
+        worker_group: data.workerGroup
+    }
 }); };
 
 /**
@@ -6341,6 +6801,8 @@ export const moveS3File = (data: MoveS3FileData): CancelablePromise<MoveS3FileRe
  * @param data.s3ResourcePath
  * @param data.resourceType
  * @param data.storage
+ * @param data.contentType
+ * @param data.contentDisposition
  * @returns unknown File upload status
  * @throws ApiError
  */
@@ -6355,7 +6817,9 @@ export const fileUpload = (data: FileUploadData): CancelablePromise<FileUploadRe
         file_extension: data.fileExtension,
         s3_resource_path: data.s3ResourcePath,
         resource_type: data.resourceType,
-        storage: data.storage
+        storage: data.storage,
+        content_type: data.contentType,
+        content_disposition: data.contentDisposition
     },
     body: data.requestBody,
     mediaType: 'application/octet-stream'
@@ -6629,5 +7093,51 @@ export const searchJobsIndex = (data: SearchJobsIndexData): CancelablePromise<Se
     },
     query: {
         search_query: data.searchQuery
+    }
+}); };
+
+/**
+ * Search through service logs with a string query
+ * @param data The data for the request.
+ * @param data.searchQuery
+ * @param data.mode
+ * @param data.hostname
+ * @param data.workerGroup
+ * @param data.minTs
+ * @param data.maxTs
+ * @returns unknown search results
+ * @throws ApiError
+ */
+export const searchLogsIndex = (data: SearchLogsIndexData): CancelablePromise<SearchLogsIndexResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/srch/index/search/service_logs',
+    query: {
+        search_query: data.searchQuery,
+        mode: data.mode,
+        worker_group: data.workerGroup,
+        hostname: data.hostname,
+        min_ts: data.minTs,
+        max_ts: data.maxTs
+    }
+}); };
+
+/**
+ * Search and count the log line hits on every provided host
+ * @param data The data for the request.
+ * @param data.searchQuery
+ * @param data.hosts
+ * @param data.minTs
+ * @param data.maxTs
+ * @returns unknown search results
+ * @throws ApiError
+ */
+export const countSearchLogsIndex = (data: CountSearchLogsIndexData): CancelablePromise<CountSearchLogsIndexResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/srch/index/search/count_service_logs',
+    query: {
+        search_query: data.searchQuery,
+        hosts: data.hosts,
+        min_ts: data.minTs,
+        max_ts: data.maxTs
     }
 }); };

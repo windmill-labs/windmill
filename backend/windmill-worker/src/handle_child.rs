@@ -48,6 +48,7 @@ use futures::{
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics};
 use crate::job_logger::{append_job_logs, append_with_limit, LARGE_LOG_THRESHOLD_SIZE};
+use crate::job_logger_ee::process_streaming_log_lines;
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 lazy_static::lazy_static! {
@@ -86,7 +87,7 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 /// - update the `last_line` and `logs` strings with the program output
 /// - update "queue"."last_ping" every five seconds
 /// - kill process if we exceed timeout or "queue"."canceled" is set
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(name="run_subprocess", level = "info", skip_all, fields(otel.name = %child_name))]
 pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
@@ -125,7 +126,7 @@ pub async fn handle_child(
     let (tx, rx) = broadcast::channel::<()>(3);
     let mut rx2 = tx.subscribe();
 
-    let output = child_joined_output_stream(&mut child);
+    let output = child_joined_output_stream(&mut child, job_id.clone());
 
     let job_id = job_id.clone();
 
@@ -136,22 +137,49 @@ pub async fn handle_child(
         db,
         mem_peak,
         canceled_by_ref,
-        || get_mem_peak(pid, nsjail),
+        Box::pin(stream::unfold((), move |_| async move {
+            Some((get_mem_peak(pid, nsjail).await, ()))
+        })),
         worker,
         w_id,
         rx,
         occupancy_metrics,
     );
 
-    #[derive(PartialEq, Debug)]
     enum KillReason {
         TooManyLogs,
-        Timeout,
-        Cancelled,
+        Timeout { is_job_specific: bool },
+        Cancelled(Option<CanceledBy>),
         AlreadyCompleted,
     }
 
-    let (timeout_duration, timeout_warn_msg) =
+    impl std::fmt::Debug for KillReason {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            match self {
+                KillReason::TooManyLogs => f.write_str("too many logs (max size: 2MB)"),
+                KillReason::Timeout { is_job_specific } => f.write_str(if *is_job_specific {
+                    "timeout after exceeding job-specific duration limit"
+                } else {
+                    "timeout after exceeding instance-wide job duration limit"
+                }),
+                KillReason::Cancelled(canceled_by) => {
+                    let mut reason = "cancelled".to_string();
+                    if let Some(canceled_by) = canceled_by {
+                        if let Some(by) = canceled_by.username.as_ref() {
+                            reason.push_str(&format!(" by {}", by));
+                        }
+                        if let Some(rsn) = canceled_by.reason.as_ref() {
+                            reason.push_str(&format!(" (reason: {})", rsn));
+                        }
+                    }
+                    f.write_str(&reason)
+                }
+                KillReason::AlreadyCompleted => f.write_str("already completed"),
+            }
+        }
+    }
+
+    let (timeout_duration, timeout_warn_msg, is_job_specific) =
         resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
         append_logs(&job_id, w_id, msg.as_str(), db).await;
@@ -165,9 +193,9 @@ pub async fn handle_child(
             biased;
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = sleep(timeout_duration) => KillReason::Timeout,
+            _ = sleep(timeout_duration) => KillReason::Timeout { is_job_specific },
             ex = update_job, if job_id != Uuid::nil() => match ex {
-                UpdateJobPollingExit::Done => KillReason::Cancelled,
+                UpdateJobPollingExit::Done(canceled_by) => KillReason::Cancelled(canceled_by),
                 UpdateJobPollingExit::AlreadyCompleted => KillReason::AlreadyCompleted,
             },
         };
@@ -175,7 +203,7 @@ pub async fn handle_child(
         drop(tx);
 
         let set_reason = async {
-            if kill_reason == KillReason::Timeout {
+            if matches!(kill_reason, KillReason::Timeout { .. }) {
                 if let Err(err) = sqlx::query(
                     r#"
                        UPDATE queue
@@ -402,7 +430,7 @@ pub async fn handle_child(
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
             }
             _ => Err(Error::ExecutionErr(format!(
-                "job process killed because {kill_reason:#?}"
+                "job process terminated due to {kill_reason:#?}"
             ))),
         },
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
@@ -460,7 +488,7 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     }
 }
 
-pub async fn run_future_with_polling_update_job_poller<Fut, T>(
+pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     job_id: Uuid,
     timeout: Option<i32>,
     db: &DB,
@@ -470,9 +498,11 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    get_mem: S,
 ) -> error::Result<T>
 where
     Fut: Future<Output = anyhow::Result<T>>,
+    S: stream::Stream<Item = i32> + Unpin,
 {
     let (tx, rx) = broadcast::channel::<()>(3);
 
@@ -481,7 +511,7 @@ where
         db,
         mem_peak,
         canceled_by_ref,
-        || async { 0 },
+        get_mem,
         worker_name,
         w_id,
         rx,
@@ -505,7 +535,10 @@ where
         })?,
         ex = update_job, if job_id != Uuid::nil() => {
             match ex {
-                UpdateJobPollingExit::Done => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+                UpdateJobPollingExit::Done(canceled_by) => {
+                    let (by, reason) = canceled_by.as_ref().map_or(("unknown".to_string(), "unknown".to_string()), |x| (x.username.clone().unwrap_or("".to_string()), x.reason.clone().unwrap_or("".to_string())));
+                    Err(Error::ExecutionErr(format!("Job cancelled by {by} (reason: {reason})",))).map_err(to_anyhow)?
+                },
                 UpdateJobPollingExit::AlreadyCompleted => Err(Error::AlreadyCompleted("Job already completed".to_string())).map_err(to_anyhow)?,
             }
         }
@@ -515,24 +548,23 @@ where
 }
 
 pub enum UpdateJobPollingExit {
-    Done,
+    Done(Option<CanceledBy>),
     AlreadyCompleted,
 }
 
-pub async fn update_job_poller<F, Fut>(
+pub async fn update_job_poller<S>(
     job_id: Uuid,
     db: &DB,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
-    get_mem: F,
+    mut get_mem: S,
     worker_name: &str,
     w_id: &str,
     mut rx: broadcast::Receiver<()>,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> UpdateJobPollingExit
 where
-    F: Fn() -> Fut,
-    Fut: Future<Output = i32>,
+    S: stream::Stream<Item = i32> + Unpin,
 {
     let update_job_interval = Duration::from_millis(500);
 
@@ -577,7 +609,7 @@ where
                         .expect("update worker ping");
                     }
                 }
-                let current_mem = get_mem().await;
+                let current_mem = get_mem.next().await.unwrap_or(0);
                 if current_mem > *mem_peak {
                     *mem_peak = current_mem
                 }
@@ -640,7 +672,7 @@ where
     }
     tracing::info!("job {job_id} finished");
 
-    UpdateJobPollingExit::Done
+    UpdateJobPollingExit::Done(canceled_by_ref.clone())
 }
 
 /// takes stdout and stderr from Child, panics if either are not present
@@ -648,6 +680,7 @@ where
 /// builds a stream joining both stdout and stderr each read line by line
 fn child_joined_output_stream(
     child: &mut Child,
+    job_id: Uuid,
 ) -> impl stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
         .stderr
@@ -661,16 +694,21 @@ fn child_joined_output_stream(
 
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
-    stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
+    stream::select(
+        lines_to_stream(stderr, true, job_id.clone()),
+        lines_to_stream(stdout, false, job_id),
+    )
 }
 
 pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
+    stderr: bool,
+    job_id: Uuid,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
             .poll_next_line(cx)
-            .map(|result| result.transpose())
+            .map(|result| process_streaming_log_lines(result, stderr, &job_id))
     })
 }
 

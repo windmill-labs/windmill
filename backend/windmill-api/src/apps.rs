@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 /*
  * Author: Ruben Fiszel
@@ -7,6 +7,7 @@ use std::collections::HashMap;
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+
 use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
@@ -16,14 +17,29 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
+#[cfg(feature = "parquet")]
+use crate::{
+    job_helpers_ee::{
+        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
+        UploadFileResponse,
+    },
+    users::fetch_api_authed_from_permissioned_as,
+};
 use axum::{
     extract::{Extension, Json, Path, Query},
     response::IntoResponse,
     routing::{delete, get, post},
     Router,
 };
+use futures::future::{FutureExt, TryFutureExt};
 use hyper::StatusCode;
+#[cfg(feature = "parquet")]
+use itertools::Itertools;
 use magic_crypt::MagicCryptTrait;
+#[cfg(feature = "parquet")]
+use object_store::{Attribute, Attributes};
+#[cfg(feature = "parquet")]
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sha2::{Digest, Sha256};
@@ -32,28 +48,33 @@ use sqlx::{types::Uuid, FromRow};
 use std::str;
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
-    apps::ListAppQuery,
+    apps::{AppScriptId, ListAppQuery},
+    cache::{self, future::FutureCachedExt},
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
+        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
+        Pagination, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix},
-    worker::to_raw_value,
+    worker::{to_raw_value, CLOUD_HOSTED},
     HUB_BASE_URL,
 };
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
         .route("/get/p/*path", get(get_app))
+        .route("/get/lite/*path", get(get_app_lite))
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
         .route("/get/v/*id", get(get_app_by_id))
@@ -64,19 +85,25 @@ pub fn workspaced_service() -> Router {
         .route("/history/p/*path", get(get_app_history))
         .route("/get_latest_version/*path", get(get_latest_version))
         .route("/history_update/a/:id/v/:version", post(update_app_history))
+        .route("/custom_path_exists/*custom_path", get(custom_path_exists))
 }
 
 pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
+        .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
 }
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
         .route("/hub/get/:id", get(get_hub_app_by_id))
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub fn global_unauthed_service() -> Router {
+    Router::new()
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -129,21 +156,26 @@ pub struct AppWithLastVersionAndStarred {
     pub starred: Option<bool>,
 }
 
+#[cfg(feature = "enterprise")]
+#[derive(Serialize, FromRow)]
+pub struct AppWithLastVersionAndWorkspace {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub app: AppWithLastVersion,
+    pub workspace_id: String,
+}
+
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersionAndDraft {
-    pub id: i64,
-    pub path: String,
-    pub summary: String,
-    pub policy: sqlx::types::Json<Box<RawValue>>,
-    pub versions: Vec<i64>,
-    pub value: sqlx::types::Json<Box<RawValue>>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub extra_perms: serde_json::Value,
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -163,15 +195,16 @@ pub type StaticFields = HashMap<String, Box<RawValue>>;
 pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
 pub type AllowUserResources = Vec<String>;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
+    #[default]
     Anonymous,
     Publisher,
     Viewer,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PolicyTriggerableInputs {
     static_inputs: StaticFields,
     one_of_inputs: OneOfFields,
@@ -180,6 +213,14 @@ pub struct PolicyTriggerableInputs {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct S3Input {
+    allowed_resources: Vec<String>,
+    allow_user_resources: bool,
+    allow_workspace_resource: bool,
+    file_key_regex: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
     pub on_behalf_of_email: Option<String>,
@@ -192,6 +233,7 @@ pub struct Policy {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
     pub execution_mode: ExecutionMode,
+    pub s3_inputs: Option<Vec<S3Input>>,
 }
 
 #[derive(Deserialize)]
@@ -202,6 +244,7 @@ pub struct CreateApp {
     pub policy: Policy,
     pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
+    pub custom_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -211,6 +254,7 @@ pub struct EditApp {
     pub value: Option<sqlx::types::Json<Box<RawValue>>>,
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
+    pub custom_path: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -371,6 +415,33 @@ async fn get_app(
     Ok(Json(app))
 }
 
+async fn get_app_lite(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<AppWithLastVersion> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let app_o = sqlx::query_as::<_, AppWithLastVersion>(
+        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
+        app_version.created_at, app_version.created_by, NULL as starred
+        FROM app, app_version
+        LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
+        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
+    )
+    .bind(path.to_owned())
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let app = not_found_if_none(app_o, "App", path)?;
+    Ok(Json(app))
+}
+
 async fn get_app_w_draft(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -381,7 +452,7 @@ async fn get_app_w_draft(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
         r#"SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        app.extra_perms, app_version.value, 
+        app.extra_perms, app_version.value, app.custom_path,
         app_version.created_at, app_version.created_by,
         app.draft_only, draft.value as "draft"
         from app
@@ -432,9 +503,7 @@ async fn get_latest_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-
 ) -> JsonResult<Option<AppHistory>> {
-
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -457,7 +526,6 @@ async fn get_latest_version(
     } else {
         return Ok(Json(None));
     }
-
 }
 
 async fn update_app_history(
@@ -489,6 +557,21 @@ async fn update_app_history(
     .await?;
     tx.commit().await?;
     return Ok(());
+}
+
+async fn custom_path_exists(
+    Extension(db): Extension<DB>,
+    Path((w_id, custom_path)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    let exists =
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+            custom_path,
+            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+        )
+        .fetch_one(&db)
+        .await?.unwrap_or(false);
+    Ok(Json(exists))
 }
 
 async fn get_app_by_id(
@@ -531,8 +614,9 @@ async fn get_public_app_by_secret(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        null as extra_perms, app_version.value, 
+        null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
         app_version.created_at, app_version.created_by from app, app_version 
+        LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
         .bind(&w_id)
@@ -627,12 +711,11 @@ async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
     app.policy.on_behalf_of_email = Some(authed.email.clone());
@@ -646,7 +729,7 @@ async fn create_app(
         &app.path,
         w_id
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
 
@@ -657,25 +740,47 @@ async fn create_app(
         )));
     }
 
+    if let Some(custom_path) = &app.custom_path {
+        require_admin(authed.is_admin, &authed.username)?;
+
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+            custom_path,
+            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+        )
+        .fetch_one(&mut *tx)
+        .await?.unwrap_or(false);
+
+        if exists {
+            return Err(Error::BadRequest(format!(
+                "App with custom path {} already exists",
+                custom_path
+            )));
+        }
+    }
+
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         &app.path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only)
-            VALUES ($1, $2, $3, $4, '{}', $5) RETURNING id",
+            (workspace_id, path, summary, policy, versions, draft_only, custom_path)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
         w_id,
         app.path,
         app.summary,
         json!(app.policy),
         app.draft_only,
+        app.custom_path
+            .map(|s| if s.is_empty() { None } else { Some(s) })
+            .flatten()
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     let v_id = sqlx::query_scalar!(
@@ -687,7 +792,7 @@ async fn create_app(
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
     )
-    .fetch_one(&mut tx)
+    .fetch_one(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -695,11 +800,11 @@ async fn create_app(
         v_id,
         id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed,
         "apps.create",
         ActionKind::Create,
@@ -785,7 +890,6 @@ async fn delete_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -838,7 +942,6 @@ async fn delete_app(
             version: 0, // dummy version as it will not get inserted in db
         },
         Some(format!("App '{}' deleted", path)),
-        rsmq,
         true,
     )
     .await?;
@@ -869,7 +972,6 @@ async fn update_app(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -877,9 +979,13 @@ async fn update_app(
 
     let path = path.to_path();
 
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let mut tx = user_db.clone().begin(&authed).await?;
 
-    let npath = if ns.policy.is_some() || ns.path.is_some() || ns.summary.is_some() {
+    let npath = if ns.policy.is_some()
+        || ns.path.is_some()
+        || ns.summary.is_some()
+        || ns.custom_path.is_some()
+    {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
@@ -894,7 +1000,7 @@ async fn update_app(
                     npath,
                     w_id
                 )
-                .fetch_one(&mut tx)
+                .fetch_one(&mut *tx)
                 .await?
                 .unwrap_or(false);
 
@@ -912,6 +1018,32 @@ async fn update_app(
             sqlb.set_str("summary", nsummary);
         }
 
+        if let Some(ncustom_path) = &ns.custom_path {
+            require_admin(authed.is_admin, &authed.username)?;
+
+            if ncustom_path.is_empty() {
+                sqlb.set("custom_path", "NULL");
+            } else {
+                let exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
+                    ncustom_path,
+                    if *CLOUD_HOSTED { Some(&w_id) } else { None },
+                    path,
+                    w_id
+                )
+                .fetch_one(&mut *tx)
+                .await?.unwrap_or(false);
+
+                if exists {
+                    return Err(Error::BadRequest(format!(
+                        "App with custom path {} already exists",
+                        ncustom_path
+                    )));
+                }
+                sqlb.set_str("custom_path", ncustom_path);
+            }
+        }
+
         if let Some(mut npolicy) = ns.policy {
             npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
             npolicy.on_behalf_of_email = Some(authed.email.clone());
@@ -926,7 +1058,7 @@ async fn update_app(
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
         not_found_if_none(npath_o, "App", path)?
     } else {
         path.to_owned()
@@ -937,7 +1069,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
 
         let v_id = sqlx::query_scalar!(
@@ -949,7 +1081,7 @@ async fn update_app(
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -958,7 +1090,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
         v_id
     } else {
@@ -967,7 +1099,7 @@ async fn update_app(
             npath,
             w_id
         )
-        .fetch_one(&mut tx)
+        .fetch_one(&mut *tx)
         .await?;
         if let Some(v_id) = v_id {
             v_id
@@ -984,11 +1116,11 @@ async fn update_app(
         path,
         &w_id
     )
-    .execute(&mut tx)
+    .execute(&mut *tx)
     .await?;
 
     audit_log(
-        &mut tx,
+        &mut *tx,
         &authed,
         "apps.update",
         ActionKind::Update,
@@ -998,8 +1130,7 @@ async fn update_app(
     )
     .await?;
 
-    let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
-        PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::Transaction(tx);
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = ns.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
@@ -1048,6 +1179,10 @@ async fn update_app(
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
+    /// The app version to execute. Fallback to `path` if not provided.
+    pub version: Option<i64>,
+    /// The app script id (from the `app_script` table) to execute.
+    pub id: Option<i64>,
     pub args: HashMap<String, Box<RawValue>>,
     // - script: script/<path>
     // - flow: flow/<path>
@@ -1067,85 +1202,10 @@ fn digest(code: &str) -> String {
     format!("rawscript/{:x}", result)
 }
 
-async fn execute_component(
-    OptAuthed(opt_authed): OptAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-    Json(payload): Json<ExecuteApp>,
-) -> Result<String> {
-    match (payload.path.is_some(), payload.raw_code.is_some()) {
-        (false, false) => {
-            return Err(Error::BadRequest(
-                "path or raw_code is required".to_string(),
-            ))
-        }
-        (true, true) => {
-            return Err(Error::BadRequest(
-                "path and raw_code cannot be set at the same time".to_string(),
-            ))
-        }
-        _ => {}
-    };
-
-    let path = path.to_path();
-
-    let policy = match payload.clone() {
-        ExecuteApp {
-            force_viewer_static_fields: Some(static_fields),
-            force_viewer_one_of_fields: Some(one_of_fields),
-            force_viewer_allow_user_resources: Some(allow_user_resources),
-            ..
-        } => {
-            let mut hm = HashMap::new();
-
-            if let Some(path) = payload.path.clone() {
-                hm.insert(
-                    format!("{}:{path}", payload.component),
-                    PolicyTriggerableInputs {
-                        static_inputs: static_fields,
-                        one_of_inputs: one_of_fields,
-                        allow_user_resources,
-                    },
-                );
-            } else {
-                hm.insert(
-                    format!(
-                        "{}:{}",
-                        payload.component,
-                        digest(payload.raw_code.clone().unwrap().content.as_str())
-                    ),
-                    PolicyTriggerableInputs {
-                        static_inputs: static_fields,
-                        one_of_inputs: one_of_fields,
-                        allow_user_resources,
-                    },
-                );
-            }
-            Policy {
-                execution_mode: ExecutionMode::Viewer,
-                triggerables: None,
-                triggerables_v2: Some(hm),
-                on_behalf_of: None,
-                on_behalf_of_email: None,
-            }
-        }
-        _ => {
-            let policy_o = sqlx::query_scalar!(
-                "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
-                path,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?;
-
-            let policy = not_found_if_none(policy_o, "App", path)?;
-
-            serde_json::from_value::<Policy>(policy).map_err(to_anyhow)?
-        }
-    };
-
+async fn get_on_behalf_details_from_policy_and_authed(
+    policy: &Policy,
+    opt_authed: &Option<ApiAuthed>,
+) -> Result<(String, String, String)> {
     let (username, permissioned_as, email) = match policy.execution_mode {
         ExecutionMode::Anonymous => {
             let username = opt_authed
@@ -1182,42 +1242,173 @@ async fn execute_component(
         }
     };
 
-    let (job_payload, (args, job_id), tag) = match payload {
-        ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
-            let content = &raw_code.content;
-            let payload = JobPayload::Code(raw_code.clone());
-            let path = digest(content);
-            let args = build_args(
-                policy,
-                &component,
+    Ok((username, permissioned_as, email))
+}
+
+/// Convert the triggerables from the old format to the new format.
+fn empty_triggerables(mut policy: Policy) -> Policy {
+    use std::mem::take;
+    if let Some(triggerables) = take(&mut policy.triggerables) {
+        let mut triggerables_v2 = take(&mut policy.triggerables_v2).unwrap_or_default();
+        for (k, static_inputs) in triggerables.into_iter() {
+            triggerables_v2.insert(
+                k,
+                PolicyTriggerableInputs { static_inputs, ..Default::default() },
+            );
+        }
+        policy.triggerables_v2 = Some(triggerables_v2);
+    }
+    policy
+}
+
+async fn execute_component(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(payload): Json<ExecuteApp>,
+) -> Result<String> {
+    match (payload.path.is_some(), payload.raw_code.is_some()) {
+        (false, false) => {
+            return Err(Error::BadRequest(
+                "path or raw_code is required".to_string(),
+            ))
+        }
+        (true, true) => {
+            return Err(Error::BadRequest(
+                "path and raw_code cannot be set at the same time".to_string(),
+            ))
+        }
+        _ => {}
+    };
+
+    let path = path.to_path();
+    let (arc_policy, policy): (Arc<Policy>, Policy);
+    let policy_triggerables_default = Default::default();
+
+    // Two cases here:
+    // 1. The component is executed from the editor (i.e. in "preview" mode), then:
+    //    - The policy is set to default (in `Viewer` execution mode).
+    //    - The policy triggerables are built by the frontend and retrieved from the request
+    //      payload.
+    //    - In case of inline script, the `RawCode` from the request is pushed as is to the
+    //      job queue.
+    // 2. Otherwise (i.e. "run" mode):
+    //    - The policy and triggerables are fetched from the database.
+    //    - In case of inline script, if an entry exists in the `app_script` table, push
+    //      an `AppScript` job payload, as in (.1) otherwise.
+    let (policy, policy_triggerables) = match payload {
+        // 1. "preview" mode.
+        ExecuteApp {
+            force_viewer_static_fields: Some(static_inputs),
+            force_viewer_one_of_fields: Some(one_of_inputs),
+            force_viewer_allow_user_resources: Some(allow_user_resources),
+            ..
+        } => (
+            &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
+            &PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources },
+        ),
+        // 2. "run" mode.
+        _ => {
+            // Policy is fetched from the database on app `path` and `workspace_id`.
+            let policy_fut = sqlx::query_scalar!(
+                "SELECT policy as \"policy: sqlx::types::Json<Box<RawValue>>\"
+                FROM app WHERE app.path = $1 AND app.workspace_id = $2 LIMIT 1",
                 path,
-                args,
-                opt_authed.as_ref(),
-                &user_db,
-                &db,
                 &w_id,
             )
-            .await?;
-            (payload, args, None)
+            .fetch_optional(&db)
+            .map_err(Into::<Error>::into)
+            .map(|policy_o| Result::Ok(not_found_if_none(policy_o?, "App", path)?))
+            .map(|policy| Result::Ok(serde_json::from_str(policy?.get())?))
+            .map_ok(empty_triggerables);
+
+            // 1. The app `version` is provided: cache the fetched policy.
+            // 2. Otherwise, always fetch the policy from the database.
+            let policy = if let Some(id) = payload.version {
+                let cache = cache::anon!({ u64 => Arc<Policy> } in "policy" <= 1000);
+                arc_policy = policy_fut
+                    .map_ok(Arc::new)
+                    .cached(cache, &(id as u64))
+                    .await?;
+                &*arc_policy
+            } else {
+                policy = policy_fut.await?;
+                &policy
+            };
+
+            // Compute the path for the triggerables map:
+            // - flow: `flow/<payload.path>`
+            // - script: `script/<payload.path>`
+            // - inline script: `rawscript/<sha256(raw_code.content)>`
+            let path = match &payload {
+                // flow or script: just use the `payload.path`.
+                ExecuteApp { path: Some(path), .. } => path,
+                // inline script: without entry in the `app_script` table.
+                ExecuteApp { raw_code: Some(raw_code), id: None, .. } => &digest(&raw_code.content),
+                // inline script: with an entry in the `app_script` table.
+                ExecuteApp { raw_code: Some(_), id: Some(id), .. } => {
+                    let cache = cache::anon!({ u64 => Arc<String> } in "appscriptpath" <= 10000);
+                    // `id` is unique, cache the result.
+                    &*sqlx::query_scalar!(
+                        "SELECT format('rawscript/%s', code_sha256) as \"path!: String\"
+                        FROM app_script WHERE id = $1 LIMIT 1",
+                        id
+                    )
+                    .fetch_one(&db)
+                    .map_err(Into::<Error>::into)
+                    .map_ok(Arc::new)
+                    .cached(cache, &(*id as u64))
+                    .await?
+                }
+                _ => unreachable!(),
+            };
+
+            // Retrieve the triggerables from the policy on `path` or `<component>:<path>`.
+            let triggerables_v2 = policy
+                .triggerables_v2
+                .as_ref()
+                .ok_or_else(|| Error::BadRequest(format!("Policy is missing triggerables")))?;
+            let policy_triggerables = triggerables_v2
+                .get(path) // start with `path` in case we can avoid the next` format!`.
+                .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
+                .or(match policy.execution_mode {
+                    ExecutionMode::Viewer => Some(&policy_triggerables_default),
+                    _ => None,
+                })
+                .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
+
+            (policy, policy_triggerables)
         }
-        ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
-            let (payload, tag) = get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?;
-            let args = build_args(
-                policy,
-                &component,
-                path.to_string(),
-                args,
-                opt_authed.as_ref(),
-                &user_db,
-                &db,
-                &w_id,
-            )
-            .await?;
-            (payload, args, tag)
-        }
+    };
+
+    let (username, permissioned_as, email) =
+        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+
+    let (args, job_id) = build_args(
+        policy,
+        policy_triggerables,
+        payload.args,
+        opt_authed.as_ref(),
+        &user_db,
+        &db,
+        &w_id,
+    )
+    .await?;
+
+    let (job_payload, tag) = match (payload.path, payload.raw_code, payload.id) {
+        // flow or script:
+        (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
+        // inline script: in "preview" mode or without entry in the `app_script` table.
+        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None),
+        // inline script: in "run" mode and with an entry in the `app_script` table.
+        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
+            JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+            None,
+        ),
         _ => unreachable!(),
     };
-    let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
+    let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (uuid, tx) = push(
         &db,
@@ -1247,6 +1438,252 @@ async fn execute_component(
     tx.commit().await?;
 
     Ok(uuid.to_string())
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn upload_s3_file_from_app() -> Result<()> {
+    return Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ));
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Debug, Deserialize, Clone)]
+struct UploadFileToS3Query {
+    file_key: Option<String>,
+    file_extension: Option<String>,
+    s3_resource_path: Option<String>,
+    content_type: Option<String>,
+    content_disposition: Option<String>,
+    force_viewer_file_key_regex: Option<String>,
+    force_viewer_allow_user_resources: Option<bool>,
+    force_viewer_allow_workspace_resource: Option<bool>,
+    force_viewer_allowed_resources: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
+async fn upload_s3_file_from_app(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<UploadFileToS3Query>,
+    request: axum::extract::Request,
+) -> JsonResult<UploadFileResponse> {
+    let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
+        Some(Policy {
+            execution_mode: ExecutionMode::Viewer,
+            triggerables: None,
+            triggerables_v2: None,
+            on_behalf_of: None,
+            on_behalf_of_email: None,
+            s3_inputs: Some(vec![S3Input {
+                file_key_regex: file_key_regex,
+                allow_user_resources: query.force_viewer_allow_user_resources.unwrap_or(false),
+                allow_workspace_resource: query
+                    .force_viewer_allow_workspace_resource
+                    .unwrap_or(false),
+                allowed_resources: query
+                    .force_viewer_allowed_resources
+                    .map(|s| s.split(',').map(|s| s.to_string()).collect())
+                    .unwrap_or_default(),
+            }]),
+        })
+    } else {
+        let policy_o = sqlx::query_scalar!(
+            "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+            &path.0,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+
+        policy_o
+            .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
+            .transpose()?
+    };
+
+    let user_db = UserDB::new(db.clone());
+
+    let (s3_resource_opt, file_key) = if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
+        let policy = policy.unwrap();
+        let s3_inputs = policy.s3_inputs.as_ref().unwrap();
+
+        let (username, permissioned_as, email) =
+            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+
+        let on_behalf_authed = fetch_api_authed_from_permissioned_as(
+            permissioned_as,
+            email,
+            &w_id,
+            &db,
+            Some(username),
+        )
+        .await?;
+
+        if let Some(file_key) = query.file_key {
+            // file key is provided => requires workspace, user or list policy and must match the regex
+            let matching_s3_inputs = if let Some(ref s3_resource_path) = query.s3_resource_path {
+                s3_inputs
+                    .iter()
+                    .filter(|s3_input| {
+                        s3_input.allowed_resources.contains(s3_resource_path)
+                            || s3_input.allow_user_resources
+                    })
+                    .sorted_by_key(|i| i.allow_user_resources) // consider user resources last
+                    .collect::<Vec<_>>()
+            } else {
+                s3_inputs
+                    .iter()
+                    .filter(|s3_input| s3_input.allow_workspace_resource)
+                    .collect::<Vec<_>>()
+            };
+
+            let matched_input = matching_s3_inputs.iter().find(|s3_input| {
+                match Regex::new(&s3_input.file_key_regex) {
+                    Ok(re) => re.is_match(&file_key),
+                    Err(e) => {
+                        tracing::error!("Error compiling regex: {}", e);
+                        false
+                    }
+                }
+            });
+
+            if let Some(matched_input) = matched_input {
+                if let Some(ref s3_resource_path) = query.s3_resource_path {
+                    if matched_input.allow_user_resources {
+                        if let Some(authed) = opt_authed {
+                            (
+                                Some(
+                                    get_s3_resource(
+                                        &authed,
+                                        &db,
+                                        Some(user_db),
+                                        "",
+                                        &w_id,
+                                        s3_resource_path,
+                                        None,
+                                        None,
+                                    )
+                                    .await?,
+                                ),
+                                file_key,
+                            )
+                        } else {
+                            return Err(Error::BadRequest(
+                                "User resources are not allowed without being logged in"
+                                    .to_string(),
+                            ));
+                        }
+                    } else {
+                        (
+                            Some(
+                                get_s3_resource(
+                                    &on_behalf_authed,
+                                    &db,
+                                    Some(user_db),
+                                    "",
+                                    &w_id,
+                                    s3_resource_path,
+                                    None,
+                                    None,
+                                )
+                                .await?,
+                            ),
+                            file_key,
+                        )
+                    }
+                } else {
+                    let (_, s3_resource_opt) =
+                        get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None)
+                            .await?;
+                    (s3_resource_opt, file_key)
+                }
+            } else {
+                return Err(Error::BadRequest(
+                    "No matching s3 resource found for the given file key".to_string(),
+                ));
+            }
+        } else {
+            // no file key => requires unnamed upload policy => allow workspace resource and file_key_regex is empty
+            let has_unnamed_policy = s3_inputs.iter().any(|s3_input| {
+                s3_input.allow_workspace_resource && s3_input.file_key_regex.is_empty()
+            });
+
+            if !has_unnamed_policy {
+                return Err(Error::BadRequest(
+                    "no policy found for unnamed s3 file uplooad".to_string(),
+                ));
+            }
+
+            // for now, we place all files into `windmill_uploads` folder with a random name
+            // TODO: make the folder configurable via the workspace settings
+            let file_key = get_random_file_name(query.file_extension);
+
+            let (_, s3_resource_opt) =
+                get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
+
+            (s3_resource_opt, file_key)
+        }
+    } else {
+        // backward compatibility (no policy)
+        // if no policy but logged in, use the user's auth to get the s3 resource
+        if let Some(authed) = opt_authed {
+            let file_key = query
+                .file_key
+                .unwrap_or_else(|| get_random_file_name(query.file_extension));
+
+            if let Some(ref s3_resource_path) = query.s3_resource_path {
+                (
+                    Some(
+                        get_s3_resource(
+                            &authed,
+                            &db,
+                            Some(user_db),
+                            "",
+                            &w_id,
+                            s3_resource_path,
+                            None,
+                            None,
+                        )
+                        .await?,
+                    ),
+                    file_key,
+                )
+            } else {
+                let (_, s3_resource) =
+                    get_workspace_s3_resource(&authed, &db, None, "", &w_id, None).await?;
+
+                (s3_resource, file_key)
+            }
+        } else {
+            return Err(Error::BadRequest("Missing s3 policy".to_string()));
+        }
+    };
+
+    let s3_resource = s3_resource_opt.ok_or(Error::InternalErr(
+        "No files storage resource defined at the workspace level".to_string(),
+    ))?;
+    let s3_client = build_object_store_client(&s3_resource).await?;
+
+    let options = Attributes::from_iter(vec![
+        (
+            Attribute::ContentType,
+            query.content_type.unwrap_or_else(|| {
+                mime_guess::from_path(&file_key)
+                    .first_or_octet_stream()
+                    .to_string()
+            }),
+        ),
+        (
+            Attribute::ContentDisposition,
+            query.content_disposition.unwrap_or("inline".to_string()),
+        ),
+    ])
+    .into();
+
+    upload_file_internal(s3_client, &file_key, request, options).await?;
+
+    return Ok(Json(UploadFileResponse { file_key }));
 }
 
 fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
@@ -1303,9 +1740,12 @@ async fn exists_app(
 }
 
 async fn build_args(
-    policy: Policy,
-    component: &str,
-    path: String,
+    policy: &Policy,
+    PolicyTriggerableInputs {
+        static_inputs,
+        one_of_inputs,
+        allow_user_resources,
+    }: &PolicyTriggerableInputs,
     mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
     user_db: &UserDB,
@@ -1313,54 +1753,6 @@ async fn build_args(
     w_id: &str,
 ) -> Result<(PushArgsOwned, Option<Uuid>)> {
     let mut job_id: Option<Uuid> = None;
-    let key = format!("{}:{}", component, &path);
-    let (static_inputs, one_of_inputs, allow_user_resources) = match policy {
-        Policy { triggerables_v2: Some(t), .. } => {
-            let PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources } = t
-                .get(&key)
-                .or_else(|| t.get(&path))
-                .map(|x| x.clone())
-                .or_else(|| {
-                    if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                        Some(PolicyTriggerableInputs {
-                            static_inputs: HashMap::new(),
-                            one_of_inputs: HashMap::new(),
-                            allow_user_resources: Vec::new(),
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| {
-                    Error::BadRequest(format!("path {} is not allowed in the app policy", path))
-                })?;
-
-            (static_inputs, one_of_inputs, allow_user_resources)
-        }
-        Policy { triggerables: Some(t), .. } => {
-            let static_inputs = t
-                .get(&key)
-                .or_else(|| t.get(&path))
-                .map(|x| x.clone())
-                .or_else(|| {
-                    if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                        Some(HashMap::new())
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| {
-                    Error::BadRequest(format!("path {} is not allowed in the app policy", path))
-                })?;
-
-            (static_inputs, HashMap::new(), Vec::new())
-        }
-        _ => Err(Error::BadRequest(format!(
-            "Policy is missing triggerables for {}",
-            key
-        )))?,
-    };
-
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
 
     // tracing::error!("{:?}", allow_user_resources);
@@ -1409,16 +1801,16 @@ async fn build_args(
     }
 
     for (k, v) in one_of_inputs {
-        if safe_args.contains_key(&k) {
+        if safe_args.contains_key(k) {
             continue;
         }
-        if let Some(arg_val) = args.get(&k) {
+        if let Some(arg_val) = args.get(k) {
             let arg_str = arg_val.get();
 
             let options_str_vec = v.iter().map(|x| x.get()).collect::<Vec<&str>>();
             if options_str_vec.contains(&arg_str) {
                 safe_args.insert(k.to_string(), arg_val.clone());
-                args.remove(&k);
+                args.remove(k);
                 continue;
             }
 
@@ -1429,7 +1821,7 @@ async fn build_args(
                     .all(|x| options_str_vec.contains(&x.get()))
                 {
                     safe_args.insert(k.to_string(), arg_val.clone());
-                    args.remove(&k);
+                    args.remove(k);
                     continue;
                 }
             }

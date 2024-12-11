@@ -7,7 +7,7 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import { getContext } from 'svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 	import type { FlowCopilotContext } from './flow'
@@ -83,7 +83,7 @@ Your answer has to be in the following format (one line per input):
 input_name1: expression1
 input_name2: expression2
 ...`
-
+			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -91,7 +91,8 @@ input_name2: expression2
 						content: user
 					}
 				],
-				abortController
+				abortController,
+				aiProvider as AiProviderTypes
 			)
 
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
@@ -168,7 +169,7 @@ input_name2: expression2
 </script>
 
 <div class="flex flex-row justify-end">
-	{#if $copilotInfo.exists_openai_resource_path && $stepInputCompletionEnabled}
+	{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				createFlowInputs()
@@ -236,10 +237,10 @@ input_name2: expression2
 				</Button>
 			</svelte:fragment>
 			<p class="text-sm">
-				{#if !$copilotInfo.exists_openai_resource_path}
+				{#if !$copilotInfo.exists_ai_resource}
 					Enable Windmill AI in the{' '}
 					<a
-						href="{base}/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=ai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>
