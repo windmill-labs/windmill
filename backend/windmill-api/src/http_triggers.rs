@@ -1,6 +1,7 @@
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::{
+    args::WebhookArgs,
     db::{ApiAuthed, DB},
     jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
@@ -32,7 +33,6 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use windmill_queue::PushArgsOwned;
 
 lazy_static::lazy_static! {
     static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/:\w+").unwrap();
@@ -531,7 +531,7 @@ async fn route_job(
     Query(query): Query<HashMap<String, String>>,
     method: http::Method,
     headers: HeaderMap,
-    mut args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> impl IntoResponse {
     let route_path = route_path.to_path();
     let (trigger, called_path, params, authed) = match get_http_route_trigger(
@@ -544,6 +544,14 @@ async fn route_job(
     .await
     {
         Ok(trigger) => trigger,
+        Err(e) => return e.into_response(),
+    };
+
+    let mut args = match args
+        .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+        .await
+    {
+        Ok(args) => args,
         Err(e) => return e.into_response(),
     };
 

@@ -36,6 +36,7 @@ use crate::db::ApiAuthed;
 use crate::users::get_scope_tags;
 use crate::utils::content_plain;
 use crate::{
+    args::{DecodeQueries, WebhookArgs},
     db::DB,
     users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
@@ -83,7 +84,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     cancel_job, get_queued_job, get_result_by_id_from_running_flow, job_is_complete, push,
-    DecodeQueries, PushArgs, PushArgsOwned, PushIsolationLevel,
+    PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -631,7 +632,10 @@ async fn get_flow_job_debug_info(
             }
         }
         for job_id in job_ids {
-            let job = GetQuery::new().with_auth(&opt_authed).fetch(&db, job_id, &w_id).await;
+            let job = GetQuery::new()
+                .with_auth(&opt_authed)
+                .fetch(&db, job_id, &w_id)
+                .await;
             if let Ok(job) = job {
                 jobs.insert(job.id().to_string(), job);
             }
@@ -832,7 +836,10 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(cjob.as_ref().map(|job| job.created_by.as_str()))?;
         if self.with_flow {
-            cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| job.raw_flow.as_mut()).await?;
+            cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| {
+                job.raw_flow.as_mut()
+            })
+            .await?;
         }
         if let Some(mut cjob) = cjob {
             cjob.inner = format_completed_job_result(cjob.inner);
@@ -842,14 +849,16 @@ impl<'a> GetQuery<'a> {
     }
 
     async fn fetch(self, db: &DB, job_id: Uuid, workspace_id: &str) -> error::Result<Job> {
-        let cjob = self.fetch_completed(db, job_id, workspace_id)
+        let cjob = self
+            .fetch_completed(db, job_id, workspace_id)
             .await?
             .map(Job::CompletedJob);
 
         match cjob {
             Some(cjob) => Ok(cjob),
             None => {
-                let job_maybe = self.fetch_queued(db, job_id, workspace_id)
+                let job_maybe = self
+                    .fetch_queued(db, job_id, workspace_id)
                     .await?
                     .map(Job::QueuedJob);
                 not_found_if_none(job_maybe, "Job", job_id.to_string())
@@ -2940,8 +2949,10 @@ pub async fn run_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+
     run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await
 }
 
@@ -3116,8 +3127,9 @@ pub async fn run_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
     run_script_by_path_inner(
         authed,
         db,
@@ -3218,7 +3230,10 @@ pub async fn run_workflow_as_code(
         i += 1;
     }
 
-    let job = GetQuery::new().without_logs().fetch_queued(&db, job_id, &w_id).await?;
+    let job = GetQuery::new()
+        .without_logs()
+        .fetch_queued(&db, job_id, &w_id)
+        .await?;
 
     if *CLOUD_HOSTED {
         tracing::info!("workflow_as_code_tracing id {i} ");
@@ -3779,10 +3794,12 @@ pub async fn run_wait_result_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
+
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     run_wait_result_script_by_path_internal(
         db,
@@ -3861,10 +3878,12 @@ pub async fn run_wait_result_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
+
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
@@ -3945,10 +3964,12 @@ pub async fn run_wait_result_flow_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
+
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     run_wait_result_flow_by_path_internal(
         db, run_query, flow_path, authed, user_db, args, w_id, None,
@@ -4692,12 +4713,12 @@ async fn run_preview_flow_job(
 pub async fn run_job_by_hash(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
     run_job_by_hash_inner(
         authed,
         db,
@@ -4747,6 +4768,7 @@ pub async fn run_job_by_hash_inner(
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
+
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
     let (uuid, tx) = push(

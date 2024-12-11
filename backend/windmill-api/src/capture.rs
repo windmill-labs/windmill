@@ -18,9 +18,12 @@ use windmill_common::{
     error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
-use windmill_queue::{PushArgs, PushArgsOwned};
+use windmill_queue::PushArgs;
 
-use crate::db::{ApiAuthed, DB};
+use crate::{
+    args::WebhookArgs,
+    db::{ApiAuthed, DB},
+};
 
 const KEEP_LAST: i64 = 8;
 
@@ -86,8 +89,10 @@ pub async fn new_payload(
 pub async fn update_payload(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> Result<StatusCode> {
+    let args = args.args;
+
     let mut tx = db.begin().await?;
 
     sqlx::query!(
