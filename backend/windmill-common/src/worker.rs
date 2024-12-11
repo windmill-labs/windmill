@@ -17,7 +17,9 @@ use std::{
 use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
-use crate::{error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, DB};
+use crate::{
+    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, DB,
+};
 
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
@@ -352,6 +354,11 @@ pub struct SqlAnnotations {
     pub return_last_result: bool,
 }
 
+#[annotations("#")]
+pub struct BashAnnotations {
+    pub docker: bool,
+}
+
 pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded from local cache: {}\n", bin_path))
@@ -577,8 +584,10 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(executor: E) -> bool {
-    use crate::utils::{GIT_VERSION, GIT_SEM_VERSION};
+pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+) -> bool {
+    use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
 
     // fetch all pings with a different version than self from the last 5 minutes.
     let pings = sqlx::query_scalar!(

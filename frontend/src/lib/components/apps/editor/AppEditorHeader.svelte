@@ -482,7 +482,7 @@
 				policy,
 				path: npath,
 				deployment_message: deploymentMsg,
-				custom_path: $userStore?.is_admin || $userStore?.is_super_admin ? customPath : undefined
+				custom_path: $userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
 			}
 		})
 		savedApp = {

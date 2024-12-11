@@ -1,7 +1,7 @@
 {
   "name": "alex-windmill-client-alex",
   "description": "Windmill SDK client for browsers and Node.js",
-  "version": "1.435.2",
+  "version": "1.437.1",
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
   "devDependencies": {

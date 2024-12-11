@@ -87,7 +87,7 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 /// - update the `last_line` and `logs` strings with the program output
 /// - update "queue"."last_ping" every five seconds
 /// - kill process if we exceed timeout or "queue"."canceled" is set
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(name="run_subprocess", level = "info", skip_all, fields(otel.name = %child_name))]
 pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
@@ -126,7 +126,7 @@ pub async fn handle_child(
     let (tx, rx) = broadcast::channel::<()>(3);
     let mut rx2 = tx.subscribe();
 
-    let output = child_joined_output_stream(&mut child);
+    let output = child_joined_output_stream(&mut child, job_id.clone());
 
     let job_id = job_id.clone();
 
@@ -137,7 +137,9 @@ pub async fn handle_child(
         db,
         mem_peak,
         canceled_by_ref,
-        || get_mem_peak(pid, nsjail),
+        Box::pin(stream::unfold((), move |_| async move {
+            Some((get_mem_peak(pid, nsjail).await, ()))
+        })),
         worker,
         w_id,
         rx,
@@ -435,8 +437,6 @@ pub async fn handle_child(
     }
 }
 
-
-
 async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
@@ -488,7 +488,7 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     }
 }
 
-pub async fn run_future_with_polling_update_job_poller<Fut, T>(
+pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     job_id: Uuid,
     timeout: Option<i32>,
     db: &DB,
@@ -498,9 +498,11 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    get_mem: S,
 ) -> error::Result<T>
 where
     Fut: Future<Output = anyhow::Result<T>>,
+    S: stream::Stream<Item = i32> + Unpin,
 {
     let (tx, rx) = broadcast::channel::<()>(3);
 
@@ -509,7 +511,7 @@ where
         db,
         mem_peak,
         canceled_by_ref,
-        || async { 0 },
+        get_mem,
         worker_name,
         w_id,
         rx,
@@ -550,20 +552,19 @@ pub enum UpdateJobPollingExit {
     AlreadyCompleted,
 }
 
-pub async fn update_job_poller<F, Fut>(
+pub async fn update_job_poller<S>(
     job_id: Uuid,
     db: &DB,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
-    get_mem: F,
+    mut get_mem: S,
     worker_name: &str,
     w_id: &str,
     mut rx: broadcast::Receiver<()>,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> UpdateJobPollingExit
 where
-    F: Fn() -> Fut,
-    Fut: Future<Output = i32>,
+    S: stream::Stream<Item = i32> + Unpin,
 {
     let update_job_interval = Duration::from_millis(500);
 
@@ -608,7 +609,7 @@ where
                         .expect("update worker ping");
                     }
                 }
-                let current_mem = get_mem().await;
+                let current_mem = get_mem.next().await.unwrap_or(0);
                 if current_mem > *mem_peak {
                     *mem_peak = current_mem
                 }
@@ -679,6 +680,7 @@ where
 /// builds a stream joining both stdout and stderr each read line by line
 fn child_joined_output_stream(
     child: &mut Child,
+    job_id: Uuid,
 ) -> impl stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
         .stderr
@@ -692,23 +694,23 @@ fn child_joined_output_stream(
 
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
-    stream::select(lines_to_stream(stderr, true), lines_to_stream(stdout, false))
+    stream::select(
+        lines_to_stream(stderr, true, job_id.clone()),
+        lines_to_stream(stdout, false, job_id),
+    )
 }
 
 pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
     stderr: bool,
+    job_id: Uuid,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
             .poll_next_line(cx)
-            .map(|result| {
-                process_streaming_log_lines(result, stderr)
-             })
+            .map(|result| process_streaming_log_lines(result, stderr, &job_id))
     })
 }
-
-
 
 pub fn process_status(status: ExitStatus) -> error::Result<()> {
     if status.success() {

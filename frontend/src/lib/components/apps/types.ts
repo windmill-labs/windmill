@@ -117,6 +117,7 @@ export type InlineScript = {
 	cache_ttl?: number
 	refreshOn?: { id: string; key: string }[]
 	suggestedRefreshOn?: { id: string; key: string }[]
+	id?: number
 }
 
 export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
@@ -163,6 +164,7 @@ export type App = {
 	theme: AppTheme | undefined
 	hideLegacyTopBar?: boolean | undefined
 	mobileViewOnSmallerScreens?: boolean | undefined
+	version?: number
 }
 
 export type ConnectingInput = {

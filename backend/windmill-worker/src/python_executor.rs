@@ -3,7 +3,7 @@ use std::{
     fs,
     path::Path,
     process::Stdio,
-    sync::Arc
+    sync::Arc,
 };
 
 use anyhow::anyhow;
@@ -318,7 +318,7 @@ pub async fn uv_pip_compile(
         if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
         }
-        tracing::debug!("uv args: {:?}", args);
+        tracing::error!("uv args: {:?}", args);
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -329,7 +329,8 @@ pub async fn uv_pip_compile(
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd
             .current_dir(job_dir)
-            .args(args)
+            .env("HOME", HOME_ENV.to_string())
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let child_process = start_child_process(child_cmd, uv_cmd).await?;
@@ -350,7 +351,12 @@ pub async fn uv_pip_compile(
             occupancy_metrics,
         )
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Lock file generation failed.\n\ncommand: {uv_cmd} {}\n\n{e:?}",
+                args.join(" ")
+            ))
+        })?;
     }
 
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -423,12 +429,12 @@ async fn postinstall(
                     .ok_or(anyhow::anyhow!("Cannot convert OsString to String"))?
                     .to_owned();
 
-                if name == "bin" || name.contains("dist-info") {
+                if name == "bin" || name == "__pycache__" || name.contains("dist-info") {
                     continue;
                 }
 
                 if let Some(existing_paths) = lookup_table.get_mut(&name) {
-                    tracing::info!(
+                    tracing::debug!(
                         "Found existing package name: {:?} in {}",
                         entry.file_name(),
                         path
@@ -479,17 +485,21 @@ fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Resul
         fs::create_dir_all(dst)?;
     }
 
+    tracing::debug!("Copying recursively from {:?} to {:?}", src, dst);
+
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
-        if src_path.is_dir() {
+        if src_path.is_dir() && !src_path.is_symlink() {
             copy_dir_recursively(&src_path, &dst_path)?;
         } else {
             fs::copy(&src_path, &dst_path)?;
         }
     }
+
+    tracing::debug!("Finished copying recursively from {:?} to {:?}", src, dst);
 
     Ok(())
 }
@@ -529,10 +539,13 @@ pub async fn handle_python_job(
     )
     .await?;
 
+    tracing::debug!("Finished handling python dependencies");
+
     if !PythonAnnotations::parse(inner_content).no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, db).await {
             tracing::error!("Postinstall stage has failed. Reason: {e}");
         }
+        tracing::debug!("Finished deps postinstall stage");
     }
 
     append_logs(
@@ -563,9 +576,12 @@ pub async fn handle_python_job(
     )
     .await?;
 
+    tracing::debug!("Finished preparing wrapper");
+
     let apply_preprocessor = pre_spread.is_some();
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
+    tracing::debug!("Finished preparing wrapper");
 
     let preprocessor = if let Some(pre_spread) = pre_spread {
         format!(
@@ -664,6 +680,8 @@ except BaseException as e:
     );
     write_file(job_dir, "wrapper.py", &wrapper_content)?;
 
+    tracing::debug!("Finished writing wrapper");
+
     let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
@@ -749,7 +767,8 @@ mount {{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        #[cfg(windows)] {
+        #[cfg(windows)]
+        {
             python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
             python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
@@ -1093,7 +1112,7 @@ async fn handle_python_deps(
         let mut venv_path = handle_python_reqs(
             requirements
                 .split("\n")
-                .filter(|x| !x.starts_with("--"))
+                .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
                 .collect(),
             job_id,
             w_id,
@@ -1239,29 +1258,28 @@ async fn spawn_uv_install(
         #[cfg(unix)]
         {
             if no_uv_install {
-              let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-              flock_cmd
-                  .env_clear()
-                  .envs(PROXY_ENVS.clone())
-                  .envs(envs)
-                  .args([
-                      "-x",
-                      &format!(
-                          "{}/{}-{}.lock",
-                          LOCK_CACHE_DIR,
-                          if no_uv_install { "pip" } else { "py311" },
-                          fssafe_req
-                      ),
-                      "--command",
-                      &command_args.join(" "),
-                  ])
-                  .stdout(Stdio::piped())
-                  .stderr(Stdio::piped());
-              start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
+                let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+                flock_cmd
+                    .env_clear()
+                    .envs(PROXY_ENVS.clone())
+                    .envs(envs)
+                    .args([
+                        "-x",
+                        &format!(
+                            "{}/{}-{}.lock",
+                            LOCK_CACHE_DIR,
+                            if no_uv_install { "pip" } else { "py311" },
+                            fssafe_req
+                        ),
+                        "--command",
+                        &command_args.join(" "),
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
             } else {
                 let mut cmd = Command::new(command_args[0]);
-                cmd
-                    .env_clear()
+                cmd.env_clear()
                     .envs(PROXY_ENVS.clone())
                     .envs(envs)
                     .args(&command_args[1..])
@@ -1321,7 +1339,6 @@ pub async fn handle_python_reqs(
     mut no_uv_install: bool,
     is_ansible: bool,
 ) -> error::Result<Vec<String>> {
-
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1405,7 +1422,6 @@ pub async fn handle_python_reqs(
             .map(handle_ephemeral_token),
     );
 
-
     // Prepare NSJAIL
     if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1438,7 +1454,7 @@ pub async fn handle_python_reqs(
     let mut in_cache = vec![];
     for req in requirements {
         // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') {
+        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
         }
         // TODO: Remove
@@ -1461,12 +1477,19 @@ pub async fn handle_python_reqs(
         }
     }
     if in_cache.len() > 0 {
-        append_logs(&job_id, w_id, format!("\nenv deps from local cache: {}\n", in_cache.join(", ")), db).await;
+        append_logs(
+            &job_id,
+            w_id,
+            format!("\nenv deps from local cache: {}\n", in_cache.join(", ")),
+            db,
+        )
+        .await;
     }
 
     let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
-    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = 
-        (0..req_with_penv.len()).map(|_| kill_tx.subscribe()).collect();
+    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = (0..req_with_penv.len())
+        .map(|_| kill_tx.subscribe())
+        .collect();
 
     //   ________ Read comments at the end of the function to get more context
     let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -1506,21 +1529,21 @@ pub async fn handle_python_reqs(
                     if canceled {
 
                         tracing::info!(
-                            // If there is listener on other side, 
+                            // If there is listener on other side,
                             workspace_id = %w_id_2,
                             "cancelling installations",
                         );
 
                         if let Err(ref e) = kill_tx.send(()){
                             tracing::error!(
-                                // If there is listener on other side, 
+                                // If there is listener on other side,
                                 workspace_id = %w_id_2,
                                 "failed to send done: Probably receiving end closed too early or have not opened yet\n{}",
                                 // If there is no listener, it will be dropped safely
                                 e
                             );
                         }
-                    } 
+                    }
                 }
                 // Once done_tx is dropped, this will be fired
                 _ = done_rx.recv() => break
@@ -1555,9 +1578,15 @@ pub async fn handle_python_reqs(
 
         // Do we use Nsjail?
         if !*DISABLE_NSJAIL {
-            logs.push_str(&format!("\nStarting isolated installation... ({} tasks in parallel) \n", parallel_limit));
+            logs.push_str(&format!(
+                "\nStarting isolated installation... ({} tasks in parallel) \n",
+                parallel_limit
+            ));
         } else {
-            logs.push_str(&format!("\nStarting installation... ({} tasks in parallel) \n", parallel_limit));
+            logs.push_str(&format!(
+                "\nStarting installation... ({} tasks in parallel) \n",
+                parallel_limit
+            ));
         }
         append_logs(&job_id, w_id, logs, db).await;
     }
@@ -1617,13 +1646,12 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        
                         pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
                                     "No tarball was found on S3 or different problem occured {job_id}:\n{e}",
-                                );                               
+                                );
                             } else {
                                 print_success(
                                     true,
@@ -1653,12 +1681,12 @@ pub async fn handle_python_reqs(
                 no_uv_install,
             ).await {
                 Ok(r) => r,
-                Err(e) => { 
+                Err(e) => {
                     append_logs(
                         &job_id,
                         w_id,
                         format!(
-                            "\nError while spawning proccess:\n{e}", 
+                            "\nError while spawning proccess:\n{e}",
                         ),
                         db,
                     )
@@ -1698,7 +1726,7 @@ pub async fn handle_python_reqs(
                             &job_id,
                             w_id,
                             format!(
-                                "\nError while installing {}:\n{buf}", 
+                                "\nError while installing {}:\n{buf}",
                                 &req
                             ),
                             db,
@@ -1757,7 +1785,10 @@ pub async fn handle_python_reqs(
 
     let mut failed = false;
     for (handle, (_, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
-        if let Err(e) = handle.await.unwrap_or(Err(anyhow!("Problem by joining handle"))) {
+        if let Err(e) = handle
+            .await
+            .unwrap_or(Err(anyhow!("Problem by joining handle")))
+        {
             failed = true;
             tracing::warn!(
                 workspace_id = %w_id,
@@ -1778,19 +1809,11 @@ pub async fn handle_python_reqs(
 
     if has_work {
         let total_time = total_time.elapsed().as_millis();
-        append_logs(
-            &job_id,
-            w_id,
-            format!(
-                "\nenv set in {}ms",
-                total_time
-            ),
-            db,
-        ).await;
+        append_logs(&job_id, w_id, format!("\nenv set in {}ms", total_time), db).await;
     }
 
     // Usually done_tx will drop after this return
-    // If there is listener on other side, 
+    // If there is listener on other side,
     // it will be triggered
     // If there is no listener, it will be dropped safely
     return if failed {
