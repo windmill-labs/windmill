@@ -6,6 +6,8 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
+	import { ResourceService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	let isValid: boolean = false
 
@@ -141,12 +143,34 @@
 	function restOnSelected(selected: 'resource' | 'static') {
 		if (selected === 'static') {
 			args.kafka_resource_path = undefined
-		} else {
+		}
+	}
+	$: restOnSelected(selected)
+
+	async function updateArgsFromResource(resourcePath: string) {
+		if (!resourcePath) return
+		try {
+			const res = await ResourceService.getResourceValueInterpolated({
+				workspace: $workspaceStore!,
+				path: resourcePath
+			})
+
+			if (!res) {
+				return
+			}
+
+			if (typeof res === 'object' && 'brokers' in res && 'security' in res) {
+				args.brokers = res.brokers
+				args.security = res.security
+			}
+		} catch (error) {
+			console.error('Failed to fetch resource:', error)
+			// Optionally reset the values
 			args.brokers = undefined
 			args.security = undefined
 		}
 	}
-	$: restOnSelected(selected)
+	$: updateArgsFromResource(args.kafka_resource_path)
 </script>
 
 <Section label="Kafka" {headless}>
