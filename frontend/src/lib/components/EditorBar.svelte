@@ -286,6 +286,25 @@
 		}
 	}
 
+	function windmillPathToCamelCaseName(path: string): string {
+		const parts = path.split('/')
+		const lastPart = parts[parts.length - 1]
+
+		const words = lastPart.split('_')
+
+		return words
+			.map((word, index) => {
+				if (index === 0) {
+					// Lowercase the first word
+					return word.toLowerCase()
+				} else {
+					// Capitalize the first letter of subsequent words
+					return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+				}
+			})
+			.join('')
+	}
+
 	let historyBrowserDrawerOpen = false
 </script>
 
@@ -345,6 +364,10 @@
 			editor.insertAtCursor(`$Env:${name}`)
 		} else if (lang == 'php') {
 			editor.insertAtCursor(`getenv('${name}');`)
+		} else if (lang == 'rust') {
+			editor.insertAtCursor(`std::env::var("${name}").unwrap();`)
+		} else if (lang == 'csharp') {
+			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -401,6 +424,15 @@
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 $var = json_decode(curl_exec($ch));`)
+		} else if (lang == 'csharp') {
+			editor.insertAtCursor(`var baseUrl = Environment.GetEnvironmentVariable("BASE_INTERNAL_URL");
+var workspace = Environment.GetEnvironmentVariable("WM_WORKSPACE");
+var uri = $"{baseUrl}/api/w/{workspace}/variables/get_value/${path}";
+using var client = new HttpClient();
+client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvironmentVariable("WM_TOKEN")}");
+
+string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
+`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -471,6 +503,18 @@ $var = json_decode(curl_exec($ch));`)
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 $res = json_decode(curl_exec($ch));`)
+		} else if (lang == 'csharp') {
+			if (!editor.getCode().includes(`using System.Text.Json.Nodes;`)) {
+				editor.insertAtBeginning(`using System.Text.Json.Nodes;\n`)
+			}
+			editor.insertAtCursor(`var baseUrl = Environment.GetEnvironmentVariable("BASE_INTERNAL_URL");
+var workspace = Environment.GetEnvironmentVariable("WM_WORKSPACE");
+var uri = $"{baseUrl}/api/w/{workspace}/resources/get_value_interpolated/${path}";
+using var client = new HttpClient();
+client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvironmentVariable("WM_TOKEN")}");
+
+JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetStringAsync(uri));
+`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
