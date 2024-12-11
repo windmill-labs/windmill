@@ -29,7 +29,7 @@ use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
 use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion, USE_PIP_INSTALL,
 };
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::INSTANCE_PYTHON_VERSION;
@@ -1584,10 +1584,16 @@ async fn python_dep(
     let instance_version =
         (INSTANCE_PYTHON_VERSION.read().await.clone()).unwrap_or("3.11".to_owned());
 
-    // Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
-    // This one used specifically for deploying scripts
-    // So we can get final_version straight away and include in lockfile
-    // It will be written to db as a "lock" field for script
+    /*
+        Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
+        This one used specifically for deploying scripts
+        So we can get final_version right away and include in lockfile
+        And the precendence is following:
+
+            1. Annotation version
+            2. Instance version
+            3. 311
+    */
     let final_version = PyVersion::from_py_annotations(annotations).unwrap_or(
         PyVersion::from_string_with_dots(&instance_version).unwrap_or_else(|| {
             tracing::error!(
@@ -1626,13 +1632,8 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            // In this case we calculate lockfile each time and it is guranteed
-            // that version in lockfile will be equal to final_version
-            // So we can skip parsing the lockfile returned from uv_pip_compile to get python version
-            // and instead just use final_version
             final_version,
-            annotations.no_uv,
-            false,
+            annotations.no_uv || *USE_PIP_INSTALL,
             false,
         )
         .await;

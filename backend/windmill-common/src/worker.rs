@@ -343,6 +343,7 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub py_sys: bool,
 }
 
 #[annotations("//")]
