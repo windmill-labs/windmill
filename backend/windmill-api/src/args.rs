@@ -21,7 +21,7 @@ use windmill_queue::PushArgsOwned;
 
 use crate::db::ApiAuthed;
 #[cfg(feature = "parquet")]
-use crate::s3_helpers::job_helpers_ee::{get_random_file_name, upload_file_internal};
+use crate::job_helpers_ee::{get_random_file_name, upload_file_internal};
 
 pub struct WebhookArgs {
     pub args: PushArgsOwned,
