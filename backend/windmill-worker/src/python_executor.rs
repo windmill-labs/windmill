@@ -1,5 +1,9 @@
 use std::{
-    collections::{HashMap, HashSet}, fs, ops::Deref, path::Path, process::Stdio, sync::Arc
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+    process::Stdio,
+    sync::Arc,
 };
 
 use anyhow::anyhow;
@@ -347,7 +351,12 @@ pub async fn uv_pip_compile(
             occupancy_metrics,
         )
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed.\n\ncommand: {uv_cmd} {}\n\n{e:?}", args.join(" "))))?;
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Lock file generation failed.\n\ncommand: {uv_cmd} {}\n\n{e:?}",
+                args.join(" ")
+            ))
+        })?;
     }
 
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -574,7 +583,6 @@ pub async fn handle_python_job(
     create_args_and_out_file(&client, job, job_dir, db).await?;
     tracing::debug!("Finished preparing wrapper");
 
-
     let preprocessor = if let Some(pre_spread) = pre_spread {
         format!(
             r#"if inner_script.preprocessor is None or not callable(inner_script.preprocessor):
@@ -759,7 +767,8 @@ mount {{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        #[cfg(windows)] {
+        #[cfg(windows)]
+        {
             python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
             python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
@@ -1249,29 +1258,28 @@ async fn spawn_uv_install(
         #[cfg(unix)]
         {
             if no_uv_install {
-              let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-              flock_cmd
-                  .env_clear()
-                  .envs(PROXY_ENVS.clone())
-                  .envs(envs)
-                  .args([
-                      "-x",
-                      &format!(
-                          "{}/{}-{}.lock",
-                          LOCK_CACHE_DIR,
-                          if no_uv_install { "pip" } else { "py311" },
-                          fssafe_req
-                      ),
-                      "--command",
-                      &command_args.join(" "),
-                  ])
-                  .stdout(Stdio::piped())
-                  .stderr(Stdio::piped());
-              start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
+                let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+                flock_cmd
+                    .env_clear()
+                    .envs(PROXY_ENVS.clone())
+                    .envs(envs)
+                    .args([
+                        "-x",
+                        &format!(
+                            "{}/{}-{}.lock",
+                            LOCK_CACHE_DIR,
+                            if no_uv_install { "pip" } else { "py311" },
+                            fssafe_req
+                        ),
+                        "--command",
+                        &command_args.join(" "),
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
             } else {
                 let mut cmd = Command::new(command_args[0]);
-                cmd
-                    .env_clear()
+                cmd.env_clear()
                     .envs(PROXY_ENVS.clone())
                     .envs(envs)
                     .args(&command_args[1..])
@@ -1331,7 +1339,6 @@ pub async fn handle_python_reqs(
     mut no_uv_install: bool,
     is_ansible: bool,
 ) -> error::Result<Vec<String>> {
-
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1415,7 +1422,6 @@ pub async fn handle_python_reqs(
             .map(handle_ephemeral_token),
     );
 
-
     // Prepare NSJAIL
     if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1471,12 +1477,19 @@ pub async fn handle_python_reqs(
         }
     }
     if in_cache.len() > 0 {
-        append_logs(&job_id, w_id, format!("\nenv deps from local cache: {}\n", in_cache.join(", ")), db).await;
+        append_logs(
+            &job_id,
+            w_id,
+            format!("\nenv deps from local cache: {}\n", in_cache.join(", ")),
+            db,
+        )
+        .await;
     }
 
     let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
-    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = 
-        (0..req_with_penv.len()).map(|_| kill_tx.subscribe()).collect();
+    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = (0..req_with_penv.len())
+        .map(|_| kill_tx.subscribe())
+        .collect();
 
     //   ________ Read comments at the end of the function to get more context
     let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -1610,9 +1623,15 @@ pub async fn handle_python_reqs(
 
         // Do we use Nsjail?
         if !*DISABLE_NSJAIL {
-            logs.push_str(&format!("\nStarting isolated installation... ({} tasks in parallel) \n", parallel_limit));
+            logs.push_str(&format!(
+                "\nStarting isolated installation... ({} tasks in parallel) \n",
+                parallel_limit
+            ));
         } else {
-            logs.push_str(&format!("\nStarting installation... ({} tasks in parallel) \n", parallel_limit));
+            logs.push_str(&format!(
+                "\nStarting installation... ({} tasks in parallel) \n",
+                parallel_limit
+            ));
         }
         append_logs(&job_id, w_id, logs, db).await;
     }
@@ -1674,13 +1693,12 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        
                         pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
                                     "No tarball was found on S3 or different problem occured {job_id}:\n{e}",
-                                );                               
+                                );
                             } else {
                                 print_success(
                                     true,
@@ -1711,12 +1729,12 @@ pub async fn handle_python_reqs(
                 no_uv_install,
             ).await {
                 Ok(r) => r,
-                Err(e) => { 
+                Err(e) => {
                     append_logs(
                         &job_id,
                         w_id,
                         format!(
-                            "\nError while spawning proccess:\n{e}", 
+                            "\nError while spawning proccess:\n{e}",
                         ),
                         db,
                     )
@@ -1767,7 +1785,7 @@ pub async fn handle_python_reqs(
                             &job_id,
                             w_id,
                             format!(
-                                "\nError while installing {}:\n{buf}", 
+                                "\nError while installing {}:\n{buf}",
                                 &req
                             ),
                             db,
@@ -1829,7 +1847,10 @@ pub async fn handle_python_reqs(
 
     let mut failed = false;
     for (handle, (_, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
-        if let Err(e) = handle.await.unwrap_or(Err(anyhow!("Problem by joining handle"))) {
+        if let Err(e) = handle
+            .await
+            .unwrap_or(Err(anyhow!("Problem by joining handle")))
+        {
             failed = true;
             tracing::warn!(
                 workspace_id = %w_id,
@@ -1850,21 +1871,13 @@ pub async fn handle_python_reqs(
 
     if has_work {
         let total_time = total_time.elapsed().as_millis();
-        append_logs(
-            &job_id,
-            w_id,
-            format!(
-                "\nenv set in {}ms",
-                total_time
-            ),
-            db,
-        ).await;
+        append_logs(&job_id, w_id, format!("\nenv set in {}ms", total_time), db).await;
     }
 
     *mem_peak = *mem_peak_thread_safe.lock().await;
 
     // Usually done_tx will drop after this return
-    // If there is listener on other side, 
+    // If there is listener on other side,
     // it will be triggered
     // If there is no listener, it will be dropped safely
     return if failed {
