@@ -96,7 +96,7 @@
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
 	let args: Record<string, any> = initialArgs // Test args input
-	let selectedInputTab: 'main' | 'capture' | 'preprocessor' = 'main'
+	let selectedInputTab: 'main' | 'preprocessor' = 'main'
 	let hasPreprocessor = false
 
 	let metadataOpen =
