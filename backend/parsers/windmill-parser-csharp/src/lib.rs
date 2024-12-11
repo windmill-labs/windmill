@@ -9,7 +9,16 @@ use windmill_parser::Arg;
 use windmill_parser::MainArgSignature;
 use windmill_parser::Typ;
 
-pub fn parse_csharp_signature(code: &str) -> anyhow::Result<MainArgSignature> {
+#[derive(Debug)]
+pub struct CsharpMainSigMeta {
+    pub is_async: bool,
+    pub is_public: bool,
+    pub returns_void: bool,
+    pub class_name: Option<String>,
+    pub main_sig: MainArgSignature,
+}
+
+pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
     let mut parser = tree_sitter::Parser::new();
     let language = tree_sitter_c_sharp::LANGUAGE;
     parser
@@ -23,12 +32,30 @@ pub fn parse_csharp_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     // Traverse the AST to find the Main method signature
     let main_sig = find_main_signature(root_node, code);
     let no_main_func = Some(main_sig.is_none());
+    let mut is_async = false;
+    let mut is_public = false;
+    let mut returns_void = false;
+    let mut class_name = None;
 
     let mut args = vec![];
-    if let Some(sig) = main_sig {
-        // for (i, c) in sig.children(&mut sig.walk()).enumerate() {
-        //     println!("  {:?} - {:?}", c, sig.field_name_for_child((i) as u32));
-        // }
+    if let Some((sig, name)) = main_sig {
+        class_name = name;
+        for (i, c) in sig.children(&mut sig.walk()).enumerate() {
+            println!("  {:?} - {:?}", c, sig.field_name_for_child((i) as u32));
+            if c.kind() == "modifier" && c.utf8_text(code.as_bytes())? == "async" {
+                is_async = true;
+            }
+            if c.kind() == "modifier" && c.utf8_text(code.as_bytes())? == "public" {
+                is_public = true;
+            }
+        }
+        if let Some(return_type) = sig.child_by_field_name("returns") {
+            let return_type = return_type.utf8_text(code.as_bytes())?;
+
+            if return_type == "void" || (is_async && return_type == "Task") {
+                returns_void = true;
+            }
+        }
         if let Some(param_list) = sig.child_by_field_name("parameters") {
             for c in param_list.children(&mut param_list.walk()) {
                 if c.kind() == "parameter" {
@@ -46,13 +73,19 @@ pub fn parse_csharp_signature(code: &str) -> anyhow::Result<MainArgSignature> {
         }
     }
 
-    Ok(MainArgSignature {
+    let main_sig = MainArgSignature {
         star_args: false,
         star_kwargs: false,
         args,
         has_preprocessor: None,
         no_main_func,
-    })
+    };
+
+    Ok(CsharpMainSigMeta { is_async, returns_void, class_name, main_sig, is_public })
+}
+
+pub fn parse_csharp_signature(code: &str) -> anyhow::Result<MainArgSignature> {
+    Ok(parse_csharp_sig_meta(code)?.main_sig)
 }
 
 fn find_typ<'a>(typ_node: Node<'a>, code: &str) -> anyhow::Result<Typ> {
@@ -110,10 +143,13 @@ fn parse_csharp_typ<'a>(
 }
 
 // Function to find the Main method's signature
-fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> Option<Node<'a>> {
+fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> Option<(Node<'a>, Option<String>)> {
     let mut cursor = root_node.walk();
     for x in root_node.children(&mut cursor) {
         if x.kind() == "class_declaration" {
+            let class_name = x
+                .child_by_field_name("name")
+                .and_then(|n| n.utf8_text(code.as_bytes()).ok().map(|s| s.to_string()));
             for c in x.children(&mut x.walk()) {
                 if c.kind() == "declaration_list" {
                     for w in c.children(&mut c.walk()) {
@@ -124,7 +160,7 @@ fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> Option<Node<'a>> 
                                     .map(|name| name == "Main")
                                     .unwrap_or(false)
                                 {
-                                    return Some(w);
+                                    return Some((w, class_name));
                                 }
                             }
                         }
@@ -163,7 +199,10 @@ fn parse_nuget_req(line: &str) -> Option<(String, Option<String>)> {
         let line = &line[start_idx..start_idx + end_idx];
         let mut splitted = line.split(",");
         if let Some(pkg) = splitted.next() {
-            return Some((pkg.trim().to_string(), splitted.next().map(|s| s.trim().to_string())));
+            return Some((
+                pkg.trim().to_string(),
+                splitted.next().map(|s| s.trim().to_string()),
+            ));
         }
     }
     None
@@ -173,6 +212,30 @@ fn parse_nuget_req(line: &str) -> Option<(String, Option<String>)> {
 mod test {
 
     use super::*;
+    #[test]
+    fn test_parse_csharp_sig_and_meta() {
+        let code = r#"
+using System;
+
+class LilProgram
+{
+
+    public async static string Main(string myString = "World", int myInt, string[] jj)
+    {
+        Console.Writeline("Hello!!");
+        return "yeah";
+    }
+
+}"#;
+        let sig_meta = parse_csharp_sig_meta(code).unwrap();
+
+        assert_eq!(sig_meta.class_name, Some("LilProgram".to_string()));
+        assert_eq!(sig_meta.is_async, true);
+
+        let ret = sig_meta.main_sig;
+        assert_eq!(ret.args.len(), 3);
+    }
+
     #[test]
     fn test_parse_csharp_sig() {
         let code = r#"
@@ -210,7 +273,7 @@ class LilProgram
         let file_content = r#"#r "nuget: AutoMapper, 6.1.0"
 #r "nuget: Newtonsoft.Json, 13.0.1"
 #r "nuget: Serilog, 2.10.0"
-# This is a comment
+
 #r "nuget: Serilog, 2.10.0"
 
 using System;
@@ -219,8 +282,17 @@ using System;
         let requirements = parse_csharp_reqs(file_content).0;
 
         assert_eq!(requirements.len(), 3);
-        assert_eq!(requirements[0], ("AutoMapper".to_string(), Some("6.1.0".to_string())));
-        assert_eq!(requirements[1], ("Newtonsoft.Json".to_string(), Some("13.0.1".to_string())));
-        assert_eq!(requirements[2], ("Serilog".to_string(), Some("2.10.0".to_string())));
+        assert_eq!(
+            requirements[0],
+            ("AutoMapper".to_string(), Some("6.1.0".to_string()))
+        );
+        assert_eq!(
+            requirements[1],
+            ("Newtonsoft.Json".to_string(), Some("13.0.1".to_string()))
+        );
+        assert_eq!(
+            requirements[2],
+            ("Serilog".to_string(), Some("2.10.0".to_string()))
+        );
     }
 }

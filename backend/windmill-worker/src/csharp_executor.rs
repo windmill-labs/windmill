@@ -71,7 +71,8 @@ fn gen_cs_proj(
 
     write_file(job_dir, "Script.cs", code)?;
 
-    let sig = windmill_parser_csharp::parse_csharp_signature(code)?;
+    let sig_meta = windmill_parser_csharp::parse_csharp_sig_meta(code)?;
+    let sig = sig_meta.main_sig;
     let spread = &sig
         .args
         .clone()
@@ -91,6 +92,29 @@ fn gen_cs_proj(
         })
         .collect::<Result<Vec<String>, anyhow::Error>>()?
         .join("\n");
+
+    let class_name = sig_meta.class_name.unwrap_or("Script".to_string());
+
+
+    let script_call = match (sig_meta.is_async, sig_meta.returns_void) {
+        (true, true) => format!(r#"
+            {class_name}.Main({spread}).Wait();"#),
+        (false, true) => format!(r#"
+            {class_name}.Main({spread});"#),
+
+        (false, false) => format!(r#"
+            var result = {class_name}.Main({spread});
+
+            var jsonResult = JsonSerializer.Serialize(result);
+
+            File.WriteAllText("result.json", jsonResult);"#),
+        (true, false) => format!(r#"
+            var result = {class_name}.Main({spread}).Result;
+
+            var jsonResult = JsonSerializer.Serialize(result);
+
+            File.WriteAllText("result.json", jsonResult);"#),
+    };
 
     write_file(
         job_dir,
@@ -114,11 +138,9 @@ namespace WindmillScriptCSharpInternal {{
             using FileStream fs = File.OpenRead("args.json");
             Args parsedArgs = JsonSerializer.Deserialize<Args>(fs);
 
-            var result = Script.Main({spread});
+            File.WriteAllText("result.json", "null");
 
-            var jsonResult = JsonSerializer.Serialize(result);
-
-            File.WriteAllText("result.json", jsonResult);
+            {script_call}
         }}
     }}
 }}
@@ -310,7 +332,7 @@ pub async fn handle_csharp_job(
     create_args_and_out_file(client, job, job_dir, db).await?;
 
     let logs2 = format!("{cache_logs}\n\n--- C# CODE EXECUTION ---\n");
-    append_logs(&job.id, &job.workspace_id, logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, format!("{}\n", logs2), db).await;
 
     let client = &client.get_authed().await;
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
