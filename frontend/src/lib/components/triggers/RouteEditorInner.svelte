@@ -334,34 +334,46 @@
 					{/if}
 				</Section>
 
-				<Section label="Settings">
+				<Section label="Advanced">
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between">
-							<div class="text-sm font-semibold flex flex-row items-center">Request type</div>
-							<ToggleButtonGroup class="w-auto" bind:selected={is_async} disabled={!can_write}>
-								<ToggleButton
-									label="Async"
-									value={true}
-									tooltip="The returning value is the uuid of the job assigned to execute the job."
-								/>
-								<ToggleButton
-									label="Sync"
-									value={false}
-									tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-								/>
-							</ToggleButtonGroup>
+							<Label label="Request type" class="w-full">
+								<svelte:fragment slot="action">
+									<ToggleButtonGroup
+										class="w-auto h-full"
+										bind:selected={is_async}
+										disabled={!can_write}
+									>
+										<ToggleButton
+											label="Async"
+											value={true}
+											tooltip="The returning value is the uuid of the job assigned to execute the job."
+										/>
+										<ToggleButton
+											label="Sync"
+											value={false}
+											tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+										/>
+									</ToggleButtonGroup>
+								</svelte:fragment>
+							</Label>
 						</div>
-						<div class="flex flex-row justify-between">
-							<div class="text-sm font-semibold flex flex-row items-center">Authentication</div>
-							<ToggleButtonGroup class="w-auto" bind:selected={requires_auth} disabled={!can_write}>
-								<ToggleButton label="None" value={false} />
-								<ToggleButton
-									label="Required"
-									value={true}
-									tooltip="Requires authentication with read access on the route"
-								/>
-							</ToggleButtonGroup>
-						</div>
+						<Label label="Authentication" class="w-full">
+							<svelte:fragment slot="action">
+								<ToggleButtonGroup
+									class="w-auto h-full"
+									bind:selected={requires_auth}
+									disabled={!can_write}
+								>
+									<ToggleButton label="None" value={false} />
+									<ToggleButton
+										label="Required"
+										value={true}
+										tooltip="Requires authentication with read access on the route"
+									/>
+								</ToggleButtonGroup>
+							</svelte:fragment>
+						</Label>
 					</div>
 				</Section>
 			</div>
