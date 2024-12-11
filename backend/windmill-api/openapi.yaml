@@ -6916,6 +6916,43 @@ paths:
                   - resume
                   - cancel
 
+  /w/{workspace}/jobs/slack_approval/{id}/{resume_id}:
+    get:
+      summary: get interactive slack approval payload given the job_id, resume_id and a nonce to resume a flow
+      operationId: getSlackApprovalPayload
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: approver
+          in: query
+          schema:
+            type: string
+        - name: message
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Blocks array for posting interactive slack approval
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocks:
+                    type: array
+                    items:
+                      type: object
+                required:
+                  - blocks
+
   /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow

@@ -2308,7 +2308,7 @@ fn create_signature(
 }
 
 #[allow(non_snake_case)]
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ResumeUrls {
     approvalPage: String,
     cancel: String,
@@ -5489,8 +5489,8 @@ async fn delete_completed_job<'a>(
 
 use axum::extract::Form;
 use regex::Regex;
-use serde_json::Value;
 use reqwest::Client;
+use serde_json::Value;
 
 // Define a struct for the form data (x-www-form-urlencoded)
 #[derive(Deserialize, Debug)]
@@ -5502,7 +5502,7 @@ pub struct SlackFormData {
 struct Payload {
     actions: Vec<Action>,
     state: State,
-    response_url: Option<String>
+    response_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -5516,47 +5516,29 @@ struct State {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(untagged)]
+#[serde(tag = "type", rename_all = "snake_case")]
 enum ValueInput {
-    PlainTextInput {
-        #[serde(rename = "type")]
-        input_type: String,
-        value: Option<Value>,
-    },
-    StaticSelect {
-        #[serde(rename = "type")]
-        input_type: String,
-        selected_option: Option<SelectedOption>,
-    },
+    PlainTextInput { value: Option<Value> },
+    StaticSelect { selected_option: Option<SelectedOption> },
+    RadioButtons { selected_option: Option<SelectedOption> },
+    Checkboxes { selected_options: Option<Vec<SelectedOption>> },
 }
 
 #[derive(Deserialize, Debug)]
 struct SelectedOption {
-    text: Option<Text>,
     value: String,
 }
 
-#[derive(Deserialize, Debug)]
-struct Text {
-    #[serde(rename = "type")]
-    text_type: String,
-    text: String,
-    emoji: Option<bool>,
-}
-
-// Define your handler
-pub async fn slack_app_handler(
+pub async fn slack_app_callback_handler(
     authed: Option<ApiAuthed>,
     Extension(db): Extension<DB>,
     Form(form_data): Form<SlackFormData>,
 ) -> error::Result<StatusCode> {
-    // Parse the `payload` parameter as JSON
     let payload: Payload = serde_json::from_str(&form_data.payload)?;
 
     let action_value = payload.actions[0].value.clone();
     let response_url = payload.response_url;
 
-    // Define the regex to capture w_id, action, job_id, resume_id, secret, and approver
     let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>[^/]+)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[^/]+)\?approver=(?P<approver>[^&]+)").unwrap();
 
     if let Some(captures) = re.captures(&action_value) {
@@ -5568,15 +5550,51 @@ pub async fn slack_app_handler(
         let approver =
             QueryApprover { approver: captures.name("approver").map(|m| m.as_str().to_string()) };
 
-        println!("W ID: {}", w_id);
-        println!("Action: {}", action);
-        println!("Job ID: {}", job_id);
-        println!("Resume ID: {}", resume_id);
-        println!("Secret: {}", secret);
-        println!("Approver: {:?}", approver.approver);
+        tracing::debug!("Request: {:?}", &form_data.payload.clone());
+
+        let state_values = payload
+            .state
+            .values
+            .iter()
+            .flat_map(|(_, inputs)| {
+                inputs.iter().filter_map(|(action_id, input)| match input {
+                    ValueInput::PlainTextInput { value } => {
+                        value.as_ref().map(|v| (action_id.clone(), v.clone()))
+                    }
+                    ValueInput::StaticSelect { selected_option } => selected_option
+                        .as_ref()
+                        .map(|so| (action_id.clone(), serde_json::json!(so.value))),
+                    ValueInput::RadioButtons { selected_option } => selected_option
+                        .as_ref()
+                        .map(|so| (action_id.clone(), serde_json::json!(so.value))),
+                    ValueInput::Checkboxes { selected_options } => {
+                        selected_options.as_ref().map(|so| {
+                            (
+                                action_id.clone(),
+                                serde_json::json!(so
+                                    .iter()
+                                    .map(|option| option.value.clone())
+                                    .collect::<Vec<_>>()),
+                            )
+                        })
+                    }
+                })
+            })
+            .collect::<HashMap<_, _>>();
+        // Convert the state values to serde_json::Value
+        let state_json =
+            serde_json::to_value(state_values).unwrap_or_else(|_| serde_json::json!({}));
+
+        tracing::debug!("W ID: {}", w_id);
+        tracing::debug!("Action: {}", action);
+        tracing::debug!("Job ID: {}", job_id);
+        tracing::debug!("Resume ID: {}", resume_id);
+        tracing::debug!("Secret: {}", secret);
+        tracing::debug!("Approver: {:?}", approver.approver);
+        tracing::debug!("State JSON: {:?}", state_json);
 
         let res = resume_suspended_job_internal(
-            Some(Value::Null),
+            Some(state_json),
             db,
             w_id.to_string(),
             Uuid::from_str(job_id).unwrap_or_default(),
@@ -5593,39 +5611,108 @@ pub async fn slack_app_handler(
         println!("URL does not match the pattern.");
     }
 
-    // Extract and process state values
-    // TODO: we'll need to pass them to the resume_suspended_job_internal function
-    for (block_id, inputs) in payload.state.values {
-        for (input_id, input) in inputs {
-            match input {
-                ValueInput::PlainTextInput { input_type, value } => {
-                    println!(
-                        "Block: {}, Input: {}, Type: {}, Value: {:?}",
-                        block_id, input_id, input_type, value
-                    );
-                }
-                ValueInput::StaticSelect { input_type, selected_option } => {
-                    if let Some(selected_option) = selected_option {
-                        println!(
-                            "Block: {}, Input: {}, Type: {}, Selected Value: {}",
-                            block_id, input_id, input_type, selected_option.value
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // TODO: think about what to do with the original message, here we just delete it
-    // probably just post link to approval page where user can see the status of the flow
-    if (response_url.is_some()){
-        let _ = post_slack_response(response_url.unwrap().as_str(), "Process has been resumed!").await;
+    if let Some(url) = response_url {
+        let _ = post_slack_response(&url, "Flow has been resumed!").await;
     }
 
     Ok(StatusCode::OK)
 }
 
-async fn post_slack_response(response_url: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Deserialize)]
+pub struct QueryMessage {
+    pub message: Option<String>,
+}
+
+pub async fn request_slack_approval(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
+    Query(approver): Query<QueryApprover>,
+    Query(message): Query<QueryMessage>,
+) -> windmill_common::error::JsonResult<serde_json::Value> {
+
+    let res = get_resume_urls(
+        authed,
+        axum::Extension(db.clone()),
+        Path((w_id, job_id, resume_id)),
+        axum::extract::Query(approver),
+    )
+    .await;
+
+    let schema: Option<ResumeFormRow> = sqlx::query_as!(
+        ResumeFormRow,
+        "SELECT
+            module.value->'suspend'->'resume_form' AS resume_form,
+            (module.value->'suspend'->>'hide_cancel')::boolean AS hide_cancel
+        FROM
+            job
+        LEFT JOIN
+            queue ON job.id = queue.parent_job
+        LEFT JOIN
+            jsonb_array_elements(job.raw_flow->'modules') AS module
+                ON module->>'id' = queue.flow_step_id
+        WHERE
+            queue.id = $1",
+        job_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    tracing::debug!("schema: {:?}", schema);
+    tracing::debug!("job_id: {:?}", job_id);
+
+    let message_str = message.message.as_deref().unwrap_or("A flow is waiting for approval");
+
+    if let Some(resume_schema) = schema {
+        let hide_cancel = resume_schema.hide_cancel.unwrap_or(false); // Default to false if None
+
+        let schema_obj = match resume_schema.resume_form {
+            Some(schema) => schema,
+            None => {
+                tracing::debug!("No suspend form found!");
+                return transform_schemas(message_str, None, &res.unwrap().0, None, hide_cancel)
+                    .await
+                    .map(Json);
+            }
+        };
+
+        let inner_schema = schema_obj
+            .get("schema")
+            .ok_or_else(|| Error::BadRequest("Schema object is missing the 'schema' field!".to_string()))?;
+
+        let order_value = inner_schema
+            .get("order")
+            .ok_or_else(|| Error::BadRequest("Schema does not contain order field!".to_string()))?;
+
+        let order: Vec<String> = serde_json::from_value(order_value.clone())
+            .map_err(|e| {
+                tracing::error!("Failed to deserialize order: {:?}", e);
+                Error::BadRequest("Failed to deserialize order!".to_string())
+            })?;
+
+        let properties_value = inner_schema
+            .get("properties")
+            .ok_or_else(|| Error::BadRequest("Schema does not contain properties field!".to_string()))?;
+        let properties: HashMap<String, ResumeFormField> = serde_json::from_value(properties_value.clone())
+            .map_err(|e| {
+                tracing::error!("Deserialization failed: {:?}", e);
+                Error::BadRequest("Failed to deserialize properties!".to_string())
+            })?;
+
+        let blocks = transform_schemas(message_str, Some(&properties), &res.unwrap().0, Some(&order), hide_cancel)
+            .await?;
+        Ok(Json(blocks))
+    } else {
+        Err(Error::BadRequest(
+            "Could not generate interactive Slack message!".to_string(),
+        ))
+    }
+}
+
+async fn post_slack_response(
+    response_url: &str,
+    message: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let payload = serde_json::json!({
         "replace_original": "true",
         "text": message
@@ -5643,8 +5730,160 @@ async fn post_slack_response(response_url: &str, message: &str) -> Result<(), Bo
     if response.status().is_success() {
         tracing::debug!("Slack response to approval sent successfully!");
     } else {
-        tracing::error!("Slack response to approval failed. Status: {}", response.status());
+        tracing::error!(
+            "Slack response to approval failed. Status: {}",
+            response.status()
+        );
     }
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ResumeSchema {
+    pub schema: Schema,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResumeFormRow {
+    pub resume_form: Option<serde_json::Value>,
+    pub hide_cancel: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Schema {
+    pub order: Vec<String>,
+    pub required: Vec<String>,
+    pub properties: HashMap<String, ResumeFormField>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ResumeFormField {
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub default: Option<String>,
+    pub description: Option<String>,
+    pub title: Option<String>,
+    #[serde(rename = "enum")]
+    pub r#enum: Option<Vec<String>>,
+    #[serde(rename = "enumLabels")]
+    pub enum_labels: Option<HashMap<String, String>>,
+}
+
+async fn transform_schemas(
+    text: &str,
+    properties: Option<&HashMap<String, ResumeFormField>>,
+    urls: &ResumeUrls,
+    order: Option<&Vec<String>>,
+    hide_cancel: bool,
+) -> Result<serde_json::Value, Error> {
+    tracing::debug!("{:?}", urls);
+
+    let mut blocks = vec![serde_json::json!({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": format!("{}\n*Approval Page:* <{}|Click here to view>", text, urls.approvalPage),
+        }
+    })];
+
+    if let Some(properties) = properties {
+        if let Some(order) = order {
+            blocks.extend(order.iter().filter_map(|key| {
+                properties.get(key).map(|schema| create_input_block(key, schema))
+            }));
+        } else {
+            blocks.extend(properties.iter().map(|(key, schema)| create_input_block(key, schema)));
+        }
+    }
+
+    blocks.push(create_action_buttons(urls, hide_cancel));
+
+    Ok(serde_json::Value::Array(blocks))
+}
+
+fn create_input_block(key: &str, schema: &ResumeFormField) -> serde_json::Value {
+    let placeholder = schema
+        .description
+        .as_deref()
+        .filter(|desc| !desc.is_empty())
+        .unwrap_or("Select an option");
+
+    if let Some(enums) = &schema.r#enum {
+        serde_json::json!({
+            "type": "input",
+            "element": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": placeholder,
+                    "emoji": true,
+                },
+                "options": enums.iter().map(|enum_value| {
+                    serde_json::json!({
+                        "text": {
+                            "type": "plain_text",
+                            "text": schema.enum_labels.as_ref()
+                                .and_then(|labels| labels.get(enum_value))
+                                .unwrap_or(enum_value),
+                            "emoji": true
+                        },
+                        "value": enum_value
+                    })
+                }).collect::<Vec<_>>(),
+                "action_id": key
+            },
+            "label": {
+                "type": "plain_text",
+                "text": schema.title.as_deref().unwrap_or(key),
+                "emoji": true
+            }
+        })
+    } else {
+        serde_json::json!({
+            "type": "input",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": key
+            },
+            "label": {
+                "type": "plain_text",
+                "text": schema.title.as_deref().unwrap_or(key),
+                "emoji": true
+            }
+        })
+    }
+}
+
+fn create_action_buttons(urls: &ResumeUrls, hide_cancel: bool) -> serde_json::Value {
+    let mut elements = vec![
+        serde_json::json!({
+            "type": "button",
+            "text": {
+                "type": "plain_text",
+                "text": "Continue"
+            },
+            "style": "primary",
+            "action_id": "resume_action",
+            "value": urls.resume
+        })
+    ];
+
+    if !hide_cancel {
+        elements.push(serde_json::json!({
+            "type": "button",
+            "text": {
+                "type": "plain_text",
+                "text": "Abort"
+            },
+            "style": "danger",
+            "action_id": "cancel_action",
+            "value": urls.cancel
+        }));
+    }
+
+    serde_json::json!({
+        "type": "actions",
+        "elements": elements
+    })
 }

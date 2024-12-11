@@ -10,6 +10,7 @@ import {
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
 import { DenoS3LightClientSettings, type S3Object } from "./s3Types";
+import { WebClient, Block, KnownBlock } from "@slack/web-api";
 
 export {
   AdminService,
@@ -395,15 +396,15 @@ export async function setState(state: any): Promise<void> {
  */
 export async function setProgress(percent: number, jobId?: any): Promise<void> {
   const workspace = getWorkspace();
-  let flowId = getEnv("WM_FLOW_JOB_ID"); 
+  let flowId = getEnv("WM_FLOW_JOB_ID");
 
   // If jobId specified we need to find if there is a parent/flow
   if (jobId) {
     const job = await JobService.getJob({
       id: jobId ?? "NO_JOB_ID",
       workspace,
-      noLogs: true
-    });    
+      noLogs: true,
+    });
 
     // Could be actual flowId or undefined
     flowId = job.parent_job;
@@ -415,22 +416,22 @@ export async function setProgress(percent: number, jobId?: any): Promise<void> {
     requestBody: {
       // In case user inputs float, it should be converted to int
       percent: Math.floor(percent),
-      flow_job_id: (flowId == "") ? undefined : flowId,
-    }
+      flow_job_id: flowId == "" ? undefined : flowId,
+    },
   });
 }
 
 /**
  * Get the progress
  * @param jobId? Job to get progress from
- * @returns Optional clamped between 0 and 100 progress value 
+ * @returns Optional clamped between 0 and 100 progress value
  */
 export async function getProgress(jobId?: any): Promise<number | null> {
   // TODO: Delete or set to 100 completed job metrics
   return await MetricsService.getJobProgress({
     id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
     workspace: getWorkspace(),
-  }); 
+  });
 }
 
 /**
@@ -845,4 +846,45 @@ export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
 export async function usernameToEmail(username: string): Promise<string> {
   const workspace = getWorkspace();
   return await UserService.usernameToEmail({ username, workspace });
+}
+
+interface SlackApprovalOptions {
+  slackToken: string;
+  channel: string;
+  message?: string;
+  approver?: string;
+  slackBlocks?: (Block | KnownBlock)[];
+}
+
+export async function requestInteractiveSlackApproval({
+  slackToken,
+  channel,
+  message,
+  approver,
+}: SlackApprovalOptions): Promise<void> {
+  const web = new WebClient(slackToken);
+  const nonce = Math.floor(Math.random() * 4294967295);
+  const workspace = getWorkspace();
+  const flowJobId = getEnv("WM_FLOW_JOB_ID");
+
+  if (!flowJobId) {
+    throw new Error(
+      "You can't use this function in a standalon script or flow step preview. Please us it in a flow or a flow preview."
+    );
+  }
+
+  const blocks = await JobService.getSlackApprovalPayload({
+    workspace,
+    resumeId: nonce,
+    approver,
+    message,
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+  });
+
+  console.log("blocks", blocks);
+  await web.chat.postMessage({
+    channel,
+    text: message,
+    blocks: blocks as unknown as (Block | KnownBlock)[],
+  });
 }

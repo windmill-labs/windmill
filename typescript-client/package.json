@@ -1,5 +1,5 @@
 {
-  "name": "windmill-client",
+  "name": "alex-windmill-client-alex",
   "description": "Windmill SDK client for browsers and Node.js",
   "version": "1.435.2",
   "author": "Ruben Fiszel",
@@ -18,5 +18,8 @@
     "LICENSE",
     "README.md",
     "package.json"
-  ]
+  ],
+  "dependencies": {
+    "@slack/web-api": "^7.8.0"
+  }
 }
