@@ -14,7 +14,7 @@
       };
       buildInputs = with pkgs; [
         openssl openssl.dev libxml2.dev xmlsec.dev libxslt.dev
-        rust-bin.stable.latest.default nodejs
+        rust-bin.stable.latest.default nodejs cmake
         postgresql
         pkg-config
       ];
