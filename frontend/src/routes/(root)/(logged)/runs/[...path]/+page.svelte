@@ -536,6 +536,8 @@
 		}
 		jobKindsCat = 'all'
 	}
+
+	let schedulesWidth = 0
 </script>
 
 <JobLoader
@@ -857,7 +859,7 @@
 					{/if}
 				</div>
 			</div>
-			<div class="relative flex gap-2 items-center pr-8 w-40">
+			<div class="relative flex gap-2 items-center pr-8 w-40" bind:clientWidth={schedulesWidth}>
 				<Toggle
 					size="xs"
 					bind:checked={showSchedules}
@@ -865,11 +867,10 @@
 						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
 					}}
 				/>
-				<span class="text-xs absolute -top-4"
-					><span class="hidden xl:inline">CRON</span> Schedules</span
-				>
-
-				<Calendar size={16} />
+				<span class="text-xs absolute -top-4">
+					<span class={schedulesWidth > 110 ? 'inline' : 'hidden'}>CRON</span> Schedules
+				</span>
+				<Calendar size="16" />
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40">
 				<span class="text-xs absolute -top-4">Planned later</span>
