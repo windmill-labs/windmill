@@ -1,15 +1,19 @@
 use core::str;
 use std::num::{ParseFloatError, ParseIntError};
 
-use bigdecimal::ParseBigDecimalError;
+use super::{
+    bool::{parse_bool, ParseBoolError},
+    hex::{from_bytea_hex, ByteaHexParseError},
+    // numeric::PgNumeric,
+};
+//use bigdecimal::ParseBigDecimalError;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use rust_postgres::types::Type;
+use serde::Serialize;
+use serde_json::value::RawValue;
 use thiserror::Error;
-use tokio_postgres::types::Type;
 use uuid::Uuid;
-
-use crate::conversions::{bool::parse_bool, hex};
-
-use super::{bool::ParseBoolError, hex::ByteaHexParseError, numeric::PgNumeric, ArrayCell, Cell};
+use windmill_common::worker::to_raw_value;
 
 #[derive(Debug, Error)]
 pub enum ConverterError {
@@ -22,9 +26,8 @@ pub enum ConverterError {
     #[error("invalid float value")]
     InvalidFloat(#[from] ParseFloatError),
 
-    #[error("invalid numeric: {0}")]
-    InvalidNumeric(#[from] ParseBigDecimalError),
-
+    /*#[error("invalid numeric: {0}")]
+    InvalidNumeric(#[from] ParseBigDecimalError),*/
     #[error("invalid bytea: {0}")]
     InvalidBytea(#[from] ByteaHexParseError),
 
@@ -53,155 +56,128 @@ pub enum ArrayParseError {
 }
 
 impl Converter {
-    pub fn try_from_str(typ: Option<&Type>, str: &str) -> Result<Cell, ConverterError> {
-        match *typ {
-            Type::BOOL => Ok(Cell::Bool(parse_bool(str)?)),
-            Type::BOOL_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(parse_bool(str)?)), ArrayCell::Bool)
-            }
-            Type::CHAR | Type::BPCHAR | Type::VARCHAR | Type::NAME | Type::TEXT => {
-                Ok(Cell::String(str.to_string()))
-            }
-            Type::CHAR_ARRAY
-            | Type::BPCHAR_ARRAY
-            | Type::VARCHAR_ARRAY
-            | Type::NAME_ARRAY
-            | Type::TEXT_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.to_string())), ArrayCell::String)
-            }
-            Type::INT2 => Ok(Cell::I16(str.parse()?)),
-            Type::INT2_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.parse()?)), ArrayCell::I16)
-            }
-            Type::INT4 => Ok(Cell::I32(str.parse()?)),
-            Type::INT4_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.parse()?)), ArrayCell::I32)
-            }
-            Type::INT8 => Ok(Cell::I64(str.parse()?)),
-            Type::INT8_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.parse()?)), ArrayCell::I64)
-            }
-            Type::FLOAT4 => Ok(Cell::F32(str.parse()?)),
-            Type::FLOAT4_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.parse()?)), ArrayCell::F32)
-            }
-            Type::FLOAT8 => Ok(Cell::F64(str.parse()?)),
-            Type::FLOAT8_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.parse()?)), ArrayCell::F64)
-            }
-            Type::NUMERIC => Ok(Cell::Numeric(str.parse()?)),
-            Type::NUMERIC_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.parse()?)), ArrayCell::Numeric)
-            }
-            Type::BYTEA => Ok(Cell::Bytes(hex::from_bytea_hex(str)?)),
-            Type::BYTEA_ARRAY => Converter::parse_array(
-                str,
-                |str| Ok(Some(hex::from_bytea_hex(str)?)),
-                ArrayCell::Bytes,
-            ),
-            Type::DATE => {
-                let val = NaiveDate::parse_from_str(str, "%Y-%m-%d")?;
-                Ok(Cell::Date(val))
-            }
-            Type::DATE_ARRAY => Converter::parse_array(
-                str,
-                |str| Ok(Some(NaiveDate::parse_from_str(str, "%Y-%m-%d")?)),
-                ArrayCell::Date,
-            ),
-            Type::TIME => {
-                let val = NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?;
-                Ok(Cell::Time(val))
-            }
-            Type::TIME_ARRAY => Converter::parse_array(
-                str,
-                |str| Ok(Some(NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?)),
-                ArrayCell::Time,
-            ),
-            Type::TIMESTAMP => {
-                let val = NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f")?;
-                Ok(Cell::TimeStamp(val))
-            }
-            Type::TIMESTAMP_ARRAY => Converter::parse_array(
-                str,
-                |str| {
-                    Ok(Some(NaiveDateTime::parse_from_str(
-                        str,
-                        "%Y-%m-%d %H:%M:%S%.f",
-                    )?))
-                },
-                ArrayCell::TimeStamp,
-            ),
-            Type::TIMESTAMPTZ => {
-                let val =
-                    match DateTime::<FixedOffset>::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f%#z") {
-                        Ok(val) => val,
-                        Err(_) => {
-                            DateTime::<FixedOffset>::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f%:z")?
-                        }
-                    };
-                Ok(Cell::TimeStampTz(val.into()))
-            }
-            Type::TIMESTAMPTZ_ARRAY => {
-                match Converter::parse_array(
-                    str,
-                    |str| {
-                        Ok(Some(
-                            DateTime::<FixedOffset>::parse_from_str(
+    pub fn try_from_str(typ: Option<&Type>, str: &str) -> Result<Box<RawValue>, ConverterError> {
+        let value = match typ {
+            Some(typ) => {
+                match *typ {
+                    Type::BOOL => to_raw_value(&parse_bool(str)?),
+                    Type::BOOL_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(parse_bool(str)?)))?
+                    }
+                    Type::CHAR | Type::BPCHAR | Type::VARCHAR | Type::NAME | Type::TEXT => {
+                        to_raw_value(&str.to_string())
+                    }
+                    Type::CHAR_ARRAY
+                    | Type::BPCHAR_ARRAY
+                    | Type::VARCHAR_ARRAY
+                    | Type::NAME_ARRAY
+                    | Type::TEXT_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(str.to_string())))?
+                    }
+                    Type::INT2 => to_raw_value(&str.parse::<i16>()?),
+                    Type::INT2_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(str.parse::<i16>()?)))?
+                    }
+                    Type::INT4 => to_raw_value(&str.parse::<i32>()?),
+                    Type::INT4_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(str.parse::<i32>()?)))?
+                    }
+                    Type::INT8 => to_raw_value(&str.parse::<i64>()?),
+                    Type::INT8_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(str.parse::<i64>()?)))?
+                    }
+                    Type::FLOAT4 => to_raw_value(&str.parse::<f32>()?),
+                    Type::FLOAT4_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(str.parse::<f32>()?)))?
+                    }
+                    Type::FLOAT8 => to_raw_value(&str.parse::<f64>()?),
+                    Type::FLOAT8_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(str.parse::<f64>()?)))?
+                    }
+                    //Type::NUMERIC => Ok(str.parse()?),
+                    //Type::NUMERIC_ARRAY => Converter::parse_array(str, |str| Ok(Some(str.parse()?)))?,
+                    Type::BYTEA => to_raw_value(&from_bytea_hex(str)?),
+                    Type::BYTEA_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(from_bytea_hex(str)?)))?
+                    }
+                    Type::DATE => to_raw_value(&NaiveDate::parse_from_str(str, "%Y-%m-%d")?),
+                    Type::DATE_ARRAY => Converter::parse_array(str, |str| {
+                        Ok(Some(NaiveDate::parse_from_str(str, "%Y-%m-%d")?))
+                    })?,
+                    Type::TIME => to_raw_value(&NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?),
+                    Type::TIME_ARRAY => Converter::parse_array(str, |str| {
+                        Ok(Some(NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?))
+                    })?,
+                    Type::TIMESTAMP => {
+                        to_raw_value(&NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f")?)
+                    }
+                    Type::TIMESTAMP_ARRAY => Converter::parse_array(str, |str| {
+                        Ok(Some(NaiveDateTime::parse_from_str(
+                            str,
+                            "%Y-%m-%d %H:%M:%S%.f",
+                        )?))
+                    })?,
+                    Type::TIMESTAMPTZ => {
+                        let val = match DateTime::<FixedOffset>::parse_from_str(
+                            str,
+                            "%Y-%m-%d %H:%M:%S%.f%#z",
+                        ) {
+                            Ok(val) => val,
+                            Err(_) => DateTime::<FixedOffset>::parse_from_str(
+                                str,
+                                "%Y-%m-%d %H:%M:%S%.f%:z",
+                            )?,
+                        };
+                        let utc: DateTime<Utc> = val.into();
+                        to_raw_value(&utc)
+                    }
+                    Type::TIMESTAMPTZ_ARRAY => {
+                        match Converter::parse_array(str, |str| {
+                            let utc: DateTime<Utc> = DateTime::<FixedOffset>::parse_from_str(
                                 str,
                                 "%Y-%m-%d %H:%M:%S%.f%#z",
                             )?
-                            .into(),
-                        ))
-                    },
-                    ArrayCell::TimeStampTz,
-                ) {
-                    Ok(val) => Ok(val),
-                    Err(_) => Converter::parse_array(
-                        str,
-                        |str| {
-                            Ok(Some(
-                                DateTime::<FixedOffset>::parse_from_str(
+                            .into();
+                            Ok(Some(utc))
+                        }) {
+                            Ok(val) => val,
+                            Err(_) => Converter::parse_array(str, |str| {
+                                let utc: DateTime<Utc> = DateTime::<FixedOffset>::parse_from_str(
                                     str,
-                                    "%Y-%m-%d %H:%M:%S%.f%:z",
+                                    "%Y-%m-%d %H:%M:%S%.f%#z",
                                 )?
-                                .into(),
-                            ))
-                        },
-                        ArrayCell::TimeStampTz,
-                    ),
+                                .into();
+                                Ok(Some(utc))
+                            })?,
+                        }
+                    }
+                    Type::UUID => to_raw_value(&Uuid::parse_str(str)?),
+                    Type::UUID_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(Uuid::parse_str(str)?)))?
+                    }
+                    Type::JSON | Type::JSONB => {
+                        to_raw_value(&serde_json::from_str::<serde_json::Value>(str)?)
+                    }
+                    Type::JSON_ARRAY | Type::JSONB_ARRAY => Converter::parse_array(str, |str| {
+                        Ok(Some(serde_json::from_str::<serde_json::Value>(str)?))
+                    })?,
+                    Type::OID => to_raw_value(&str.parse::<u32>()?),
+                    Type::OID_ARRAY => {
+                        Converter::parse_array(str, |str| Ok(Some(str.parse::<u32>()?)))?
+                    }
+                    _ => to_raw_value(&str.to_string()),
                 }
             }
-            Type::UUID => {
-                let val = Uuid::parse_str(str)?;
-                Ok(Cell::Uuid(val))
-            }
-            Type::UUID_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(Uuid::parse_str(str)?)), ArrayCell::Uuid)
-            }
-            Type::JSON | Type::JSONB => {
-                let val = serde_json::from_str(str)?;
-                Ok(Cell::Json(val))
-            }
-            Type::JSON_ARRAY | Type::JSONB_ARRAY => Converter::parse_array(
-                str,
-                |str| Ok(Some(serde_json::from_str(str)?)),
-                ArrayCell::Json,
-            ),
-            Type::OID => {
-                let val: u32 = str.parse()?;
-                Ok(Cell::U32(val))
-            }
-            Type::OID_ARRAY => {
-                Converter::parse_array(str, |str| Ok(Some(str.parse()?)), ArrayCell::U32)
-            }
-            _ => Ok(Cell::String(str.to_string())),
-        }
+            None => to_raw_value(&str.to_string()),
+        };
+
+        Ok(value)
     }
 
-    fn parse_array<P, M, T>(str: &str, mut parse: P, m: M) -> Result<Cell, ConverterError>
+    fn parse_array<P, T>(str: &str, mut parse: P) -> Result<Box<RawValue>, ConverterError>
     where
         P: FnMut(&str) -> Result<Option<T>, ConverterError>,
-        M: FnOnce(Vec<Option<T>>) -> ArrayCell,
+        T: Serialize,
     {
         if str.len() < 2 {
             return Err(ArrayParseError::InputTooShort.into());
@@ -251,6 +227,6 @@ impl Converter {
             val_str.clear();
         }
 
-        Ok(Cell::Array(m(res)))
+        Ok(to_raw_value(&res))
     }
 }

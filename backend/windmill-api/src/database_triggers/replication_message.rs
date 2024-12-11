@@ -184,8 +184,8 @@ impl UpdateBody {
 pub struct DeleteBody {
     transaction_id: Option<i32>,
     pub o_id: Oid,
-    old_tuple: Option<Vec<TupleData>>,
-    key_tuple: Option<Vec<TupleData>>,
+    pub old_tuple: Option<Vec<TupleData>>,
+    pub key_tuple: Option<Vec<TupleData>>,
 }
 
 impl DeleteBody {
@@ -211,6 +211,7 @@ impl TupleData {
     fn parse(buf: &mut Buffer) -> Result<Vec<TupleData>, ConversionError> {
         let number_of_columns = buf.read_i16::<BigEndian>()?;
         let mut tuples = Vec::with_capacity(number_of_columns as usize);
+        println!("Number of column: {}", number_of_columns);
         for _ in 0..number_of_columns {
             let byte = buf.read_u8()?;
             let tuple_data = match byte {
@@ -218,13 +219,16 @@ impl TupleData {
                 TUPLE_DATA_TOAST_BYTE => TupleData::UnchangedToast,
                 TUPLE_DATA_TEXT_BYTE => {
                     let len = buf.read_i32::<BigEndian>()?;
-                    let bytes = buf.read_n_byte(len as usize);
-                    TupleData::Text(bytes)
+                    let mut data = vec![0; len as usize];
+                    buf.read_exact(&mut data)?;
+                    TupleData::Text(data.into())
                 }
                 TUPLE_DATA_BINARY_BYTE => {
                     let len = buf.read_i32::<BigEndian>()?;
-                    let bytes = buf.read_n_byte(len as usize);
-                    TupleData::Text(bytes)
+                    let mut data = vec![0; len as usize];
+                    println!("Binary: {:#?}", &buf.bytes[buf.idx..buf.idx + len as usize]);
+                    buf.read_exact(&mut data)?;
+                    TupleData::Binary(data.into())
                 }
                 byte => {
                     return Err(ConversionError::Io(io::Error::new(

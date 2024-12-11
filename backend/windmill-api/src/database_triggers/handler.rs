@@ -504,3 +504,7 @@ pub async fn set_enabled(
         path, payload.enabled
     ))
 }
+
+pub async fn get_custom_script() -> error::Result<String> {
+    Ok(String::new())
+}

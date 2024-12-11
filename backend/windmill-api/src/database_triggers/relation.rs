@@ -60,20 +60,22 @@ impl RelationConverter {
             let value = match &tuple_data[i] {
                 TupleData::Null => to_raw_value::<&Option<()>>(&&None),
                 TupleData::UnchangedToast => {
+                    println!("{}", "UnchangedToast");
                     return Err(RelationConversionError::BinaryFormatNotSupported)
                 }
-                TupleData::Binary(_) => {
+                TupleData::Binary(s) => {
                     return Err(RelationConversionError::BinaryFormatNotSupported)
                 }
                 TupleData::Text(bytes) => {
-                    let str = str::from_utf8(&bytes)?;
+                    let str = str::from_utf8(&bytes[..])?;
+                    println!("{:#?}", &bytes);
                     Converter::try_from_str(column.type_o_id.as_ref(), str)?
                 }
             };
 
             object.insert(column.name.clone(), value);
         }
-
+        println!("{:#?}", &object);
         Ok(object)
     }
 }

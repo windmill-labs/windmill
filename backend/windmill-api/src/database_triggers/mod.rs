@@ -12,18 +12,20 @@ use axum::{
     Router,
 };
 use handler::{
-    create_database_trigger, delete_database_trigger, exists_database_trigger,
+    create_database_trigger, delete_database_trigger, exists_database_trigger, get_custom_script,
     get_database_trigger, list_database_triggers, set_enabled, update_database_trigger,
     DatabaseTrigger,
 };
 use windmill_common::{db::UserDB, utils::StripPath};
 use windmill_queue::PushArgsOwned;
 
+mod bool;
+mod converter;
 mod handler;
+mod hex;
 mod relation;
 mod replication_message;
 mod trigger;
-mod converter;
 
 pub type SqlxJson<T> = sqlx::types::Json<T>;
 pub use trigger::start_database;
@@ -37,6 +39,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_database_trigger))
         .route("/exists/*path", get(exists_database_trigger))
         .route("/setenabled/*path", post(set_enabled))
+        .route("/custom-script", get(get_custom_script))
 }
 
 async fn run_job(

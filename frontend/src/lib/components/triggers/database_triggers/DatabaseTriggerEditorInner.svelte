@@ -222,6 +222,16 @@
 							bind:scriptPath={script_path}
 							allowRefresh
 						/>
+
+						{#if script_path === undefined}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								on:click={() => {}}
+								target="_blank">Create from template</Button
+							>
+						{/if}
 					</div>
 				</Section>
 				<Section label="Database">

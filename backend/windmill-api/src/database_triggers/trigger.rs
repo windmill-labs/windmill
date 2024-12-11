@@ -165,7 +165,8 @@ impl PostgresClient {
         let binary_format = true;
         let options = match binary_format {
             true => format!(
-                r#"("proto_version" '2', "publication_names" {}, "binary")"#,
+                r#"("proto_version" '2', "publication_names" {})"#,
+                //r#"("proto_version" '2', "publication_names" {}, "binary")"#,
                 quote_literal(publication_name),
             ),
             false => format!(
@@ -511,30 +512,30 @@ async fn listen_to_transactions(
                                     return;
                                 }
                             };
-                            println!("{:#?}", logical_replication_message);
+
                             let json = match logical_replication_message {
                                 Relation(relation_body) => {
                                     relations.add_column(relation_body.o_id, relation_body.columns);
                                     None
                                 }
                                 Begin(_) | Commit(_) | Type(_) => {
-                                    //println!("{:#?}", begin_body);
                                     None
                                 }
                                 Insert(insert) => {
                                     Some(relations.body_to_json((insert.o_id, insert.tuple)))
                                 }
                                 Update(update) => {
-                                    Some(relations.body_to_json((update.o_id, update.new_tuple)))
+                                    let _ = update.old_tuple.unwrap_or(update.key_tuple.unwrap());
 
+                                    Some(relations.body_to_json((update.o_id, update.new_tuple)))
                                 }
                                 Delete(delete) => {
-                                    None
+                                    let body = delete.old_tuple.unwrap_or(delete.key_tuple.unwrap());
+                                    Some(relations.body_to_json((delete.o_id, body)))
                                 }
                             };
 
                             if let Some(Ok(json)) = json {
-
                                 let _ = run_job(Some(json), &db, rsmq.clone(), database_trigger).await;
                                 continue;
                             }
