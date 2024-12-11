@@ -46,6 +46,8 @@ export function createHash() {
 
 export function langToExt(lang: string): string {
 	switch (lang) {
+		case 'tsx':
+			return 'tsx'
 		case 'javascript':
 			return 'ts'
 		case 'bunnative':
