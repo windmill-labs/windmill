@@ -261,7 +261,7 @@
 				{#if selectedTab === 'captures'}
 					<div class="h-full px-2">
 						<CaptureTable
-							captureType={'all'}
+							showAll={true}
 							hasPreprocessor={false}
 							canHavePreprocessor={false}
 							isFlow={false}

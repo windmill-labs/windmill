@@ -8,13 +8,11 @@
 	import { createEventDispatcher } from 'svelte'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 
-	let selected: CaptureTriggerKind = 'webhook'
 	let isOpen = false
 
 	const dispatch = createEventDispatcher()
 
 	function handleClick(kind: CaptureTriggerKind) {
-		selected = kind
 		dispatch('openTriggers', {
 			kind: captureTriggerKindToTriggerKind(kind),
 			config: {}

@@ -21,11 +21,12 @@
 	export let hasPreprocessor = false
 	export let canHavePreprocessor = false
 	export let isFlow = false
-	export let captureType: CaptureTriggerKind | 'all' = 'all'
+	export let captureType: CaptureTriggerKind = 'webhook'
 	export let headless = false
 	export let addButton = false
 	export let hideCapturesWhenEmpty = false
 	export let canEdit = false
+	export let showAll = false
 
 	let captures: Capture[] = []
 	let selectedCaptures: any[] = []
@@ -34,7 +35,7 @@
 	$: hasPreprocessor && (testKind = 'preprocessor')
 
 	function filterCaptures(captures: Capture[], captureType: CaptureTriggerKind | 'all') {
-		if (captureType === 'all') {
+		if (showAll) {
 			return captures
 		}
 		return captures.filter((c) => c.trigger_kind === captureType)
@@ -84,7 +85,7 @@
 {#if selectedCaptures.length > 0 || !hideCapturesWhenEmpty}
 	<Label label="Captures" {headless} class="flex flex-col h-full">
 		<svelte:fragment slot="header">
-			{#if addButton && captureType !== 'all'}
+			{#if addButton && !showAll}
 				<Button
 					size="xs2"
 					color="light"

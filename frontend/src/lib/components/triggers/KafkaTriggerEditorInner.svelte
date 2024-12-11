@@ -25,7 +25,6 @@
 	let fixedScriptPath = ''
 	let path: string = ''
 	let pathError = ''
-	let dirtyGroupId = false
 	let enabled = false
 	let dirtyPath = false
 	let can_write = true
@@ -45,7 +44,6 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			dirtyGroupId = false
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load kafka trigger: ${err}`, true)
@@ -68,7 +66,6 @@
 			args.kafka_resource_path = nDefaultValues?.kafka_resource_path ?? ''
 			args.group_id = nDefaultValues?.group_id ?? ''
 			args.topics = nDefaultValues?.topics ?? ['']
-			dirtyGroupId = false
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
