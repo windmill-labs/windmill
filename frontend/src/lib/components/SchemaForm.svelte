@@ -45,6 +45,7 @@
 		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
+	export let lightHeader = false
 
 	const dispatch = createEventDispatcher()
 
@@ -53,9 +54,6 @@
 	$: if (args == undefined || typeof args !== 'object') {
 		args = {}
 	}
-
-	$: console.log('args', args)
-	$: console.log('schema', schema)
 
 	export function setDefaults() {
 		const nargs = {}
@@ -265,6 +263,7 @@
 										orderEditable={dndConfig != undefined}
 										otherArgs={args}
 										{helperScript}
+										{lightHeader}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />

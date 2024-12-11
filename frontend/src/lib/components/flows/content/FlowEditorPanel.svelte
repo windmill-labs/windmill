@@ -22,7 +22,7 @@
 	const { selectedId, flowStore, flowStateStore, flowInputsStore, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { selectedTrigger, defaultValues } = getContext<TriggerContext>('TriggerContext')
+	const { selectedTrigger, defaultValues, captureOn } = getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
 		for (const m of modules) {
@@ -69,8 +69,16 @@
 			$selectedId = 'triggers'
 			selectedTrigger.set(ev.detail.kind)
 			defaultValues.set(ev.detail.config)
+			captureOn.set(true)
 		}}
 		on:applyArgs
+		on:updateSchema={(e) => {
+			const { schema, redirect } = e.detail
+			$flowStore.schema = schema
+			if (redirect) {
+				$selectedId = 'Input'
+			}
+		}}
 	/>
 {:else if $selectedId === 'Result'}
 	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
@@ -82,6 +90,7 @@
 	<FlowPreprocessorModule {noEditor} />
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor
+		on:applyArgs
 		currentPath={$pathStore}
 		{initialPath}
 		schema={$flowStore.schema}

@@ -1,19 +1,20 @@
 <script lang="ts">
-	import { Button } from '../common'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { KafkaTriggerService, type KafkaTrigger } from '$lib/gen'
-	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { canWrite } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { getContext, onMount } from 'svelte'
 	import KafkaTriggerEditor from './KafkaTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import KafkaIcon from '../icons/KafkaIcon.svelte'
+	import TriggersEditorSection from './TriggersEditorSection.svelte'
+	import Section from '$lib/components/Section.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
+	export let isEditor: boolean = false
 
 	let kafkaTriggerEditor: KafkaTriggerEditor
 
@@ -50,6 +51,15 @@
 			console.error('impossible to load kafka triggers', e)
 		}
 	}
+
+	let data = {
+		kafkaTriggers: [],
+		newItem
+	}
+
+	function saveTrigger(path: string, args?: Record<string, any>) {
+		kafkaTriggerEditor?.openNew(isFlow, path, args)
+	}
 </script>
 
 <KafkaTriggerEditor
@@ -69,23 +79,27 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
+		<TriggersEditorSection
+			on:saveTrigger={(e) => {
+				saveTrigger(path, e.detail.config)
+			}}
+			on:applyArgs
+			cloudDisabled={false}
+			triggerType="kafka"
+			{isFlow}
+			{data}
+			{path}
+			{isEditor}
+		/>
+
 		{#if newItem}
 			<Alert title="Triggers disabled" type="warning" size="xs">
 				Deploy the {isFlow ? 'flow' : 'script'} to add kafka triggers.
 			</Alert>
-		{:else}
-			<Button
-				on:click={() => kafkaTriggerEditor?.openNew(isFlow, path)}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: KafkaIcon }}
-			>
-				New Kafka Trigger
-			</Button>
-			{#if kafkaTriggers}
+		{:else if kafkaTriggers}
+			<Section label="Kafka Triggers">
 				{#if kafkaTriggers.length == 0}
-					<div class="text-xs text-secondary"> No kafka triggers </div>
+					<div class="text-xs text-secondary text-center"> No kafka triggers </div>
 				{:else}
 					<div class="flex flex-col divide-y pt-2">
 						{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
@@ -110,9 +124,9 @@
 						{/each}
 					</div>
 				{/if}
-			{:else}
-				<Skeleton layout={[[8]]} />
-			{/if}
+			</Section>
+		{:else}
+			<Skeleton layout={[[8]]} />
 		{/if}
 	</div>
 {/if}

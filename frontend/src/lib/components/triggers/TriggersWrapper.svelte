@@ -1,0 +1,56 @@
+<script lang="ts">
+	import { type CaptureTriggerKind } from '$lib/gen'
+	import { capitalize } from '$lib/utils'
+	import Alert from '../common/alert/Alert.svelte'
+	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
+	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
+	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
+	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
+	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
+
+	export let triggerType: CaptureTriggerKind = 'webhook'
+	export let cloudDisabled: boolean = false
+	export let args: any
+	export let isFlow: boolean = false
+	export let path: string = ''
+	export let data: any = {}
+</script>
+
+<div class="flex flex-col gap-4 w-full">
+	{#if cloudDisabled}
+		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+			{capitalize(triggerType)} triggers are disabled in the multi-tenant cloud.
+		</Alert>
+	{:else if triggerType === 'websocket'}
+		<WebsocketEditorConfigSection
+			url={''}
+			can_write={true}
+			headless={true}
+			bind:args
+			showCapture={false}
+		/>
+	{:else if triggerType === 'webhook'}
+		<WebhooksConfigSection
+			{isFlow}
+			{path}
+			hash={data?.hash}
+			token={data?.token}
+			{args}
+			scopes={data?.scopes}
+			showCapture={false}
+		/>
+	{:else if triggerType === 'http'}
+		<RouteEditorConfigSection {path} showCapture={false} can_write={true} bind:args headless />
+	{:else if triggerType === 'email'}
+		<EmailTriggerConfigSection
+			hash={data?.hash}
+			token={data?.token}
+			{path}
+			{isFlow}
+			userSettings={data?.userSettings}
+			emailDomain={data?.emailDomain}
+		/>
+	{:else if triggerType === 'kafka'}
+		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
+	{/if}
+</div>

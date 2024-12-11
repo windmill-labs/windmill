@@ -44,12 +44,14 @@
 					{#if $selectedTrigger === 'webhooks'}
 						<div class="p-4">
 							<WebhooksPanel
+								on:applyArgs
 								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 								path={currentPath}
 								{isFlow}
 								args={{}}
 								token=""
 								{newItem}
+								isEditor={true}
 							/>
 						</div>
 					{/if}
@@ -57,29 +59,43 @@
 					{#if $selectedTrigger === 'emails'}
 						<div class="p-4">
 							<EmailTriggerPanel
+								on:applyArgs
 								token=""
 								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 								path={currentPath}
 								{isFlow}
+								isEditor={true}
 							/>
 						</div>
 					{/if}
 
 					{#if $selectedTrigger === 'routes'}
 						<div class="p-4">
-							<RoutesPanel {newItem} path={currentPath} {isFlow} />
+							<RoutesPanel on:applyArgs{newItem} path={currentPath} {isFlow} isEditor={true} />
 						</div>
 					{/if}
 
 					{#if $selectedTrigger === 'websockets'}
 						<div class="p-4">
-							<WebsocketTriggersPanel {newItem} path={currentPath} {isFlow} />
+							<WebsocketTriggersPanel
+								on:applyArgs
+								{newItem}
+								path={currentPath}
+								{isFlow}
+								isEditor={true}
+							/>
 						</div>
 					{/if}
 
 					{#if $selectedTrigger === 'kafka'}
 						<div class="p-4">
-							<KafkaTriggersPanel {newItem} path={currentPath} {isFlow} />
+							<KafkaTriggersPanel
+								on:applyArgs
+								{newItem}
+								path={currentPath}
+								{isFlow}
+								isEditor={true}
+							/>
 						</div>
 					{/if}
 

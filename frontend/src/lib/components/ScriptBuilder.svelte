@@ -61,13 +61,14 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, setContext, tick } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
+	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -90,6 +91,8 @@
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
+	let args: Record<string, any> = initialArgs // Test args input
+	let selectedInputTab: 'main' | 'capture' = 'main'
 
 	let metadataOpen =
 		!neverShowMeta &&
@@ -137,12 +140,14 @@
 
 	const triggerDefaultValuesStore = writable<Record<string, any> | undefined>(undefined)
 
+	const captureOn = writable<boolean | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: triggerDefaultValuesStore
+		defaultValues: triggerDefaultValuesStore,
+		captureOn: captureOn
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
@@ -612,6 +617,23 @@
 			return 'bun'
 		}
 		return lang
+	}
+
+	async function applyArgs(e) {
+		selectedInputTab = 'main'
+		metadataOpen = false
+		// TODO: that sucks, but don't know how to avoid it
+		await tick()
+		await tick()
+		args = e.detail.args ?? {}
+	}
+
+	function openTriggers(ev) {
+		metadataOpen = true
+		selectedTab = 'triggers'
+		selectedTriggerStore.set(ev.detail.kind)
+		triggerDefaultValuesStore.set(ev.detail.config)
+		captureOn.set(true)
 	}
 </script>
 
@@ -1209,6 +1231,7 @@
 						</TabContent>
 						<TabContent value="triggers">
 							<TriggersEditor
+								on:applyArgs={applyArgs}
 								{initialPath}
 								schema={script.schema}
 								noEditor={true}
@@ -1300,6 +1323,7 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
+					<CaptureButton on:openTriggers={openTriggers} />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							color="light"
@@ -1393,6 +1417,7 @@
 		</div>
 
 		<ScriptEditor
+			bind:selectedTab={selectedInputTab}
 			{customUi}
 			collabMode
 			edit={initialPath != ''}
@@ -1402,12 +1427,8 @@
 			on:saveDraft={() => {
 				saveDraft()
 			}}
-			on:openTriggers={(ev) => {
-				metadataOpen = true
-				selectedTab = 'triggers'
-				selectedTriggerStore.set(ev.detail.kind)
-				triggerDefaultValuesStore.set(ev.detail.config)
-			}}
+			on:openTriggers={openTriggers}
+			on:applyArgs={applyArgs}
 			bind:editor
 			bind:this={scriptEditor}
 			bind:schema={script.schema}
@@ -1418,6 +1439,7 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			bind:args
 		/>
 	</div>
 {:else}
