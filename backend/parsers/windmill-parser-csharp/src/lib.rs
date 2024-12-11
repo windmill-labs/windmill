@@ -18,6 +18,12 @@ pub struct CsharpMainSigMeta {
     pub main_sig: MainArgSignature,
 }
 
+fn csharp_param_default_value<'a>(def: Node<'a>, code: &str) -> Option<serde_json::Value> {
+    def.utf8_text(code.as_bytes())
+        .ok()
+        .and_then(|content| serde_json::from_str(content).ok())
+}
+
 pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
     let mut parser = tree_sitter::Parser::new();
     let language = tree_sitter_c_sharp::LANGUAGE;
@@ -40,12 +46,11 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
     let mut args = vec![];
     if let Some((sig, name)) = main_sig {
         class_name = name;
-        for (i, c) in sig.children(&mut sig.walk()).enumerate() {
-            println!("  {:?} - {:?}", c, sig.field_name_for_child((i) as u32));
-            if c.kind() == "modifier" && c.utf8_text(code.as_bytes())? == "async" {
+        for sig_node in sig.children(&mut sig.walk()) {
+            if sig_node.kind() == "modifier" && sig_node.utf8_text(code.as_bytes())? == "async" {
                 is_async = true;
             }
-            if c.kind() == "modifier" && c.utf8_text(code.as_bytes())? == "public" {
+            if sig_node.kind() == "modifier" && sig_node.utf8_text(code.as_bytes())? == "public" {
                 is_public = true;
             }
         }
@@ -57,17 +62,18 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
             }
         }
         if let Some(param_list) = sig.child_by_field_name("parameters") {
-            for c in param_list.children(&mut param_list.walk()) {
-                if c.kind() == "parameter" {
-                    let (otyp, typ, name) = parse_csharp_typ(c, code)?;
-                    args.push(Arg {
-                        name,
-                        otyp,
-                        typ,
-                        default: None,
-                        has_default: false,
-                        oidx: None,
-                    });
+            for p_list_node in param_list.children(&mut param_list.walk()) {
+                if p_list_node.kind() == "parameter" {
+                    let mut default = None;
+                    for a in p_list_node.children(&mut p_list_node.walk()) {
+                        if a.kind() == "=" {
+                            if let Some(node) = a.next_sibling() {
+                                default = csharp_param_default_value(node, code);
+                            }
+                        }
+                    }
+                    let (otyp, typ, name) = parse_csharp_typ(p_list_node, code)?;
+                    args.push(Arg { name, otyp, typ, default, has_default: false, oidx: None });
                 }
             }
         }
@@ -120,7 +126,17 @@ fn find_typ<'a>(typ_node: Node<'a>, code: &str) -> anyhow::Result<Typ> {
         "identifier" => Ok(Typ::Unknown),
         "generic_name" => Ok(Typ::Unknown),
         "pointer_type" => Ok(Typ::Int),
-        wc => Err(anyhow!("Unexpected node kind: {}", wc)),
+        "nullable_type" => {
+            let new_typ_node = typ_node
+                .child_by_field_name("type")
+                .ok_or(anyhow!("Failed to find inner type of nullable_type"))?;
+            Ok(find_typ(new_typ_node, code)?)
+        }
+        wc => Err(anyhow!(
+            "Unexpected C# type node kind: {} for '{}'. This type is not handeled by Windmill, please open an issue if this seems to be an error",
+            wc,
+            typ_node.utf8_text(code.as_bytes())?
+        )),
     }
 }
 
@@ -220,7 +236,7 @@ using System;
 class LilProgram
 {
 
-    public async static string Main(string myString = "World", int myInt, string[] jj)
+    public async static string Main(string myString = "World", int myInt = 2, string[] jj = ["asd", "ss"])
     {
         Console.Writeline("Hello!!");
         return "yeah";

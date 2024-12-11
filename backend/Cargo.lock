@@ -10770,6 +10770,7 @@ name = "windmill-parser-csharp"
 version = "1.435.1"
 dependencies = [
  "anyhow",
+ "serde_json",
  "tree-sitter",
  "tree-sitter-c-sharp",
  "wasm-bindgen",

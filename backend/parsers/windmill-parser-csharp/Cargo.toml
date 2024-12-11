@@ -14,6 +14,7 @@ tree-sitter.workspace = true
 tree-sitter-c-sharp.workspace = true
 anyhow.workspace = true
 wasm-bindgen.workspace = true
+serde_json.workspace = true
 # convert_case.workspace = true
 # lazy_static.workspace = true
 # regex.workspace = true
