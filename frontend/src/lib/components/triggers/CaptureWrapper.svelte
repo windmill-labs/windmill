@@ -140,8 +140,8 @@
 		if ((captureType === 'websocket' || captureType === 'kafka') && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const message = serverEnabled
-				? 'Websocket is connected'
-				: `Websocket is not connected${config.error ? ': ' + config.error : ''}`
+				? `${capitalize(captureType)} is connected`
+				: `${capitalize(captureType)} is not connected${config.error ? ': ' + config.error : ''}`
 			connectionInfo = {
 				status: serverEnabled ? 'connected' : 'disconnected',
 				message
