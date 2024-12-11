@@ -265,11 +265,6 @@ pub fn build_extra(
 }
 
 #[derive(Deserialize)]
-pub struct DecodeQuery {
-    pub include_query: Option<String>,
-}
-
-#[derive(Deserialize)]
 pub struct IncludeQuery {
     pub include_query: Option<String>,
 }
