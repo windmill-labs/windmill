@@ -19,6 +19,7 @@ use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
 
 use windmill_common::{
     apps::AppScriptId,
+    cache::{self, RawData},
     error::{self, to_anyhow},
     flows::{add_virtual_items_if_necessary, FlowValue},
     jobs::QueuedJob,
@@ -217,7 +218,7 @@ pub fn extract_relative_imports(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
     job: &QueuedJob,
-    raw_code: Option<String>,
+    preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -228,18 +229,6 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let raw_code = match raw_code {
-        Some(code) => code,
-        None => sqlx::query_scalar!(
-            "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
-            &job.script_hash.unwrap_or(ScriptHash(0)).0,
-            &job.workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .unwrap_or_else(|| "No script found at this hash".to_string()),
-    };
-
     let script_path = job.script_path();
     let raw_deps = job
         .args
@@ -268,6 +257,16 @@ pub async fn handle_dependency_job(
         None
     };
 
+    // `JobKind::Dependencies` job store either:
+    // - A saved script `hash` in the `script_hash` column.
+    // - Preview raw lock and code in the `queue` or `job` table.
+    let script_data = match job.script_hash {
+        Some(hash) => &cache::script::fetch(db, hash).await?.0,
+        _ => match preview_data {
+            Some(RawData::Script(data)) => data,
+            _ => return Err(Error::InternalErr("expected script hash".into())),
+        },
+    };
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -275,7 +274,7 @@ pub async fn handle_dependency_job(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        &raw_code,
+        &script_data.code,
         mem_peak,
         canceled_by,
         job_dir,
@@ -333,7 +332,8 @@ pub async fn handle_dependency_job(
                 tracing::error!(%e, "error handling deployment metadata");
             }
 
-            let relative_imports = extract_relative_imports(&raw_code, script_path, &job.language);
+            let relative_imports =
+                extract_relative_imports(&script_data.code, script_path, &job.language);
             if let Some(relative_imports) = relative_imports {
                 update_script_dependency_map(
                     &job.id,
@@ -534,7 +534,6 @@ async fn trigger_dependents_to_recompute_dependencies(
 
 pub async fn handle_flow_dependency_job(
     job: &QueuedJob,
-    raw_flow: Option<Json<Box<RawValue>>>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -577,11 +576,6 @@ pub async fn handle_flow_dependency_job(
         )
     };
 
-    let raw_flow = raw_flow.map(|v| Ok(v)).unwrap_or_else(|| {
-        Err(Error::InternalErr(
-            "Flow Dependency requires raw flow".to_owned(),
-        ))
-    })?;
     let (deployment_message, parent_path) =
         get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -595,7 +589,13 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
-    let mut flow = serde_json::from_str::<FlowValue>((*raw_flow.0).get()).map_err(to_anyhow)?;
+    // `JobKind::FlowDependencies` store the flow version id the the script hash:
+    let mut flow = match job.script_hash {
+        Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await,
+        _ => Err(Error::InternalErr("expected script hash".into())),
+    }?
+    .value()?
+    .clone();
 
     let mut tx = db.begin().await?;
 
@@ -1831,7 +1831,7 @@ async fn capture_dependency_job(
             if req.is_some() && !raw_deps {
                 crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
-                    req.clone(),
+                    req.as_ref(),
                     script_path,
                     job_id,
                     w_id,

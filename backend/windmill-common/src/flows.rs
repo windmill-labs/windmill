@@ -407,12 +407,6 @@ pub enum InputTransform {
 #[serde(transparent)]
 pub struct FlowNodeId(pub i64);
 
-impl Into<u64> for FlowNodeId {
-    fn into(self) -> u64 {
-        self.0 as u64
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Branch {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -784,7 +778,9 @@ pub async fn resolve_module(
             let (lock, content) = if !with_code {
                 (Some("...".to_string()), "...".to_string())
             } else {
-                cache::flow::fetch_script(e, id).await?
+                cache::flow::fetch_script(e, id)
+                    .await
+                    .map(|data| (data.lock.clone(), data.code.clone()))?
             };
             val = RawScript {
                 input_transforms,
@@ -844,7 +840,7 @@ pub async fn resolve_modules(
     if let Some(id) = modules_node {
         *modules = cache::flow::fetch_flow(e, id)
             .await
-            .map(|flow| flow.modules)?;
+            .and_then(|data| Ok(data.value()?.modules.clone()))?;
     }
     for module in modules.iter_mut() {
         Box::pin(resolve_module(
