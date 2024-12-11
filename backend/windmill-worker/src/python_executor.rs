@@ -329,7 +329,9 @@ pub async fn uv_pip_compile(
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd
             .current_dir(job_dir)
+            .env_clear()
             .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
