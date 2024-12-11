@@ -1262,7 +1262,6 @@
 								on:applyArgs={applyArgs}
 								on:addPreprocessor={addPreprocessor}
 								on:refreshCaptures={() => {
-									console.log('dbg refreshCaptures')
 									shouldRefreshCaptures = true
 								}}
 								{initialPath}
