@@ -58,7 +58,8 @@ use windmill_common::{
     jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath
+        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
+        Pagination, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -558,12 +559,11 @@ async fn update_app_history(
     return Ok(());
 }
 
-
 async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
-    let exists = 
+    let exists =
         sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
@@ -658,7 +658,6 @@ async fn get_public_app_by_secret(
     Ok(Json(app))
 }
 
-
 async fn get_public_resource(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -742,7 +741,6 @@ async fn create_app(
     }
 
     if let Some(custom_path) = &app.custom_path {
-
         require_admin(authed.is_admin, &authed.username)?;
 
         let exists = sqlx::query_scalar!(
@@ -778,7 +776,9 @@ async fn create_app(
         app.summary,
         json!(app.policy),
         app.draft_only,
-        app.custom_path.map(|s| if s.is_empty() { None } else { Some(s) }).flatten()
+        app.custom_path
+            .map(|s| if s.is_empty() { None } else { Some(s) })
+            .flatten()
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1019,7 +1019,6 @@ async fn update_app(
         }
 
         if let Some(ncustom_path) = &ns.custom_path {
-
             require_admin(authed.is_admin, &authed.username)?;
 
             if ncustom_path.is_empty() {
@@ -1034,7 +1033,7 @@ async fn update_app(
                 )
                 .fetch_one(&mut *tx)
                 .await?.unwrap_or(false);
-    
+
                 if exists {
                     return Err(Error::BadRequest(format!(
                         "App with custom path {} already exists",
@@ -1306,15 +1305,8 @@ async fn execute_component(
             force_viewer_allow_user_resources: Some(allow_user_resources),
             ..
         } => (
-            &Policy {
-                execution_mode: ExecutionMode::Viewer,
-                ..Default::default()
-            },
-            &PolicyTriggerableInputs {
-                static_inputs,
-                one_of_inputs,
-                allow_user_resources,
-            },
+            &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
+            &PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources },
         ),
         // 2. "run" mode.
         _ => {

@@ -16,8 +16,7 @@ use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
-    cache,
-    error,
+    cache, error,
     flows::{FlowModule, FlowModuleValue},
     jobs::QueuedJob,
     scripts::{ScriptHash, ScriptLang},
@@ -416,17 +415,18 @@ async fn spawn_dedicated_workers_for_flow(
                                 job_completed_tx,
                                 Some(module.id.clone()),
                             )
-                              .await
+                            .await
                             {
                                 workers.push(dedi_w);
                             }
-                        },
+                        }
                         Err(err) => tracing::error!(
                             "failed to get script for module: {:?}, err: {:?}",
-                            module, err
-                        )
+                            module,
+                            err
+                        ),
                     }
-                },
+                }
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
             }

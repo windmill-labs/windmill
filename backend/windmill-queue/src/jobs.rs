@@ -3221,7 +3221,7 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
             )
-        },
+        }
         JobPayload::AppScript {
             id, // app_script(id).
             path,
