@@ -28,6 +28,8 @@ use crate::{
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
 
+const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.csharp.config.proto");
+
 lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
 }
@@ -398,29 +400,28 @@ pub async fn handle_csharp_job(
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
 
     let child = if !*DISABLE_NSJAIL {
-        todo!();
-        // let _ = write_file(
-        //     job_dir,
-        //     "run.config.proto",
-        //     &NSJAIL_CONFIG_RUN_RUST_CONTENT
-        //         .replace("{JOB_DIR}", job_dir)
-        //         .replace("{CACHE_DIR}", RUST_CACHE_DIR)
-        //         .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-        //         .replace("{SHARED_MOUNT}", shared_mount),
-        // )?;
-        // let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
-        // nsjail_cmd
-        //     .current_dir(job_dir)
-        //     .env_clear()
-        //     .envs(envs)
-        //     .envs(reserved_variables)
-        //     .env("PATH", PATH_ENV.as_str())
-        //     .env("TZ", TZ_ENV.as_str())
-        //     .env("BASE_INTERNAL_URL", base_internal_url)
-        //     .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
-        //     .stdout(Stdio::piped())
-        //     .stderr(Stdio::piped());
-        // start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount),
+        )?;
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(envs)
+            .envs(reserved_variables)
+            .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let compiled_executable_name = "./Main";
         let mut run_csharp = Command::new(compiled_executable_name);
