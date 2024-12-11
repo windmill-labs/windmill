@@ -39,6 +39,7 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let workspace: string | undefined = undefined
 	export let path: string = ''
+	export let hasPreprocessor: boolean = false
 
 	type DrawerContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -259,18 +260,18 @@
 					</div>
 				{/if}
 				{#if selectedTab === 'captures'}
-					<div class="h-full px-2">
+					<div class="h-full p-2">
 						<CaptureTable
 							showAll={true}
-							hasPreprocessor={false}
-							canHavePreprocessor={false}
+							{hasPreprocessor}
+							canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
 							isFlow={false}
 							{path}
 							hideCapturesWhenEmpty={false}
 							canEdit={true}
 							on:applyArgs
 							on:updateSchema
-							headless={true}
+							on:addPreprocessor
 						/>
 					</div>
 				{/if}

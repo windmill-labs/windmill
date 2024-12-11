@@ -14,6 +14,7 @@
 	export let path: string
 	export let newItem: boolean = false
 	export let isEditor: boolean = false
+	export let canHavePreprocessor: boolean = false
 
 	let routeEditor: RouteEditor
 
@@ -64,11 +65,13 @@
 			routeEditor?.openNew(isFlow, path, e.detail.config)
 		}}
 		on:applyArgs
+		on:addPreprocessor
 		cloudDisabled={false}
 		triggerType="http"
 		{isFlow}
 		{path}
 		{isEditor}
+		{canHavePreprocessor}
 	/>
 	<Section label="Routes">
 		{#if !newItem}

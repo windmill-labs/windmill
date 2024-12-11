@@ -15,6 +15,8 @@
 	export let path: string
 	export let newItem: boolean = false
 	export let isEditor: boolean = false
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
 
 	let kafkaTriggerEditor: KafkaTriggerEditor
 
@@ -84,12 +86,15 @@
 				saveTrigger(path, e.detail.config)
 			}}
 			on:applyArgs
+			on:addPreprocessor
 			cloudDisabled={false}
 			triggerType="kafka"
 			{isFlow}
 			{data}
 			{path}
 			{isEditor}
+			{canHavePreprocessor}
+			{hasPreprocessor}
 		/>
 
 		{#if newItem}

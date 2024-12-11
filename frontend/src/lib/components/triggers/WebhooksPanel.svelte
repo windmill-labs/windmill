@@ -11,6 +11,8 @@
 	export let path: string
 	export let newItem: boolean = false
 	export let isEditor: boolean = false
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
 
 	let data: any = {
 		hash,
@@ -33,6 +35,7 @@
 
 	<TriggersEditorSection
 		on:applyArgs
+		on:addPreprocessor
 		cloudDisabled={false}
 		triggerType="webhook"
 		{isFlow}
@@ -40,5 +43,7 @@
 		noSave
 		{path}
 		{isEditor}
+		{canHavePreprocessor}
+		{hasPreprocessor}
 	/>
 </div>

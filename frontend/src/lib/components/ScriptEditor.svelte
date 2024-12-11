@@ -56,6 +56,7 @@
 	export let customUi: ScriptEditorWhitelabelCustomUi = {}
 	export let args: Record<string, any> = initialArgs
 	export let selectedTab: 'main' | 'preprocessor' | 'capture' = 'main'
+	export let hasPreprocessor = false
 
 	let jobProgressReset: () => void
 
@@ -129,8 +130,6 @@
 			scriptPathExact: path
 		})
 	}
-
-	let hasPreprocessor = false
 
 	export async function inferSchema(code: string, nlang?: SupportedLanguage) {
 		let nschema = schema ?? emptySchema()
@@ -480,7 +479,9 @@
 								{diffEditor}
 								{args}
 								{path}
+								{hasPreprocessor}
 								on:applyArgs
+								on:addPreprocessor
 							>
 								{#if scriptProgress}
 									<!-- Put to the slot in logpanel -->

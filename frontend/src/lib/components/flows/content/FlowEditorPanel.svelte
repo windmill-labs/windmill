@@ -13,6 +13,7 @@
 	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
+	import { insertNewPreprocessorModule } from '../flowStateUtils'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -91,12 +92,21 @@
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor
 		on:applyArgs
+		on:addPreprocessor={async () => {
+			await insertNewPreprocessorModule(flowStore, flowStateStore, {
+				language: 'bun',
+				subkind: 'preprocessor'
+			})
+			$selectedId = 'preprocessor'
+		}}
 		currentPath={$pathStore}
 		{initialPath}
 		schema={$flowStore.schema}
 		{noEditor}
 		newItem={newFlow}
 		isFlow={true}
+		hasPreprocessor={!!$flowStore.value.preprocessor_module}
+		canHavePreprocessor={true}
 	/>
 {:else if $selectedId.startsWith('subflow:')}
 	<div class="p-4"

@@ -17,6 +17,8 @@
 	export let hash: string | undefined = undefined
 	export let path: string
 	export let isEditor: boolean = false
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
 
 	let emailDomain: string | null = null
 	let triggerTokens: TriggerTokens | undefined = undefined
@@ -59,7 +61,10 @@
 				data={{ emailDomain, userSettings, token, hash, path }}
 				{isEditor}
 				{path}
+				{canHavePreprocessor}
+				{hasPreprocessor}
 				on:applyArgs
+				on:addPreprocessor
 			/>
 		{:else}
 			<div>

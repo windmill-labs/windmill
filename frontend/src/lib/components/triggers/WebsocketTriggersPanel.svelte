@@ -15,6 +15,8 @@
 	export let path: string
 	export let newItem: boolean = false
 	export let isEditor: boolean = false
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
 
 	let wsTriggerEditor: WebsocketTriggerEditor
 
@@ -71,11 +73,13 @@
 			on:saveTrigger={(e) => {
 				wsTriggerEditor?.openNew(isFlow, path)
 			}}
+			on:addPreprocessor
 			cloudDisabled={false}
 			triggerType="websocket"
 			{isFlow}
 			{path}
 			{isEditor}
+			{canHavePreprocessor}
 		/>
 
 		<Section label="Websockets">

@@ -69,6 +69,10 @@
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
+	import {
+		BUN_PREPROCESSOR_MODULE_CODE,
+		PYTHON_PREPROCESSOR_MODULE_CODE
+	} from '$lib/script_helpers'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -92,7 +96,8 @@
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
 	let args: Record<string, any> = initialArgs // Test args input
-	let selectedInputTab: 'main' | 'capture' = 'main'
+	let selectedInputTab: 'main' | 'capture' | 'preprocessor' = 'main'
+	let hasPreprocessor = false
 
 	let metadataOpen =
 		!neverShowMeta &&
@@ -634,6 +639,27 @@
 		selectedTriggerStore.set(ev.detail.kind)
 		triggerDefaultValuesStore.set(ev.detail.config)
 		captureOn.set(true)
+	}
+
+	function addPreprocessor() {
+		const code = editor?.getCode()
+		if (code) {
+			const preprocessorCode =
+				script.language === 'python3'
+					? PYTHON_PREPROCESSOR_MODULE_CODE
+					: BUN_PREPROCESSOR_MODULE_CODE
+			const mainIndex = code.indexOf(
+				script.language === 'python3' ? 'def main' : 'export async function main'
+			)
+			if (mainIndex === -1) {
+				editor?.setCode(code + preprocessorCode)
+			} else {
+				editor?.setCode(
+					code.slice(0, mainIndex) + preprocessorCode + '\n' + code.slice(mainIndex) + '\n\n'
+				)
+			}
+		}
+		selectedInputTab = 'preprocessor'
 	}
 </script>
 
@@ -1232,12 +1258,17 @@
 						<TabContent value="triggers">
 							<TriggersEditor
 								on:applyArgs={applyArgs}
+								on:addPreprocessor={addPreprocessor}
 								{initialPath}
 								schema={script.schema}
 								noEditor={true}
 								isFlow={false}
 								currentPath={script.path}
 								newItem={initialPath == ''}
+								canHavePreprocessor={script.language === 'bun' ||
+									script.language === 'deno' ||
+									script.language === 'python3'}
+								{hasPreprocessor}
 							/>
 							<!-- <ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} /> -->
 						</TabContent>
@@ -1429,6 +1460,7 @@
 			}}
 			on:openTriggers={openTriggers}
 			on:applyArgs={applyArgs}
+			on:addPreprocessor={addPreprocessor}
 			bind:editor
 			bind:this={scriptEditor}
 			bind:schema={script.schema}
@@ -1440,6 +1472,7 @@
 			{template}
 			tag={script.tag}
 			bind:args
+			bind:hasPreprocessor
 		/>
 	</div>
 {:else}

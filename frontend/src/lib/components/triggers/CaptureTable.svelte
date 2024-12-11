@@ -16,6 +16,7 @@
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import type { Capture } from '$lib/gen'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
+	import { twMerge } from 'tailwind-merge'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -27,6 +28,7 @@
 	export let hideCapturesWhenEmpty = false
 	export let canEdit = false
 	export let showAll = false
+	export let maxHeight: number | undefined = undefined
 
 	let captures: Capture[] = []
 	let selectedCaptures: any[] = []
@@ -83,7 +85,14 @@
 </script>
 
 {#if selectedCaptures.length > 0 || !hideCapturesWhenEmpty}
-	<Label label="Captures" {headless} class="flex flex-col h-full">
+	<Label
+		label="Captures"
+		{headless}
+		class={twMerge(
+			'flex flex-col h-full divide-y gap-1',
+			maxHeight ? `max-h-[${maxHeight}px]` : ''
+		)}
+	>
 		<svelte:fragment slot="header">
 			{#if addButton && !showAll}
 				<Button
@@ -103,7 +112,7 @@
 		<svelte:fragment slot="action">
 			{#if canHavePreprocessor}
 				<div>
-					<ToggleButtonGroup bind:selected={testKind}>
+					<ToggleButtonGroup bind:selected={testKind} class="h-full">
 						<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small />
 						<ToggleButton
 							value="preprocessor"

@@ -21,6 +21,8 @@
 	export let noSave = false
 	export let isEditor: boolean = false
 	export let path: string = ''
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
 		http: 'Route',
@@ -118,13 +120,10 @@
 			{path}
 			{isFlow}
 			captureType={triggerType}
-			hasPreprocessor={isFlow && !!$flowStore.value.preprocessor_module}
-			canHavePreprocessor
+			{hasPreprocessor}
+			{canHavePreprocessor}
 			on:applyArgs
-			on:addPreprocessor={async () => {
-				console.log('dbg add preprocessor')
-				$selectedId = 'preprocessor'
-			}}
+			on:addPreprocessor
 			on:updateSchema={(e) => {
 				const { schema, redirect } = e.detail
 				$flowStore.schema = schema

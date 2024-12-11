@@ -20,6 +20,8 @@
 	export let initialPath: string
 	export let schema: any
 	export let isFlow: boolean
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
 
 	const { selectedTrigger, simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
 </script>
@@ -45,6 +47,7 @@
 						<div class="p-4">
 							<WebhooksPanel
 								on:applyArgs
+								on:addPreprocessor
 								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 								path={currentPath}
 								{isFlow}
@@ -52,6 +55,8 @@
 								token=""
 								{newItem}
 								isEditor={true}
+								{canHavePreprocessor}
+								{hasPreprocessor}
 							/>
 						</div>
 					{/if}
@@ -60,11 +65,14 @@
 						<div class="p-4">
 							<EmailTriggerPanel
 								on:applyArgs
+								on:addPreprocessor
 								token=""
 								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 								path={currentPath}
 								{isFlow}
 								isEditor={true}
+								{canHavePreprocessor}
+								{hasPreprocessor}
 							/>
 						</div>
 					{/if}
@@ -79,10 +87,13 @@
 						<div class="p-4">
 							<WebsocketTriggersPanel
 								on:applyArgs
+								on:addPreprocessor
 								{newItem}
 								path={currentPath}
 								{isFlow}
 								isEditor={true}
+								{canHavePreprocessor}
+								{hasPreprocessor}
 							/>
 						</div>
 					{/if}
@@ -91,10 +102,13 @@
 						<div class="p-4">
 							<KafkaTriggersPanel
 								on:applyArgs
+								on:addPreprocessor
 								{newItem}
 								path={currentPath}
 								{isFlow}
 								isEditor={true}
+								{canHavePreprocessor}
+								{hasPreprocessor}
 							/>
 						</div>
 					{/if}

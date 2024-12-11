@@ -210,6 +210,8 @@
 			canEdit={true}
 			on:applyArgs
 			on:updateSchema
+			on:addPreprocessor
+			maxHeight={300}
 		/>
 	{/if}
 </div>
