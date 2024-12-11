@@ -446,11 +446,11 @@ pub async fn process_completed_job(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> windmill_common::error::Result<Option<Arc<QueuedJob>>> {
+) -> error::Result<Option<Arc<QueuedJob>>> {
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
-            save_in_cache(db, client, &job, cached_path.to_string(), &result).await;
+            save_in_cache(db, client, &job, cached_path, result.clone()).await;
         }
 
         let is_flow_step = job.is_flow_step;

@@ -6,13 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{hash_args, save_in_cache};
+use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{
     AuthedClient, PreviousResult, SameWorkerPayload, SameWorkerSender, SendResult, JOB_TOKEN,
@@ -1067,22 +1066,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             .await?;
         } else {
             if flow_job.cache_ttl.is_some() && success {
-                let cached_res_path = {
-                    let args_hash =
-                        hash_args(db, client, w_id, job_id_for_status, &flow_job.args).await;
-                    let flow_path = flow_job.script_path();
-                    let version_hash = if let Some(sqlx::types::Json(s)) = raw_flow.as_ref() {
-                        use std::hash::{Hash, Hasher};
-                        let mut h = DefaultHasher::new();
-                        s.get().hash(&mut h);
-                        format!("flow_{}", hex::encode(h.finish().to_be_bytes()))
-                    } else {
-                        "flow_unknown".to_string()
-                    };
-                    format!("{flow_path}/cache/{version_hash}/{args_hash}")
-                };
+                let cached_res_path =
+                    cached_result_path(db, client, &flow_job, None, None, raw_flow.as_ref()).await;
 
-                save_in_cache(db, client, &flow_job, cached_res_path, &nresult).await;
+                save_in_cache(db, client, &flow_job, cached_res_path, nresult.clone()).await;
             }
             fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
                 let recover = serde_json::from_str::<RecoveryObject>(nresult.get());

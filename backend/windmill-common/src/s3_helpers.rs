@@ -122,7 +122,7 @@ pub struct S3Object {
 
 #[cfg(feature = "parquet")]
 pub async fn get_etag_or_empty(
-    object_store_resource: &mut ObjectStoreResource,
+    object_store_resource: &ObjectStoreResource,
     s3_object: S3Object,
 ) -> Option<String> {
     let object_store_client = build_object_store_client(object_store_resource).await;
