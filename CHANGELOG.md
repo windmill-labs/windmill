@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.437.1](https://github.com/windmill-labs/windmill/compare/v1.437.0...v1.437.1) (2024-12-10)
+
+
+### Bug Fixes
+
+* **frontend:** fix newly deployed apps with frontend scripts ([bcd2cfe](https://github.com/windmill-labs/windmill/commit/bcd2cfe674038042f08f22d05286596b3442caf9))
+
+## [1.437.0](https://github.com/windmill-labs/windmill/compare/v1.436.0...v1.437.0) (2024-12-10)
+
+
+### Features
+
+* add ctx.name to apps [#4885](https://github.com/windmill-labs/windmill/issues/4885) ([2387503](https://github.com/windmill-labs/windmill/commit/23875033dd19d6d585f2433fa7b18a703175e329))
+
+
+### Bug Fixes
+
+* **parsers:** more robust pwsh param parsing ([#4884](https://github.com/windmill-labs/windmill/issues/4884)) ([7014389](https://github.com/windmill-labs/windmill/commit/7014389d677fba563bec02e08815452b195ecd0a))
+* **python:** do not follow symlinks when copying recursively in overlapping sites-package ([c173e46](https://github.com/windmill-labs/windmill/commit/c173e46a724b50d27416bbc169bf2a57fe68808c))
+
 ## [1.436.0](https://github.com/windmill-labs/windmill/compare/v1.435.2...v1.436.0) (2024-12-09)
 
 
