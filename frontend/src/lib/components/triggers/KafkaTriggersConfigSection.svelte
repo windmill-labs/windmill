@@ -137,6 +137,16 @@
 			args.security = value
 		}
 	}
+
+	function restOnSelected(selected: 'resource' | 'static') {
+		if (selected === 'static') {
+			args.kafka_resource_path = undefined
+		} else {
+			args.brokers = undefined
+			args.security = undefined
+		}
+	}
+	$: restOnSelected(selected)
 </script>
 
 <Section label="Kafka" {headless}>
