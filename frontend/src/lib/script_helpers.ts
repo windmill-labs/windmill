@@ -349,17 +349,52 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
 `
 
 const CSHARP_INIT_CODE = `
+#r "nuget: Humanizer, 2.14.1"
+
 using System;
+using System.Linq;
+using Humanizer;
 
-class LilProgram
+
+class Script
 {
-
-    public static string Main(string myString = "World", int myInt)
+    public static int Main(string[] extraWords, string word = "clue", int highNumberThreshold = 50)
     {
-        Console.Writeline("Hello!!");
-        return "yeah";
-    }
+        Console.WriteLine("Hello, World!");
 
+        Console.WriteLine("Your chosen words are pluralized here:");
+
+        string[] newWordArray = extraWords.Concat(new[] { word }).ToArray();
+
+        foreach (var s in newWordArray)
+        {
+            Console.WriteLine($"  {s.Pluralize()}");
+        }
+
+        var random = new Random();
+        int randomNumber = random.Next(1, 101);
+
+        Console.WriteLine($"Random number: {randomNumber}");
+
+        string greeting = randomNumber > highNumberThreshold ? "High number!" : "Low number!";
+        greeting += " (according to the threshold parameter)";
+        Console.WriteLine(greeting);
+         // Humanize a timespan
+        var timespan = TimeSpan.FromMinutes(90);
+        Console.WriteLine($"Timespan: {timespan.Humanize()}");
+
+        // Humanize numbers into words
+        int number = 123;
+        Console.WriteLine($"Number: {number.ToWords()}");
+
+        // Pluralize words
+        string singular = "apple";
+
+        // Humanize date difference
+        var date = DateTime.UtcNow.AddDays(-3);
+        Console.WriteLine($"Date: {date.Humanize()}");
+        return 2;
+    }
 }
 `
 
