@@ -5539,7 +5539,7 @@ pub async fn slack_app_callback_handler(
     let action_value = payload.actions[0].value.clone();
     let response_url = payload.response_url;
 
-    let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>[^/]+)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[^/]+)\?approver=(?P<approver>[^&]+)").unwrap();
+    let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>resume|cancel)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[a-fA-F0-9]+)(?:\?approver=(?P<approver>[^&]+))?").unwrap();
 
     if let Some(captures) = re.captures(&action_value) {
         let w_id = captures.name("w_id").map_or("", |m| m.as_str());
@@ -5664,7 +5664,7 @@ pub async fn request_slack_approval(
     let message_str = message.message.as_deref().unwrap_or("A flow is waiting for approval");
 
     if let Some(resume_schema) = schema {
-        let hide_cancel = resume_schema.hide_cancel.unwrap_or(false); // Default to false if None
+        let hide_cancel = resume_schema.hide_cancel.unwrap_or(false);
 
         let schema_obj = match resume_schema.resume_form {
             Some(schema) => schema,

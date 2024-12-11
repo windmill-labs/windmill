@@ -873,15 +873,22 @@ export async function requestInteractiveSlackApproval({
     );
   }
 
+  // Only include non-empty parameters
+  const params: { approver?: string; message?: string } = {};
+  if (message) {
+    params.message = message;
+  }
+  if (approver) {
+    params.approver = approver;
+  }
+
   const blocks = await JobService.getSlackApprovalPayload({
     workspace,
     resumeId: nonce,
-    approver,
-    message,
+    ...params,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
   });
 
-  console.log("blocks", blocks);
   await web.chat.postMessage({
     channel,
     text: message,
