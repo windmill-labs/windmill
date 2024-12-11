@@ -33,6 +33,7 @@
 		BUN_PREPROCESSOR_MODULE_CODE,
 		PYTHON_PREPROCESSOR_MODULE_CODE
 	} from '$lib/script_helpers'
+	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -478,10 +479,7 @@
 								{editor}
 								{diffEditor}
 								{args}
-								{path}
-								{hasPreprocessor}
-								on:applyArgs
-								on:addPreprocessor
+								showCaptures={true}
 							>
 								{#if scriptProgress}
 									<!-- Put to the slot in logpanel -->
@@ -492,6 +490,22 @@
 										compact={true}
 									/>
 								{/if}
+								<svelte:fragment slot="capturesTab">
+									<div class="h-full p-2">
+										<CaptureTable
+											showAll={true}
+											{hasPreprocessor}
+											canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
+											isFlow={false}
+											path={path ?? ''}
+											hideCapturesWhenEmpty={false}
+											canEdit={true}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+										/>
+									</div>
+								</svelte:fragment>
 							</LogPanel>
 						</Pane>
 					</Splitpanes>

@@ -28,7 +28,6 @@
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
@@ -38,8 +37,7 @@
 	export let diffEditor: DiffEditor | undefined = undefined
 	export let args: Record<string, any> | undefined = undefined
 	export let workspace: string | undefined = undefined
-	export let path: string = ''
-	export let hasPreprocessor: boolean = false
+	export let showCaptures: boolean = false
 
 	type DrawerContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -94,7 +92,9 @@
 	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
 		<Tab value="logs" size="xs">Logs & Result</Tab>
 		<Tab value="history" size="xs">History</Tab>
-		<Tab value="captures" size="xs">Captures</Tab>
+		{#if showCaptures}
+			<Tab value="captures" size="xs">Captures</Tab>
+		{/if}
 
 		<svelte:fragment slot="content">
 			<div class="grow min-h-0">
@@ -260,20 +260,7 @@
 					</div>
 				{/if}
 				{#if selectedTab === 'captures'}
-					<div class="h-full p-2">
-						<CaptureTable
-							showAll={true}
-							{hasPreprocessor}
-							canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
-							isFlow={false}
-							{path}
-							hideCapturesWhenEmpty={false}
-							canEdit={true}
-							on:applyArgs
-							on:updateSchema
-							on:addPreprocessor
-						/>
-					</div>
+					<slot name="capturesTab" />
 				{/if}
 			</div>
 		</svelte:fragment>
