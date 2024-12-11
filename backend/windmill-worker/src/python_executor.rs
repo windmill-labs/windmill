@@ -1519,7 +1519,7 @@ pub async fn handle_python_reqs(
                             if local_mem_peak > *mem_peak_lock{
                                 *mem_peak_lock = local_mem_peak;
                             } else {
-                                tracing::info!(
+                                tracing::debug!(
                                     workspace_id = %w_id_2,
                                     "Local mem_peak {:?}mb is smaller then global one {:?}mb, ignoring. job_id: {:?}", 
                                     local_mem_peak / 1000,
@@ -1694,7 +1694,7 @@ pub async fn handle_python_reqs(
                                     start,
                                     db
                                 ).await;
-                                pids.lock().await[i] = None;
+                                pids.lock().await.get_mut(i).and_then(|e| e.take());
                                 return Ok(());
                             }
                         }
@@ -1721,7 +1721,7 @@ pub async fn handle_python_reqs(
                         db,
                     )
                     .await;
-                    pids.lock().await[i] = None;
+                    pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(e.into());
                 }
             };
@@ -1731,13 +1731,20 @@ pub async fn handle_python_reqs(
                 .take()
                 .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
 
-            pids.lock().await[i] = uv_install_proccess.id();
+            if let Some(pid) = pids.lock().await.get_mut(i) {
+                *pid = uv_install_proccess.id();
+            } else {
+                tracing::error!(
+                    workspace_id = %w_id,
+                    "Index out of range for uv pids",
+                );
+            }
 
             tokio::select! {
                 // Canceled
                 _ = kill_rx.recv() => {
                     uv_install_proccess.kill().await?;
-                    pids.lock().await[i] = None;
+                    pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 }
                 // Finished
@@ -1766,7 +1773,7 @@ pub async fn handle_python_reqs(
                             db,
                         )
                         .await;
-                        pids.lock().await[i] = None;
+                        pids.lock().await.get_mut(i).and_then(|e| e.take());
                         return Err(anyhow!(buf));
                     },
                     Err(e) => {
@@ -1774,7 +1781,7 @@ pub async fn handle_python_reqs(
                             workspace_id = %w_id,
                             "Cannot wait for uv_install_proccess, ExitStatus is Err: {e:?}",
                         );
-                        pids.lock().await[i] = None;
+                        pids.lock().await.get_mut(i).and_then(|e| e.take());
                         return Err(e.into());
                     }
                 }
@@ -1815,7 +1822,7 @@ pub async fn handle_python_reqs(
                 job_id
             );
 
-            pids.lock().await[i] = None;
+            pids.lock().await.get_mut(i).and_then(|e| e.take());
             Ok(())
         }));
     }
