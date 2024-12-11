@@ -22,7 +22,7 @@
 		undefined
 	export let showCapture = false
 	export let initialRoutePath: string = ''
-	export let isFlow = true
+	export let isFlow = false
 	export let path: string = ''
 	export let headless: boolean = false
 

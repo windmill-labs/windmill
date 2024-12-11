@@ -183,6 +183,7 @@
 		{:else if captureType === 'http'}
 			<RouteEditorConfigSection
 				{path}
+				{isFlow}
 				showCapture={captureActive}
 				can_write={true}
 				bind:args
