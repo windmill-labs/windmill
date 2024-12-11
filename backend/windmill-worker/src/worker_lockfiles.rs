@@ -26,6 +26,7 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
+use crate::csharp_executor::generate_nuget_lockfile;
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
@@ -1749,19 +1750,6 @@ async fn capture_dependency_job(
             )
             .await?;
 
-            build_rust_crate(
-                job_id,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                base_internal_url,
-                &compute_rust_hash(&job_raw_code, Some(&lockfile)),
-                occupancy_metrics,
-            )
-            .await?;
             Ok(lockfile)
         }
         ScriptLang::CSharp => {
@@ -1770,35 +1758,18 @@ async fn capture_dependency_job(
                     "Raw dependencies not supported for C#".to_string(),
                 ));
             }
-            Ok("".to_string())
 
-            // let lockfile = generate_cargo_lockfile(
-            //     job_id,
-            //     job_raw_code,
-            //     mem_peak,
-            //     canceled_by,
-            //     job_dir,
-            //     db,
-            //     worker_name,
-            //     w_id,
-            //     occupancy_metrics,
-            // )
-            // .await?;
-            //
-            // build_rust_crate(
-            //     job_id,
-            //     mem_peak,
-            //     canceled_by,
-            //     job_dir,
-            //     db,
-            //     worker_name,
-            //     w_id,
-            //     base_internal_url,
-            //     &compute_rust_hash(&job_raw_code, Some(&lockfile)),
-            //     occupancy_metrics,
-            // )
-            // .await?;
-            // Ok(lockfile)
+            generate_nuget_lockfile(
+                job_id,
+                job_raw_code,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                occupancy_metrics,
+            ).await
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

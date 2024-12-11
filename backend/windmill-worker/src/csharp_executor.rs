@@ -34,11 +34,61 @@ lazy_static::lazy_static! {
 
 const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
 
+pub async fn generate_nuget_lockfile(
+    job_id: &Uuid,
+    code: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<String> {
+    check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
+
+    let (reqs, lines_to_remove) = parse_csharp_reqs(code);
+
+    gen_cs_proj(code, job_dir, reqs, lines_to_remove)?;
+
+    let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
+    gen_lockfile_cmd
+        .current_dir(job_dir)
+        .args(vec!["restore", "--use-lock-file"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by,
+        gen_lockfile_process,
+        false,
+        worker_name,
+        w_id,
+        "dotnet restore",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+    )
+    .await?;
+
+    let path_lock = format!("{job_dir}/packages.lock.json");
+    let mut file = File::open(path_lock).await?;
+    let mut req_content = String::new();
+    file.read_to_string(&mut req_content).await?;
+    Ok(req_content)
+}
+
 fn gen_cs_proj(
     code: &str,
     job_dir: &str,
     reqs: Vec<(String, Option<String>)>,
+    lines_to_remove: Vec<usize>,
 ) -> anyhow::Result<()> {
+    let code = remove_lines_from_text(code, lines_to_remove);
+
     let pkgs = reqs
         .into_iter()
         .map(|(pkg, vrsion_o)| {
@@ -59,6 +109,7 @@ fn gen_cs_proj(
     <TargetFramework>net7.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
 {pkgs}
@@ -69,9 +120,9 @@ fn gen_cs_proj(
         ),
     )?;
 
-    write_file(job_dir, "Script.cs", code)?;
+    write_file(job_dir, "Script.cs", code.as_str())?;
 
-    let sig_meta = windmill_parser_csharp::parse_csharp_sig_meta(code)?;
+    let sig_meta = windmill_parser_csharp::parse_csharp_sig_meta(code.as_str())?;
     let sig = sig_meta.main_sig;
     let spread = &sig
         .args
@@ -95,25 +146,32 @@ fn gen_cs_proj(
 
     let class_name = sig_meta.class_name.unwrap_or("Script".to_string());
 
-
     let script_call = match (sig_meta.is_async, sig_meta.returns_void) {
-        (true, true) => format!(r#"
-            {class_name}.Main({spread}).Wait();"#),
-        (false, true) => format!(r#"
-            {class_name}.Main({spread});"#),
+        (true, true) => format!(
+            r#"
+            {class_name}.Main({spread}).Wait();"#
+        ),
+        (false, true) => format!(
+            r#"
+            {class_name}.Main({spread});"#
+        ),
 
-        (false, false) => format!(r#"
+        (false, false) => format!(
+            r#"
             var result = {class_name}.Main({spread});
 
             var jsonResult = JsonSerializer.Serialize(result);
 
-            File.WriteAllText("result.json", jsonResult);"#),
-        (true, false) => format!(r#"
+            File.WriteAllText("result.json", jsonResult);"#
+        ),
+        (true, false) => format!(
+            r#"
             var result = {class_name}.Main({spread}).Result;
 
             var jsonResult = JsonSerializer.Serialize(result);
 
-            File.WriteAllText("result.json", jsonResult);"#),
+            File.WriteAllText("result.json", jsonResult);"#
+        ),
     };
 
     write_file(
@@ -308,11 +366,13 @@ pub async fn handle_csharp_job(
             .await;
         }
 
-        let inner_content = remove_lines_from_text(inner_content, lines_to_remove);
-        let code = inner_content.as_str();
+        gen_cs_proj(inner_content, job_dir, reqs, lines_to_remove)?;
 
-
-        gen_cs_proj(code, job_dir, reqs)?;
+        if let Some(reqs) = requirements_o {
+            if !reqs.is_empty() {
+                write_file(job_dir, "packages.lock.json", &reqs)?;
+            }
+        }
 
         build_cs_proj(
             &job.id,
