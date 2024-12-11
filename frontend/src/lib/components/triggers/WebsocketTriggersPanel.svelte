@@ -74,12 +74,14 @@
 				wsTriggerEditor?.openNew(isFlow, path)
 			}}
 			on:addPreprocessor
+			on:refreshCaptures
 			cloudDisabled={false}
 			triggerType="websocket"
 			{isFlow}
 			{path}
 			{isEditor}
 			{canHavePreprocessor}
+			{hasPreprocessor}
 		/>
 
 		<Section label="Websockets">

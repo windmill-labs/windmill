@@ -29,6 +29,7 @@
 	export let canEdit = false
 	export let showAll = false
 	export let maxHeight: number | undefined = undefined
+	export let shouldRefreshCaptures = false
 
 	let captures: Capture[] = []
 	let selectedCaptures: any[] = []
@@ -74,7 +75,7 @@
 		}
 	}>()
 
-	export async function refreshCaptures() {
+	async function refreshCaptures() {
 		captures = await CaptureService.listCaptures({
 			workspace: $workspaceStore!,
 			runnableKind: isFlow ? 'flow' : 'script',
@@ -82,6 +83,11 @@
 		})
 	}
 	refreshCaptures()
+
+	$: if (shouldRefreshCaptures) {
+		refreshCaptures()
+		shouldRefreshCaptures = false
+	}
 </script>
 
 {#if selectedCaptures.length > 0 || !hideCapturesWhenEmpty}

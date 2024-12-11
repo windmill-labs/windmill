@@ -58,6 +58,7 @@
 	export let args: Record<string, any> = initialArgs
 	export let selectedTab: 'main' | 'preprocessor' | 'capture' = 'main'
 	export let hasPreprocessor = false
+	export let shouldRefreshCaptures = false
 
 	let jobProgressReset: () => void
 
@@ -503,6 +504,7 @@
 											on:applyArgs
 											on:updateSchema
 											on:addPreprocessor
+											bind:shouldRefreshCaptures
 										/>
 									</div>
 								</svelte:fragment>

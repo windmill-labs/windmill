@@ -87,6 +87,7 @@
 			}}
 			on:applyArgs
 			on:addPreprocessor
+			on:refreshCaptures
 			cloudDisabled={false}
 			triggerType="kafka"
 			{isFlow}

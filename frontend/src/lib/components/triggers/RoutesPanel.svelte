@@ -66,6 +66,7 @@
 		}}
 		on:applyArgs
 		on:addPreprocessor
+		on:refreshCaptures
 		cloudDisabled={false}
 		triggerType="http"
 		{isFlow}

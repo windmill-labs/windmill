@@ -132,6 +132,7 @@
 				}
 			}}
 			on:saveTrigger
+			on:refreshCaptures
 			bind:args
 			bind:handleCapture
 			bind:captureActive

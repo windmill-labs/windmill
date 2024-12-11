@@ -661,6 +661,8 @@
 		}
 		selectedInputTab = 'preprocessor'
 	}
+
+	let shouldRefreshCaptures = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1259,6 +1261,10 @@
 							<TriggersEditor
 								on:applyArgs={applyArgs}
 								on:addPreprocessor={addPreprocessor}
+								on:refreshCaptures={() => {
+									console.log('dbg refreshCaptures')
+									shouldRefreshCaptures = true
+								}}
 								{initialPath}
 								schema={script.schema}
 								noEditor={true}
@@ -1473,6 +1479,7 @@
 			tag={script.tag}
 			bind:args
 			bind:hasPreprocessor
+			bind:shouldRefreshCaptures
 		/>
 	</div>
 {:else}

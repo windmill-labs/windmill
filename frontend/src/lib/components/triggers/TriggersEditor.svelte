@@ -48,6 +48,7 @@
 							<WebhooksPanel
 								on:applyArgs
 								on:addPreprocessor
+								on:refreshCaptures
 								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 								path={currentPath}
 								{isFlow}
@@ -66,6 +67,7 @@
 							<EmailTriggerPanel
 								on:applyArgs
 								on:addPreprocessor
+								on:refreshCaptures
 								token=""
 								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 								path={currentPath}
@@ -79,7 +81,15 @@
 
 					{#if $selectedTrigger === 'routes'}
 						<div class="p-4">
-							<RoutesPanel on:applyArgs{newItem} path={currentPath} {isFlow} isEditor={true} />
+							<RoutesPanel
+								on:applyArgs
+								on:refreshCaptures
+								on:addPreprocessor
+								{newItem}
+								path={currentPath}
+								{isFlow}
+								isEditor={true}
+							/>
 						</div>
 					{/if}
 
@@ -88,6 +98,7 @@
 							<WebsocketTriggersPanel
 								on:applyArgs
 								on:addPreprocessor
+								on:refreshCaptures
 								{newItem}
 								path={currentPath}
 								{isFlow}
@@ -103,6 +114,7 @@
 							<KafkaTriggersPanel
 								on:applyArgs
 								on:addPreprocessor
+								on:refreshCaptures
 								{newItem}
 								path={currentPath}
 								{isFlow}

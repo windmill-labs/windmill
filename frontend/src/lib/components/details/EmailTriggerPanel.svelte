@@ -65,6 +65,7 @@
 				{hasPreprocessor}
 				on:applyArgs
 				on:addPreprocessor
+				on:refreshCaptures
 			/>
 		{:else}
 			<div>

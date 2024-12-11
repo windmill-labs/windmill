@@ -36,6 +36,7 @@
 	<TriggersEditorSection
 		on:applyArgs
 		on:addPreprocessor
+		on:refreshCaptures
 		cloudDisabled={false}
 		triggerType="webhook"
 		{isFlow}

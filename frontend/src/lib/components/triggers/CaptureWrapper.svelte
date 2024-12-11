@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, createEventDispatcher } from 'svelte'
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
@@ -26,6 +26,7 @@
 		  }
 		| undefined = undefined
 	export let args: Record<string, any> = {}
+	export let shouldRefreshCaptures = false
 
 	export async function setConfig() {
 		await CaptureService.setCaptureConfig({
@@ -38,6 +39,8 @@
 			workspace: $workspaceStore!
 		})
 	}
+
+	const dispatch = createEventDispatcher()
 
 	let captureConfigs: {
 		[key: string]: CaptureConfig
@@ -67,8 +70,6 @@
 	}
 	getCaptureConfigs()
 
-	let refreshCaptures: () => Promise<void>
-
 	async function capture() {
 		let i = 0
 		captureActive = true
@@ -82,7 +83,7 @@
 				})
 				await getCaptureConfigs()
 			}
-			refreshCaptures()
+			shouldRefreshCaptures = true
 			i++
 			await sleep(1000)
 		}
@@ -109,6 +110,8 @@
 
 	onDestroy(() => {
 		captureActive = false
+		dispatch('refreshCaptures')
+		shouldRefreshCaptures = true
 	})
 
 	function getServerEnabled(config: CaptureConfig) {
@@ -205,7 +208,7 @@
 			{canHavePreprocessor}
 			{isFlow}
 			{path}
-			bind:refreshCaptures
+			bind:shouldRefreshCaptures
 			hideCapturesWhenEmpty={true}
 			canEdit={true}
 			on:applyArgs
