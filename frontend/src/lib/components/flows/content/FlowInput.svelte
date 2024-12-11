@@ -12,23 +12,18 @@
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import InputSchemaPicker from '$lib/components/flows/pickers/InputSchemaPicker.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
 
-	const dispatch = createEventDispatcher()
-
-	const { flowStore, flowStateStore, previewArgs, initialPath, pathStore } =
+	const { flowStore, flowStateStore, previewArgs, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let inputLibraryDrawer: Drawer
 	let jsonPayload: Drawer
 	let pendingJson: string
 	let addProperty: AddProperty | undefined = undefined
-	let capturePopoverOpen = false
 
 	function importJson() {
 		const parsed = JSON.parse(pendingJson)
@@ -49,23 +44,7 @@
 	{#if !disabled}
 		<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
 			<div class="text-sm">Copy input's schema from</div>
-			<Popover closeButton={false} bind:open={capturePopoverOpen}>
-				<svelte:fragment slot="trigger">
-					<Button color="dark" size="xs" nonCaptureEvent>Capture</Button>
-				</svelte:fragment>
-				<svelte:fragment slot="content">
-					<InputSchemaPicker
-						isFlow={true}
-						path={$pathStore}
-						on:openTriggers
-						on:applyArgs
-						on:updateSchema={(e) => {
-							capturePopoverOpen = false
-							dispatch('updateSchema', e.detail)
-						}}
-					/>
-				</svelte:fragment>
-			</Popover>
+			<CaptureButton on:openTriggers dark={true} />
 			<Button
 				color="dark"
 				size="xs"

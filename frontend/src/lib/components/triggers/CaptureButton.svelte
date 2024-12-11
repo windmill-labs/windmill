@@ -8,6 +8,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 
+	export let dark = false
+
 	let isOpen = false
 
 	const dispatch = createEventDispatcher()
@@ -23,7 +25,14 @@
 
 <Popover closeButton={false} bind:open={isOpen}>
 	<svelte:fragment slot="trigger">
-		<Button color="light" variant="border" size="xs" nonCaptureEvent>Capture</Button>
+		<Button
+			color={dark ? 'dark' : 'light'}
+			variant={dark ? 'contained' : 'border'}
+			size="xs"
+			nonCaptureEvent
+		>
+			Capture
+		</Button>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		<div class="flex flex-col bg-surface">
