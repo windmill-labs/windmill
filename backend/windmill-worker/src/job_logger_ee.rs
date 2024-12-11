@@ -12,8 +12,8 @@ pub(crate) async fn s3_storage(
     _job_id: Uuid,
     _w_id: &String,
     _db: &sqlx::Pool<sqlx::Postgres>,
-    _logs: &String,
-    _total_size: &Arc<AtomicU32>,
+    _logs: String,
+    _total_size: Arc<AtomicU32>,
     _worker_name: &String,
 ) {
     tracing::info!("Logs length of {_job_id} has exceeded a threshold. Implementation to store excess on s3 in not OSS");
