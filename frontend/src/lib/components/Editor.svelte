@@ -412,6 +412,10 @@
 		}
 	}
 
+	export function getScriptLang(): string | undefined {
+		return scriptLang
+	}
+
 	let command: Disposable | undefined = undefined
 
 	let sqlTypeCompletor: Disposable | undefined = undefined
