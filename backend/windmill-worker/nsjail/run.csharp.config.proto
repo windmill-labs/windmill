@@ -43,6 +43,12 @@ mount {
 }
 
 mount {
+    src: "/opt/dotnet-sdk/bin"
+    dst: "/opt/dotnet-sdk/bin"
+    is_bind: true
+}
+
+mount {
     src: "/dev/null"
     dst: "/dev/null"
     is_bind: true
