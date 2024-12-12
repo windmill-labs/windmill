@@ -13,6 +13,7 @@ export interface Setting {
 		| 'password'
 		| 'select'
 		| 'textarea'
+		| 'codearea'
 		| 'seconds'
 		| 'email'
 		| 'license_key'
@@ -33,6 +34,7 @@ export interface Setting {
 	isValid?: (value: any) => boolean
 	error?: string
 	defaultValue?: () => any
+	codeAreaLang?: string,
 }
 
 export type SettingStorage = 'setting'
@@ -251,6 +253,16 @@ export const settings: Record<string, Setting[]> = {
 			key: 'bunfig_install_scopes',
 			fieldType: 'text',
 			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Nuget Config',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials',
+			key: 'nuget_config',
+			fieldType: 'codearea',
+			codeAreaLang: 'xml',
 			storage: 'setting',
 			ee_only: ''
 		}

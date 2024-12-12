@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, io, path::Path, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_csharp::parse_csharp_reqs;
 
@@ -21,7 +21,7 @@ use crate::{
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH,
-    HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -47,6 +47,10 @@ pub async fn generate_nuget_lockfile(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
+
+    if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
+        write_file(job_dir, "nuget.config", &nuget_config)?;
+    }
 
     let (reqs, lines_to_remove) = parse_csharp_reqs(code);
 
@@ -74,6 +78,12 @@ pub async fn generate_nuget_lockfile(
         &mut Some(occupancy_metrics),
     )
     .await?;
+
+    if let Err(e) = std::fs::remove_file(Path::new(job_dir).join("nuget.config")) {
+        if e.kind() != io::ErrorKind::NotFound {
+            Err(anyhow!("Error erasing nuget.config: {}", e))?;
+        }
+    }
 
     let path_lock = format!("{job_dir}/packages.lock.json");
     let mut file = File::open(path_lock).await?;
@@ -222,6 +232,10 @@ async fn build_cs_proj(
     hash: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
+    if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
+        write_file(job_dir, "nuget.config", &nuget_config)?;
+    }
+
     let mut build_cs_cmd = Command::new(DOTNET_PATH.as_str());
 
     build_cs_cmd
@@ -272,6 +286,12 @@ async fn build_cs_proj(
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
+
+    if let Err(e) = std::fs::remove_file(Path::new(job_dir).join("nuget.config")) {
+        if e.kind() != io::ErrorKind::NotFound {
+            Err(anyhow!("Error erasing nuget.config: {}", e))?;
+        }
+    }
 
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
 
