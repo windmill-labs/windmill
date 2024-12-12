@@ -38,8 +38,6 @@ use windmill_common::variables::get_secret_value_as_admin;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
-
-
     // Default python
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
@@ -56,6 +54,9 @@ lazy_static::lazy_static! {
 
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
+
+    pub static ref USE_SYSTEM_PYTHON: bool = std::env::var("USE_SYSTEM_PYTHON")
+        .ok().map(|flag| flag == "true").unwrap_or(false);
 
     pub static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
         .ok().map(|flag| flag == "true").unwrap_or(false);
@@ -282,7 +283,7 @@ impl PyVersion {
         w_id: &str,
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     ) -> error::Result<Option<String>> {
-        if matches!(self, Self::System) {
+        if matches!(self, Self::System) || *USE_SYSTEM_PYTHON {
             return Ok(None);
         }
         // lazy_static::lazy_static! {
@@ -1050,8 +1051,7 @@ mount {{
             &job.workspace_id,
             &mut Some(occupancy_metrics),
         )
-        .await
-        .unwrap_or(Some(PYTHON_PATH.clone()))
+        .await?
     {
         python_path
     } else {
@@ -1633,18 +1633,20 @@ async fn spawn_uv_install(
             ]
         };
 
-        if let Some(py_path) = py_path.as_ref() {
-            command_args.extend([
-                "-p",
-                py_path.as_str(),
-                "--python-preference",
-                "only-managed", //
-            ]);
-        } else {
-            command_args.extend([
-                "--python-preference",
-                "only-system", //
-            ]);
+        if !no_uv_install {
+            if let Some(py_path) = py_path.as_ref() {
+                command_args.extend([
+                    "-p",
+                    py_path.as_str(),
+                    "--python-preference",
+                    "only-managed", //
+                ]);
+            } else {
+                command_args.extend([
+                    "--python-preference",
+                    "only-system", //
+                ]);
+            }
         }
 
         if let Some(url) = pip_extra_index_url.as_ref() {
@@ -2066,9 +2068,7 @@ pub async fn handle_python_reqs(
             w_id,
             _occupancy_metrics,
         )
-        .await
-        .ok()
-        .flatten();
+        .await?;
 
     let has_work = req_with_penv.len() > 0;
     for ((i, (req, venv_p)), mut kill_rx) in
