@@ -1,0 +1,9 @@
+defaultTs: bun
+includes:
+  - f/**
+excludes: []
+codebases: []
+skipVariables: true
+skipResources: true
+skipSecrets: true
+includeSchedules: false
