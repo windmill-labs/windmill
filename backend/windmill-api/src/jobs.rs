@@ -5524,6 +5524,8 @@ struct State {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ValueInput {
     PlainTextInput { value: Option<Value> },
+    Datepicker { selected_date: Option<String> },
+    Timepicker { selected_time: Option<String> },
     StaticSelect { selected_option: Option<SelectedOption> },
     RadioButtons { selected_option: Option<SelectedOption> },
     Checkboxes { selected_options: Option<Vec<SelectedOption>> },
@@ -5539,6 +5541,7 @@ pub async fn slack_app_callback_handler(
     Extension(db): Extension<DB>,
     Form(form_data): Form<SlackFormData>,
 ) -> error::Result<StatusCode> {
+    tracing::debug!("Form data: {:?}", form_data);
     let payload: Payload = serde_json::from_str(&form_data.payload)?;
 
     let action_value = payload.actions[0].value.clone();
@@ -5557,14 +5560,41 @@ pub async fn slack_app_callback_handler(
 
         tracing::debug!("Request: {:?}", &form_data.payload.clone());
 
-        let state_values = payload
-            .state
-            .values
-            .iter()
-            .flat_map(|(_, inputs)| {
-                inputs.iter().filter_map(|(action_id, input)| match input {
+        let state_values: HashMap<String, serde_json::Value> = payload
+        .state
+        .values
+        .iter()
+        .flat_map(|(_, inputs)| {
+            inputs.iter().filter_map(|(action_id, input)| {
+                if action_id.ends_with("_date") {
+                    let base_key = action_id.strip_suffix("_date").unwrap();
+                    let time_key = format!("{}_time", base_key);
+    
+                    // Check for Datepicker and Timepicker inputs specifically
+                    if let ValueInput::Datepicker { selected_date: Some(date) } = input {
+                        let matching_time = payload.state.values.values().flat_map(|inputs| {
+                            inputs.get(&time_key).and_then(|time_input| {
+                                if let ValueInput::Timepicker { selected_time: Some(time) } = time_input {
+                                    Some(time)
+                                } else {
+                                    None
+                                }
+                            })
+                        }).next();
+    
+                        if let Some(time) = matching_time {
+                            return Some((
+                                base_key.to_string(),
+                                serde_json::json!(format!("{}T{}:00.000Z", date, time)),
+                            ));
+                        }
+                    }
+                }
+    
+                // Process non-datetime inputs, including plain text or other types with `_date`
+                match input {
                     ValueInput::PlainTextInput { value } => {
-                        value.as_ref().map(|v| (action_id.clone(), v.clone()))
+                        value.as_ref().map(|v| (action_id.clone(), v.clone().into()))
                     }
                     ValueInput::StaticSelect { selected_option } => selected_option
                         .as_ref()
@@ -5583,12 +5613,15 @@ pub async fn slack_app_callback_handler(
                             )
                         })
                     }
-                })
+                    _ => None,
+                }
             })
-            .collect::<HashMap<_, _>>();
+        })
+        .collect();
+    
 
-        let state_json =
-            serde_json::to_value(state_values).unwrap_or_else(|_| serde_json::json!({}));
+        let state_json = serde_json::to_value(state_values)
+            .unwrap_or_else(|_| serde_json::json!({}));
 
         tracing::debug!("W ID: {}", w_id);
         tracing::debug!("Action: {}", action);
@@ -5615,14 +5648,14 @@ pub async fn slack_app_callback_handler(
 
         if let Some(url) = response_url {
             let message = if action == "resume" {
-                "\n\n*Flow has been resumed!*"
+                "\n\n*Workflow has been resumed!*"
             } else {
-                "\n\n*Flow has been canceled!*"
+                "\n\n*Workflow has been canceled!*"
             };
             let _ = post_slack_response(&url, message).await;
         }
     } else {
-        println!("Resume URL does not match the pattern.");
+        tracing::error!("Resume URL does not match the pattern.");
     }
 
     Ok(StatusCode::OK)
@@ -5671,7 +5704,7 @@ pub async fn request_slack_approval(
     tracing::debug!("schema: {:?}", schema);
     tracing::debug!("job_id: {:?}", job_id);
 
-    let message_str = message.message.as_deref().unwrap_or("*A flow has been suspended and is waiting for approval:*\n");
+    let message_str = message.message.as_deref().unwrap_or("*A workflow has been suspended and is waiting for approval:*\n");
 
     if let Some(resume_schema) = schema {
         let hide_cancel = resume_schema.hide_cancel.unwrap_or(false);
@@ -5780,6 +5813,7 @@ pub struct Schema {
 pub struct ResumeFormField {
     #[serde(rename = "type")]
     pub r#type: String,
+    pub format: Option<String>,
     pub default: Option<String>,
     pub description: Option<String>,
     pub title: Option<String>,
@@ -5808,11 +5842,23 @@ async fn transform_schemas(
 
     if let Some(properties) = properties {
         if let Some(order) = order {
-            blocks.extend(order.iter().filter_map(|key| {
-                properties.get(key).map(|schema| create_input_block(key, schema))
-            }));
+            for key in order {
+                if let Some(schema) = properties.get(key) {
+                    let input_block = create_input_block(key, schema);
+                    match input_block {
+                        serde_json::Value::Array(arr) => blocks.extend(arr),
+                        _ => blocks.push(input_block),
+                    }
+                }
+            }
         } else {
-            blocks.extend(properties.iter().map(|(key, schema)| create_input_block(key, schema)));
+            for (key, schema) in properties {
+                let input_block = create_input_block(key, schema);
+                match input_block {
+                    serde_json::Value::Array(arr) => blocks.extend(arr),
+                    _ => blocks.push(input_block),
+                }
+            }
         }
     }
 
@@ -5828,30 +5874,112 @@ fn create_input_block(key: &str, schema: &ResumeFormField) -> serde_json::Value 
         .filter(|desc| !desc.is_empty())
         .unwrap_or("Select an option");
 
-    if let Some(enums) = &schema.r#enum {
-        serde_json::json!({
-            "type": "input",
-            "element": {
-                "type": "static_select",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": placeholder,
-                    "emoji": true,
-                },
-                "options": enums.iter().map(|enum_value| {
-                    serde_json::json!({
-                        "text": {
+    // Handle date-time format
+    if schema.r#type == "string" && schema.format.as_deref() == Some("date-time") {
+        let now = chrono::Local::now();
+        let current_date = now.format("%Y-%m-%d").to_string();
+        let current_time = now.format("%H:%M").to_string();
+
+        let (default_date, default_time) = if let Some(default) = &schema.default {
+            if let Ok(parsed_date) = chrono::DateTime::parse_from_rfc3339(default) {
+                (
+                    parsed_date.format("%Y-%m-%d").to_string(),
+                    parsed_date.format("%H:%M").to_string(),
+                )
+            } else {
+                (current_date.clone(), current_time.clone())
+            }
+        } else {
+            (current_date.clone(), current_time.clone())
+        };
+
+        return serde_json::json!([
+                {
+                    "type": "input",
+                    "element": {
+                        "type": "datepicker",
+                        "initial_date": &default_date,
+                        "placeholder": {
                             "type": "plain_text",
-                            "text": schema.enum_labels.as_ref()
-                                .and_then(|labels| labels.get(enum_value))
-                                .unwrap_or(enum_value),
+                            "text": "Select a date",
                             "emoji": true
                         },
-                        "value": enum_value
-                    })
-                }).collect::<Vec<_>>(),
-                "action_id": key
+                        "action_id": format!("{}_date", key)
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": schema.title.as_deref().unwrap_or(key),
+                        "emoji": true
+                    }
+                },
+                {
+                    "type": "input",
+                    "element": {
+                        "type": "timepicker",
+                        "initial_time": &default_time,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select time",
+                            "emoji": true
+                        },
+                        "action_id": format!("{}_time", key)
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": " ",
+                        "emoji": true
+                    }
+                }
+            ]);
+    }
+
+    // Handle enum type
+    if let Some(enums) = &schema.r#enum {
+
+        let initial_option = schema.default.as_ref().and_then(|default_value| {
+            enums.iter().find(|enum_value| enum_value == &default_value).map(|enum_value| {
+                serde_json::json!({
+                    "text": {
+                        "type": "plain_text",
+                        "text": schema.enum_labels.as_ref()
+                            .and_then(|labels| labels.get(enum_value))
+                            .unwrap_or(enum_value),
+                        "emoji": true
+                    },
+                    "value": enum_value
+                })
+            })
+        });
+
+        let mut element = serde_json::json!({
+            "type": "static_select",
+            "placeholder": {
+                "type": "plain_text",
+                "text": placeholder,
+                "emoji": true,
             },
+            "options": enums.iter().map(|enum_value| {
+                serde_json::json!({
+                    "text": {
+                        "type": "plain_text",
+                        "text": schema.enum_labels.as_ref()
+                            .and_then(|labels| labels.get(enum_value))
+                            .unwrap_or(enum_value),
+                        "emoji": true
+                    },
+                    "value": enum_value
+                })
+            }).collect::<Vec<_>>(),
+            "action_id": key
+        });
+
+        if let Some(option) = initial_option {
+            element["initial_option"] = option;
+        }
+    
+        serde_json::json!({
+            "type": "input",
+            "element": element,
             "label": {
                 "type": "plain_text",
                 "text": schema.title.as_deref().unwrap_or(key),
@@ -5859,11 +5987,13 @@ fn create_input_block(key: &str, schema: &ResumeFormField) -> serde_json::Value 
             }
         })
     } else {
+        // Handle other types
         serde_json::json!({
             "type": "input",
             "element": {
                 "type": "plain_text_input",
-                "action_id": key
+                "action_id": key,
+                "initial_value": schema.default.as_deref().unwrap_or("")
             },
             "label": {
                 "type": "plain_text",
