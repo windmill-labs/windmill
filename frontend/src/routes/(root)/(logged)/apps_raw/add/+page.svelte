@@ -49,16 +49,9 @@ ReactDOM.render(<App />, document.getElementById('root'));
 	})
 </script>
 
-<div style="height: 300px">
-	<RawAppEditor
-		autoHeight
-		bind:code
-		lang="typescript"
-		on:change={(e) => client?.updateSandbox({ files: { '/index.jsx': { code } } })}
-	/>
-</div>
+<RawAppEditor />
 
-<iframe class="min-h-screen w-full" bind:this={iframe} />
+<!-- <iframe class="min-h-screen w-full" bind:this={iframe} /> -->
 
 <style>
 </style>
