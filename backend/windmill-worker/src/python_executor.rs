@@ -289,7 +289,7 @@ impl PyVersion {
         //     static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
         // }
 
-        Self::get_python_inner(
+        let res = Self::get_python_inner(
             job_dir,
             job_id,
             mem_peak,
@@ -299,7 +299,15 @@ impl PyVersion {
             occupancy_metrics,
             self.to_string_with_dot(),
         )
-        .await
+        .await;
+
+        if let Err(ref e) = res {
+            tracing::error!(
+                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n 
+                Error while getting python from uv, falling back to system python: {e:?}"
+            );
+        }
+        res
     }
     async fn find_python(job_dir: &str, version: &str) -> error::Result<Option<String>> {
         // let mut logs = String::new();
@@ -818,19 +826,8 @@ pub async fn handle_python_job(
         &mut Some(occupancy_metrics),
     )
     .await?;
-    let PythonAnnotations {
-        no_cache,
-        no_uv,
-        no_uv_install,
-        no_uv_compile,
-        no_postinstall,
-        py310,
-        py311,
-        py312,
-        py313,
-        py_sys,
-    } = PythonAnnotations::parse(inner_content);
 
+    let PythonAnnotations { no_uv, no_postinstall, .. } = PythonAnnotations::parse(inner_content);
     tracing::debug!("Finished handling python dependencies");
 
     if !no_postinstall {
@@ -1053,7 +1050,8 @@ mount {{
             &job.workspace_id,
             &mut Some(occupancy_metrics),
         )
-        .await?
+        .await
+        .unwrap_or(Some(PYTHON_PATH.clone()))
     {
         python_path
     } else {
@@ -2069,7 +2067,8 @@ pub async fn handle_python_reqs(
             _occupancy_metrics,
         )
         .await
-        .unwrap();
+        .ok()
+        .flatten();
 
     let has_work = req_with_penv.len() > 0;
     for ((i, (req, venv_p)), mut kill_rx) in

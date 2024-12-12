@@ -260,6 +260,12 @@ pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
 pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
 pub const PYSYS_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_sys");
 
+pub const TAR_PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_310");
+pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
+pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
+pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
+pub const TAR_PYSYS_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_sys");
+
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_install");
 pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
@@ -2375,7 +2381,9 @@ async fn handle_code_execution_job(
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
-        return Err(Error::InternalErr("MySQL requires the mysql feature to be enabled".to_string()));
+        return Err(Error::InternalErr(
+            "MySQL requires the mysql feature to be enabled".to_string(),
+        ));
 
         #[cfg(feature = "mysql")]
         return do_mysql(
