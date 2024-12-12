@@ -244,14 +244,10 @@ async fn build_cs_proj(
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
-        // .env("CARGO_HOME", CARGO_HOME.as_str())
-        // .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
         .args(vec![
             "publish",
             "--configuration",
             "Release",
-            "-r",
-            "linux-x64",
             "-o",
             job_dir,
             "--no-self-contained",
