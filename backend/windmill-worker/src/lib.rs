@@ -20,6 +20,7 @@ mod graphql_executor;
 mod handle_child;
 mod job_logger;
 mod js_eval;
+#[cfg(feature = "mysql")]
 mod mysql_executor;
 mod pg_executor;
 mod php_executor;
