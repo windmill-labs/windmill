@@ -891,11 +891,10 @@ function replaceFalseWithUndefinedRec(obj: any) {
 				// If the value is false, replace it with undefined
 				if (obj[key] === false) {
 					// delete obj[key];
-					obj[key] = undefined;
-
+					obj[key] = undefined
 				} else {
 					// If the value is an object, call the function recursively
-					replaceFalseWithUndefinedRec(obj[key]);
+					replaceFalseWithUndefinedRec(obj[key])
 				}
 			}
 		}

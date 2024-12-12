@@ -132,9 +132,8 @@
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
-	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
-
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+
 	let rawValue: string | undefined = undefined
 
 	function computeDefaultValue(
@@ -211,12 +210,12 @@
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 
-	let oldDefaultValue = defaultValue
+	let oldDefaultValue = structuredClone(defaultValue)
 	function handleDefaultValueChange() {
-		if (value == oldDefaultValue) {
+		if (deepEqual(value, oldDefaultValue)) {
 			value = defaultValue
 		}
-		oldDefaultValue = defaultValue
+		oldDefaultValue = structuredClone(defaultValue)
 	}
 
 	function evalValueToRaw() {
@@ -497,7 +496,6 @@
 																{onlyMaskPassword}
 																{disablePortal}
 																{disabled}
-																noDelete
 																schema={getSchemaFromProperties(itemsType?.properties)}
 																bind:args={v}
 															/>
@@ -705,7 +703,6 @@
 													{onlyMaskPassword}
 													{disablePortal}
 													{disabled}
-													noDelete
 													schema={{
 														properties: Object.fromEntries(
 															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
