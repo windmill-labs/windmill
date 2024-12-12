@@ -33,8 +33,7 @@ use anyhow::{anyhow, Result};
 
 use std::path::Path;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
+    collections::HashMap,
     sync::Arc,
     time::Duration,
 };

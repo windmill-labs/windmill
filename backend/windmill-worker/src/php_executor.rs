@@ -2,7 +2,7 @@ use convert_case::{Case, Casing};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{collections::HashMap, process::Stdio};
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{

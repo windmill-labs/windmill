@@ -1,9 +1,8 @@
 use anyhow::anyhow;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_csharp::parse_csharp_reqs;
-use windmill_parser_rust::parse_rust_deps_into_manifest;
 
 use itertools::Itertools;
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
@@ -22,7 +21,7 @@ use crate::{
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH,
-    HOME_ENV, NSJAIL_PATH, PATH_ENV, RUST_CACHE_DIR, TZ_ENV,
+    HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 #[cfg(windows)]

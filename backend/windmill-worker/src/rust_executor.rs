@@ -1,5 +1,5 @@
 use serde_json::value::RawValue;
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 

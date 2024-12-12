@@ -2,7 +2,7 @@
 use std::{
     collections::HashMap,
     os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Stdio,
 };
 
