@@ -104,7 +104,6 @@ use crate::{
     handle_job_error,
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
-    mysql_executor::do_mysql,
     pg_executor::do_postgresql,
     php_executor::handle_php_job,
     python_executor::handle_python_job,
@@ -115,6 +114,9 @@ use crate::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
 };
+
+#[cfg(feature = "mysql")]
+use crate::mysql_executor::do_mysql;
 
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
@@ -2369,6 +2371,10 @@ async fn handle_code_execution_job(
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
+        #[cfg(not(feature = "mysql"))]
+        return Err(Error::InternalErr("MySQL requires the mysql feature to be enabled".to_string()));
+
+        #[cfg(feature = "mysql")]
         return do_mysql(
             job,
             &client,
