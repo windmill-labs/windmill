@@ -121,7 +121,8 @@
 		'bun',
 		'php',
 		'rust',
-		'ansible'
+		'ansible',
+		'csharp'
 	]
 	const nativeTags = [
 		'nativets',

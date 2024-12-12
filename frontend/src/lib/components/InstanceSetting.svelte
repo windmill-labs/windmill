@@ -26,6 +26,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { base } from '$lib/base'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let setting: Setting
 	export let version: string
@@ -179,6 +180,14 @@
 						>
 					</div>
 				{/if}
+			{:else if setting.fieldType == 'codearea'}
+				<SimpleEditor
+					autoHeight
+					class="editor"
+					lang={setting.codeAreaLang ?? "txt"}
+					bind:code={$values[setting.key]}
+					fixedOverflowWidgets={false}
+				/>
 			{:else if setting.fieldType == 'license_key'}
 				{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 				<div class="flex gap-2">

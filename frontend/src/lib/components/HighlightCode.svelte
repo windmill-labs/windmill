@@ -10,6 +10,7 @@
 	import powershell from 'svelte-highlight/languages/powershell'
 	import php from 'svelte-highlight/languages/php'
 	import rust from 'svelte-highlight/languages/rust'
+	import csharp from 'svelte-highlight/languages/csharp'
 	import yaml from 'svelte-highlight/languages/yaml'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
@@ -55,6 +56,8 @@
 				return php
 			case 'rust':
 				return rust
+			case 'csharp':
+				return csharp
 			case 'ansible':
 				return yaml;
 			default:
