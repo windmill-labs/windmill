@@ -16,7 +16,7 @@ use handler::{
     get_database_trigger, list_database_triggers, set_enabled, update_database_trigger,
     DatabaseTrigger,
 };
-use windmill_common::{db::UserDB, utils::StripPath};
+use windmill_common::{db::UserDB, utils::StripPath, worker::to_raw_value};
 use windmill_queue::PushArgsOwned;
 
 mod bool;
@@ -44,11 +44,15 @@ pub fn workspaced_service() -> Router {
 
 async fn run_job(
     args: Option<HashMap<String, Box<RawValue>>>,
+    extra: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     trigger: &DatabaseTrigger,
 ) -> anyhow::Result<()> {
-    let args = PushArgsOwned { args: args.unwrap_or_default(), extra: None };
+    let args = PushArgsOwned {
+        args: args.unwrap_or_default(),
+        extra,
+    };
     println!("Args: {:#?}", args);
     let label_prefix = Some(format!("db-{}-", trigger.path));
 

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use axum::{
     extract::{Path, Query},
     Extension, Json,
@@ -13,6 +11,7 @@ use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
+    resource::get_resource,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
@@ -76,6 +75,12 @@ pub struct NewDatabaseTrigger {
     table_to_track: Option<Vec<Relations>>,
     replication_slot_name: String,
     publication_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CustomScript {
+    database_resource_path: String,
+    relations: Option<Vec<Relations>>,
 }
 
 fn check_if_not_duplication_relation<'de, D>(
@@ -568,6 +573,20 @@ pub async fn set_enabled(
     ))
 }
 
-pub async fn get_custom_script() -> error::Result<String> {
+pub async fn get_custom_script(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(custom_script): Json<CustomScript>,
+) -> error::Result<String> {
+    let CustomScript { database_resource_path, relations } = custom_script;
+    let mut resource = get_resource::<Database>(&db, &database_resource_path, &w_id)
+        .await
+        .map_err(|_| {
+            windmill_common::error::Error::NotFound("Database resource do not exist".to_string())
+        })?;
+
+
+
     Ok(String::new())
 }

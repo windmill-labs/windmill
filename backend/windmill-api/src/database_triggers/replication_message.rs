@@ -8,16 +8,12 @@ use std::{
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
 use memchr::memchr;
-use rust_postgres::types::{Kind, Oid, Type};
+use rust_postgres::types::{Oid, Type};
 use thiserror::Error;
 
 use super::trigger::LogicalReplicationSettings;
 const PRIMARY_KEEPALIVE_BYTE: u8 = b'k';
 const X_LOG_DATA_BYTE: u8 = b'w';
-
-pub trait IntoTupleData {
-    fn into_tuple_data(self) -> (Oid, Vec<TupleData>);
-}
 
 #[derive(Debug)]
 pub struct PrimaryKeepAliveBody {
@@ -150,12 +146,6 @@ pub struct InsertBody {
 impl InsertBody {
     pub fn new(transaction_id: Option<i32>, o_id: Oid, tuple: Vec<TupleData>) -> Self {
         Self { transaction_id, o_id, tuple }
-    }
-}
-
-impl IntoTupleData for InsertBody {
-    fn into_tuple_data(self) -> (Oid, Vec<TupleData>) {
-        (self.o_id, self.tuple)
     }
 }
 
@@ -308,13 +298,6 @@ impl Buffer {
             ))),
         }
     }
-
-    fn read_n_byte(&mut self, nbyte: usize) -> Bytes {
-        let end = self.idx + nbyte;
-        let buf = self.bytes.slice(self.idx..end);
-        self.idx += nbyte;
-        buf
-    }
 }
 
 impl Read for Buffer {
@@ -436,7 +419,6 @@ impl XLogDataBody {
                 LogicalReplicationMessage::Insert(InsertBody::new(transaction_id, o_id, tuple))
             }
             UPDATE_BYTE => {
-
                 let transaction_id = match logical_replication_settings.streaming {
                     true => Some(buf.read_i32::<BigEndian>()?),
                     false => None,

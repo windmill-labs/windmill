@@ -1,5 +1,4 @@
-use serde_json::value::RawValue;
-use std::pin::Pin;
+use std::{collections::HashMap, pin::Pin};
 
 use crate::{
     database_triggers::{
@@ -41,7 +40,7 @@ pub enum Error {
     CommonError(windmill_common::error::Error),
     #[error("Slot name already exist, choose another name")]
     SlotAlreadyExist,
-    #[error("Publication name already exist, choose another anme")]
+    #[error("Publication name already exist, choose another name")]
     PublicationAlreadyExist,
 }
 pub struct LogicalReplicationSettings {
@@ -144,7 +143,7 @@ impl PostgresClient {
             .await
             .map_err(Error::Postgres)?;
 
-            if !rows.row_exist() {
+        if !rows.row_exist() {
             return Ok(());
         }
 
@@ -264,12 +263,12 @@ impl PostgresClient {
     ) -> Result<(), Error> {
         let mut query = String::new();
         let quoted_publication_name = quote_identifier(publication_name);
+
         query.push_str("ALTER PUBLICATION ");
         query.push_str(&quoted_publication_name);
-
+        query.push_str(" SET");
         match relations {
             Some(relations) if !relations.is_empty() => {
-                query.push_str(" SET");
                 for (i, relation) in relations.iter().enumerate() {
                     if !relation
                         .table_to_track
@@ -307,7 +306,7 @@ impl PostgresClient {
             }
             _ => query.push_str(" FOR ALL TABLES "),
         };
-
+        tracing::info!("query: {}", query);
         if let Some(transaction_to_track) = transaction_to_track {
             query.push_str("; ALTER PUBLICATION ");
             query.push_str(&quoted_publication_name);
@@ -328,7 +327,6 @@ impl PostgresClient {
                 query.push_str(" SET (publish = 'insert,update,delete')");
             }
         }
-
 
         self.client
             .simple_query(&query)
@@ -646,7 +644,7 @@ async fn listen_to_transactions(
 
                             let json = match logical_replication_message {
                                 Relation(relation_body) => {
-                                    relations.add_column(relation_body.o_id, relation_body.columns);
+                                    relations.add_relation(relation_body);
                                     None
                                 }
                                 Begin(_) | Type(_) => {
@@ -691,19 +689,32 @@ async fn listen_to_transactions(
                                     None
                                 }
                                 Insert(insert) => {
-                                    Some((relations.body_to_json((insert.o_id, insert.tuple)), "insert"))
+                                    Some((insert.o_id, relations.body_to_json((insert.o_id, insert.tuple)), "insert"))
                                 }
                                 Update(update) => {
-                                    Some((relations.body_to_json((update.o_id, update.new_tuple)), "update"))
+                                    Some((update.o_id, relations.body_to_json((update.o_id, update.new_tuple)), "update"))
                                 }
                                 Delete(delete) => {
                                     let body = delete.old_tuple.unwrap_or(delete.key_tuple.unwrap());
-                                    Some((relations.body_to_json((delete.o_id, body)), "delete"))
+                                    Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
                                 }
                             };
-                            if let Some((Ok(mut body), transaction_type)) = json {
-                                body.insert("transaction_type".to_string(), to_raw_value(&transaction_type));
-                                let _ = run_job(Some(body), &db, rsmq.clone(), database_trigger).await;
+                            if let Some((o_id, Ok(mut body), transaction_type)) = json {
+                                let relation = match relations.get_relation(o_id) {
+                                    Ok(relation) => relation,
+                                    Err(err) => {
+                                        update_ping(&db, database_trigger, Some(&err.to_string())).await;
+                                        return;
+                                    }
+                                };
+                                let database_info = HashMap::from([("schema".to_string(), relation.namespace.as_str()), ("table_name".to_string(), relation.name.as_str()), ("transaction_type".to_string(), transaction_type)]);
+                                let extra = Some(HashMap::from([(
+                                    "wm_trigger".to_string(),
+                                    to_raw_value(&serde_json::json!({"kind": "database", "trigger_info": database_info })),
+                                )]));
+                                body.insert("trigger_info".to_string(), to_raw_value(&database_info));
+                                let body = HashMap::from([("data".to_string(), to_raw_value(&serde_json::json!(body)))]);
+                                let _ = run_job(Some(body), extra, &db, rsmq.clone(), database_trigger).await;
                                 continue;
                             }
 
