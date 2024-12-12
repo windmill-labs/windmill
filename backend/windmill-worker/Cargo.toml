@@ -22,6 +22,8 @@ deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net"
     "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions"]
 otel = ["windmill-common/otel", "dep:opentelemetry"]
 dind = ["dep:bollard"]
+php = ["dep:windmill-parser-php"]
+mysql = ["dep:mysql_async"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -37,7 +39,7 @@ windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
-windmill-parser-php.workspace = true
+windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
@@ -75,7 +77,7 @@ deno_permissions = { workspace = true, optional = true }
 
 postgres-native-tls.workspace = true
 native-tls.workspace = true
-mysql_async.workspace = true
+mysql_async = { workspace = true, optional = true }
 base64.workspace = true
 gcp_auth = { workspace = true, optional = true }
 rust_decimal.workspace = true

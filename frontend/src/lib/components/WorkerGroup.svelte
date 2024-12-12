@@ -823,7 +823,6 @@
 						scriptLang={'bash'}
 						useWebsockets={false}
 						fixedOverflowWidgets={false}
-						listenEmptyChanges
 						code={config?.init_bash ?? ''}
 						on:change={(e) => {
 							if (config) {
