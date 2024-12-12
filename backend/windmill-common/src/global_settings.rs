@@ -35,8 +35,9 @@ pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
+pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 51] = [
+pub const ENV_SETTINGS: [&str; 54] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -88,4 +89,7 @@ pub const ENV_SETTINGS: [&str; 51] = [
     "WORKER_GROUP",
     "SAML_METADATA",
     "INSTANCE_IS_DEV",
+    "OTEL_METRICS",
+    "OTEL_TRACING",
+    "OTEL_LOGS",
 ];

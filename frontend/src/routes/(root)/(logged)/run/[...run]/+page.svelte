@@ -833,7 +833,7 @@
 				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
 			</div>
 		{/if}
-		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
+		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow' && job?.job_kind !== 'flownode'}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || job?.job_kind == 'preview')}
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}

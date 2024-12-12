@@ -221,7 +221,7 @@
 		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
 		scriptEditor?.inferSchema(script.content, language)
-		if (script.content != editor?.getCode()) {
+		if (script.content != editor?.getCode() && editor?.getScriptLang() == language) {
 			setCode(script.content)
 		}
 	}
@@ -647,9 +647,7 @@
 				</Tab>
 				<Tab value="triggers">
 					Triggers
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/getting_started/triggers"
-					>
+					<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
 						Configure how this script will be triggered.
 					</Tooltip>
 				</Tab>

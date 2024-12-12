@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.437.1](https://github.com/windmill-labs/windmill/compare/v1.437.0...v1.437.1) (2024-12-10)
+
+
+### Bug Fixes
+
+* **frontend:** fix newly deployed apps with frontend scripts ([bcd2cfe](https://github.com/windmill-labs/windmill/commit/bcd2cfe674038042f08f22d05286596b3442caf9))
+
+## [1.437.0](https://github.com/windmill-labs/windmill/compare/v1.436.0...v1.437.0) (2024-12-10)
+
+
+### Features
+
+* add ctx.name to apps [#4885](https://github.com/windmill-labs/windmill/issues/4885) ([2387503](https://github.com/windmill-labs/windmill/commit/23875033dd19d6d585f2433fa7b18a703175e329))
+
+
+### Bug Fixes
+
+* **parsers:** more robust pwsh param parsing ([#4884](https://github.com/windmill-labs/windmill/issues/4884)) ([7014389](https://github.com/windmill-labs/windmill/commit/7014389d677fba563bec02e08815452b195ecd0a))
+* **python:** do not follow symlinks when copying recursively in overlapping sites-package ([c173e46](https://github.com/windmill-labs/windmill/commit/c173e46a724b50d27416bbc169bf2a57fe68808c))
+
+## [1.436.0](https://github.com/windmill-labs/windmill/compare/v1.435.2...v1.436.0) (2024-12-09)
+
+
+### Features
+
+* add db storage for app inline scripts ([#4837](https://github.com/windmill-labs/windmill/issues/4837)) ([2bc4934](https://github.com/windmill-labs/windmill/commit/2bc4934c4f38ca2631eb99140d89a0b3d3b3a2cf))
+* add otlp support ([#4869](https://github.com/windmill-labs/windmill/issues/4869)) ([6d04744](https://github.com/windmill-labs/windmill/commit/6d047449e200d51f060d4107ff5ad0e10af99a66))
+* **cache:** refurbish fs backed cache ([#4863](https://github.com/windmill-labs/windmill/issues/4863)) ([3c4408e](https://github.com/windmill-labs/windmill/commit/3c4408e3dbf8a37c0b862805b1991af3d39ac054))
+* docker runtime ([2c5d07f](https://github.com/windmill-labs/windmill/commit/2c5d07f3d9069b21b877ea2d085f0a851b1975c1))
+* **frontend:** render new job kinds ([#4864](https://github.com/windmill-labs/windmill/issues/4864)) ([691ef64](https://github.com/windmill-labs/windmill/commit/691ef6468823c99ab129c53ae699de1a91f77c97))
+
+
+### Bug Fixes
+
+* fix `flow_node` uniqueness ([#4850](https://github.com/windmill-labs/windmill/issues/4850)) ([667167a](https://github.com/windmill-labs/windmill/commit/667167a022ed31cb67a6c189cc5bd54b09473f4f))
+* handle flow & workspace renames for `flow_node` ([#4861](https://github.com/windmill-labs/windmill/issues/4861)) ([f175158](https://github.com/windmill-labs/windmill/commit/f175158b9ffcc0d9c35938e61dfe3ce56d3b64c2))
+
+## [1.435.2](https://github.com/windmill-labs/windmill/compare/v1.435.1...v1.435.2) (2024-12-05)
+
+
+### Bug Fixes
+
+* job search toast on error ([#4851](https://github.com/windmill-labs/windmill/issues/4851)) ([a99e63f](https://github.com/windmill-labs/windmill/commit/a99e63f5435725c42e38b46933ff3caa345002b5))
+
 ## [1.435.1](https://github.com/windmill-labs/windmill/compare/v1.435.0...v1.435.1) (2024-12-05)
 
 

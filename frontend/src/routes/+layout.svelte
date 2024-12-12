@@ -15,6 +15,8 @@
 		intro: { x: 256 }, // toast intro fly animation settings
 		theme: {} // css var overrides
 	}
+
+	document.getElementById('svelte-global-loader')?.remove()
 </script>
 
 <svelte:head>

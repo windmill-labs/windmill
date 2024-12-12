@@ -587,7 +587,7 @@
 											<div
 												class="text-sm pt-2 pl-0.5 whitespace-nowrap"
 												title={hn}
-												style="width: 90px;">{truncateRev(hn, 8)}</div
+												style="width: 90px;">{truncateRev(hn, countsPerHost || loadingLogs ? 40 : 8)}</div
 											>
 											{#if loadingLogCounts}
 												<Loader2 size={15} class="animate-spin" />

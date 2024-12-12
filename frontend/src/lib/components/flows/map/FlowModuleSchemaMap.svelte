@@ -330,6 +330,8 @@
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			earlyStop={$flowStore.value?.skip_expr !== undefined}
+			cache={$flowStore.value?.cache_ttl !== undefined}
 			triggerNode={true}
 			path={$pathStore}
 			{newFlow}
