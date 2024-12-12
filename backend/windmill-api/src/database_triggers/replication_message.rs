@@ -211,7 +211,6 @@ impl TupleData {
     fn parse(buf: &mut Buffer) -> Result<Vec<TupleData>, ConversionError> {
         let number_of_columns = buf.read_i16::<BigEndian>()?;
         let mut tuples = Vec::with_capacity(number_of_columns as usize);
-        println!("Number of column: {}", number_of_columns);
         for _ in 0..number_of_columns {
             let byte = buf.read_u8()?;
             let tuple_data = match byte {
@@ -437,13 +436,13 @@ impl XLogDataBody {
                 LogicalReplicationMessage::Insert(InsertBody::new(transaction_id, o_id, tuple))
             }
             UPDATE_BYTE => {
+
                 let transaction_id = match logical_replication_settings.streaming {
                     true => Some(buf.read_i32::<BigEndian>()?),
                     false => None,
                 };
                 let o_id = buf.read_u32::<BigEndian>()?;
                 let byte = buf.read_u8()?;
-
                 let mut key_tuple = None;
                 let mut old_tuple = None;
 

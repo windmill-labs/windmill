@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { DatabaseTriggerService, type TableToTrack, type TransactionType } from '$lib/gen'
+	import { DatabaseTriggerService, type Relations, type TransactionType } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -34,9 +34,9 @@
 	let database_resource_path = ''
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
-	let tableToTrack: TableToTrack[] = []
+	let relations: Relations[] = []
 	let transactionType: TransactionType[] = ['Insert', 'Update', 'Delete']
-	let transactionValue: TransactionType[] = []
+	let transactionToTrack: TransactionType[] = []
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -69,7 +69,7 @@
 			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
-			tableToTrack = []
+			relations = []
 			dirtyPath = false
 			replication_slot_name = ''
 			publication_name = ''
@@ -90,8 +90,8 @@
 		path = s.path
 		enabled = s.enabled
 		database_resource_path = s.database_resource_path
-		tableToTrack = s.table_to_track as TableToTrack[]
-		transactionValue = s.transaction_to_track
+		relations = s.table_to_track as Relations[]
+		transactionToTrack = s.transaction_to_track
 		publication_name = s.publication_name
 		replication_slot_name = s.replication_slot_name
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
@@ -108,7 +108,8 @@
 					is_flow,
 					database_resource_path,
 					enabled,
-					table_to_track: tableToTrack
+					table_to_track: relations,
+					transaction_to_track: transactionToTrack,
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -116,7 +117,7 @@
 			await DatabaseTriggerService.createDatabaseTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
-					transaction_to_track: transactionValue,
+					transaction_to_track: transactionToTrack,
 					path,
 					script_path,
 					is_flow,
@@ -124,7 +125,7 @@
 					database_resource_path,
 					replication_slot_name,
 					publication_name,
-					table_to_track: tableToTrack
+					table_to_track: relations
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -271,44 +272,82 @@
 
 					<MultiSelect
 						options={transactionType}
-						bind:selected={transactionValue}
+						bind:selected={transactionToTrack}
 						duplicates={false}
 					/>
 				</Section>
 
-				<Section label="Tables">
+				<Section label="Relations">
 					<p class="text-xs mb-3 text-tertiary">
-						Tables will limit the execution of the trigger to only the specified tables.<br />
+						Relations will limit the execution of the trigger to only the specified tables.<br />
 						If no tables are selected, this will trigger for all tables.<br />
 					</p>
 
 					<div class="flex flex-col gap-4 mt-1">
-						{#each tableToTrack as v, i}
+						{#each relations as v, i}
 							<div class="flex w-full gap-2 items-center">
 								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm mb-2">Table Name</div>
-										<input type="text" bind:value={v.table_name} />
+										<div class="text-secondary text-sm mb-2">Schema Name</div>
+										<input type="text" bind:value={v.schema_name} />
 									</label>
-									<!-- svelte-ignore a11y-label-has-associated-control -->
-									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm mb-2">Columns</div>
-										<MultiSelect
-											options={v.columns_name}
-											allowUserOptions="append"
-											bind:selected={v.columns_name}
-											noMatchingOptionsMsg=""
-											createOptionMsg={null}
-											duplicates={false}
-										/>
-									</label>
+									{#each v.table_to_track as table_to_track, j}
+										<div class="flex w-full gap-2 items-center">
+											<div class="flex w-full flex-col gap-4 mt-1">
+												<label class="flex flex-col w-full">
+													<div class="text-secondary text-sm mb-2">Table Name</div>
+													<input type="text" bind:value={table_to_track.table_name} />
+												</label>
+												<!-- svelte-ignore a11y-label-has-associated-control -->
+												<label class="flex flex-col w-full">
+													<div class="text-secondary text-sm mb-2">Columns</div>
+													<MultiSelect
+														options={table_to_track.columns_name}
+														allowUserOptions="append"
+														bind:selected={table_to_track.columns_name}
+														noMatchingOptionsMsg=""
+														createOptionMsg={null}
+														duplicates={false}
+													/>
+												</label>
+											</div>
+											<button
+												transition:fade|local={{ duration: 100 }}
+												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+												aria-label="Clear"
+												on:click={() => {
+													v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+												}}
+											>
+												<X size={14} />
+											</button>
+										</div>
+									{/each}
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="mt-1"
+										on:click={() => {
+											if (relations[i].table_to_track == undefined || !Array.isArray(relations[i].table_to_track)) {
+												relations[i].table_to_track = []
+											}
+											relations[i].table_to_track = relations[i].table_to_track.concat({
+												table_name: '',
+												columns_name: []
+											})
+										}}
+										startIcon={{ icon: Plus }}
+									>
+										Add item
+									</Button>
 								</div>
 								<button
 									transition:fade|local={{ duration: 100 }}
 									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 									aria-label="Clear"
 									on:click={() => {
-										tableToTrack = tableToTrack.filter((_, index) => index !== i)
+										relations = relations.filter((_, index) => index !== i)
 									}}
 								>
 									<X size={14} />
@@ -323,12 +362,12 @@
 								size="xs"
 								btnClasses="mt-1"
 								on:click={() => {
-									if (tableToTrack == undefined || !Array.isArray(tableToTrack)) {
-										tableToTrack = []
+									if (relations == undefined || !Array.isArray(relations)) {
+										relations = []
 									}
-									tableToTrack = tableToTrack.concat({
-										table_name: '',
-										columns_name: []
+									relations = relations.concat({
+										schema_name: '',
+										table_to_track: []
 									})
 								}}
 								startIcon={{ icon: Plus }}

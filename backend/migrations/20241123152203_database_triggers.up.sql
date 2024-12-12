@@ -17,6 +17,7 @@ CREATE TABLE database_trigger(
     last_server_ping TIMESTAMPTZ NULL,
     replication_slot_name VARCHAR(255) NOT NULL,
     publication_name VARCHAR(255) NOT NULL,
+    last_lsn bigint NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL,
     CONSTRAINT PK_database_trigger PRIMARY KEY (path,workspace_id)
 );

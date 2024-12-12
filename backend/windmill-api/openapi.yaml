@@ -12249,17 +12249,30 @@ components:
             - runnable_result
 
     TableToTrack:
+      type: array
+      items:
+        type: object
+        properties:
+          table_name:
+            type: string
+          columns_name:
+            type: array
+            items:
+              type: string
+        required:
+          - table_name
+          - columns_name
+
+    Relations:
       type: object
       properties:
-        table_name:
+        schema_name:
           type: string
-        columns_name:
-          type: array
-          items:
-            type: string
+        table_to_track:
+          $ref: "#/components/schemas/TableToTrack"
       required:
-        - table_name
-        - columns_name
+        - schema_name
+        - table_to_track
 
     DatabaseTrigger:
       allOf:
@@ -12279,7 +12292,7 @@ components:
         table_to_track:
           type: array
           items:
-            $ref: "#/components/schemas/TableToTrack"
+            $ref: "#/components/schemas/Relations"
         transaction_to_track:
           type: array
           items:
@@ -12326,7 +12339,7 @@ components:
         table_to_track:
           type: array
           items:
-            $ref: "#/components/schemas/TableToTrack"
+            $ref: "#/components/schemas/Relations"
         transaction_to_track:
           type: array
           items:
@@ -12340,6 +12353,8 @@ components:
         - transaction_to_track
         - replication_slot_name
         - publication_name
+        - table_to_track
+  
     EditDatabaseTrigger:
       type: object
       properties:
@@ -12356,13 +12371,18 @@ components:
         table_to_track:
           type: array
           items:
-            $ref: "#/components/schemas/TableToTrack"
+            $ref: "#/components/schemas/Relations"
+        transaction_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransactionType"
       required:
         - path
         - script_path
         - is_flow
         - enabled
         - database_resource_path
+        - table_to_track
         - transaction_to_track
 
     Group:

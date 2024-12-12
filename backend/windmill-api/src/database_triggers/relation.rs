@@ -12,9 +12,6 @@ use serde_json::Value;
 use windmill_common::worker::to_raw_value;
 #[derive(Debug, thiserror::Error)]
 pub enum RelationConversionError {
-    #[error("Json error: {0}")]
-    FailConversionToJson(serde_json::Error),
-
     #[error("Could not find matching table")]
     FailToFindMatchingTable,
 
@@ -58,17 +55,12 @@ impl RelationConverter {
 
         for (i, column) in columns.iter().enumerate() {
             let value = match &tuple_data[i] {
-                TupleData::Null => to_raw_value::<&Option<()>>(&&None),
-                TupleData::UnchangedToast => {
-                    println!("{}", "UnchangedToast");
-                    return Err(RelationConversionError::BinaryFormatNotSupported)
-                }
+                TupleData::Null | TupleData::UnchangedToast => to_raw_value::<&Option<()>>(&&None),
                 TupleData::Binary(s) => {
                     return Err(RelationConversionError::BinaryFormatNotSupported)
                 }
                 TupleData::Text(bytes) => {
                     let str = str::from_utf8(&bytes[..])?;
-                    println!("{:#?}", &bytes);
                     Converter::try_from_str(column.type_o_id.as_ref(), str)?
                 }
             };

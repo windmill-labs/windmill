@@ -19,10 +19,12 @@ use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
-use windmill_common::{resource::get_resource, variables::get_variable_or_self, INSTANCE_NAME};
+use windmill_common::{
+    resource::get_resource, variables::get_variable_or_self, worker::to_raw_value, INSTANCE_NAME,
+};
 
 use super::{
-    handler::{Database, DatabaseTrigger, TableToTrack, TransactionType},
+    handler::{Database, DatabaseTrigger, Relations, TransactionType},
     replication_message::PrimaryKeepAliveBody,
     SqlxJson,
 };
@@ -103,16 +105,15 @@ impl PostgresClient {
 
     pub async fn check_if_table_exists(
         &self,
-        db_name: &str,
         table_to_track: &[&str],
+        catalog: &str,
+        db_name: &str,
     ) -> Result<(), Error> {
-        if table_to_track.is_empty() {
-            return Ok(());
-        }
         let table_names = table_to_track
             .iter()
             .map(|table| quote_literal(table))
             .join(",");
+
         let query = format!(
             r#"
                 WITH target_tables AS (
@@ -128,19 +129,22 @@ impl PostgresClient {
                     AND ist.table_type = 'BASE TABLE'
                     AND ist.table_catalog = {}
                     AND ist.table_schema NOT IN ('pg_catalog', 'information_schema')
+                    AND ist.table_schema = {}
                 WHERE 
                     ist.table_name IS NULL;
                 "#,
             table_names,
-            quote_literal(db_name)
+            quote_literal(db_name),
+            quote_literal(catalog)
         );
+
         let rows = self
             .client
             .simple_query(&query)
             .await
             .map_err(Error::Postgres)?;
 
-        if !rows.row_exist() {
+            if !rows.row_exist() {
             return Ok(());
         }
 
@@ -252,6 +256,88 @@ impl PostgresClient {
         self.create_slot(slot_name).await
     }
 
+    async fn atler_publication(
+        &self,
+        publication_name: &str,
+        relations: Option<&[Relations]>,
+        transaction_to_track: Option<&[TransactionType]>,
+    ) -> Result<(), Error> {
+        let mut query = String::new();
+        let quoted_publication_name = quote_identifier(publication_name);
+        query.push_str("ALTER PUBLICATION ");
+        query.push_str(&quoted_publication_name);
+
+        match relations {
+            Some(relations) if !relations.is_empty() => {
+                query.push_str(" SET");
+                for (i, relation) in relations.iter().enumerate() {
+                    if !relation
+                        .table_to_track
+                        .iter()
+                        .any(|table| !table.table_name.is_empty())
+                    {
+                        query.push_str(" TABLES IN SCHEMA ");
+                        let quoted_schema = quote_identifier(&relation.schema_name);
+                        query.push_str(&quoted_schema);
+                    } else {
+                        query.push_str(" TABLE ONLY ");
+                        for (j, table) in relation
+                            .table_to_track
+                            .iter()
+                            .filter(|table| !table.table_name.is_empty())
+                            .enumerate()
+                        {
+                            let quoted_table = quote_identifier(&table.table_name);
+                            query.push_str(&quoted_table);
+                            if !table.columns_name.is_empty() {
+                                query.push_str(" (");
+                                let columns = table.columns_name.iter().join(",");
+                                query.push_str(&columns);
+                                query.push(')');
+                            }
+                            if j + 1 != relation.table_to_track.len() {
+                                query.push_str(", ")
+                            }
+                        }
+                    }
+                    if i < relations.len() - 1 {
+                        query.push(',')
+                    }
+                }
+            }
+            _ => query.push_str(" FOR ALL TABLES "),
+        };
+
+        if let Some(transaction_to_track) = transaction_to_track {
+            query.push_str("; ALTER PUBLICATION ");
+            query.push_str(&quoted_publication_name);
+            if !transaction_to_track.is_empty() {
+                let transactions = || {
+                    transaction_to_track
+                        .iter()
+                        .map(|transaction| match transaction {
+                            TransactionType::Insert => "insert",
+                            TransactionType::Update => "update",
+                            TransactionType::Delete => "delete",
+                        })
+                        .join(",")
+                };
+                let with_parameter = format!(" SET (publish = '{}'); ", transactions());
+                query.push_str(&with_parameter);
+            } else {
+                query.push_str(" SET (publish = 'insert,update,delete')");
+            }
+        }
+
+
+        self.client
+            .simple_query(&query)
+            .await
+            .map_err(Error::Postgres)?;
+
+        Ok(())
+    }
+
     async fn check_if_publication_exists(&self, publication: &str) -> Result<bool, Error> {
         let publication_exists_query = format!(
             "select 1 as exists from pg_publication where pubname = {};",
@@ -273,7 +359,7 @@ impl PostgresClient {
     async fn create_publication(
         &self,
         publication_name: &str,
-        tables: Option<Vec<&str>>,
+        relations: Option<&[Relations]>,
         transaction_to_track: Option<&[TransactionType]>,
     ) -> Result<(), Error> {
         let mut query = String::new();
@@ -281,14 +367,40 @@ impl PostgresClient {
         query.push_str("CREATE PUBLICATION ");
         query.push_str(&quoted_publication_name);
 
-        match tables {
-            Some(table_to_track) if !table_to_track.is_empty() => {
-                query.push_str(" FOR TABLE ONLY ");
-                for (i, table) in table_to_track.iter().enumerate() {
-                    let quoted_table = quote_identifier(table);
-                    query.push_str(&quoted_table);
-
-                    if i < table_to_track.len() - 1 {
+        match relations {
+            Some(relations) if !relations.is_empty() => {
+                query.push_str(" FOR ");
+                for (i, relation) in relations.iter().enumerate() {
+                    if !relation
+                        .table_to_track
+                        .iter()
+                        .any(|table| !table.table_name.is_empty())
+                    {
+                        query.push_str(" TABLES IN SCHEMA ");
+                        let quoted_schema = quote_identifier(&relation.schema_name);
+                        query.push_str(&quoted_schema);
+                    } else {
+                        query.push_str(" TABLE ONLY ");
+                        for (j, table) in relation
+                            .table_to_track
+                            .iter()
+                            .filter(|table| !table.table_name.is_empty())
+                            .enumerate()
+                        {
+                            let quoted_table = quote_identifier(&table.table_name);
+                            query.push_str(&quoted_table);
+                            if !table.columns_name.is_empty() {
+                                query.push_str(" (");
+                                let columns = table.columns_name.iter().join(",");
+                                query.push_str(&columns);
+                                query.push(')');
+                            }
+                            if j + 1 != relation.table_to_track.len() {
+                                query.push_str(", ")
+                            }
+                        }
+                    }
+                    if i < relations.len() - 1 {
                         query.push(',')
                     }
                 }
@@ -326,11 +438,13 @@ impl PostgresClient {
     pub async fn create_publication_if_not_exist(
         &self,
         publication_name: &str,
-        tables: Option<Vec<&str>>,
+        tables: Option<&[Relations]>,
         transaction_to_track: Option<&[TransactionType]>,
     ) -> Result<(), Error> {
         if self.check_if_publication_exists(publication_name).await? {
             tracing::info!("Publication {} already exists", publication_name);
+            self.atler_publication(publication_name, tables, transaction_to_track)
+                .await?;
             return Ok(());
         }
         tracing::info!("Publication {} do no exist", publication_name);
@@ -381,6 +495,7 @@ async fn update_ping(
                 database_trigger.path,
                 err
             );
+            return None;
         }
     };
 
@@ -424,13 +539,29 @@ async fn listen_to_transactions(
     let client = PostgresClient::new(&resource.value).await?;
 
     let table_to_track = if let Some(table_to_track) = &database_trigger.table_to_track {
-        let table_to_track = table_to_track
-            .iter()
-            .map(|table| table.table_name.as_str())
-            .collect_vec();
-        client
-            .check_if_table_exists(&resource.value.db_name, table_to_track.as_slice())
-            .await?;
+        for relation in table_to_track.0.iter() {
+            let tables = relation
+                .table_to_track
+                .iter()
+                .filter_map(|table_to_track| {
+                    if table_to_track.table_name.is_empty() {
+                        None
+                    } else {
+                        Some(table_to_track.table_name.as_str())
+                    }
+                })
+                .collect_vec();
+            if tables.is_empty() {
+                continue;
+            }
+            client
+                .check_if_table_exists(
+                    tables.as_slice(),
+                    &relation.schema_name,
+                    &resource.value.db_name,
+                )
+                .await?;
+        }
         Some(table_to_track)
     } else {
         None
@@ -445,7 +576,7 @@ async fn listen_to_transactions(
     client
         .create_publication_if_not_exist(
             &database_trigger.publication_name,
-            table_to_track,
+            table_to_track.map(|v| &***v),
             database_trigger.transaction_to_track.as_deref(),
         )
         .await?;
@@ -497,6 +628,7 @@ async fn listen_to_transactions(
                         }
                     };
 
+
                     match logical_message {
                         ReplicationMessage::PrimaryKeepAlive(primary_keep_alive) => {
                             if primary_keep_alive.reply {
@@ -507,7 +639,6 @@ async fn listen_to_transactions(
                             let logical_replication_message = match x_log_data.parse(&logicail_replication_settings) {
                                 Ok(logical_replication_message) => logical_replication_message,
                                 Err(err) => {
-                                    tracing::debug!("{}", err.to_string());
                                     update_ping(&db, database_trigger, Some(&err.to_string())).await;
                                     return;
                                 }
@@ -518,25 +649,61 @@ async fn listen_to_transactions(
                                     relations.add_column(relation_body.o_id, relation_body.columns);
                                     None
                                 }
-                                Begin(_) | Commit(_) | Type(_) => {
+                                Begin(_) | Type(_) => {
+                                    None
+                                }
+                                Commit(commit) => {
+                                    match sqlx::query_scalar!(
+                                        r#"
+                                        UPDATE 
+                                            database_trigger
+                                        SET 
+                                            last_lsn = $1
+                                        WHERE
+                                            workspace_id = $2
+                                            AND path = $3
+                                            AND server_id = $4 
+                                            AND enabled IS TRUE
+                                        RETURNING 1
+                                        "#,
+                                        commit.end_lsn as i64,
+                                        &database_trigger.workspace_id,
+                                        &database_trigger.path,
+                                        *INSTANCE_NAME
+                                    )
+                                    .fetch_optional(&db)
+                                    .await
+                                    {
+                                        Ok(updated) => {
+                                            if updated.flatten().is_none() {
+                                                return;
+                                            }
+                                        }
+                                        Err(err) => {
+                                            tracing::warn!(
+                                                "Error updating ping of database {}: {:?}",
+                                                database_trigger.path,
+                                                err
+                                            );
+                                            return;
+                                        }
+                                    };
                                     None
                                 }
                                 Insert(insert) => {
-                                    Some(relations.body_to_json((insert.o_id, insert.tuple)))
+                                    Some((relations.body_to_json((insert.o_id, insert.tuple)), "insert"))
                                 }
                                 Update(update) => {
-                                    let _ = update.old_tuple.unwrap_or(update.key_tuple.unwrap());
-
-                                    Some(relations.body_to_json((update.o_id, update.new_tuple)))
+                                    Some((relations.body_to_json((update.o_id, update.new_tuple)), "update"))
                                 }
                                 Delete(delete) => {
                                     let body = delete.old_tuple.unwrap_or(delete.key_tuple.unwrap());
-                                    Some(relations.body_to_json((delete.o_id, body)))
+                                    Some((relations.body_to_json((delete.o_id, body)), "delete"))
                                 }
                             };
-
-                            if let Some(Ok(json)) = json {
-                                let _ = run_job(Some(json), &db, rsmq.clone(), database_trigger).await;
+                            if let Some((Ok(mut body), transaction_type)) = json {
+                                body.insert("transaction_type".to_string(), to_raw_value(&transaction_type));
+                                let _ = run_job(Some(body), &db, rsmq.clone(), database_trigger).await;
                                 continue;
                             }
 
@@ -628,7 +795,7 @@ async fn listen_to_unlistened_database_events(
                 error,
                 enabled,
                 database_resource_path,
-                table_to_track AS "table_to_track: SqlxJson<Vec<TableToTrack>>"
+                table_to_track AS "table_to_track: SqlxJson<Vec<Relations>>"
             FROM
                 database_trigger
             WHERE

@@ -1,8 +1,11 @@
+use std::collections::HashSet;
+
 use axum::{
     extract::{Path, Query},
     Extension, Json,
 };
 use http::StatusCode;
+use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
@@ -41,13 +44,22 @@ pub struct TableToTrack {
     pub columns_name: Vec<String>,
 }
 
+#[derive(FromRow, Serialize, Deserialize, Debug)]
+pub struct Relations {
+    pub schema_name: String,
+    pub table_to_track: Vec<TableToTrack>,
+}
+
 #[derive(Deserialize)]
 pub struct EditDatabaseTrigger {
     path: String,
     script_path: String,
     is_flow: bool,
     database_resource_path: String,
-    table_to_track: Option<Vec<TableToTrack>>,
+    #[serde(deserialize_with = "check_if_not_duplication_relation")]
+    table_to_track: Option<Vec<Relations>>,
+    #[serde(deserialize_with = "check_if_valid_transaction_type")]
+    transaction_to_track: Vec<TransactionType>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -60,9 +72,51 @@ pub struct NewDatabaseTrigger {
     is_flow: bool,
     enabled: bool,
     database_resource_path: String,
-    table_to_track: Option<Vec<TableToTrack>>,
+    #[serde(deserialize_with = "check_if_not_duplication_relation")]
+    table_to_track: Option<Vec<Relations>>,
     replication_slot_name: String,
     publication_name: String,
+}
+
+fn check_if_not_duplication_relation<'de, D>(
+    relations: D,
+) -> std::result::Result<Option<Vec<Relations>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let relations: Option<Vec<Relations>> = Option::deserialize(relations)?;
+
+    match relations {
+        Some(relations) => {
+            let relations = relations
+                .into_iter()
+                .filter_map(|relation| {
+                    if relation.schema_name.is_empty()
+                        && !relation
+                            .table_to_track
+                            .iter()
+                            .any(|table| !table.table_name.is_empty())
+                    {
+                        return None;
+                    }
+                    Some(relation)
+                })
+                .collect_vec();
+
+            if !relations
+                .iter()
+                .map(|relation| relation.schema_name.as_str())
+                .all_unique()
+            {
+                return Err(serde::de::Error::custom(
+                    "You cannot choose a schema more than one time".to_string(),
+                ));
+            }
+
+            Ok(Some(relations))
+        }
+        None => Ok(None),
+    }
 }
 
 fn check_if_valid_transaction_type<'de, D>(
@@ -112,7 +166,7 @@ pub struct DatabaseTrigger {
     pub extra_perms: Option<serde_json::Value>,
     pub database_resource_path: String,
     pub transaction_to_track: Option<Vec<TransactionType>>,
-    pub table_to_track: Option<SqlxJson<Vec<TableToTrack>>>,
+    pub table_to_track: Option<SqlxJson<Vec<Relations>>>,
     pub error: Option<String>,
     pub server_id: Option<String>,
     pub replication_slot_name: String,
@@ -313,7 +367,7 @@ pub async fn get_database_trigger(
             replication_slot_name,
             publication_name,
             database_resource_path,
-            table_to_track AS "table_to_track: SqlxJson<Vec<TableToTrack>>"
+            table_to_track AS "table_to_track: SqlxJson<Vec<Relations>>"
         FROM 
             database_trigger
         WHERE 
@@ -339,8 +393,14 @@ pub async fn update_database_trigger(
     Json(database_trigger): Json<EditDatabaseTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    let EditDatabaseTrigger { script_path, path, is_flow, database_resource_path, table_to_track } =
-        database_trigger;
+    let EditDatabaseTrigger {
+        script_path,
+        path,
+        is_flow,
+        database_resource_path,
+        table_to_track,
+        transaction_to_track,
+    } = database_trigger;
     let mut tx = user_db.begin(&authed).await?;
 
     let table_to_track = serde_json::to_value(table_to_track).unwrap();
@@ -356,11 +416,13 @@ pub async fn update_database_trigger(
                 email = $5, 
                 database_resource_path = $6, 
                 table_to_track = $7, 
+                transaction_to_track = $8,
                 edited_at = now(), 
-                error = NULL
+                error = NULL,
+                server_id = NULL
             WHERE 
-                workspace_id = $8 AND 
-                path = $9
+                workspace_id = $9 AND 
+                path = $10
             "#,
         script_path,
         path,
@@ -369,6 +431,7 @@ pub async fn update_database_trigger(
         &authed.email,
         database_resource_path,
         table_to_track,
+        transaction_to_track as Vec<TransactionType>,
         w_id,
         workspace_path,
     )
