@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query},
-    Extension, Json,
+    response, Extension, Json,
 };
 use http::StatusCode;
 use itertools::Itertools;
@@ -40,6 +40,7 @@ pub struct Database {
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct TableToTrack {
     pub table_name: String,
+    pub where_clause: Option<String>,
     pub columns_name: Vec<String>,
 }
 
@@ -51,6 +52,8 @@ pub struct Relations {
 
 #[derive(Deserialize)]
 pub struct EditDatabaseTrigger {
+    replication_slot_name: String,
+    publication_name: String,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -93,20 +96,21 @@ where
 
     match relations {
         Some(relations) => {
-            let relations = relations
-                .into_iter()
-                .filter_map(|relation| {
-                    if relation.schema_name.is_empty()
-                        && !relation
-                            .table_to_track
-                            .iter()
-                            .any(|table| !table.table_name.is_empty())
-                    {
-                        return None;
+            for relation in relations.iter() {
+                if relation.schema_name.is_empty() {
+                    return Err(serde::de::Error::custom(
+                        "Schema Name must not be empty".to_string(),
+                    ));
+                }
+
+                for table_to_track in relation.table_to_track.iter() {
+                    if table_to_track.table_name.trim().is_empty() {
+                        return Err(serde::de::Error::custom(
+                            "Table name must not be empty".to_string(),
+                        ));
                     }
-                    Some(relation)
-                })
-                .collect_vec();
+                }
+            }
 
             if !relations
                 .iter()
@@ -399,6 +403,8 @@ pub async fn update_database_trigger(
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
     let EditDatabaseTrigger {
+        replication_slot_name,
+        publication_name,
         script_path,
         path,
         is_flow,
@@ -422,12 +428,14 @@ pub async fn update_database_trigger(
                 database_resource_path = $6, 
                 table_to_track = $7, 
                 transaction_to_track = $8,
+                replication_slot_name = $9,
+                publication_name = $10,
                 edited_at = now(), 
                 error = NULL,
                 server_id = NULL
             WHERE 
-                workspace_id = $9 AND 
-                path = $10
+                workspace_id = $11 AND 
+                path = $12
             "#,
         script_path,
         path,
@@ -437,6 +445,8 @@ pub async fn update_database_trigger(
         database_resource_path,
         table_to_track,
         transaction_to_track as Vec<TransactionType>,
+        replication_slot_name,
+        publication_name,
         w_id,
         workspace_path,
     )
@@ -585,8 +595,6 @@ pub async fn get_custom_script(
         .map_err(|_| {
             windmill_common::error::Error::NotFound("Database resource do not exist".to_string())
         })?;
-
-
 
     Ok(String::new())
 }

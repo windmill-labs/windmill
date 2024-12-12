@@ -12259,9 +12259,10 @@ components:
             type: array
             items:
               type: string
+          where_clause:
+            type: string
         required:
           - table_name
-          - columns_name
 
     Relations:
       type: object
@@ -12358,6 +12359,10 @@ components:
     EditDatabaseTrigger:
       type: object
       properties:
+        replication_slot_name:
+          type: string
+        publication_name:
+          type: string
         path:
           type: string
         script_path:
@@ -12384,6 +12389,8 @@ components:
         - database_resource_path
         - table_to_track
         - transaction_to_track
+        - replication_slot_name
+        - publication_name
 
     Group:
       type: object

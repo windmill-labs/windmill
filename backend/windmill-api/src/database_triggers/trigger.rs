@@ -18,6 +18,7 @@ use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
+use tracing_subscriber::fmt::format;
 use windmill_common::{
     resource::get_resource, variables::get_variable_or_self, worker::to_raw_value, INSTANCE_NAME,
 };
@@ -263,12 +264,11 @@ impl PostgresClient {
     ) -> Result<(), Error> {
         let mut query = String::new();
         let quoted_publication_name = quote_identifier(publication_name);
-
-        query.push_str("ALTER PUBLICATION ");
-        query.push_str(&quoted_publication_name);
-        query.push_str(" SET");
         match relations {
             Some(relations) if !relations.is_empty() => {
+                query.push_str("ALTER PUBLICATION ");
+                query.push_str(&quoted_publication_name);
+                query.push_str(" SET");
                 for (i, relation) in relations.iter().enumerate() {
                     if !relation
                         .table_to_track
@@ -292,8 +292,13 @@ impl PostgresClient {
                                 query.push_str(" (");
                                 let columns = table.columns_name.iter().join(",");
                                 query.push_str(&columns);
-                                query.push(')');
+                                query.push_str(") ");
                             }
+
+                            if let Some(where_clause) = &table.where_clause {
+                                //query.push_str("WHERE ");
+                            }
+                            
                             if j + 1 != relation.table_to_track.len() {
                                 query.push_str(", ")
                             }
@@ -304,7 +309,17 @@ impl PostgresClient {
                     }
                 }
             }
-            _ => query.push_str(" FOR ALL TABLES "),
+            _ => {
+                let to_execute = format!(r#"
+                                                    DROP
+                                                        PUBLICATION {};
+                                                    CREATE
+                                                        PUBLICATION {} FOR ALL TABLES
+                                                "#,
+                    quoted_publication_name, quoted_publication_name
+                );
+                query.push_str(&to_execute);
+            }
         };
         tracing::info!("query: {}", query);
         if let Some(transaction_to_track) = transaction_to_track {
@@ -707,7 +722,7 @@ async fn listen_to_transactions(
                                         return;
                                     }
                                 };
-                                let database_info = HashMap::from([("schema".to_string(), relation.namespace.as_str()), ("table_name".to_string(), relation.name.as_str()), ("transaction_type".to_string(), transaction_type)]);
+                                let database_info = HashMap::from([("schema_name".to_string(), relation.namespace.as_str()), ("table_name".to_string(), relation.name.as_str()), ("transaction_type".to_string(), transaction_type)]);
                                 let extra = Some(HashMap::from([(
                                     "wm_trigger".to_string(),
                                     to_raw_value(&serde_json::json!({"kind": "database", "trigger_info": database_info })),
