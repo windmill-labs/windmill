@@ -199,3 +199,4 @@ RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 7
 EXPOSE 8000
 
 CMD ["windmill"]
+
