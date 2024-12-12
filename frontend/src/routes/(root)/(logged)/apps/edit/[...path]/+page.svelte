@@ -19,6 +19,7 @@
 				summary: string
 				policy: any
 				draft_only?: boolean
+				custom_path?: string
 		  }
 		| undefined = undefined
 	let redraw = 0
@@ -56,9 +57,11 @@
 							summary: app_w_draft_.summary,
 							value: app_w_draft_.draft,
 							path: app_w_draft_.path,
-							policy: app_w_draft_.policy
+							policy: app_w_draft_.policy,
+							custom_path: app_w_draft_.custom_path
 					  }
-					: undefined
+					: undefined,
+			custom_path: app_w_draft_.custom_path
 		}
 
 		if (stateLoadedFromUrl) {
@@ -190,7 +193,8 @@
 			summary: app_.summary,
 			value: app_.value as App,
 			path: app_.path,
-			policy: app_.policy
+			policy: app_.policy,
+			custom_path: app_.custom_path
 		}
 		redraw++
 	}

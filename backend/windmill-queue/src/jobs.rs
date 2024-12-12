@@ -10,37 +10,27 @@ use std::{borrow::Borrow, collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
-use axum::{
-    body::Bytes,
-    extract::{FromRequest, FromRequestParts, Query},
-    http::{request::Parts, Request, Uri},
-    response::{IntoResponse, Response},
-};
 use chrono::{DateTime, Duration, Utc};
 use futures::future::TryFutureExt;
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
 use regex::Regex;
-use reqwest::{
-    header::{HeaderMap, CONTENT_TYPE},
-    Client, StatusCode,
-};
-use serde::{ser::SerializeMap, Deserialize, Serialize};
+use reqwest::Client;
+use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
 use std::time::Instant;
 use tokio::{sync::RwLock, time::sleep};
-use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
 use windmill_common::{
-    cache,
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
+    cache,
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -57,7 +47,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
-    utils::{not_found_if_none, report_critical_error, StripPath},
+    utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
         DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, NO_LOGS,
@@ -318,6 +308,7 @@ pub async fn append_logs(
         workspace.as_ref(),
     )
     .execute(db.borrow())
+    .warn_after_seconds(1)
     .await
     {
         tracing::error!(%job_id, %err, "error updating logs for large_log job {job_id}: {err}");
@@ -453,7 +444,6 @@ where
     }
 }
 
-#[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
@@ -509,7 +499,6 @@ lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
 }
 
-#[instrument(level = "trace", skip_all, name = "add_completed_job")]
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
@@ -642,9 +631,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
-        // tracing::error!("2 {:?}", start.elapsed());
 
-        // add_time!(bench, "add_completed_job query END");
 
         if !queued_job.is_flow_step {
             if _duration > 500
@@ -1258,7 +1245,6 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     Ok(())
 }
 
-#[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c>(
     db: &Pool<Postgres>,
     job: &QueuedJob,
@@ -2428,7 +2414,6 @@ async fn extract_result_from_job_result(
     }
 }
 
-#[instrument(level = "trace", skip_all)]
 pub async fn delete_job<'c>(
     mut tx: Transaction<'c, Postgres>,
     w_id: &str,
@@ -2573,340 +2558,6 @@ impl<'c> Serialize for PushArgs<'c> {
         }
         map.end()
     }
-}
-
-#[derive(Deserialize)]
-pub struct DecodeQuery {
-    pub include_query: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct IncludeQuery {
-    pub include_query: Option<String>,
-}
-
-pub struct DecodeQueries(pub HashMap<String, Box<RawValue>>);
-
-#[axum::async_trait]
-impl<S> FromRequestParts<S> for DecodeQueries
-where
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(DecodeQueries::from_uri(&parts.uri).unwrap_or_else(|| DecodeQueries(HashMap::new())))
-    }
-}
-
-impl DecodeQueries {
-    fn from_uri(uri: &Uri) -> Option<Self> {
-        let query = uri.query();
-        if query.is_none() {
-            return None;
-        }
-        let query = query.unwrap();
-        let include_query = serde_urlencoded::from_str::<IncludeQuery>(query)
-            .map(|x| x.include_query)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let parse_query_args = include_query
-            .split(",")
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        let mut args = HashMap::new();
-        if !parse_query_args.is_empty() {
-            let queries =
-                serde_urlencoded::from_str::<HashMap<String, String>>(query).unwrap_or_default();
-            parse_query_args.iter().for_each(|h| {
-                if let Some(v) = queries.get(h) {
-                    args.insert(h.to_string(), to_raw_value(v));
-                }
-            });
-        }
-        Some(DecodeQueries(args))
-    }
-}
-
-// impl<'c> PushArgs<'c> {
-//     pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
-//         self.extra.insert(k.into(), v.into());
-//     }
-// }
-
-#[derive(Deserialize)]
-pub struct RequestQuery {
-    pub raw: Option<bool>,
-    pub wrap_body: Option<bool>,
-    pub include_header: Option<String>,
-}
-
-fn restructure_cloudevents_metadata(
-    mut p: HashMap<String, Box<RawValue>>,
-) -> Result<HashMap<String, Box<RawValue>>, Error> {
-    let data = p
-        .remove("data")
-        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
-    let str = data.to_string();
-
-    let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
-
-    if wrap_body {
-        let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
-            .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
-            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
-        let mut hm = HashMap::new();
-        hm.insert("body".to_string(), args);
-        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
-        Ok(hm)
-    } else {
-        let mut hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
-            .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
-            .unwrap_or_else(HashMap::new);
-        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
-        Ok(hm)
-    }
-}
-
-impl PushArgsOwned {
-    async fn from_json(
-        mut extra: HashMap<String, Box<RawValue>>,
-        use_raw: bool,
-        force_wrap_body: bool,
-        str: String,
-    ) -> Result<Self, Response> {
-        if use_raw {
-            extra.insert("raw_string".to_string(), to_raw_value(&str));
-        }
-
-        let wrap_body = force_wrap_body || str.len() > 0 && str.chars().next().unwrap() != '{';
-
-        if wrap_body {
-            let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
-                .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
-                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
-            let mut hm = HashMap::new();
-            hm.insert("body".to_string(), args);
-            Ok(PushArgsOwned { extra: Some(extra), args: hm })
-        } else {
-            let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
-                .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
-                .unwrap_or_else(HashMap::new);
-            Ok(PushArgsOwned { extra: Some(extra), args: hm })
-        }
-    }
-
-    async fn from_ce_json(
-        mut extra: HashMap<String, Box<RawValue>>,
-        use_raw: bool,
-        str: String,
-    ) -> Result<Self, Response> {
-        if use_raw {
-            extra.insert("raw_string".to_string(), to_raw_value(&str));
-        }
-
-        let hm = serde_json::from_str::<HashMap<String, Box<RawValue>>>(&str).map_err(|e| {
-            Error::BadRequest(format!("invalid cloudevents+json: {}", e)).into_response()
-        })?;
-        let hm = restructure_cloudevents_metadata(hm).map_err(|e| e.into_response())?;
-        Ok(PushArgsOwned { extra: Some(extra), args: hm })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_cloudevents_json_payload() {
-        let r1 = r#"
-        {
-            "specversion" : "1.0",
-            "type" : "com.example.someevent",
-            "source" : "/mycontext",
-            "subject": null,
-            "id" : "C234-1234-1234",
-            "time" : "2018-04-05T17:31:00Z",
-            "comexampleextension1" : "value",
-            "comexampleothervalue" : 5,
-            "datacontenttype" : "application/json",
-            "data" : {
-                "appinfoA" : "abc",
-                "appinfoB" : 123,
-                "appinfoC" : true
-            }
-        }
-        "#;
-        let r2 = r#"
-        {
-            "specversion" : "1.0",
-            "type" : "com.example.someevent",
-            "source" : "/mycontext",
-            "subject": null,
-            "id" : "C234-1234-1234",
-            "time" : "2018-04-05T17:31:00Z",
-            "comexampleextension1" : "value",
-            "comexampleothervalue" : 5,
-            "datacontenttype" : "application/json",
-            "data" : 1.5
-        }
-        "#;
-        let extra = HashMap::new();
-
-        let a1 = PushArgsOwned::from_ce_json(extra.clone(), false, r1.to_string())
-            .await
-            .expect("Failed to parse the cloudevent");
-        let a2 = PushArgsOwned::from_ce_json(extra.clone(), false, r2.to_string())
-            .await
-            .expect("Failed to parse the cloudevent");
-
-        a1.args.get("WEBHOOK__METADATA__").expect(
-            "CloudEvents should generate a neighboring `webhook-metadata` field in PushArgs",
-        );
-        assert_eq!(
-            a2.args
-                .get("body")
-                .expect("Cloud events with a data field with no wrapping curly brackets should be inside of a `body` field in PushArgs")
-                .to_string(),
-            "1.5"
-        );
-    }
-}
-
-#[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for PushArgsOwned
-where
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request(
-        req: Request<axum::body::Body>,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let (content_type, mut extra, use_raw, wrap_body) = {
-            let headers_map = req.headers();
-            let content_type_header = headers_map.get(CONTENT_TYPE);
-            let content_type = content_type_header.and_then(|value| value.to_str().ok());
-            let uri = req.uri();
-            let query = Query::<RequestQuery>::try_from_uri(uri).unwrap().0;
-            let mut extra = build_extra(&headers_map, query.include_header);
-            let query_decode = DecodeQueries::from_uri(uri);
-            if let Some(DecodeQueries(queries)) = query_decode {
-                extra.extend(queries);
-            }
-            let raw = query.raw.as_ref().is_some_and(|x| *x);
-            let wrap_body = query.wrap_body.as_ref().is_some_and(|x| *x);
-            (content_type, extra, raw, wrap_body)
-        };
-
-        let no_content_type = content_type.is_none();
-        if no_content_type || content_type.unwrap().starts_with("application/json") {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            if no_content_type && bytes.is_empty() {
-                if use_raw {
-                    extra.insert("raw_string".to_string(), to_raw_value(&"".to_string()));
-                }
-                let mut args = HashMap::new();
-                if wrap_body {
-                    args.insert("body".to_string(), to_raw_value(&serde_json::json!({})));
-                }
-                return Ok(PushArgsOwned { extra: Some(extra), args: args });
-            }
-            let str = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-
-            PushArgsOwned::from_json(extra, use_raw, wrap_body, str).await
-        } else if content_type
-            .unwrap()
-            .starts_with("application/cloudevents+json")
-        {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            let str = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-
-            PushArgsOwned::from_ce_json(extra, use_raw, str).await
-        } else if content_type
-            .unwrap()
-            .starts_with("application/cloudevents-batch+json")
-        {
-            Err(
-                Error::BadRequest(format!("Cloud events batching is not supported yet"))
-                    .into_response(),
-            )
-        } else if content_type.unwrap().starts_with("text/plain") {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            let str = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-            extra.insert("raw_string".to_string(), to_raw_value(&str));
-            Ok(PushArgsOwned { extra: Some(extra), args: HashMap::new() })
-        } else if content_type
-            .unwrap()
-            .starts_with("application/x-www-form-urlencoded")
-        {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-
-            if use_raw {
-                let raw_string = String::from_utf8(bytes.to_vec()).map_err(|e| {
-                    Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
-                })?;
-                extra.insert("raw_string".to_string(), to_raw_value(&raw_string));
-            }
-
-            let payload: HashMap<String, Option<String>> = serde_urlencoded::from_bytes(&bytes)
-                .map_err(|e| {
-                    Error::BadRequest(format!("invalid urlencoded data: {}", e)).into_response()
-                })?;
-            let payload = payload
-                .into_iter()
-                .map(|(k, v)| (k, to_raw_value(&v)))
-                .collect::<HashMap<_, _>>();
-
-            return Ok(PushArgsOwned { extra: Some(extra), args: payload });
-        } else {
-            Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
-        }
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref INCLUDE_HEADERS: Vec<String> = std::env::var("INCLUDE_HEADERS")
-        .ok().map(|x| x
-        .split(',')
-        .map(|s| s.to_string())
-        .collect()).unwrap_or_default();
-}
-
-pub fn build_extra(
-    headers: &HeaderMap,
-    include_header: Option<String>,
-) -> HashMap<String, Box<RawValue>> {
-    let mut args = HashMap::new();
-    let whitelist = include_header
-        .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    whitelist
-        .iter()
-        .chain(INCLUDE_HEADERS.iter())
-        .for_each(|h| {
-            if let Some(v) = headers.get(h) {
-                args.insert(
-                    h.to_string().to_lowercase().replace('-', "_"),
-                    to_raw_value(&v.to_str().unwrap().to_string()),
-                );
-            }
-        });
-    args
 }
 
 impl PushArgsOwned {
@@ -3227,7 +2878,27 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
             )
-        },
+        }
+        JobPayload::AppScript {
+            id, // app_script(id).
+            path,
+            language,
+            cache_ttl,
+        } => (
+            Some(id.0),
+            path,
+            None,
+            JobKind::AppScript,
+            None,
+            None,
+            Some(language),
+            None,
+            None,
+            None,
+            cache_ttl,
+            None,
+            None,
+        ),
         JobPayload::ScriptHub { path } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" {
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
@@ -3851,6 +3522,7 @@ pub async fn push<'c, 'd>(
         tag,
     )
     .execute(&mut *tx)
+    .warn_after_seconds(1)
     .await?;
 
     let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_427.read().await {
@@ -3901,6 +3573,7 @@ pub async fn push<'c, 'd>(
         final_priority,
     )
     .fetch_one(&mut *tx)
+    .warn_after_seconds(1)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
 
@@ -3986,6 +3659,7 @@ pub async fn push<'c, 'd>(
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
             JobKind::FlowScript => "jobs.run.flow_script",
             JobKind::FlowNode => "jobs.run.flow_node",
+            JobKind::AppScript => "jobs.run.app_script",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
@@ -4015,7 +3689,6 @@ pub async fn push<'c, 'd>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
-        .instrument(tracing::info_span!("job_run", email = &email))
         .await?;
     }
 

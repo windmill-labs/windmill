@@ -17,6 +17,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import TriggerTokens from '../triggers/TriggerTokens.svelte'
 	let userSettings: UserSettings
+	import Description from '$lib/components/Description.svelte'
 
 	export let token: string
 	export let scopes: string[] = []
@@ -79,6 +80,11 @@
 />
 
 <div class="flex flex-col w-full gap-4">
+	<Description link="https://www.windmill.dev/docs/advanced/email_triggers">
+		Email triggers execute scripts and flows when emails are sent to specific addresses. Each
+		trigger has its own unique email address that can be used to invoke the script or flow.
+	</Description>
+
 	{#if loading}
 		<Skeleton layout={[[18]]} />
 	{:else}

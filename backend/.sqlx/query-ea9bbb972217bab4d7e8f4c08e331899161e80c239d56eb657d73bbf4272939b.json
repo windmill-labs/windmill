@@ -1,10 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value FROM app_version WHERE id = $1",
+  "query": "SELECT app_id, value FROM app_version WHERE id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "app_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
         "name": "value",
         "type_info": "Json"
       }
@@ -15,8 +20,9 @@
       ]
     },
     "nullable": [
+      false,
       false
     ]
   },
-  "hash": "29fce7e56bb4a874b4c1e3a6454273203aab7344abd03df4d86e4c5f5b9a394a"
+  "hash": "ea9bbb972217bab4d7e8f4c08e331899161e80c239d56eb657d73bbf4272939b"
 }

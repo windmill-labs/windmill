@@ -11,12 +11,11 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Job, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
 		Bug,
-		Clipboard,
 		DiffIcon,
 		Expand,
 		FileJson,
@@ -39,7 +38,6 @@
 	import {
 		classNames,
 		cleanValueProperties,
-		copyToClipboard,
 		truncateRev,
 		orderedJsonStringify,
 		type Value,
@@ -90,6 +88,9 @@
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
+	import { isCloudHosted } from '$lib/cloud'
+	import { base } from '$lib/base'
+	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 
 	async function hash(message) {
 		try {
@@ -119,6 +120,7 @@
 				summary: string
 				policy: any
 				draft_only?: boolean
+				custom_path?: string
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
@@ -389,14 +391,16 @@
 					path,
 					summary: $summary,
 					policy,
-					deployment_message: deploymentMsg
+					deployment_message: deploymentMsg,
+					custom_path: customPath
 				}
 			})
 			savedApp = {
 				summary: $summary,
 				value: structuredClone($app),
 				path: path,
-				policy: policy
+				policy: policy,
+				custom_path: customPath
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -433,7 +437,8 @@
 							summary: $summary,
 							value: $app,
 							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy
+							policy,
+							custom_path: customPath
 						})
 					)
 			) {
@@ -479,14 +484,19 @@
 				summary: $summary,
 				policy,
 				path: npath,
-				deployment_message: deploymentMsg
+				deployment_message: deploymentMsg,
+				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
+				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
+				custom_path:
+					$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined
 			}
 		})
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($app),
 			path: npath,
-			policy
+			policy,
+			custom_path: customPath
 		}
 		const appHistory = await AppService.getAppHistoryByPath({
 			workspace: $workspaceStore!,
@@ -549,7 +559,8 @@
 					path: newEditedPath,
 					summary: $summary,
 					policy,
-					draft_only: true
+					draft_only: true,
+					custom_path: customPath
 				}
 			})
 			await DraftService.createDraft({
@@ -561,7 +572,8 @@
 						value: $app,
 						path: newEditedPath,
 						summary: $summary,
-						policy
+						policy,
+						custom_path: customPath
 					}
 				}
 			})
@@ -575,8 +587,10 @@
 					summary: $summary,
 					value: structuredClone($app),
 					path: newEditedPath,
-					policy
-				}
+					policy,
+					custom_path: customPath
+				},
+				custom_path: customPath
 			}
 
 			draftDrawerOpen = false
@@ -630,7 +644,8 @@
 						summary: $summary,
 						policy,
 						path: newEditedPath || path,
-						draft_only: true
+						draft_only: true,
+						custom_path: customPath
 					}
 				})
 			}
@@ -655,14 +670,16 @@
 							value: structuredClone($app),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
-							draft_only: true
+							draft_only: true,
+							custom_path: customPath
 					  }
 					: savedApp),
 				draft: {
 					summary: $summary,
 					value: structuredClone($app),
 					path: newEditedPath || path,
-					policy
+					policy,
+					custom_path: customPath
 				}
 			}
 
@@ -839,7 +856,8 @@
 						summary: $summary,
 						value: $app,
 						path: newEditedPath || savedApp.draft?.path || savedApp.path,
-						policy
+						policy,
+						custom_path: customPath
 					}
 				})
 			},
@@ -885,6 +903,37 @@
 
 	let priorDarkMode = document.documentElement.classList.contains('dark')
 	setTheme($app?.darkMode)
+
+	let customPath = savedApp?.custom_path
+	let dirtyCustomPath = false
+	let customPathError = ''
+	$: fullCustomUrl = `${window.location.origin}${base}/a/${
+		isCloudHosted() ? $workspaceStore + '/' : ''
+	}${customPath}`
+	async function appExists(customPath: string) {
+		return await AppService.customPathExists({
+			workspace: $workspaceStore!,
+			customPath
+		})
+	}
+	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	async function validateCustomPath(customPath: string): Promise<void> {
+		customPathError = ''
+		if (validateTimeout) {
+			clearTimeout(validateTimeout)
+		}
+		validateTimeout = setTimeout(async () => {
+			if (!/^[\w-]+(\/[\w-]+)*$/.test(customPath)) {
+				customPathError = 'Invalid path'
+			} else if (customPath !== savedApp?.custom_path && (await appExists(customPath))) {
+				customPathError = 'Path already taken'
+			} else {
+				customPathError = ''
+			}
+			validateTimeout = undefined
+		}, 500)
+	}
+	$: customPath !== undefined && validateCustomPath(customPath)
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -897,7 +946,8 @@
 		summary: $summary,
 		value: $app,
 		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy
+		policy,
+		custom_path: customPath
 	}}
 	additionalExitAction={() => {
 		setTheme(priorDarkMode)
@@ -914,7 +964,8 @@
 		summary: $summary,
 		value: $app,
 		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy
+		policy,
+		custom_path: customPath
 	}}
 />
 
@@ -1049,7 +1100,8 @@
 							summary: $summary,
 							value: $app,
 							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy
+							policy,
+							custom_path: customPath
 						},
 						button: {
 							text: 'Looks good, deploy',
@@ -1071,7 +1123,7 @@
 			</Button>
 			<Button
 				startIcon={{ icon: Save }}
-				disabled={pathError != ''}
+				disabled={pathError != '' || customPathError != ''}
 				on:click={() => {
 					if ($appPath == '') {
 						createApp(newEditedPath)
@@ -1121,29 +1173,68 @@
 			</div>
 
 			<div class="my-6 box">
-				Public url:
+				<div class="text-secondary">
+					<div>Public URL</div>
+				</div>
 				{#if secretUrl}
-					{@const url = `${window.location.hostname}/public/${$workspaceStore}/${secretUrl}`}
-					{@const href = window.location.protocol + '//' + url}
-					<a
-						on:click={(e) => {
-							e.preventDefault()
-							copyToClipboard(href)
-						}}
-						{href}
-						class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 inline-flex gap-2"
-					>
-						{url}
-						<span class="text-gray-700 ml-2">
-							<Clipboard />
-						</span>
-					</a>
+					{@const href = `${window.location.origin}${base}/public/${$workspaceStore}/${secretUrl}`}
+					<ClipboardPanel content={href} size="md" />
 				{:else}<Loader2 class="animate-spin" />
 				{/if}
-				<div class="text-xs text-secondary"
-					>Share this url directly or embed it using an iframe (if requiring login, top-level domain
-					of embedding app must be the same as the one of Windmill)</div
-				>
+				<div class="text-xs text-secondary mt-1">
+					Share this url directly or embed it using an iframe (if requiring login, top-level domain
+					of embedding app must be the same as the one of Windmill)
+				</div>
+
+				<div class="mt-4">
+					{#if !$enterpriseLicense}
+						<Alert title="EE Only" type="warning" size="xs">
+							Custom path is an enterprise only feature.
+						</Alert>
+						<div class="mb-2" />
+					{:else if !($userStore?.is_admin || $userStore?.is_super_admin)}
+						<Alert type="warning" title="Admin only" size="xs">
+							Custom path can only be set by workspace admins
+						</Alert>
+						<div class="mb-2" />
+					{/if}
+					<Toggle
+						on:change={({ detail }) => {
+							customPath = detail ? '' : undefined
+						}}
+						checked={customPath !== undefined}
+						options={{
+							right: 'Use a custom URL'
+						}}
+						disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
+					/>
+
+					{#if customPath !== undefined}
+						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+							<div>Custom path</div>
+						</div>
+						<input
+							disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+							type="text"
+							autocomplete="off"
+							bind:value={customPath}
+							class={customPathError === ''
+								? ''
+								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+							on:input={() => {
+								dirtyCustomPath = true
+							}}
+						/>
+						<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
+							<div>Custom public URL</div>
+						</div>
+						<ClipboardPanel content={fullCustomUrl} size="md" />
+
+						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+							>{dirtyCustomPath ? customPathError : ''}
+						</div>
+					{/if}
+				</div>
 			</div>
 			<Alert type="info" title="Only latest deployed app is publicly available">
 				You will still need to deploy the app to make visible the latest changes

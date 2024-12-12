@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1",
+  "query": "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "code!: String",
+        "name": "code",
         "type_info": "Text"
       }
     ],
@@ -21,8 +21,8 @@
     },
     "nullable": [
       true,
-      true
+      false
     ]
   },
-  "hash": "15a5db0202c61ed187d9594311cb32cbde4240e143df1c980843dcdfeef3499e"
+  "hash": "ffa86babfcab107caffb8dda31a66b142fa628b8983b966357deb3d5e0a1df3c"
 }

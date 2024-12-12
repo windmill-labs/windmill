@@ -3,7 +3,7 @@ use std::{
     fs,
     path::Path,
     process::Stdio,
-    sync::Arc
+    sync::Arc,
 };
 
 use anyhow::anyhow;
@@ -51,11 +51,11 @@ lazy_static::lazy_static! {
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
 
-    static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
+    pub static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
     /// Use pip install
-    static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
+    pub static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
 
@@ -82,7 +82,7 @@ use crate::{
         create_args_and_out_file, get_main_override, get_reserved_variables, read_file,
         read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child::handle_child,
+    handle_child::{get_mem_peak, handle_child},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, LOCK_CACHE_DIR,
     NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
     PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
@@ -318,7 +318,7 @@ pub async fn uv_pip_compile(
         if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
         }
-        tracing::debug!("uv args: {:?}", args);
+        tracing::error!("uv args: {:?}", args);
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -329,7 +329,10 @@ pub async fn uv_pip_compile(
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd
             .current_dir(job_dir)
-            .args(args)
+            .env_clear()
+            .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let child_process = start_child_process(child_cmd, uv_cmd).await?;
@@ -350,7 +353,12 @@ pub async fn uv_pip_compile(
             occupancy_metrics,
         )
         .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Lock file generation failed.\n\ncommand: {uv_cmd} {}\n\n{e:?}",
+                args.join(" ")
+            ))
+        })?;
     }
 
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -423,12 +431,12 @@ async fn postinstall(
                     .ok_or(anyhow::anyhow!("Cannot convert OsString to String"))?
                     .to_owned();
 
-                if name == "bin" || name.contains("dist-info") {
+                if name == "bin" || name == "__pycache__" || name.contains("dist-info") {
                     continue;
                 }
 
                 if let Some(existing_paths) = lookup_table.get_mut(&name) {
-                    tracing::info!(
+                    tracing::debug!(
                         "Found existing package name: {:?} in {}",
                         entry.file_name(),
                         path
@@ -479,17 +487,21 @@ fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Resul
         fs::create_dir_all(dst)?;
     }
 
+    tracing::debug!("Copying recursively from {:?} to {:?}", src, dst);
+
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
-        if src_path.is_dir() {
+        if src_path.is_dir() && !src_path.is_symlink() {
             copy_dir_recursively(&src_path, &dst_path)?;
         } else {
             fs::copy(&src_path, &dst_path)?;
         }
     }
+
+    tracing::debug!("Finished copying recursively from {:?} to {:?}", src, dst);
 
     Ok(())
 }
@@ -529,10 +541,13 @@ pub async fn handle_python_job(
     )
     .await?;
 
+    tracing::debug!("Finished handling python dependencies");
+
     if !PythonAnnotations::parse(inner_content).no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, db).await {
             tracing::error!("Postinstall stage has failed. Reason: {e}");
         }
+        tracing::debug!("Finished deps postinstall stage");
     }
 
     append_logs(
@@ -563,9 +578,12 @@ pub async fn handle_python_job(
     )
     .await?;
 
+    tracing::debug!("Finished preparing wrapper");
+
     let apply_preprocessor = pre_spread.is_some();
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
+    tracing::debug!("Finished preparing wrapper");
 
     let preprocessor = if let Some(pre_spread) = pre_spread {
         format!(
@@ -664,6 +682,8 @@ except BaseException as e:
     );
     write_file(job_dir, "wrapper.py", &wrapper_content)?;
 
+    tracing::debug!("Finished writing wrapper");
+
     let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
@@ -750,7 +770,10 @@ mount {{
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
-        python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        {
+            python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+            python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
 
         start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
     };
@@ -1091,7 +1114,7 @@ async fn handle_python_deps(
         let mut venv_path = handle_python_reqs(
             requirements
                 .split("\n")
-                .filter(|x| !x.starts_with("--"))
+                .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
                 .collect(),
             job_id,
             w_id,
@@ -1237,29 +1260,28 @@ async fn spawn_uv_install(
         #[cfg(unix)]
         {
             if no_uv_install {
-              let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-              flock_cmd
-                  .env_clear()
-                  .envs(PROXY_ENVS.clone())
-                  .envs(envs)
-                  .args([
-                      "-x",
-                      &format!(
-                          "{}/{}-{}.lock",
-                          LOCK_CACHE_DIR,
-                          if no_uv_install { "pip" } else { "py311" },
-                          fssafe_req
-                      ),
-                      "--command",
-                      &command_args.join(" "),
-                  ])
-                  .stdout(Stdio::piped())
-                  .stderr(Stdio::piped());
-              start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
+                let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
+                flock_cmd
+                    .env_clear()
+                    .envs(PROXY_ENVS.clone())
+                    .envs(envs)
+                    .args([
+                        "-x",
+                        &format!(
+                            "{}/{}-{}.lock",
+                            LOCK_CACHE_DIR,
+                            if no_uv_install { "pip" } else { "py311" },
+                            fssafe_req
+                        ),
+                        "--command",
+                        &command_args.join(" "),
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
             } else {
                 let mut cmd = Command::new(command_args[0]);
-                cmd
-                    .env_clear()
+                cmd.env_clear()
                     .envs(PROXY_ENVS.clone())
                     .envs(envs)
                     .args(&command_args[1..])
@@ -1277,6 +1299,7 @@ async fn spawn_uv_install(
                 .envs(envs)
                 .envs(PROXY_ENVS.clone())
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
@@ -1307,7 +1330,7 @@ pub async fn handle_python_reqs(
     requirements: Vec<&str>,
     job_id: &Uuid,
     w_id: &str,
-    _mem_peak: &mut i32,
+    mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     _worker_name: &str,
@@ -1318,7 +1341,6 @@ pub async fn handle_python_reqs(
     mut no_uv_install: bool,
     is_ansible: bool,
 ) -> error::Result<Vec<String>> {
-
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1402,7 +1424,6 @@ pub async fn handle_python_reqs(
             .map(handle_ephemeral_token),
     );
 
-
     // Prepare NSJAIL
     if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1435,7 +1456,7 @@ pub async fn handle_python_reqs(
     let mut in_cache = vec![];
     for req in requirements {
         // Ignore python version annotation backed into lockfile
-        if req.starts_with('#') {
+        if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
         }
         // TODO: Remove
@@ -1458,12 +1479,19 @@ pub async fn handle_python_reqs(
         }
     }
     if in_cache.len() > 0 {
-        append_logs(&job_id, w_id, format!("\nenv deps from local cache: {}\n", in_cache.join(", ")), db).await;
+        append_logs(
+            &job_id,
+            w_id,
+            format!("\nenv deps from local cache: {}\n", in_cache.join(", ")),
+            db,
+        )
+        .await;
     }
 
     let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
-    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = 
-        (0..req_with_penv.len()).map(|_| kill_tx.subscribe()).collect();
+    let kill_rxs: Vec<tokio::sync::broadcast::Receiver<()>> = (0..req_with_penv.len())
+        .map(|_| kill_tx.subscribe())
+        .collect();
 
     //   ________ Read comments at the end of the function to get more context
     let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -1472,58 +1500,105 @@ pub async fn handle_python_reqs(
     let db_2 = db.clone();
     let w_id_2 = w_id.to_string();
 
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
-                    // Notify server that we are still alive
-                    // Detect if job has been canceled
-                    let canceled =
-                        sqlx::query_scalar::<_, bool>
-                        (r#"
+    // Wheels to install
+    let total_to_install = req_with_penv.len();
+    let pids = Arc::new(tokio::sync::Mutex::new(vec![None; total_to_install]));
+    let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
+    {
+        let pids = pids.clone();
+        let mem_peak_thread_safe = mem_peak_thread_safe.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                        let mut local_mem_peak = 0;
+                        for pid_o in pids.lock().await.iter() {
+                            if pid_o.is_some(){
+                                let mem = get_mem_peak(*pid_o, !*DISABLE_NSJAIL).await;
+                                if mem < 0 {
+                                    tracing::warn!(
+                                        workspace_id = %w_id_2,
+                                        "Cannot get memory peak for pid: {:?}, job_id: {:?}, exit code: {mem}", 
+                                        pid_o, 
+                                        job_id_2
+                                    );
+                                } else {
+                                    local_mem_peak += mem;
+                                }
+                            }
+                        }
 
-                               UPDATE queue 
-                                  SET last_ping = now() 
-                                WHERE id = $1 
-                            RETURNING canceled
+                        let mem_peak_actual = {
+                            let mut mem_peak_lock = mem_peak_thread_safe.lock().await;
 
-                            "#)
-                        .bind(job_id_2)
-                        .fetch_optional(&db_2)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                            Some(false)
-                        })
-                        .unwrap_or_else(|| {
-                            // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            false
-                        });
+                            if local_mem_peak > *mem_peak_lock{
+                                *mem_peak_lock = local_mem_peak;
+                            } else {
+                                tracing::debug!(
+                                    workspace_id = %w_id_2,
+                                    "Local mem_peak {:?}mb is smaller then global one {:?}mb, ignoring. job_id: {:?}", 
+                                    local_mem_peak / 1000,
+                                    *mem_peak_lock / 1000,
+                                    job_id_2
+                                );
+                                
+                            }
+                            // Get the copy of value and drop lock itself, to release it as fast as possible
+                            *mem_peak_lock
+                        };
 
-                    if canceled {
+                        // Notify server that we are still alive
+                        // Detect if job has been canceled
+                        let canceled =
+                            sqlx::query_scalar::<_, bool>
+                            (r#"
 
-                        tracing::info!(
-                            // If there is listener on other side, 
-                            workspace_id = %w_id_2,
-                            "cancelling installations",
-                        );
+                                   UPDATE queue 
+                                      SET last_ping = now()
+                                        , mem_peak = $1
+                                    WHERE id = $2
+                                RETURNING canceled
 
-                        if let Err(ref e) = kill_tx.send(()){
-                            tracing::error!(
+                                "#)
+                            .bind(mem_peak_actual)
+                            .bind(job_id_2)
+                            .fetch_optional(&db_2)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
+                                Some(false)
+                            })
+                            .unwrap_or_else(|| {
+                                // if the job is not in queue, it can only be in the completed_job so it is already complete
+                                false
+                            });
+
+                        if canceled {
+
+                            tracing::info!(
                                 // If there is listener on other side, 
                                 workspace_id = %w_id_2,
-                                "failed to send done: Probably receiving end closed too early or have not opened yet\n{}",
-                                // If there is no listener, it will be dropped safely
-                                e
+                                "cancelling installations",
                             );
-                        }
-                    } 
+
+                            if let Err(ref e) = kill_tx.send(()){
+                                tracing::error!(
+                                    // If there is listener on other side, 
+                                    workspace_id = %w_id_2,
+                                    "failed to send done: Probably receiving end closed too early or have not opened yet\n{}",
+                                    // If there is no listener, it will be dropped safely
+                                    e
+                                );
+                            }
+                        } 
+                    }
+                    // Once done_tx is dropped, this will be fired
+                    _ = done_rx.recv() => break
                 }
-                // Once done_tx is dropped, this will be fired
-                _ = done_rx.recv() => break
             }
-        }
-    });
+        });
+        
+    }
 
     // tl = total_length
     // "small".len == 5
@@ -1531,8 +1606,6 @@ pub async fn handle_python_reqs(
     // "largest".len == 7
     //  ==> req_tl = 7
     let mut req_tl = 0;
-    // Wheels to install
-    let total_to_install = req_with_penv.len();
     if total_to_install > 0 {
         let mut logs = String::new();
         // Do we use UV?
@@ -1552,22 +1625,29 @@ pub async fn handle_python_reqs(
 
         // Do we use Nsjail?
         if !*DISABLE_NSJAIL {
-            logs.push_str(&format!("\nStarting isolated installation... ({} tasks in parallel) \n", parallel_limit));
+            logs.push_str(&format!(
+                "\nStarting isolated installation... ({} tasks in parallel) \n",
+                parallel_limit
+            ));
         } else {
-            logs.push_str(&format!("\nStarting installation... ({} tasks in parallel) \n", parallel_limit));
+            logs.push_str(&format!(
+                "\nStarting installation... ({} tasks in parallel) \n",
+                parallel_limit
+            ));
         }
         append_logs(&job_id, w_id, logs, db).await;
     }
 
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
     let mut handles = Vec::with_capacity(total_to_install);
+    // let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
 
     #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
     let total_time = std::time::Instant::now();
     let has_work = req_with_penv.len() > 0;
-    for ((req, venv_p), mut kill_rx) in req_with_penv.iter().zip(kill_rxs.into_iter()) {
+    for ((i, (req, venv_p)), mut kill_rx) in req_with_penv.iter().enumerate().zip(kill_rxs.into_iter()) {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
         if let Err(_) = permit {
@@ -1593,6 +1673,7 @@ pub async fn handle_python_reqs(
         let venv_p = venv_p.clone();
         let counter_arc = counter_arc.clone();
         let pip_indexes = pip_indexes.clone();
+        let pids = pids.clone();
 
         handles.push(task::spawn(async move {
             // permit will be dropped anyway if this thread exits at any point
@@ -1614,13 +1695,12 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        
                         pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
                                     "No tarball was found on S3 or different problem occured {job_id}:\n{e}",
-                                );                               
+                                );
                             } else {
                                 print_success(
                                     true,
@@ -1634,6 +1714,7 @@ pub async fn handle_python_reqs(
                                     start,
                                     db
                                 ).await;
+                                pids.lock().await.get_mut(i).and_then(|e| e.take());
                                 return Ok(());
                             }
                         }
@@ -1650,16 +1731,17 @@ pub async fn handle_python_reqs(
                 no_uv_install,
             ).await {
                 Ok(r) => r,
-                Err(e) => { 
+                Err(e) => {
                     append_logs(
                         &job_id,
                         w_id,
                         format!(
-                            "\nError while spawning proccess:\n{e}", 
+                            "\nError while spawning proccess:\n{e}",
                         ),
                         db,
                     )
                     .await;
+                    pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(e.into());
                 }
             };
@@ -1669,10 +1751,20 @@ pub async fn handle_python_reqs(
                 .take()
                 .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
 
+            if let Some(pid) = pids.lock().await.get_mut(i) {
+                *pid = uv_install_proccess.id();
+            } else {
+                tracing::error!(
+                    workspace_id = %w_id,
+                    "Index out of range for uv pids",
+                );
+            }
+
             tokio::select! {
                 // Canceled
                 _ = kill_rx.recv() => {
                     uv_install_proccess.kill().await?;
+                    pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 }
                 // Finished
@@ -1695,12 +1787,13 @@ pub async fn handle_python_reqs(
                             &job_id,
                             w_id,
                             format!(
-                                "\nError while installing {}:\n{buf}", 
+                                "\nError while installing {}:\n{buf}",
                                 &req
                             ),
                             db,
                         )
                         .await;
+                        pids.lock().await.get_mut(i).and_then(|e| e.take());
                         return Err(anyhow!(buf));
                     },
                     Err(e) => {
@@ -1708,6 +1801,7 @@ pub async fn handle_python_reqs(
                             workspace_id = %w_id,
                             "Cannot wait for uv_install_proccess, ExitStatus is Err: {e:?}",
                         );
+                        pids.lock().await.get_mut(i).and_then(|e| e.take());
                         return Err(e.into());
                     }
                 }
@@ -1748,13 +1842,17 @@ pub async fn handle_python_reqs(
                 job_id
             );
 
+            pids.lock().await.get_mut(i).and_then(|e| e.take());
             Ok(())
         }));
     }
 
     let mut failed = false;
     for (handle, (_, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
-        if let Err(e) = handle.await.unwrap_or(Err(anyhow!("Problem by joining handle"))) {
+        if let Err(e) = handle
+            .await
+            .unwrap_or(Err(anyhow!("Problem by joining handle")))
+        {
             failed = true;
             tracing::warn!(
                 workspace_id = %w_id,
@@ -1775,19 +1873,13 @@ pub async fn handle_python_reqs(
 
     if has_work {
         let total_time = total_time.elapsed().as_millis();
-        append_logs(
-            &job_id,
-            w_id,
-            format!(
-                "\nenv set in {}ms",
-                total_time
-            ),
-            db,
-        ).await;
+        append_logs(&job_id, w_id, format!("\nenv set in {}ms", total_time), db).await;
     }
 
+    *mem_peak = *mem_peak_thread_safe.lock().await;
+
     // Usually done_tx will drop after this return
-    // If there is listener on other side, 
+    // If there is listener on other side,
     // it will be triggered
     // If there is no listener, it will be dropped safely
     return if failed {

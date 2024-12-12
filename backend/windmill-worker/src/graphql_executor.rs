@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
-use futures::TryStreamExt;
+use futures::{stream, TryStreamExt};
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use windmill_common::jobs::QueuedJob;
@@ -154,6 +154,7 @@ pub async fn do_graphql(
         worker_name,
         &job.workspace_id,
         &mut Some(occupation_metrics),
+        Box::pin(stream::once(async { 0 })),
     )
     .await?;
 

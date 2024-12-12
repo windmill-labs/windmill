@@ -70,10 +70,12 @@
 				>
 					<div class="flex">
 						<div class="ml-4 text-left flex-1">
-							<h3 class="text-lg font-medium text-primary">
-								{title}
-							</h3>
-							<div class="mt-2 text-sm text-tertiary">
+							<div class="flex flex-row items-center justify-between">
+								<h3>{title}</h3>
+								<slot name="settings" />
+							</div>
+
+							<div class="mt-4 text-sm text-tertiary">
 								<slot />
 							</div>
 						</div>

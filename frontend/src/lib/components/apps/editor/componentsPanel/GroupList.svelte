@@ -46,8 +46,18 @@
 
 		let subgrids = getSubgrids(item)
 
+		let i = groups.length
+		let prefix = `f/app_groups/group_`
+		while (true) {
+			if (groups.find((g) => g.path.startsWith(prefix + i))) {
+				i++
+			} else {
+				break
+			}
+		}
+
 		const group: Group = {
-			path: 'f/app_groups/group_' + groups.length,
+			path: prefix + i,
 			value: {
 				value: { item, subgrids },
 				name: nameField
@@ -60,7 +70,7 @@
 			sendUserToast('Group created: ' + message)
 		} catch (e) {
 			sendUserToast(
-				'Group creation failed. You need write privilege on folder app_groups: ' + e.body ?? e,
+				'Group creation failed. You need write privilege on folder app_groups: ' + (e.body ?? e),
 				true
 			)
 		}

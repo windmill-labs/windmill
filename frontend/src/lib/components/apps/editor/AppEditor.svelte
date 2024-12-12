@@ -68,6 +68,7 @@
 				summary: string
 				policy: any
 				draft_only?: boolean
+				custom_path?: string
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
@@ -124,6 +125,7 @@
 		email: $userStore?.email,
 		groups: $userStore?.groups,
 		username: $userStore?.username,
+		name: $userStore?.name,
 		query: Object.fromEntries(new URL(window.location.href).searchParams.entries()),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
