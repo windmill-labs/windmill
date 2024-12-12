@@ -9,7 +9,6 @@
 // #[cfg(feature = "otel")]
 // use opentelemetry::{global,  KeyValue};
 
-
 use windmill_common::{
     apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
@@ -39,9 +38,8 @@ use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::HashMap,
     fs::DirBuilder,
-    hash::Hash,
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
@@ -92,13 +90,33 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    ansible_executor::handle_ansible_job, bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
-        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
-        update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    }, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, mysql_executor::do_mysql, pg_executor::do_postgresql, php_executor::handle_php_job, python_executor::handle_python_job, result_processor::{process_result, start_background_processor}, rust_executor::handle_rust_job, worker_flow::{handle_flow, update_flow_status_in_progress, Step}, worker_lockfiles::{
+    ansible_executor::handle_ansible_job,
+    bash_executor::{handle_bash_job, handle_powershell_job},
+    bun_executor::handle_bun_job,
+    common::{
+        build_args_map, cached_result_path, get_cached_resource_value_if_valid,
+        get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
+    },
+    deno_executor::handle_deno_job,
+    go_executor::handle_go_job,
+    graphql_executor::do_graphql,
+    handle_child::SLOW_LOGS,
+    handle_job_error,
+    job_logger::NO_LOGS_AT_ALL,
+    js_eval::{eval_fetch_timeout, transpile_ts},
+    pg_executor::do_postgresql,
+    php_executor::handle_php_job,
+    python_executor::handle_python_job,
+    result_processor::{process_result, start_background_processor},
+    rust_executor::handle_rust_job,
+    worker_flow::{handle_flow, update_flow_status_in_progress},
+    worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    }
+    },
 };
+
+#[cfg(feature = "mysql")]
+use crate::mysql_executor::do_mysql;
 
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
@@ -951,7 +969,6 @@ pub async fn run_worker(
             None
         };
 
-
     // let worker_resource = &[
     //     KeyValue::new("hostname", hostname.to_string()),
     //     KeyValue::new("worker", worker_name.to_string()),
@@ -959,7 +976,6 @@ pub async fn run_worker(
     // // Create a meter from the above MeterProvider.
     // let meter = global::meter("windmill");
     // let counter = meter.u64_counter("jobs.execution").build();
-
 
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
     let mut jobs_executed = 0;
@@ -1098,7 +1114,7 @@ pub async fn run_worker(
 
             if !valid_key {
                 tracing::error!(
-                    worker = %worker_name, hostname = %hostname, 
+                    worker = %worker_name, hostname = %hostname,
                     "Invalid license key, workers require a valid license key, sleeping for 30s waiting for valid key to be set"
                 );
                 tokio::time::sleep(Duration::from_secs(10)).await;
@@ -1168,19 +1184,19 @@ pub async fn run_worker(
             )
             .notify(|err, dur| {
                 tracing::error!(
-                    worker = %worker_name, hostname = %hostname, 
+                    worker = %worker_name, hostname = %hostname,
                     "retrying updating worker ping in {dur:#?}, err: {err:#?}"
                 );
             })
             .sleep(tokio::time::sleep)
             .await {
                 tracing::error!(
-                    worker = %worker_name, hostname = %hostname, 
+                    worker = %worker_name, hostname = %hostname,
                     "failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
             tracing::info!(
-                worker = %worker_name, hostname = %hostname, 
+                worker = %worker_name, hostname = %hostname,
                 "ping update, memory: container={}MB, windmill={}MB",
                 memory_usage.unwrap_or_default() / (1024 * 1024),
                 wm_memory_usage.unwrap_or_default() / (1024 * 1024)
@@ -1239,7 +1255,7 @@ pub async fn run_worker(
             if let Ok(same_worker_job) = same_worker_rx.try_recv() {
                 same_worker_queue_size.fetch_sub(1, Ordering::SeqCst);
                 tracing::debug!(
-                    worker = %worker_name, hostname = %hostname, 
+                    worker = %worker_name, hostname = %hostname,
                     "received {} from same worker channel",
                     same_worker_job.job_id
                 );
@@ -1252,7 +1268,7 @@ pub async fn run_worker(
                 .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
-                        worker = %worker_name, hostname = %hostname, 
+                        worker = %worker_name, hostname = %hostname,
                         "failed to fetch same_worker job on a non recoverable job, exiting"
                     );
                     job_completed_tx
@@ -1528,7 +1544,6 @@ pub async fn run_worker(
                     let arc_job = Arc::new(job);
                     add_time!(bench, "handle_queued_job START");
 
-
                     let span = tracing::span!(tracing::Level::INFO, "job",
                             job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
                             language = field::Empty,
@@ -1619,8 +1634,6 @@ pub async fn run_worker(
                         }
                         _ => {}
                     }
-
-
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -1727,8 +1740,6 @@ pub async fn run_worker(
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
-
-
 
 async fn queue_init_bash_maybe<'c>(
     db: &Pool<Postgres>,
@@ -1874,7 +1885,6 @@ async fn handle_queued_job(
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
 
-
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
@@ -1914,8 +1924,8 @@ async fn handle_queued_job(
         }
     }
 
-    let step = if job.is_flow_step {
-        let r = update_flow_status_in_progress(
+    if job.is_flow_step {
+        let _ = update_flow_status_in_progress(
             db,
             &job.workspace_id,
             job.parent_job
@@ -1924,24 +1934,19 @@ async fn handle_queued_job(
         )
         .warn_after_seconds(5)
         .await?;
-
-        Some(r)
-    } else {
-        if let Some(parent_job) = job.parent_job {
-            if let Err(e) = sqlx::query_scalar!(
-                "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
-                &job.id.to_string(),
-                parent_job,
-                &job.workspace_id
-            )
-            .execute(db)
-            .warn_after_seconds(5)
-            .await {
-                tracing::error!("Could not update parent job started_at flow_status: {}", e);
-            }
+    } else if let Some(parent_job) = job.parent_job {
+        if let Err(e) = sqlx::query_scalar!(
+            "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
+            &job.id.to_string(),
+            parent_job,
+            &job.workspace_id
+        )
+        .execute(db)
+        .warn_after_seconds(5)
+        .await {
+            tracing::error!("Could not update parent job started_at flow_status: {}", e);
         }
-        None
-    };
+    }
 
     let started = Instant::now();
     let (raw_code, raw_lock, raw_flow) = match (raw_code, raw_lock, raw_flow) {
@@ -1960,68 +1965,25 @@ async fn handle_queued_job(
     };
 
     let cached_res_path = if job.cache_ttl.is_some() {
-        let version_hash = if let Some(h) = job.script_hash {
-            if matches!(job.job_kind, JobKind::FlowScript) {
-                format!("flowscript_{}", h.to_string())
-            } else {
-                format!("script_{}", h.to_string())
-            }
-        } else if let Some(rc) = raw_code.as_ref() {
-            use std::hash::Hasher;
-            let mut s = DefaultHasher::new();
-            rc.hash(&mut s);
-            format!("inline_{}", hex::encode(s.finish().to_be_bytes()))
-        } else if let Some(sqlx::types::Json(rc)) = raw_flow.as_ref() {
-            use std::hash::Hasher;
-            let mut s = DefaultHasher::new();
-            rc.get().hash(&mut s);
-            format!("flow_{}", hex::encode(s.finish().to_be_bytes()))
-        } else {
-            "none".to_string()
-        };
-        let args_hash = hash_args(
-            db,
-            &client.get_authed().await,
-            &job.workspace_id,
-            &job.id,
-            &job.args,
-        )
-        .await;
-        if job.is_flow_step && !matches!(job.job_kind, JobKind::Flow) {
-            let flow_path = sqlx::query_scalar!(
-                "SELECT script_path FROM queue WHERE id = $1",
-                &job.parent_job.unwrap()
+        Some(
+            cached_result_path(
+                db,
+                &client.get_authed().await,
+                &job,
+                raw_code.as_ref(),
+                raw_lock.as_ref(),
+                raw_flow.as_ref(),
             )
-            .fetch_one(db)
-            .warn_after_seconds(5)
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!(
-                    "Fetching script path from queue for caching purposes: {e:#}"
-                ))
-            })?
-            .ok_or_else(|| Error::InternalErr(format!("Expected script_path")))?;
-            let step = match step.unwrap() {
-                Step::Step(i) => i.to_string(),
-                Step::PreprocessorStep => "preprocessor".to_string(),
-                Step::FailureStep => "failure".to_string(),
-            };
-            Some(format!(
-                "{flow_path}/cache/{version_hash}/{step}/{args_hash}"
-            ))
-        } else if let Some(script_path) = &job.script_path {
-            Some(format!("{script_path}/cache/{version_hash}/{args_hash}"))
-        } else {
-            None
-        }
+            .await,
+        )
     } else {
         None
     };
 
-    if let Some(cached_res_path) = cached_res_path.clone() {
+    if let Some(cached_res_path) = cached_res_path.as_ref() {
         let authed_client = client.get_authed().await;
 
-        let cached_resource_value_maybe = get_cached_resource_value_if_valid(
+        let cached_result_maybe = get_cached_resource_value_if_valid(
             db,
             &authed_client,
             &job.id,
@@ -2030,7 +1992,7 @@ async fn handle_queued_job(
         )
         .warn_after_seconds(5)
         .await;
-        if let Some(cached_resource_value) = cached_resource_value_maybe {
+        if let Some(result) = cached_result_maybe {
             {
                 let logs =
                     "Job skipped because args & path found in cache and not expired".to_string();
@@ -2038,8 +2000,8 @@ async fn handle_queued_job(
             }
             job_completed_tx
                 .send(JobCompleted {
-                    job: job,
-                    result: Arc::new(cached_resource_value),
+                    job,
+                    result,
                     mem_peak: 0,
                     canceled_by: None,
                     success: true,
@@ -2219,7 +2181,6 @@ async fn handle_queued_job(
     }
 }
 
-
 pub fn build_envs(
     envs: Option<Vec<String>>,
 ) -> windmill_common::error::Result<HashMap<String, String>> {
@@ -2326,7 +2287,6 @@ async fn handle_code_execution_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
-
 ) -> error::Result<Box<RawValue>> {
     let ContentReqLangEnvs {
         content: inner_content,
@@ -2411,6 +2371,10 @@ async fn handle_code_execution_job(
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
+        #[cfg(not(feature = "mysql"))]
+        return Err(Error::InternalErr("MySQL requires the mysql feature to be enabled".to_string()));
+
+        #[cfg(feature = "mysql")]
         return do_mysql(
             job,
             &client,

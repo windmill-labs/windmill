@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.437.0"
+version = "1.437.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -29,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.437.0"
+version = "1.437.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -65,6 +65,8 @@ deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 kafka = ["windmill-api/kafka"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
+php = ["windmill-worker/php"]
+mysql = ["windmill-worker/mysql"]
 
 [dependencies]
 anyhow.workspace = true

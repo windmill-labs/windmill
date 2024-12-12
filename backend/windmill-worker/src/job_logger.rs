@@ -15,7 +15,6 @@ use crate::job_logger_ee::default_disk_log_storage;
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use crate::job_logger_ee::s3_storage;
 
-
 pub enum CompactLogs {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     NotEE,
@@ -24,8 +23,6 @@ pub enum CompactLogs {
     #[allow(dead_code)]
     S3,
 }
-
-
 
 pub(crate) async fn append_job_logs(
     job_id: Uuid,
@@ -70,7 +67,7 @@ pub fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     if *NO_LOGS_AT_ALL {
         return;
     }
-    
+
     let src_str;
     let src = {
         src_str = RE_00.replace_all(src, "");
