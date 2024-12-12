@@ -10,14 +10,15 @@
 		Code2,
 		LayoutDashboard,
 		Building,
-		Calendar
+		Calendar,
+		ServerCog
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 
 	import Menu from '../common/menu/MenuV2.svelte'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import MenuLink from './MenuLink.svelte'
@@ -44,16 +45,24 @@
 
 	let secondMenuLinks = [
 		{
-			label: 'Schedules',
-			href: `${base}/schedules`
-		},
-		{
 			label: 'Resources',
 			href: `${base}/resources`
 		},
 		{
 			label: 'Variables',
 			href: `${base}/variables`
+		},
+		{
+			label: 'Custom HTTP Routes',
+			href: `${base}/routes`
+		},
+		{
+			label: 'Websocket Triggers',
+			href: `${base}/websockets`
+		},
+		{
+			label: 'Kafka Triggers',
+			href: `${base}/kafka`
 		},
 		{
 			label: 'Audit Logs',
@@ -157,6 +166,20 @@
 				<Building size={14} />
 				All Workspaces
 			</a>
+
+			{#if $superadmin}
+				<MenuItem
+					href="#superadmin-settings"
+					class={twMerge(
+						'flex flex-row gap-3.5 items-center px-2 py-2 ',
+						'text-secondary text-xs',
+						'hover:bg-surface-hover hover:text-primary cursor-pointer'
+					)}
+				>
+					<ServerCog size={14} />
+					Instance settings
+				</MenuItem>
+			{/if}
 
 			<MenuItem
 				href="#"

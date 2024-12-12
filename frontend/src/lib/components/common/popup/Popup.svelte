@@ -18,10 +18,11 @@
 	export let noTransition = false
 	export let popupHover = false
 	export let preventPopupClosingOnClickInside = false
+	export let disabled = false
 </script>
 
 <Popover on:close class="leading-none">
-	<PopoverButton let:open>
+	<PopoverButton let:open {disabled}>
 		<div use:floatingRef>
 			<slot name="button" {open} />
 		</div>
