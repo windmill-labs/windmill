@@ -88,12 +88,7 @@ use crate::{
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION,
     LOCK_CACHE_DIR, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-<<<<<<< HEAD
     PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
-=======
-    PROXY_ENVS, PY311_CACHE_DIR, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
-
->>>>>>> 96a5663eb24daf5649889c045737a8c7bd372565
 };
 
 #[derive(Eq, PartialEq, Clone, Copy)]
@@ -1454,8 +1449,8 @@ async fn handle_python_deps(
                     w_id,
                     occupancy_metrics,
                     annotated_version.unwrap_or(instance_version),
-                    annotations.no_cache,
                     annotations.no_uv || annotations.no_uv_compile,
+                    annotations.no_cache,
                 )
                 .await
                 .map_err(|e| {
@@ -1521,7 +1516,6 @@ async fn handle_python_deps(
             worker_dir,
             occupancy_metrics,
             final_version,
-            false,
             annotations.no_uv || annotations.no_uv_install,
         )
         .await?;
@@ -1759,7 +1753,6 @@ pub async fn handle_python_reqs(
     py_version: PyVersion,
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
-    is_ansible: bool,
 ) -> error::Result<Vec<String>> {
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
@@ -1811,7 +1804,7 @@ pub async fn handle_python_reqs(
     }
     no_uv_install |= *USE_PIP_INSTALL;
 
-    if no_uv_install && !is_ansible {
+    if no_uv_install {
         append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;
         tracing::warn!("Fallback to pip");
     }
@@ -1934,12 +1927,12 @@ pub async fn handle_python_reqs(
                         let mut local_mem_peak = 0;
                         for pid_o in pids.lock().await.iter() {
                             if pid_o.is_some(){
-                                let mem = get_mem_peak(*pid_o, !*DISABLE_NSJAIL).await;
+                                let mem = crate::handle_child::get_mem_peak(*pid_o, !*DISABLE_NSJAIL).await;
                                 if mem < 0 {
                                     tracing::warn!(
                                         workspace_id = %w_id_2,
-                                        "Cannot get memory peak for pid: {:?}, job_id: {:?}, exit code: {mem}", 
-                                        pid_o, 
+                                        "Cannot get memory peak for pid: {:?}, job_id: {:?}, exit code: {mem}",
+                                        pid_o,
                                         job_id_2
                                     );
                                 } else {
@@ -1956,12 +1949,12 @@ pub async fn handle_python_reqs(
                             } else {
                                 tracing::debug!(
                                     workspace_id = %w_id_2,
-                                    "Local mem_peak {:?}mb is smaller then global one {:?}mb, ignoring. job_id: {:?}", 
+                                    "Local mem_peak {:?}mb is smaller then global one {:?}mb, ignoring. job_id: {:?}",
                                     local_mem_peak / 1000,
                                     *mem_peak_lock / 1000,
                                     job_id_2
                                 );
-                                
+
                             }
                             // Get the copy of value and drop lock itself, to release it as fast as possible
                             *mem_peak_lock
@@ -1996,28 +1989,27 @@ pub async fn handle_python_reqs(
                         if canceled {
 
                             tracing::info!(
-                                // If there is listener on other side, 
+                                // If there is listener on other side,
                                 workspace_id = %w_id_2,
                                 "cancelling installations",
                             );
 
                             if let Err(ref e) = kill_tx.send(()){
                                 tracing::error!(
-                                    // If there is listener on other side, 
+                                    // If there is listener on other side,
                                     workspace_id = %w_id_2,
                                     "failed to send done: Probably receiving end closed too early or have not opened yet\n{}",
                                     // If there is no listener, it will be dropped safely
                                     e
                                 );
                             }
-                        } 
+                        }
                     }
                     // Once done_tx is dropped, this will be fired
                     _ = done_rx.recv() => break
                 }
             }
         });
-        
     }
 
     // tl = total_length
@@ -2070,7 +2062,7 @@ pub async fn handle_python_reqs(
         .get_python(
             &job_dir,
             job_id,
-            _mem_peak,
+            mem_peak,
             db,
             _worker_name,
             w_id,
@@ -2080,7 +2072,9 @@ pub async fn handle_python_reqs(
         .unwrap();
 
     let has_work = req_with_penv.len() > 0;
-    for ((i, (req, venv_p)), mut kill_rx) in req_with_penv.iter().enumerate().zip(kill_rxs.into_iter()) {
+    for ((i, (req, venv_p)), mut kill_rx) in
+        req_with_penv.iter().enumerate().zip(kill_rxs.into_iter())
+    {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
         if let Err(_) = permit {

@@ -29,7 +29,8 @@ use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
 use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion, USE_PIP_INSTALL, USE_PIP_COMPILE,
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion, USE_PIP_COMPILE,
+    USE_PIP_INSTALL,
 };
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::INSTANCE_PYTHON_VERSION;
@@ -1617,8 +1618,8 @@ async fn python_dep(
         w_id,
         occupancy_metrics,
         final_version,
-        annotations.no_uv,
         annotations.no_cache,
+        no_uv_compile,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1635,9 +1636,7 @@ async fn python_dep(
             worker_dir,
             occupancy_metrics,
             final_version,
-            annotations.no_uv || *USE_PIP_INSTALL,
             no_uv_install,
-            false,
         )
         .await;
 
@@ -1687,8 +1686,8 @@ async fn capture_dependency_job(
                 .join("\n")
             };
 
-            let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
-                PythonAnnotations::parse(job_raw_code);
+            let annotations = PythonAnnotations::parse(job_raw_code);
+            let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } = annotations;
 
             if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
                 if let Err(e) = sqlx::query!(
@@ -1719,7 +1718,6 @@ async fn capture_dependency_job(
                 annotations,
                 no_uv_compile | no_uv,
                 no_uv_install | no_uv,
-
             )
             .await
         }

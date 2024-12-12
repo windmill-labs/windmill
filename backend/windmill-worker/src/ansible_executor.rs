@@ -119,7 +119,6 @@ async fn handle_ansible_python_deps(
             &mut Some(occupancy_metrics),
             crate::python_executor::PyVersion::Py311,
             false,
-            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
