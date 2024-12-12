@@ -68,6 +68,7 @@ otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
 php = ["windmill-worker/php"]
 mysql = ["windmill-worker/mysql"]
+csharp = ["windmill-worker/csharp"]
 
 [dependencies]
 anyhow.workspace = true

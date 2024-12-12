@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, io, path::Path, process::Stdio};
 use uuid::Uuid;
+#[cfg(feature = "csharp")]
 use windmill_parser_csharp::parse_csharp_reqs;
 
 use itertools::Itertools;
@@ -35,6 +36,7 @@ lazy_static::lazy_static! {
 
 const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
 
+#[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(
     job_id: &Uuid,
     code: &str,
@@ -92,6 +94,23 @@ pub async fn generate_nuget_lockfile(
     Ok(req_content)
 }
 
+#[cfg(not(feature = "csharp"))]
+pub async fn generate_nuget_lockfile(
+    _job_id: &Uuid,
+    _code: &str,
+    _mem_peak: &mut i32,
+    _canceled_by: &mut Option<CanceledBy>,
+    _job_dir: &str,
+    _db: &sqlx::Pool<sqlx::Postgres>,
+    _worker_name: &str,
+    _w_id: &str,
+    _occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<String> {
+    Err(anyhow!("C# is not available because the feature is not enabled").into())
+}
+
+
+#[cfg(feature = "csharp")]
 fn gen_cs_proj(
     code: &str,
     job_dir: &str,
@@ -220,6 +239,7 @@ namespace WindmillScriptCSharpInternal {{
     Ok(())
 }
 
+#[cfg(feature = "csharp")]
 async fn build_cs_proj(
     job_id: &Uuid,
     mem_peak: &mut i32,
@@ -319,6 +339,26 @@ fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> Stri
     result.join("\n")
 }
 
+#[cfg(not(feature = "csharp"))]
+pub async fn handle_csharp_job(
+    _mem_peak: &mut i32,
+    _canceled_by: &mut Option<CanceledBy>,
+    _job: &QueuedJob,
+    _db: &sqlx::Pool<sqlx::Postgres>,
+    _client: &AuthedClientBackgroundTask,
+    _inner_content: &str,
+    _job_dir: &str,
+    _requirements_o: Option<String>,
+    _shared_mount: &str,
+    _base_internal_url: &str,
+    _worker_name: &str,
+    _envs: HashMap<String, String>,
+    _occupancy_metrics: &mut OccupancyMetrics,
+) -> Result<Box<RawValue>, Error> {
+    Err(anyhow!("C# is not available because the feature is not enabled").into())
+}
+
+#[cfg(feature = "csharp")]
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
