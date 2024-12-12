@@ -5492,10 +5492,9 @@ use regex::Regex;
 use reqwest::Client;
 use serde_json::Value;
 
-// Define a struct for the form data (x-www-form-urlencoded)
 #[derive(Deserialize, Debug)]
 pub struct SlackFormData {
-    payload: String, // The `payload` field as a raw JSON string
+    payload: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -5503,6 +5502,12 @@ struct Payload {
     actions: Vec<Action>,
     state: State,
     response_url: Option<String>,
+    message: Message,
+}
+
+#[derive(Deserialize, Debug)]
+struct Message {
+    blocks: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -5581,7 +5586,7 @@ pub async fn slack_app_callback_handler(
                 })
             })
             .collect::<HashMap<_, _>>();
-        // Convert the state values to serde_json::Value
+
         let state_json =
             serde_json::to_value(state_values).unwrap_or_else(|_| serde_json::json!({}));
 
@@ -5607,12 +5612,17 @@ pub async fn slack_app_callback_handler(
         .await;
 
         tracing::debug!("Res: {:?}", res);
-    } else {
-        println!("URL does not match the pattern.");
-    }
 
-    if let Some(url) = response_url {
-        let _ = post_slack_response(&url, "Flow has been resumed!").await;
+        if let Some(url) = response_url {
+            let message = if action == "resume" {
+                "\n\n*Flow has been resumed!*"
+            } else {
+                "\n\n*Flow has been canceled!*"
+            };
+            let _ = post_slack_response(&url, message).await;
+        }
+    } else {
+        println!("Resume URL does not match the pattern.");
     }
 
     Ok(StatusCode::OK)
@@ -5661,7 +5671,7 @@ pub async fn request_slack_approval(
     tracing::debug!("schema: {:?}", schema);
     tracing::debug!("job_id: {:?}", job_id);
 
-    let message_str = message.message.as_deref().unwrap_or("A flow is waiting for approval");
+    let message_str = message.message.as_deref().unwrap_or("*A flow has been suspended and is waiting for approval:*\n");
 
     if let Some(resume_schema) = schema {
         let hide_cancel = resume_schema.hide_cancel.unwrap_or(false);
@@ -5713,9 +5723,18 @@ async fn post_slack_response(
     response_url: &str,
     message: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut final_blocks = vec![serde_json::json!({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": message
+        }
+    })];
+
     let payload = serde_json::json!({
         "replace_original": "true",
-        "text": message
+        "text": message,
+        "blocks": final_blocks
     });
 
     let client = Client::new();
@@ -5783,7 +5802,7 @@ async fn transform_schemas(
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": format!("{}\n*Approval Page:* <{}|Click here to view>", text, urls.approvalPage),
+            "text": format!("{}\n<{}|Flow suspension details>", text, urls.approvalPage),
         }
     })];
 
