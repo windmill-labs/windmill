@@ -1809,10 +1809,10 @@ using System;
 
 class Script
 {
-    public static string moin(string world)
+    public static string Main(string world, int b = 2)
     {
-        Console.WriteLine($"Hello {world}");
-        return $"Hello {world}";
+        Console.WriteLine($"Hello {world} - {b}. This is a log line");
+        return $"Hello {world} - {b}";
     }
 }
         "#
@@ -1831,12 +1831,13 @@ class Script
         dedicated_worker: None,
     }))
     .arg("world", json!("Arakis"))
+    .arg("b", json!(3))
     .run_until_complete(&db, port)
     .await
     .json_result()
     .unwrap();
 
-    assert_eq!(result, serde_json::json!("Hello Arakis"));
+    assert_eq!(result, serde_json::json!("Hello Arakis - 3"));
 }
 
 #[sqlx::test(fixtures("base"))]
