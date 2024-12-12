@@ -1106,6 +1106,7 @@
 		}
 	}
 
+	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
 		try {
 			console.log("Loading Monaco's language client")
@@ -1144,7 +1145,6 @@
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		let ataModel: NodeJS.Timeout | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
@@ -1317,6 +1317,7 @@
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 		copilotCompletor && copilotCompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
+		timeoutModel && clearTimeout(timeoutModel)
 	})
 
 	async function genRoot(hostname: string) {

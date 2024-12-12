@@ -12941,6 +12941,8 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        custom_path:
+          type: string
       required:
         - id
         - workspace_id
@@ -12962,8 +12964,6 @@ components:
             draft_only:
               type: boolean
             draft: {}
-            custom_path:
-              type: string
 
     AppHistory:
       type: object
