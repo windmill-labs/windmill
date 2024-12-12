@@ -220,8 +220,8 @@
 	) {
 		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
-		scriptEditor?.inferSchema(script.content, language)
-		if (script.content != editor?.getCode() && editor?.getScriptLang() == language) {
+		scriptEditor?.inferSchema(script.content, language, true)
+		if (script.content != editor?.getCode()) {
 			setCode(script.content)
 		}
 	}

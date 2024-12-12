@@ -191,8 +191,8 @@
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
-		<Tab value="slack">Slack</Tab>
-		<Tab value="custom">
+		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
+		<Tab value="custom" disabled={!isEditable}>
 			Custom
 			<slot name="custom-tab-tooltip" />
 		</Tab>
@@ -208,7 +208,7 @@
 			allowFlow={true}
 			bind:scriptPath={handlerPath}
 			bind:itemKind={customHandlerKind}
-			allowRefresh
+			allowRefresh={isEditable}
 		/>
 
 		{#if handlerPath === undefined}
@@ -217,6 +217,7 @@
 				color="dark"
 				size="xs"
 				href={customScriptTemplate}
+				disabled={!isEditable}
 				target="_blank">Create from template</Button
 			>
 		{/if}

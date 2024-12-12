@@ -151,7 +151,7 @@
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
-			{#if !drawerLoading && can_write}
+			{#if !drawerLoading}
 				{#if edit}
 					<div class="mr-8 center-center -mt-1">
 						<Toggle
@@ -169,21 +169,23 @@
 						/>
 					</div>
 				{/if}
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' ||
-						emptyString(script_path) ||
-						emptyString(kafka_resource_path) ||
-						topics.length < 1 ||
-						topics.some((t) => emptyString(t)) ||
-						topicsError != '' ||
-						emptyString(group_id) ||
-						groupIdError != '' ||
-						!can_write}
-					on:click={updateTrigger}
-				>
-					Save
-				</Button>
+				{#if can_write}
+					<Button
+						startIcon={{ icon: Save }}
+						disabled={pathError != '' ||
+							emptyString(script_path) ||
+							emptyString(kafka_resource_path) ||
+							topics.length < 1 ||
+							topics.some((t) => emptyString(t)) ||
+							topicsError != '' ||
+							emptyString(group_id) ||
+							groupIdError != '' ||
+							!can_write}
+						on:click={updateTrigger}
+					>
+						Save
+					</Button>
+				{/if}
 			{/if}
 		</svelte:fragment>
 		{#if drawerLoading}
@@ -300,7 +302,8 @@
 							allowFlow={true}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							allowRefresh
+							allowRefresh={can_write}
+							allowEdit={!$userStore?.operator}
 						/>
 					</div>
 				</Section>

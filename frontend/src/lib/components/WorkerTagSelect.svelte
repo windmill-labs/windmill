@@ -5,6 +5,7 @@
 	export let tag: string | undefined
 	export let noLabel: boolean = false
 	export let nullTag: string | undefined = undefined
+	export let disabled = false
 
 	loadWorkerGroups()
 
@@ -28,6 +29,7 @@
 				tag = undefined
 			}
 		}}
+		{disabled}
 	>
 		{#if tag}
 			<option value="">reset to default</option>

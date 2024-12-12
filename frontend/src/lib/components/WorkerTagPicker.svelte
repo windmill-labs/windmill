@@ -8,6 +8,7 @@
 
 	export let tag: string | undefined
 	export let popupPlacement: 'bottom-end' | 'top-end' = 'bottom-end'
+	export let disabled = false
 
 	loadWorkerGroups()
 	async function loadWorkerGroups() {
@@ -21,7 +22,7 @@
 	<div class="max-w-sm grow">
 		{#if $workerTags}
 			{#if $workerTags?.length ?? 0 > 0}
-				<WorkerTagSelect noLabel bind:tag />
+				<WorkerTagSelect noLabel bind:tag {disabled} />
 			{:else}
 				<div class="text-sm text-secondary flex flex-row gap-2">
 					No custom worker group tag defined on this instance in "Workers {'->'} Custom tags"
@@ -50,6 +51,7 @@
 			loadWorkerGroups()
 		}}
 		startIcon={{ icon: RotateCw }}
+		{disabled}
 	/>
-	<AssignableTags placement={popupPlacement} color="nord" />
+	<AssignableTags placement={popupPlacement} color="nord" {disabled} />
 </div>

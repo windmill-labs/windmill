@@ -128,7 +128,7 @@
 
 	let hasPreprocessor = false
 
-	export async function inferSchema(code: string, nlang?: SupportedLanguage) {
+	export async function inferSchema(code: string, nlang?: SupportedLanguage, resetArgs = false) {
 		let nschema = schema ?? emptySchema()
 
 		try {
@@ -142,6 +142,9 @@
 				(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ?? false
 
 			validCode = true
+			if (resetArgs) {
+				args = {}
+			}
 			schema = nschema
 		} catch (e) {
 			validCode = false
