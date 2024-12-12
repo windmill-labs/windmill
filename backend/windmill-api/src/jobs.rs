@@ -5524,12 +5524,6 @@ struct Payload {
     actions: Vec<Action>,
     state: State,
     response_url: Option<String>,
-    message: Message,
-}
-
-#[derive(Deserialize, Debug)]
-struct Message {
-    blocks: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -5735,7 +5729,7 @@ pub async fn request_slack_approval(
             Some(schema) => schema,
             None => {
                 tracing::debug!("No suspend form found!");
-                return transform_schemas(message_str, None, &res.unwrap().0, None, hide_cancel)
+                return transform_schemas(message_str, None, &res.unwrap().0, None, None, hide_cancel)
                     .await
                     .map(Json);
             }
@@ -5755,6 +5749,16 @@ pub async fn request_slack_approval(
                 Error::BadRequest("Failed to deserialize order!".to_string())
             })?;
 
+        let required_value = inner_schema
+            .get("required")
+            .ok_or_else(|| Error::BadRequest("Schema does not contain required field!".to_string()))?;
+
+        let required: Vec<String> = serde_json::from_value(required_value.clone())
+            .map_err(|e| {
+                tracing::error!("Failed to deserialize required: {:?}", e);
+                Error::BadRequest("Failed to deserialize required!".to_string())
+            })?;
+
         let properties_value = inner_schema
             .get("properties")
             .ok_or_else(|| Error::BadRequest("Schema does not contain properties field!".to_string()))?;
@@ -5764,7 +5768,7 @@ pub async fn request_slack_approval(
                 Error::BadRequest("Failed to deserialize properties!".to_string())
             })?;
 
-        let blocks = transform_schemas(message_str, Some(&properties), &res.unwrap().0, Some(&order), hide_cancel)
+        let blocks = transform_schemas(message_str, Some(&properties), &res.unwrap().0, Some(&order), Some(&required), hide_cancel)
             .await?;
         Ok(Json(blocks))
     } else {
@@ -5778,7 +5782,7 @@ async fn post_slack_response(
     response_url: &str,
     message: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut final_blocks = vec![serde_json::json!({
+    let final_blocks = vec![serde_json::json!({
         "type": "section",
         "text": {
             "type": "mrkdwn",
@@ -5850,6 +5854,7 @@ async fn transform_schemas(
     properties: Option<&HashMap<String, ResumeFormField>>,
     urls: &ResumeUrls,
     order: Option<&Vec<String>>,
+    required: Option<&Vec<String>>,
     hide_cancel: bool,
 ) -> Result<serde_json::Value, Error> {
     tracing::debug!("{:?}", urls);
@@ -5863,20 +5868,13 @@ async fn transform_schemas(
     })];
 
     if let Some(properties) = properties {
-        if let Some(order) = order {
-            for key in order {
-                if let Some(schema) = properties.get(key) {
-                    let input_block = create_input_block(key, schema);
-                    match input_block {
-                        serde_json::Value::Array(arr) => blocks.extend(arr),
-                        _ => blocks.push(input_block),
-                    }
-                }
-            }
-        } else {
-            for (key, schema) in properties {
-                let input_block = create_input_block(key, schema);
-                match input_block {
+        for key in order.unwrap() {
+            if let Some(schema) = properties.get(key) {
+                let is_required = required.unwrap().contains(key);
+                let input_block = create_input_block(key, schema, is_required);
+                tracing::debug!("Key: {:?}", key);
+                tracing::debug!("Required: {:?}", required);
+                match input_block { 
                     serde_json::Value::Array(arr) => blocks.extend(arr),
                     _ => blocks.push(input_block),
                 }
@@ -5889,7 +5887,7 @@ async fn transform_schemas(
     Ok(serde_json::Value::Array(blocks))
 }
 
-fn create_input_block(key: &str, schema: &ResumeFormField) -> serde_json::Value {
+fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> serde_json::Value {
     let placeholder = schema
         .description
         .as_deref()
@@ -5915,6 +5913,9 @@ fn create_input_block(key: &str, schema: &ResumeFormField) -> serde_json::Value 
             (current_date.clone(), current_time.clone())
         };
 
+        let title = schema.title.as_deref().unwrap_or(key);
+        let title_with_required = if required { format!("{}*", title) } else { title.to_string() };
+
         return serde_json::json!([
                 {
                     "type": "input",
@@ -5930,7 +5931,7 @@ fn create_input_block(key: &str, schema: &ResumeFormField) -> serde_json::Value 
                     },
                     "label": {
                         "type": "plain_text",
-                        "text": schema.title.as_deref().unwrap_or(key),
+                        "text": title_with_required,
                         "emoji": true
                     }
                 },
