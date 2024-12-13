@@ -339,11 +339,11 @@ pub struct PythonAnnotations {
     pub no_uv_install: bool,
     pub no_uv_compile: bool,
     pub no_postinstall: bool,
+    pub py_latest_stable: bool,
     pub py310: bool,
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
-    pub py_sys: bool,
 }
 
 #[annotations("//")]

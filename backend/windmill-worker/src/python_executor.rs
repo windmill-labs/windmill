@@ -92,16 +92,35 @@ use crate::{
     PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
-#[derive(Eq, PartialEq, Clone, Copy)]
+// To change latest stable version:
+// 1. Change placeholder in instanceSettings.ts
+// 2. Change LATEST_STABLE_PY in dockerfile
+// 3. Change #[default] annotation for PyVersion in backend
+#[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
 pub enum PyVersion {
     Py310,
+    #[default]
     Py311,
     Py312,
     Py313,
-    System,
 }
 
 impl PyVersion {
+    pub async fn from_instance_version() -> Self {
+        INSTANCE_PYTHON_VERSION
+            .read()
+            .await
+            .clone()
+            .and_then(|v| PyVersion::from_index(&v))
+            .unwrap_or_else(|| {
+                let v = PyVersion::default();
+                tracing::error!(
+                    "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})",
+                    *INSTANCE_PYTHON_VERSION
+                );
+                v
+            })
+    }
     /// e.g.: `/tmp/windmill/cache/python_3xy`
     pub fn to_cache_dir(&self) -> String {
         use windmill_common::worker::ROOT_CACHE_DIR;
@@ -130,7 +149,6 @@ impl PyVersion {
             Py311 => "3.11",
             Py312 => "3.12",
             Py313 => "3.13",
-            System => "sys",
         }
     }
     pub fn from_string_with_dots(value: &str) -> Option<Self> {
@@ -140,7 +158,19 @@ impl PyVersion {
             "3.11" => Some(Py311),
             "3.12" => Some(Py312),
             "3.13" => Some(Py313),
-            "sys" => Some(System),
+            "latest_stable" => Some(PyVersion::default()),
+            _ => None,
+        }
+    }
+    // Check frontend for more context
+    pub fn from_index(value: &str) -> Option<Self> {
+        use PyVersion::*;
+        match value {
+            "0" => Some(PyVersion::default()),
+            "1" => Some(Py310),
+            "2" => Some(Py311),
+            "3" => Some(Py312),
+            "4" => Some(Py313),
             _ => None,
         }
     }
@@ -149,7 +179,7 @@ impl PyVersion {
         Self::from_string_with_dots(line.replace("# py-", "").as_str())
     }
     pub fn from_py_annotations(a: PythonAnnotations) -> Option<Self> {
-        let PythonAnnotations { py_sys, py310, py311, py312, py313, .. } = a;
+        let PythonAnnotations { py310, py311, py312, py313, py_latest_stable, .. } = a;
         use PyVersion::*;
         if py313 {
             Some(Py313)
@@ -159,8 +189,8 @@ impl PyVersion {
             Some(Py311)
         } else if py310 {
             Some(Py310)
-        } else if py_sys {
-            Some(System)
+        } else if py_latest_stable {
+            Some(PyVersion::default())
         } else {
             None
         }
@@ -283,9 +313,6 @@ impl PyVersion {
         w_id: &str,
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     ) -> error::Result<Option<String>> {
-        if matches!(self, Self::System) || *USE_SYSTEM_PYTHON {
-            return Ok(None);
-        }
         // lazy_static::lazy_static! {
         //     static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
         // }
@@ -562,16 +589,12 @@ pub async fn uv_pip_compile(
             "--cache-dir",
             UV_CACHE_DIR,
         ];
-        if !matches!(py_version, PyVersion::System) {
-            args.extend([
-                "-p",
-                py_version.to_string_with_dot(),
-                "--python-preference",
-                "only-managed",
-            ]);
-        } else {
-            args.extend(["--python-preference", "only-system"]);
-        }
+        args.extend([
+            "-p",
+            py_version.to_string_with_dot(),
+            "--python-preference",
+            "only-managed",
+        ]);
         if no_cache {
             args.extend(["--no-cache"]);
         }
@@ -838,19 +861,11 @@ pub async fn handle_python_job(
         tracing::debug!("Finished deps postinstall stage");
     }
 
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        "\n\n--- PYTHON CODE EXECUTION ---\n".to_string(),
-        db,
-    )
-    .await;
-
     if no_uv {
         append_logs(
             &job.id,
             &job.workspace_id,
-            format!("\n\n--- PYTHON 3.11 (Fallback) CODE EXECUTION ---\n",),
+            format!("\n\n--- SYSTEM PYTHON (Fallback) CODE EXECUTION ---\n",),
             db,
         )
         .await;
@@ -1402,18 +1417,7 @@ async fn handle_python_deps(
         .clone();
 
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
-    let instance_version = INSTANCE_PYTHON_VERSION
-        .read()
-        .await
-        .clone()
-        .and_then(|v| PyVersion::from_string_with_dots(&v))
-        .unwrap_or_else(|| {
-            tracing::warn!(
-                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to 3.11",
-                *INSTANCE_PYTHON_VERSION
-            );
-            PyVersion::Py311
-        });
+    let instance_version = PyVersion::from_instance_version().await;
     let annotated_version = PyVersion::from_py_annotations(annotations);
     let mut is_deployed = true;
 
@@ -2058,17 +2062,21 @@ pub async fn handle_python_reqs(
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
     let total_time = std::time::Instant::now();
-    let py_path = py_version
-        .get_python(
-            &job_dir,
-            job_id,
-            mem_peak,
-            db,
-            _worker_name,
-            w_id,
-            _occupancy_metrics,
-        )
-        .await?;
+    let py_path = if no_uv_install {
+        None
+    } else {
+        py_version
+            .get_python(
+                &job_dir,
+                job_id,
+                mem_peak,
+                db,
+                _worker_name,
+                w_id,
+                _occupancy_metrics,
+            )
+            .await?
+    };
 
     let has_work = req_with_penv.len() > 0;
     for ((i, (req, venv_p)), mut kill_rx) in

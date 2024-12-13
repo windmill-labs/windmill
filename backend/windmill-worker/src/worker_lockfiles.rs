@@ -1584,9 +1584,6 @@ async fn python_dep(
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
 
-    let instance_version =
-        (INSTANCE_PYTHON_VERSION.read().await.clone()).unwrap_or("3.11".to_owned());
-
     /*
         Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
         This one used specifically for deploying scripts
@@ -1597,15 +1594,8 @@ async fn python_dep(
             2. Instance version
             3. 311
     */
-    let final_version = PyVersion::from_py_annotations(annotations).unwrap_or(
-        PyVersion::from_string_with_dots(&instance_version).unwrap_or_else(|| {
-            tracing::error!(
-                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to 3.11",
-                *INSTANCE_PYTHON_VERSION
-            );
-            PyVersion::Py311
-        }),
-    );
+    let final_version = PyVersion::from_py_annotations(annotations)
+        .unwrap_or(PyVersion::from_instance_version().await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,

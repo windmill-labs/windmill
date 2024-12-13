@@ -96,10 +96,11 @@ ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
 ARG WITH_GIT=true
 
-# NOTE: It differs from instance version.
-# `Instance` version is controllable by instance superadmins
-# Where `Default` is set by default for fresh instances 
-ARG DEFAULT_PYTHON_V=3.11.10
+# To change latest stable version:
+# 1. Change placeholder in instanceSettings.ts
+# 2. Change LATEST_STABLE_PY in dockerfile
+# 3. Change #[default] annotation for PyVersion in backend
+ARG LATEST_STABLE_PY=3.11.10
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_install
 ENV UV_PYTHON_PREFERENCE=only-managed
 
@@ -170,7 +171,7 @@ ENV GO_PATH=/usr/local/go/bin/go
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
 
 # Preinstall default python version
-RUN uv python install $DEFAULT_PYTHON_V
+RUN uv python install $LATEST_STABLE_PY
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \

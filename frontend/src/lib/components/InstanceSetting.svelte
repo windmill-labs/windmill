@@ -26,6 +26,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { base } from '$lib/base'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	export let setting: Setting
 	export let version: string
@@ -775,8 +777,16 @@
 						bind:seconds={$values[setting.key]}
 					/>
 				</div>
+			{:else if setting.fieldType == 'select'}
+				<div>
+			    	<ToggleButtonGroup
+			    	 bind:selected={$values[setting.key]}>
+  		        {#each ((setting.placeholder ?? 'parsing error').split(',')) as item, index}
+								<ToggleButton value={index} size="xs" label={item} />
+			        {/each}
+			    	</ToggleButtonGroup>
+				</div>
 			{/if}
-
 			{#if hasError}
 				<span class="text-red-500 dark:text-red-400 text-sm">
 					{setting.error ?? ''}

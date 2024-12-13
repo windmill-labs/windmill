@@ -218,6 +218,18 @@ export const settings: Record<string, Setting[]> = {
 	'Auth/OAuth': [],
 	Registries: [
 		{
+			label: 'Instance Python Version',
+			description: 'Default python version for newly deployed scripts',
+			key: 'instance_python_version',
+			fieldType: 'select',
+			// To change latest stable version:
+			// 1. Change placeholder in instanceSettings.ts
+			// 2. Change LATEST_STABLE_PY in dockerfile
+			// 3. Change #[default] annotation for PyVersion in backend
+			placeholder: 'latest stable (3.11),3.10,3.11,3.12,3.13',
+			storage: 'setting',
+		},
+		{
 			label: 'Pip Index Url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
@@ -234,14 +246,6 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://username:password@pypi.company.com/simple',
 			storage: 'setting',
 			ee_only: ''
-		},
-		{
-			label: 'Instance Python Version',
-			description: 'Default python version for newly deployed scripts',
-			key: 'instance_python_version',
-			fieldType: 'text',
-			placeholder: '3.10, 3.11 (Default), 3.12 or 3.13',
-			storage: 'setting',
 		},
 		{
 			label: 'Npm Config Registry',

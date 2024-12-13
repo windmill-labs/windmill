@@ -106,7 +106,7 @@ use crate::{
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
     php_executor::handle_php_job,
-    python_executor::handle_python_job,
+    python_executor::{handle_python_job, PyVersion},
     result_processor::{process_result, start_background_processor},
     rust_executor::handle_rust_job,
     worker_flow::{handle_flow, update_flow_status_in_progress},
@@ -258,13 +258,11 @@ pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
 pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
 pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
-pub const PYSYS_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_sys");
 
 pub const TAR_PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_310");
 pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
 pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
 pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
-pub const TAR_PYSYS_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_sys");
 
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_install");
@@ -761,6 +759,19 @@ pub async fn run_worker(
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
+
+    if let Err(e) = PyVersion::from_instance_version()
+        .await
+        .get_python("", &Uuid::nil(), &mut 0, db, &worker_name, "", &mut None)
+        .await
+    {
+        tracing::error!(
+            worker = %worker_name,
+            hostname = %hostname,
+            worker_dir = %worker_dir,
+            "Cannot install/find Instance Python version to worker: {e}"//
+        );
+    }
 
     if let Some(ref netrc) = *NETRC {
         tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
