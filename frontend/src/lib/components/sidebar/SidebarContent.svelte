@@ -155,7 +155,7 @@
 				...(!$superadmin && !$userStore?.is_admin
 					? [
 							{
-								label: 'Leave Workspace',
+								label: 'Leave workspace',
 								action: () => {
 									leaveWorkspaceModal = true
 								},
@@ -196,14 +196,14 @@
 					icon: Logs,
 					subItems: [
 						{
-							label: 'Audit Logs',
+							label: 'Audit logs',
 							href: `${base}/audit_logs`,
 							icon: Eye
 						},
 						...($devopsRole
 							? [
 									{
-										label: 'Service Logs',
+										label: 'Service logs',
 										href: `${base}/service_logs`,
 										icon: Logs
 									}
@@ -212,7 +212,7 @@
 						...($enterpriseLicense
 							? [
 									{
-										label: 'Critical Alerts',
+										label: 'Critical alerts',
 										action: () => {
 											isCriticalAlertsUIOpen.set(true)
 										},
@@ -224,7 +224,7 @@
 					]
 			  }
 			: {
-					label: 'Audit Logs',
+					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator

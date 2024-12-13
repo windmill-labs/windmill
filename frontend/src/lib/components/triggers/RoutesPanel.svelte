@@ -62,7 +62,7 @@
 				size="xs"
 				startIcon={{ icon: RouteIcon }}
 			>
-				New Route
+				New route
 			</Button>
 		{:else}
 			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />

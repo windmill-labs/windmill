@@ -2217,12 +2217,29 @@ async fn login(
     }
 }
 
+#[derive(Deserialize)]
+struct RefreshTokenQuery {
+    if_expiring_in_less_than_s: Option<i32>,
+}
 async fn refresh_token(
     Extension(db): Extension<DB>,
+    Query(query): Query<RefreshTokenQuery>,
+    Tokened { token }: Tokened,
     authed: ApiAuthed,
     cookies: Cookies,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
+
+    if let Some(thresh_s) = query.if_expiring_in_less_than_s {
+        let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &token, thresh_s)
+            .fetch_optional(&db)
+            .await?
+            .flatten()
+            .unwrap_or(false);
+        if not_expired {
+            return Ok("token expiry is far enough".to_string());
+        }
+    }
 
     let super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1",

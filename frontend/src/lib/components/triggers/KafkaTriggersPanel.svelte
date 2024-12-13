@@ -75,7 +75,7 @@
 					size="xs"
 					startIcon={{ icon: KafkaIcon }}
 				>
-					New Kafka Trigger
+					New Kafka trigger
 				</Button>
 				{#if kafkaTriggers}
 					{#if kafkaTriggers.length == 0}

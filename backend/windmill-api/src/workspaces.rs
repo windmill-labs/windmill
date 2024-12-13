@@ -2364,6 +2364,7 @@ async fn tarball_workspace(
                 ScriptLang::Php => "php",
                 ScriptLang::Rust => "rs",
                 ScriptLang::Ansible => "playbook.yml",
+                ScriptLang::CSharp => "cs",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -2484,7 +2485,7 @@ async fn tarball_workspace(
 
     {
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
-            "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+            "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by from app, app_version 
             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",

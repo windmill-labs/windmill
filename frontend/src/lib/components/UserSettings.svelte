@@ -305,7 +305,7 @@
 								</select>
 							</div>
 							<div class="flex items-end">
-								<Button btnClasses="!mt-2" on:click={createToken}>New Token</Button>
+								<Button btnClasses="!mt-2" on:click={createToken}>New token</Button>
 							</div>
 						</div>
 					</div>
