@@ -1,20 +1,29 @@
+#[cfg(feature = "csharp")]
 use anyhow::anyhow;
+#[cfg(feature = "csharp")]
 use serde_json::value::RawValue;
+#[cfg(feature = "csharp")]
 use std::{collections::HashMap, io, path::Path, process::Stdio};
+#[cfg(feature = "csharp")]
 use uuid::Uuid;
 #[cfg(feature = "csharp")]
 use windmill_parser_csharp::parse_csharp_reqs;
 
+#[cfg(feature = "csharp")]
 use itertools::Itertools;
+#[cfg(feature = "csharp")]
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
+#[cfg(feature = "csharp")]
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
+#[cfg(feature = "csharp")]
 use windmill_queue::{append_logs, CanceledBy};
 
+#[cfg(feature = "csharp")]
 use crate::{
     common::{
         check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
@@ -28,12 +37,15 @@ use crate::{
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
 
+#[cfg(feature = "csharp")]
 const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.csharp.config.proto");
 
+#[cfg(feature = "csharp")]
 lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
 }
 
+#[cfg(feature = "csharp")]
 const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
 
 #[cfg(feature = "csharp")]
@@ -327,6 +339,7 @@ async fn build_cs_proj(
     }
 }
 
+#[cfg(feature = "csharp")]
 fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> String {
     let mut result = Vec::new();
 
