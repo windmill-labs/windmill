@@ -1,5 +1,5 @@
 <script lang="ts">
-	import RawAppEditor from '$lib/components/RawAppEditor.svelte'
+	import Editor from '$lib/components/Editor.svelte'
 	import { loadSandpackClient, type SandpackClient } from '@codesandbox/sandpack-client'
 	import { onMount } from 'svelte'
 
@@ -49,9 +49,10 @@ ReactDOM.render(<App />, document.getElementById('root'));
 	})
 </script>
 
-<RawAppEditor />
-
-<!-- <iframe class="min-h-screen w-full" bind:this={iframe} /> -->
+<div class="w-full grid grid-cols-2">
+	<Editor lang="typescript" scriptLang="bun" bind:code />
+	<iframe class="min-h-screen w-full" bind:this={iframe} />
+</div>
 
 <style>
 </style>
