@@ -3419,6 +3419,7 @@ pub async fn push<'c, 'd>(
                 || job_kind == JobKind::FlowPreview
                 || job_kind == JobKind::SingleScriptFlow
                 || job_kind == JobKind::Identity
+                || job_kind == JobKind::FlowNode
             {
                 "flow".to_string()
             } else if job_kind == JobKind::Dependencies
