@@ -10692,6 +10692,7 @@ components:
               php,
               rust,
               ansible,
+              csharp,
             ]
         kind:
           type: string
@@ -10795,6 +10796,7 @@ components:
               php,
               rust,
               ansible,
+              csharp,
             ]
         kind:
           type: string
@@ -11019,6 +11021,7 @@ components:
               php,
               rust,
               ansible,
+              csharp,
             ]
         email:
           type: string
@@ -11141,6 +11144,7 @@ components:
               php,
               rust,
               ansible,
+              csharp,
             ]
         is_skipped:
           type: boolean
@@ -11696,6 +11700,7 @@ components:
               php,
               rust,
               ansible,
+              csharp,
             ]
         tag:
           type: string
@@ -12936,6 +12941,8 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        custom_path:
+          type: string
       required:
         - id
         - workspace_id
@@ -12957,8 +12964,6 @@ components:
             draft_only:
               type: boolean
             draft: {}
-            custom_path:
-              type: string
 
     AppHistory:
       type: object
@@ -13312,6 +13317,7 @@ components:
               php,
               rust,
               ansible,
+              csharp,
             ]
       required:
         - raw_code

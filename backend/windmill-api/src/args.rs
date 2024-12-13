@@ -36,9 +36,13 @@ impl WebhookArgs {
         _db: &DB,
         _w_id: &str,
     ) -> Result<PushArgsOwned, Error> {
-        return Err(Error::BadRequest(format!(
-            "Uploading files requires the parquet feature"
-        )));
+        if self.file_req.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Uploading files requires the parquet feature"
+            )));
+        }
+
+        Ok(self.args)
     }
 
     #[cfg(feature = "parquet")]
@@ -111,6 +115,17 @@ pub struct RequestQuery {
     pub include_header: Option<String>,
 }
 
+async fn req_to_string<S: Send + Sync>(
+    req: Request<axum::body::Body>,
+    _state: &S,
+) -> Result<String, Response> {
+    let bytes = Bytes::from_request(req, _state)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    String::from_utf8(bytes.to_vec())
+        .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())
+}
+
 #[axum::async_trait]
 impl<S> FromRequest<S, axum::body::Body> for WebhookArgs
 where
@@ -166,11 +181,7 @@ where
             .unwrap()
             .starts_with("application/cloudevents+json")
         {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            let str = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
+            let str = req_to_string(req, _state).await?;
 
             PushArgsOwned::from_ce_json(extra, use_raw, str)
                 .await
@@ -184,11 +195,7 @@ where
                     .into_response(),
             )
         } else if content_type.unwrap().starts_with("text/plain") {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            let str = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
+            let str = req_to_string(req, _state).await?;
             extra.insert("raw_string".to_string(), to_raw_value(&str));
             Ok(Self {
                 args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
@@ -222,6 +229,15 @@ where
                 args: PushArgsOwned { extra: Some(extra), args: payload },
                 file_req: None,
             });
+        } else if content_type.unwrap().starts_with("application/xml")
+            || content_type.unwrap().starts_with("text/xml")
+        {
+            let str = req_to_string(req, _state).await?;
+            extra.insert("raw_string".to_string(), to_raw_value(&str));
+            Ok(Self {
+                args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
+                file_req: None,
+            })
         } else {
             return Ok(Self {
                 args: PushArgsOwned { extra: None, args: HashMap::new() },

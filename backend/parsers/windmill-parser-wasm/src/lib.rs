@@ -135,3 +135,9 @@ pub fn parse_rust(code: &str) -> String {
 pub fn parse_ansible(code: &str) -> String {
     wrap_sig(windmill_parser_yaml::parse_ansible_sig(code))
 }
+
+#[cfg(feature = "csharp-parser")]
+#[wasm_bindgen]
+pub fn parse_csharp(code: &str) -> String {
+    wrap_sig(windmill_parser_csharp::parse_csharp_signature(code))
+}
