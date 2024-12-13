@@ -241,6 +241,7 @@ export async function main(message: string, name: string, step_id: string) {
 `
 
 const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
