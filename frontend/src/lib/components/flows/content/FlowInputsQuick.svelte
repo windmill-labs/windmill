@@ -150,8 +150,8 @@
 	}
 
 	const allToplevelNodes: [string, string][] = [
-		['For Loop', 'forloop'],
-		['While Loop', 'whileloop'],
+		['For loop', 'forloop'],
+		['While loop', 'whileloop'],
 		['Branch to one', 'branchone'],
 		['Branch to all', 'branchall']
 	]
