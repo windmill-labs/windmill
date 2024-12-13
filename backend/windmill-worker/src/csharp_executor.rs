@@ -48,6 +48,8 @@ const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.cshar
 #[cfg(feature = "csharp")]
 lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
+    static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").expect("Could not find the DOTNET_ROOT environment variable");
+
 }
 
 #[cfg(feature = "csharp")]
@@ -281,6 +283,7 @@ async fn build_cs_proj(
         .env("HOME", HOME_ENV.as_str())
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
+        .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec![
             "publish",
             "--configuration",
@@ -493,6 +496,7 @@ pub async fn handle_csharp_job(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
+            .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
             .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -509,6 +513,7 @@ pub async fn handle_csharp_job(
             .env("TZ", TZ_ENV.as_str())
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
+            .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())
