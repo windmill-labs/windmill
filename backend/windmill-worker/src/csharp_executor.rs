@@ -152,7 +152,7 @@ fn gen_cs_proj(
             r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
@@ -273,13 +273,14 @@ async fn build_cs_proj(
     }
 
     let mut build_cs_cmd = Command::new(DOTNET_PATH.as_str());
-
     build_cs_cmd
         .current_dir(job_dir)
         .env_clear()
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+        .env("DOTNET_NOLOGO", "true")
         .args(vec![
             "publish",
             "--configuration",
@@ -490,6 +491,8 @@ pub async fn handle_csharp_job(
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+            .env("DOTNET_NOLOGO", "true")
             .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -504,6 +507,8 @@ pub async fn handle_csharp_job(
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+            .env("DOTNET_NOLOGO", "true")
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())

@@ -348,8 +348,7 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
 }
 `
 
-const CSHARP_INIT_CODE = `
-#r "nuget: Humanizer, 2.14.1"
+const CSHARP_INIT_CODE = `#r "nuget: Humanizer, 2.14.1"
 
 using System;
 using System.Linq;
