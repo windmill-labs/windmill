@@ -265,6 +265,9 @@
 							$flowStateStore[flowModule.id].schema,
 							$pathStore
 						)
+						if (flowModule.value.type == 'rawscript') {
+							module.value.input_transforms = flowModule.value.input_transforms
+						}
 						flowModule = module
 						$flowStateStore[module.id] = state
 					}}
@@ -303,7 +306,6 @@
 							{#if !noEditor}
 								{#key flowModule.id}
 									<Editor
-										
 										folding
 										path={$pathStore + '/' + flowModule.id}
 										bind:websocketAlive
