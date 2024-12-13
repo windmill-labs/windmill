@@ -28,6 +28,7 @@
 	export let disabled = false
 	export let allowRefresh = false
 	export let allowEdit = true
+	export let allowView = true
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
@@ -138,16 +139,18 @@
 						href="{base}/flows/edit/{scriptPath}">Edit</Button
 					>
 				{/if}
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					on:click={async () => {
-						drawerFlowViewer.openDrawer()
-					}}
-				>
-					View
-				</Button>
+				{#if allowView}
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						on:click={async () => {
+							drawerFlowViewer.openDrawer()
+						}}
+					>
+						View
+					</Button>
+				{/if}
 			</div>
 		{:else if itemKind == 'app'}
 			<div class="flex gap-2">
@@ -163,16 +166,18 @@
 						Edit
 					</Button>
 				{/if}
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					target="_blank"
-					startIcon={{ icon: Code }}
-					href="{base}/apps/get/{scriptPath}"
-				>
-					View
-				</Button>
+				{#if allowView}
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						target="_blank"
+						startIcon={{ icon: Code }}
+						href="{base}/apps/get/{scriptPath}"
+					>
+						View
+					</Button>
+				{/if}
 			</div>
 		{:else}
 			<div class="flex gap-2">
@@ -188,20 +193,22 @@
 						Edit
 					</Button>
 				{/if}
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					startIcon={{ icon: Code }}
-					on:click={async () => {
-						const { language, content } = await getScriptByPath(scriptPath ?? '')
-						code = content
-						lang = language
-						drawerViewer.openDrawer()
-					}}
-				>
-					View
-				</Button>
+				{#if allowView}
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						startIcon={{ icon: Code }}
+						on:click={async () => {
+							const { language, content } = await getScriptByPath(scriptPath ?? '')
+							code = content
+							lang = language
+							drawerViewer.openDrawer()
+						}}
+					>
+						View
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	{/if}

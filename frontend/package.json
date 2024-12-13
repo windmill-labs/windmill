@@ -142,6 +142,7 @@
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.0.8",
 		"vscode-ws-jsonrpc": "~3.3.2",
+		"windmill-parser-wasm-csharp": "^1.437.1",
 		"windmill-parser-wasm-go": "^1.429.0",
 		"windmill-parser-wasm-php": "^1.429.0",
 		"windmill-parser-wasm-py": "^1.429.0",

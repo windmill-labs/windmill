@@ -246,7 +246,7 @@
 			<!--
 		EE only
 
-		<Label label="Aggregation Function">
+		<Label label="Aggregation function">
 			<SimpleEditor autoHeight lang="javascript" bind:code={value.aggFunc} />
 		</Label>
 
@@ -254,7 +254,7 @@
 			<Toggle bind:checked={value.pivot} size="xs" />
 		</Label>
 
-		<Label label="Pivot Index">
+		<Label label="Pivot index">
 			<input type="number" placeholder="pivot index" bind:value={value.pivotIndex} />
 		</Label>
 
@@ -266,11 +266,11 @@
 			</select>
 		</Label>
 
-		<Label label="Row Group">
+		<Label label="Row group">
 			<Toggle bind:checked={value.rowGroup} size="xs" />
 		</Label>
 
-		<Label label="Row Group Index">
+		<Label label="Row group index">
 			<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
 		</Label>
 		 -->
