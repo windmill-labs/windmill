@@ -3417,6 +3417,7 @@ pub async fn push<'c, 'd>(
         let default = || {
             let ntag = if job_kind == JobKind::Flow
                 || job_kind == JobKind::FlowPreview
+                || job_kind == JobKind::FlowNode
                 || job_kind == JobKind::SingleScriptFlow
                 || job_kind == JobKind::Identity
             {
