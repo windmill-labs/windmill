@@ -236,6 +236,7 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: '3.10,3.11,3.12,3.13',
 			select_items: [{
 				label: "Latest Stable",
+				value: "default",
 				tooltip: "python-3.11",
 			},
 			{

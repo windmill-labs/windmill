@@ -157,6 +157,7 @@ impl PyVersion {
             "3.11" => Some(Py311),
             "3.12" => Some(Py312),
             "3.13" => Some(Py313),
+            "default" => Some(PyVersion::default()),
             _ => None,
         }
     }

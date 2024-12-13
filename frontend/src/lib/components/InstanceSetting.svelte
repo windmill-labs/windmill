@@ -35,6 +35,10 @@
 	export let loading = true
 	const dispatch = createEventDispatcher()
 
+	if (setting.fieldType == 'select' && $values[setting.key] == undefined){
+				$values[setting.key] = "default";
+	}
+
 	let latestKeyRenewalAttempt: {
 		result: string
 		attempted_at: string
@@ -48,11 +52,6 @@
 		}
 		return true
 	}
-
-	console.log(
-	"val",
-				$values[setting.key]
-	)
 
 	let licenseKeyChanged = false
 	let renewing = false
@@ -137,8 +136,8 @@
 				{/if}
 					</label>
 				<ToggleButtonGroup bind:selected={$values[setting.key]}>
-	        {#each (setting.select_items ?? []) as item, index}
-						<ToggleButton value={(index == 0) ? undefined : item.label} label={item.label} tooltip={item.tooltip} />
+	        {#each (setting.select_items ?? []) as item }
+						<ToggleButton value={item.value ?? item.label} label={item.label} tooltip={item.tooltip} />
 	        {/each}
 				</ToggleButtonGroup>
 		</div>
