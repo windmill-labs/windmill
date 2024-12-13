@@ -90,7 +90,6 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    ansible_executor::handle_ansible_job,
     bash_executor::{handle_bash_job, handle_powershell_job},
     bun_executor::handle_bun_job,
     common::{
@@ -105,8 +104,6 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
-    php_executor::handle_php_job,
-    python_executor::handle_python_job,
     result_processor::{process_result, start_background_processor},
     rust_executor::handle_rust_job,
     worker_flow::{handle_flow, update_flow_status_in_progress},
@@ -114,6 +111,16 @@ use crate::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
 };
+
+#[cfg(feature = "php")]
+use crate::php_executor::handle_php_job;
+
+#[cfg(feature = "python")]
+use crate::python_executor::handle_python_job;
+
+#[cfg(feature = "python")]
+use crate::ansible_executor::handle_ansible_job;
+
 
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::do_mysql;
@@ -125,9 +132,13 @@ use backon::{BackoffBuilder, Retryable};
 use crate::dedicated_worker::create_dedicated_worker_map;
 
 #[cfg(feature = "enterprise")]
-use crate::{
-    bigquery_executor::do_bigquery, mssql_executor::do_mssql, snowflake_executor::do_snowflake,
-};
+use crate::snowflake_executor::do_snowflake;
+
+#[cfg(all(feature = "enterprise", feature = "mssql"))]
+use crate::mssql_executor::do_mssql;
+
+#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
@@ -2395,7 +2406,14 @@ async fn handle_code_execution_job(
             ));
         }
 
-        #[cfg(feature = "enterprise")]
+        #[cfg(not(feature = "bigquery"))]
+        {
+            return Err(Error::InternalErr(
+                "Bigquery requires the bigquery feature to be enabled".to_string(),
+            ));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "bigquery"))]
         {
             return do_bigquery(
                 job,
@@ -2441,7 +2459,14 @@ async fn handle_code_execution_job(
             ));
         }
 
-        #[cfg(feature = "enterprise")]
+        #[cfg(not(feature = "mssql"))]
+        {
+            return Err(Error::InternalErr(
+                "Microsoft SQL server requires the mssql feature to be enabled".to_string(),
+            ));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "mssql"))]
         {
             return do_mssql(
                 job,
@@ -2545,6 +2570,12 @@ mount {{
             ))?;
         }
         Some(ScriptLang::Python3) => {
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Python requires the python feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "python")]
             handle_python_job(
                 requirements_o,
                 job_dir,
@@ -2656,6 +2687,12 @@ mount {{
             .await
         }
         Some(ScriptLang::Php) => {
+            #[cfg(not(feature = "php"))]
+            return Err(Error::InternalErr(
+                "PHP requires the php feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "php")]
             handle_php_job(
                 requirements_o,
                 mem_peak,
@@ -2692,6 +2729,13 @@ mount {{
             .await
         }
         Some(ScriptLang::Ansible) => {
+
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Ansible requires the python feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "python")]
             handle_ansible_job(
                 requirements_o,
                 job_dir,

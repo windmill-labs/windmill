@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:openidconnect"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
 stripe = ["dep:async-stripe"]
 enterprise_saml = ["dep:samael"]
 benchmark = []
@@ -20,13 +20,13 @@ prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:pr
 openidconnect = ["dep:openidconnect"]
 tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:rdkafka"]
+websocket = ["dep:tokio-tungstenite"]
 
 [dependencies]
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
-windmill-parser-py-imports.workspace = true
 windmill-parser-ts.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
@@ -95,7 +95,7 @@ openidconnect = { workspace = true, optional = true}
 url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit.workspace = true
-tokio-tungstenite.workspace = true
+tokio-tungstenite = { workspace = true, optional = true}
 rdkafka = { workspace = true, optional = true }
 const_format.workspace = true
 

@@ -211,12 +211,8 @@ pub async fn handle_php_job(
     let main_override = get_main_override(job.args.as_ref());
 
     let write_wrapper_f = async {
-        #[cfg(feature = "php")]
         let args =
             windmill_parser_php::parse_php_signature(inner_content, main_override.clone())?.args;
-
-        #[cfg(not(feature = "php"))]
-        let args: Vec<windmill_parser::Arg> = vec![];
 
         let args_to_include = args
             .iter()

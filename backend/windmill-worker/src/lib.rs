@@ -1,10 +1,11 @@
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "bigquery"))]
 mod bigquery_executor;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "mssql"))]
 mod mssql_executor;
 #[cfg(feature = "enterprise")]
 mod snowflake_executor;
 
+#[cfg(feature = "python")]
 mod ansible_executor;
 mod bash_executor;
 
@@ -23,7 +24,9 @@ mod js_eval;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
 mod pg_executor;
+#[cfg(feature = "php")]
 mod php_executor;
+#[cfg(feature = "python")]
 mod python_executor;
 mod result_processor;
 mod rust_executor;

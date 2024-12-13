@@ -10859,7 +10859,6 @@ dependencies = [
  "windmill-git-sync",
  "windmill-indexer",
  "windmill-parser",
- "windmill-parser-py-imports",
  "windmill-parser-ts",
  "windmill-queue",
 ]
@@ -11263,7 +11262,6 @@ dependencies = [
  "nix",
  "object_store",
  "once_cell",
- "openidconnect",
  "opentelemetry",
  "pem 3.0.4",
  "postgres-native-tls",

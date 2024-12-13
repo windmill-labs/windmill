@@ -93,6 +93,7 @@ mod users_ee;
 mod utils;
 mod variables;
 mod webhook_util;
+#[cfg(feature = "websocket")]
 mod websocket_triggers;
 mod workers;
 mod workspaces;
@@ -253,8 +254,11 @@ pub async fn run_server(
     };
 
     if !*CLOUD_HOSTED {
-        let ws_killpill_rx = rx.resubscribe();
-        websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
+        #[cfg(feature = "websocket")]
+        {
+            let ws_killpill_rx = rx.resubscribe();
+            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
+        }
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
@@ -306,7 +310,17 @@ pub async fn run_server(
                         .nest("/http_triggers", http_triggers::workspaced_service())
                         .nest(
                             "/websocket_triggers",
-                            websocket_triggers::workspaced_service(),
+                            {
+                                #[cfg(feature = "websocket")]
+                                {
+                                    websocket_triggers::workspaced_service()
+                                }
+
+                                #[cfg(not(feature = "websocket"))]
+                                {
+                                    Router::new()
+                                }
+                            }
                         )
                         .nest("/kafka_triggers", kafka_triggers_service),
                 )
