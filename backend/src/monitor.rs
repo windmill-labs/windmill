@@ -188,6 +188,7 @@ pub async fn initial_load(
         reload_pip_index_url_setting(&db).await;
         reload_npm_config_registry_setting(&db).await;
         reload_bunfig_install_scopes_setting(&db).await;
+        reload_instance_python_version_setting(&db).await;
     }
 }
 

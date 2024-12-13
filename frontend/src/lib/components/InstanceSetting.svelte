@@ -782,7 +782,7 @@
 			    	<ToggleButtonGroup
 			    	 bind:selected={$values[setting.key]}>
   		        {#each ((setting.placeholder ?? 'parsing error').split(',')) as item, index}
-								<ToggleButton value={index} size="xs" label={item} />
+								<ToggleButton value={String(index)} size="xxl" label={item} />
 			        {/each}
 			    	</ToggleButtonGroup>
 				</div>
