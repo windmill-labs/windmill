@@ -462,7 +462,7 @@
 							disabled={!selectedInput}
 						>
 							<ArrowLeftIcon class="w-4 h-4 mr-2" />
-							Use Input
+							Use input
 						</Button>
 					</div>
 					<div class="w-full min-h-0 grow overflow-auto">

@@ -695,7 +695,7 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold">
-						Link this workspace to another Staging / Prod workspace
+						Link this Workspace to another Staging / Prod Workspace
 					</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/staging_prod">
 						Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace.
@@ -716,7 +716,7 @@
 		{:else if tab == 'slack'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Connect workspace to Slack </div>
+					<div class=" text-primary text-lg font-semibold"> Connect Workspace to Slack </div>
 					<Description link="https://www.windmill.dev/docs/integrations/slack">
 						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
 						with a '/windmill' command or to configure Slack error handlers.
@@ -898,7 +898,7 @@
 			</div>
 			<div class="flex gap-2">
 				<input class="justify-start" type="text" bind:value={webhook} />
-				<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set Webhook</Button>
+				<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set webhook</Button>
 			</div>
 		{:else if tab == 'error_handler'}
 			{#if !$enterpriseLicense}
@@ -991,7 +991,7 @@
 							size="sm"
 							on:click={() => isCriticalAlertsUIOpen.set(true)}
 						>
-							Show Critical Alerts
+							Show critical alerts
 						</Button>
 						<Toggle
 							disabled={!$enterpriseLicense}
@@ -1003,7 +1003,7 @@
 							size="sm"
 							on:click={editCriticalAlertMuteSetting}
 						>
-							Save Mute Setting
+							Save mute setting
 						</Button>
 					</div>
 				</div>
@@ -1061,7 +1061,7 @@
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace object storage (S3/Azure Blob)</div>
+					<div class="text-primary text-lg font-semibold">Workspace Object Storage (S3/Azure Blob)</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage">
 						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable users to read and write from S3 without having to have access to the credentials.
 					</Description>
@@ -1688,7 +1688,7 @@ git push</code
 		{:else if tab == 'default_app'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace default app</div>
+					<div class="text-primary text-lg font-semibold">Workspace Default App</div>
 					<Description>
 						If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace.
 					</Description>
@@ -1720,7 +1720,7 @@ git push</code
 		{:else if tab == 'encryption'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace secret encryption</div>
+					<div class="text-primary text-lg font-semibold">Workspace Secret Encryption</div>
 					<Description>
 						When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one.
 					</Description>

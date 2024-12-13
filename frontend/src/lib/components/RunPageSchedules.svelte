@@ -171,7 +171,7 @@
 					size="sm"
 					startIcon={{ icon: Calendar }}
 				>
-					Set Primary Schedule
+					Set primary schedule
 				</Button>
 			</div>
 			{#if $initialPrimarySchedule != undefined && $initialPrimarySchedule != false && !newItem}
@@ -208,7 +208,7 @@
 				size="xs"
 				startIcon={{ icon: Calendar }}
 			>
-				New Schedule
+				New schedule
 			</Button>
 		{/if}
 

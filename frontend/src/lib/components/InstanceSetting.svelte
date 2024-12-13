@@ -209,7 +209,7 @@
 							sendUserToast('Valid key')
 						}}
 					>
-						Test Key
+						Test key
 					</Button>
 				</div>
 				<div class="mt-1 flex flex-col gap-1 items-start">
@@ -328,7 +328,7 @@
 								dispatch('closeDrawer')
 							}}
 						>
-							Show Critical Alerts
+							Show critical alerts
 						</Button>
 					</div>
 				</div>
@@ -429,7 +429,7 @@
 								}
 							}}
 						>
-							Test Channels
+							Test channels
 						</Button>
 					</div>
 				</div>
