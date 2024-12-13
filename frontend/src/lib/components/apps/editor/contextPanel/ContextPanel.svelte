@@ -100,7 +100,7 @@
 						{/each}
 					</div>
 					<div>
-						<span class="text-xs font-semibold text-secondary p-2">Background runnables</span>
+						<span class="text-xs font-semibold text-secondary p-2">Background Runnables</span>
 						<BackgroundScriptsOutput />
 					</div>
 				</div>

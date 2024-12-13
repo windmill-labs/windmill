@@ -222,7 +222,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#queue-metrics"
 	>
 		<Section
-			label="Queue Alert Settings"
+			label="Queue alert settings"
 			collapsable={true}
 			tooltip="A critical alert is triggered when the number of jobs in the queue exceeds the set threshold and they have been waiting for at least the specified time. After an alert, no new alerts will be triggered during the cooldown period."
 			eeOnly={true}
@@ -233,7 +233,7 @@
 				{/if}
 				<div class="flex gap-2 pb-2">
 					<Button color="blue" size="xs" on:click={applyConfig} disabled={!changesMade}>
-						<SaveIcon size={16} /> Apply Config
+						<SaveIcon size={16} /> Apply config
 					</Button>
 					<Button color="light" size="xs" on:click={cancelChanges} disabled={!changesMade}>
 						Cancel
@@ -288,7 +288,7 @@
 																{tag}
 																<button
 																	on:click={() => removeTag(index, tag)}
-																	aria-label="Remove Tag"
+																	aria-label="Remove tag"
 																	class="ml-1 text-xs">x</button
 																>
 															</span>
@@ -303,7 +303,7 @@
 															disabled={workerTags.length === alert.tags_to_monitor.length}
 															class="p-1 flex-grow mr-1"
 														/>
-														<button on:click={() => addTag(index, newTag)} aria-label="Add Tag">
+														<button on:click={() => addTag(index, newTag)} aria-label="Add tag">
 															<PlusCircle size={16} />
 														</button>
 													</div>
@@ -406,7 +406,7 @@
 				<div class="flex">
 					<Button color="blue" size="xs" on:click={addNewAlert}>
 						<PlusCircle size={16} />
-						Add New Alert
+						Add new alert
 					</Button>
 				</div>
 			{:else}

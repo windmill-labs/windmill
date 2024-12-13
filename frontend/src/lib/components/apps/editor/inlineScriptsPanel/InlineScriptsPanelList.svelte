@@ -188,7 +188,7 @@
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
 				<div class="text-xs text-secondary font-semibold truncate">
-					Background runnables
+					Background Runnables
 					<Tooltip
 						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
 					>

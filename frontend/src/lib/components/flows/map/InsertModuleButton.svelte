@@ -158,7 +158,7 @@ shouldUsePortal={true} -->
 					{/if}
 					{#if stop}
 						<TopLevelNode
-							label="End Flow"
+							label="End flow"
 							selected={selectedKind === 'script'}
 							on:select={() => {
 								selectedKind = 'script'
@@ -167,14 +167,14 @@ shouldUsePortal={true} -->
 					{/if}
 
 					<TopLevelNode
-						label="For Loop"
+						label="For loop"
 						on:select={() => {
 							close(null)
 							dispatch('new', { kind: 'forloop' })
 						}}
 					/>
 					<TopLevelNode
-						label="While Loop"
+						label="While loop"
 						on:select={() => {
 							close(null)
 							dispatch('new', { kind: 'whileloop' })

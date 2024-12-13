@@ -489,7 +489,7 @@
 					true,
 					[
 						{
-							label: 'Open Troubleshoot Panel',
+							label: 'Open troubleshoot panel',
 							callback: () => {
 								appEditorHeader?.openTroubleshootPanel()
 							}
@@ -1264,7 +1264,7 @@
 				variableEditor?.initNew?.()
 			}}
 		>
-			New Variable
+			New variable
 		</Button>
 	</div>
 </ItemPicker>

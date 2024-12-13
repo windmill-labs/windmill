@@ -68,7 +68,7 @@
 		label="JSON View"
 		size="xs"
 		options={{
-			right: 'JSON Editor',
+			right: 'JSON editor',
 			rightTooltip:
 				'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 		}}
@@ -152,7 +152,7 @@
 
 						{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
 							<div class="flex flex-col w-full mt-2">
-								<Label label="Nested Properties">
+								<Label label="Nested properties">
 									<svelte:self
 										on:change={() => (schema = schema)}
 										schema={schema.properties[item.value]}

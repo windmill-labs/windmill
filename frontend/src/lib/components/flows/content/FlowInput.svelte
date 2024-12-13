@@ -72,7 +72,7 @@
 					inputLibraryDrawer.openDrawer()
 				}}
 			>
-				Past Runs/Input library
+				Past runs/Input library
 			</Button>
 			<Button
 				color="dark"

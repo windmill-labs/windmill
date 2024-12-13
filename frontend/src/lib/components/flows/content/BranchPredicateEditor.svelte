@@ -77,7 +77,7 @@
 				on:click={() => (open = !open)}
 				id="flow-editor-edit-predicate"
 			>
-				Edit Predicate
+				Edit predicate
 			</Button>
 		</div>
 	</div>
