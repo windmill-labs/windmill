@@ -837,6 +837,7 @@ async fn listen_to_websocket(
                                 if let Err(err) = send_initial_messages(&ws_trigger, writer, &db).await {
                                     disable_with_error(&db, &ws_trigger, format!("Error sending initial messages: {:?}", err)).await;
                                 } else {
+                                    tracing::debug!("Initial messages sent successfully to websocket {}", url);
                                     // if initial messages sent successfully, wait forever
                                     futures::future::pending::<()>().await;
                                 }
@@ -860,6 +861,7 @@ async fn listen_to_websocket(
                                                     Ok(msg) => {
                                                         match msg {
                                                             tokio_tungstenite::tungstenite::Message::Text(text) => {
+                                                                tracing::debug!("Received text message from websocket {}: {}", url, text);
                                                                 let mut should_handle = true;
                                                                 for filter in &filters {
                                                                     match filter {
@@ -886,7 +888,9 @@ async fn listen_to_websocket(
                                                                     };
                                                                 }
                                                             },
-                                                            _ => {}
+                                                            a @ _ => {
+                                                                tracing::debug!("Received non text-message from websocket {}: {:?}", url, a);
+                                                            }
                                                         }
                                                     },
                                                     Err(err) => {
@@ -905,6 +909,7 @@ async fn listen_to_websocket(
                                             }
                                         },
                                         _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+                                            tracing::debug!("Sending ping to websocket {}", url);
                                             if let None = update_ping(&db, &ws_trigger, None).await {
                                                 return;
                                             }
