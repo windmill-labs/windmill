@@ -20,6 +20,7 @@ mod go_executor;
 mod graphql_executor;
 mod handle_child;
 mod job_logger;
+mod job_logger_ee;
 mod js_eval;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
@@ -33,7 +34,6 @@ mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
-mod job_logger_ee;
 pub use worker::*;
 
 pub use result_processor::handle_job_error;

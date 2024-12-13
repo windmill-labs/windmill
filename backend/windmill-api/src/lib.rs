@@ -12,6 +12,7 @@ use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 use crate::oauth2_ee::AllClients;
+#[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
 use crate::tracing_init::MyOnFailure;
 use crate::{
@@ -83,7 +84,8 @@ mod scim_ee;
 mod scripts;
 mod service_logs;
 mod settings;
-pub mod smtp_server_ee;
+#[cfg(feature = "smtp")]
+mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
@@ -215,14 +217,17 @@ pub async fn run_server(
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
 
-        let smtp_server = Arc::new(SmtpServer {
-            db: db.clone(),
-            user_db: user_db,
-            auth_cache: auth_cache.clone(),
-            base_internal_url: base_internal_url.clone(),
-        });
-        if let Err(err) = smtp_server.start_listener_thread(addr).await {
-            tracing::error!("Error starting SMTP server: {err:#}");
+        #[cfg(feature = "smtp")]
+        {
+            let smtp_server = Arc::new(SmtpServer {
+                db: db.clone(),
+                user_db: user_db,
+                auth_cache: auth_cache.clone(),
+                base_internal_url: base_internal_url.clone(),
+            });
+            if let Err(err) = smtp_server.start_listener_thread(addr).await {
+                tracing::error!("Error starting SMTP server: {err:#}");
+            }
         }
     }
 
@@ -308,20 +313,17 @@ pub async fn run_server(
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
                         .nest("/http_triggers", http_triggers::workspaced_service())
-                        .nest(
-                            "/websocket_triggers",
+                        .nest("/websocket_triggers", {
+                            #[cfg(feature = "websocket")]
                             {
-                                #[cfg(feature = "websocket")]
-                                {
-                                    websocket_triggers::workspaced_service()
-                                }
-
-                                #[cfg(not(feature = "websocket"))]
-                                {
-                                    Router::new()
-                                }
+                                websocket_triggers::workspaced_service()
                             }
-                        )
+
+                            #[cfg(not(feature = "websocket"))]
+                            {
+                                Router::new()
+                            }
+                        })
                         .nest("/kafka_triggers", kafka_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())

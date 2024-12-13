@@ -121,7 +121,6 @@ use crate::python_executor::handle_python_job;
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
 
-
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::do_mysql;
 
@@ -2383,7 +2382,9 @@ async fn handle_code_execution_job(
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
-        return Err(Error::InternalErr("MySQL requires the mysql feature to be enabled".to_string()));
+        return Err(Error::InternalErr(
+            "MySQL requires the mysql feature to be enabled".to_string(),
+        ));
 
         #[cfg(feature = "mysql")]
         return do_mysql(
@@ -2729,7 +2730,6 @@ mount {{
             .await
         }
         Some(ScriptLang::Ansible) => {
-
             #[cfg(not(feature = "python"))]
             return Err(Error::InternalErr(
                 "Ansible requires the python feature to be enabled".to_string(),

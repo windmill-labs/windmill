@@ -1518,8 +1518,8 @@ pub async fn handle_python_reqs(
                                 if mem < 0 {
                                     tracing::warn!(
                                         workspace_id = %w_id_2,
-                                        "Cannot get memory peak for pid: {:?}, job_id: {:?}, exit code: {mem}", 
-                                        pid_o, 
+                                        "Cannot get memory peak for pid: {:?}, job_id: {:?}, exit code: {mem}",
+                                        pid_o,
                                         job_id_2
                                     );
                                 } else {
@@ -1536,12 +1536,12 @@ pub async fn handle_python_reqs(
                             } else {
                                 tracing::debug!(
                                     workspace_id = %w_id_2,
-                                    "Local mem_peak {:?}mb is smaller then global one {:?}mb, ignoring. job_id: {:?}", 
+                                    "Local mem_peak {:?}mb is smaller then global one {:?}mb, ignoring. job_id: {:?}",
                                     local_mem_peak / 1000,
                                     *mem_peak_lock / 1000,
                                     job_id_2
                                 );
-                                
+
                             }
                             // Get the copy of value and drop lock itself, to release it as fast as possible
                             *mem_peak_lock
@@ -1576,28 +1576,27 @@ pub async fn handle_python_reqs(
                         if canceled {
 
                             tracing::info!(
-                                // If there is listener on other side, 
+                                // If there is listener on other side,
                                 workspace_id = %w_id_2,
                                 "cancelling installations",
                             );
 
                             if let Err(ref e) = kill_tx.send(()){
                                 tracing::error!(
-                                    // If there is listener on other side, 
+                                    // If there is listener on other side,
                                     workspace_id = %w_id_2,
                                     "failed to send done: Probably receiving end closed too early or have not opened yet\n{}",
                                     // If there is no listener, it will be dropped safely
                                     e
                                 );
                             }
-                        } 
+                        }
                     }
                     // Once done_tx is dropped, this will be fired
                     _ = done_rx.recv() => break
                 }
             }
         });
-        
     }
 
     // tl = total_length
@@ -1647,7 +1646,9 @@ pub async fn handle_python_reqs(
 
     let total_time = std::time::Instant::now();
     let has_work = req_with_penv.len() > 0;
-    for ((i, (req, venv_p)), mut kill_rx) in req_with_penv.iter().enumerate().zip(kill_rxs.into_iter()) {
+    for ((i, (req, venv_p)), mut kill_rx) in
+        req_with_penv.iter().enumerate().zip(kill_rxs.into_iter())
+    {
         let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
 
         if let Err(_) = permit {

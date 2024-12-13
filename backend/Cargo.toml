@@ -71,6 +71,7 @@ mssql = ["windmill-worker/mssql"]
 bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
 python = ["windmill-worker/python"]
+smtp = ["windmill-api/smtp"]
 
 [dependencies]
 anyhow.workspace = true

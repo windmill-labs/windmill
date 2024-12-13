@@ -30,18 +30,17 @@ use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
 
+#[cfg(feature = "php")]
+use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
 use crate::python_executor::{
     create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
 };
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
-    bun_executor::gen_bun_lockfile,
-    deno_executor::generate_deno_lock,
+    bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
 };
-#[cfg(feature = "php")]
-use crate::php_executor::{composer_install, parse_php_imports};
 
 pub async fn update_script_dependency_map(
     job_id: &Uuid,
@@ -1648,12 +1647,10 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
-
             #[cfg(not(feature = "python"))]
             return Err(Error::InternalErr(
                 "Python requires the python feature to be enabled".to_string(),
             ));
-
 
             #[cfg(feature = "python")]
             {
@@ -1661,7 +1658,7 @@ async fn capture_dependency_job(
                     job_raw_code.to_string()
                 } else {
                     let mut already_visited = vec![];
-    
+
                     windmill_parser_py_imports::parse_python_imports(
                         job_raw_code,
                         &w_id,
@@ -1672,10 +1669,10 @@ async fn capture_dependency_job(
                     .await?
                     .join("\n")
                 };
-    
+
                 let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
                     PythonAnnotations::parse(job_raw_code);
-    
+
                 if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
                     if let Err(e) = sqlx::query!(
                         r#"
@@ -1690,7 +1687,7 @@ async fn capture_dependency_job(
                         tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
                     }
                 }
-    
+
                 python_dep(
                     reqs,
                     job_id,
@@ -1707,10 +1704,8 @@ async fn capture_dependency_job(
                 )
                 .await
             }
-            
         }
         ScriptLang::Ansible => {
-
             #[cfg(not(feature = "python"))]
             return Err(Error::InternalErr(
                 "Ansible requires the python feature to be enabled".to_string(),
@@ -1847,7 +1842,6 @@ async fn capture_dependency_job(
             Ok(req.unwrap_or_else(String::new))
         }
         ScriptLang::Php => {
-
             #[cfg(not(feature = "php"))]
             return Err(Error::InternalErr(
                 "PHP requires the php feature to be enabled".to_string(),
