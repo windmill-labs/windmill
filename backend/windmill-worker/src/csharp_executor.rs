@@ -1,10 +1,9 @@
-#[cfg(feature = "csharp")]
 use anyhow::anyhow;
-#[cfg(feature = "csharp")]
 use serde_json::value::RawValue;
 #[cfg(feature = "csharp")]
-use std::{collections::HashMap, io, path::Path, process::Stdio};
-#[cfg(feature = "csharp")]
+use std::{io, path::Path, process::Stdio};
+
+use std::collections::HashMap;
 use uuid::Uuid;
 #[cfg(feature = "csharp")]
 use windmill_parser_csharp::parse_csharp_reqs;
@@ -15,24 +14,30 @@ use itertools::Itertools;
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
 use windmill_common::{
-    error::{self, Error},
-    jobs::QueuedJob,
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
+
+use windmill_common::error::{self, Error};
+use windmill_common::jobs::QueuedJob;
 #[cfg(feature = "csharp")]
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
+
+use windmill_queue::CanceledBy;
 
 #[cfg(feature = "csharp")]
 use crate::{
     common::{
         check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, start_child_process,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH,
-    HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, TZ_ENV,
+    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
+    NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
+
+use crate::common::OccupancyMetrics;
+use crate::AuthedClientBackgroundTask;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -120,7 +125,6 @@ pub async fn generate_nuget_lockfile(
 ) -> error::Result<String> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
-
 
 #[cfg(feature = "csharp")]
 fn gen_cs_proj(
