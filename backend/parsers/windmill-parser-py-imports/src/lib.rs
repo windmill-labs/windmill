@@ -21,7 +21,7 @@ use rustpython_parser::{
     Parse,
 };
 use sqlx::{Pool, Postgres};
-use windmill_common::error;
+use windmill_common::{error, worker::PythonAnnotations};
 
 const DEF_MAIN: &str = "def main(";
 
@@ -178,7 +178,42 @@ pub async fn parse_python_imports(
     path: &str,
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
+    annotated_pyv: &mut Option<u32>,
 ) -> error::Result<Vec<String>> {
+    let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
+
+    // we pass only if there is none or only one annotation
+
+    // Naive:
+    // 1. Check if there are multiple annotated version
+    // 2. If no, take one and compare with annotated version
+    // 3. We continue if same or replace none with new one
+
+    // Optimized:
+    // 1. Iterate over all annotations compare each with annotated_pyv and replace on flight
+    // 2. If annotated_pyv is different version, throw and error
+
+    // This way we make sure there is no multiple annotations for same script
+    // and we get detailed span on conflicting versions
+
+    let mut check = |py_xyz, numeric| -> error::Result<()> {
+        if py_xyz {
+            if let Some(v) = annotated_pyv {
+                if *v != numeric {
+                    return Err(error::Error::from(anyhow::anyhow!("No-no")));
+                }
+            } else {
+                *annotated_pyv = Some(numeric);
+            }
+        }
+        Ok(())
+    };
+
+    check(py310, 310)?;
+    check(py311, 311)?;
+    check(py312, 312)?;
+    check(py313, 313)?;
+
     let find_requirements = code
         .lines()
         .find_position(|x| x.starts_with("#requirements:") || x.starts_with("# requirements:"));
@@ -225,11 +260,13 @@ pub async fn parse_python_imports(
                 .fetch_optional(db)
                 .await?
                 .unwrap_or_else(|| "".to_string());
+
                 if already_visited.contains(&rpath) {
                     vec![]
                 } else {
                     already_visited.push(rpath.clone());
-                    parse_python_imports(&code, w_id, &rpath, db, already_visited).await?
+                    parse_python_imports(&code, w_id, &rpath, db, already_visited, annotated_pyv)
+                        .await?
                 }
             } else {
                 vec![replace_import(n.to_string())]

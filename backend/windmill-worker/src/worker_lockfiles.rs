@@ -33,7 +33,6 @@ use crate::python_executor::{
     USE_PIP_INSTALL,
 };
 use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
-use crate::INSTANCE_PYTHON_VERSION;
 use crate::{
     bun_executor::gen_bun_lockfile,
     deno_executor::generate_deno_lock,
@@ -1578,6 +1577,7 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    annotated_pyv: Option<u32>,
     annotations: PythonAnnotations,
     no_uv_compile: bool,
     no_uv_install: bool,
@@ -1593,9 +1593,17 @@ async fn python_dep(
             1. Annotation version
             2. Instance version
             3. 311
+
+        Also it is worth noting, that if we receive annotated_pyv,
+        we just parse it instead.
     */
-    let final_version = PyVersion::from_py_annotations(annotations)
-        .unwrap_or(PyVersion::from_instance_version().await);
+
+    let annotated_version = if let Some(pyv) = annotated_pyv {
+        PyVersion::from_numeric(pyv)
+    } else {
+        PyVersion::from_py_annotations(annotations)
+    };
+    let final_version = annotated_version.unwrap_or(PyVersion::from_instance_version().await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
@@ -1660,6 +1668,10 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
+            let annotations = PythonAnnotations::parse(job_raw_code);
+            let mut annotated_pyv =
+                PyVersion::from_py_annotations(annotations).map(|v| v.to_numeric());
+
             let reqs = if raw_deps {
                 job_raw_code.to_string()
             } else {
@@ -1671,12 +1683,12 @@ async fn capture_dependency_job(
                     script_path,
                     &db,
                     &mut already_visited,
+                    &mut annotated_pyv,
                 )
                 .await?
                 .join("\n")
             };
 
-            let annotations = PythonAnnotations::parse(job_raw_code);
             let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } = annotations;
 
             if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
@@ -1705,6 +1717,7 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                annotated_pyv,
                 annotations,
                 no_uv_compile | no_uv,
                 no_uv_install | no_uv,
@@ -1746,6 +1759,7 @@ async fn capture_dependency_job(
                 w_id,
                 worker_dir,
                 &mut Some(occupancy_metrics),
+                None,
                 PythonAnnotations::default(),
                 false,
                 false,

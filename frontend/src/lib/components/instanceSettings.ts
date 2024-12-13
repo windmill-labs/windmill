@@ -6,22 +6,29 @@ export interface Setting {
 	ee_only?: string
 	tooltip?: string
 	key: string
+	// If value is not specified for first element, it will automatcally use undefined
+	select_items?: {
+		label: string,
+		tooltip?: string,
+		// If not specified, label will be used
+		value?: any,
+	}[],
 	fieldType:
-		| 'text'
-		| 'number'
-		| 'boolean'
-		| 'password'
-		| 'select'
-		| 'textarea'
-		| 'seconds'
-		| 'email'
-		| 'license_key'
-		| 'object_store_config'
-		| 'critical_error_channels'
-		| 'slack_connect'
-		| 'smtp_connect'
-		| 'indexer_rates'
-		| 'otel'
+	| 'text'
+	| 'number'
+	| 'boolean'
+	| 'password'
+	| 'select'
+	| 'textarea'
+	| 'seconds'
+	| 'email'
+	| 'license_key'
+	| 'object_store_config'
+	| 'critical_error_channels'
+	| 'slack_connect'
+	| 'smtp_connect'
+	| 'indexer_rates'
+	| 'otel'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -72,9 +79,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					  value.includes('://') &&
-					  !value?.endsWith('/') &&
-					  !value?.endsWith(' ')
+					value.includes('://') &&
+					!value?.endsWith('/') &&
+					!value?.endsWith(' ')
 					: false
 		},
 		{
@@ -226,7 +233,23 @@ export const settings: Record<string, Setting[]> = {
 			// 1. Change placeholder in instanceSettings.ts
 			// 2. Change LATEST_STABLE_PY in dockerfile
 			// 3. Change #[default] annotation for PyVersion in backend
-			placeholder: 'latest stable (3.11),3.10,3.11,3.12,3.13',
+			placeholder: '3.10,3.11,3.12,3.13',
+			select_items: [{
+				label: "Latest Stable",
+				tooltip: "python-3.11",
+			},
+			{
+				label: "3.10",
+			},
+			{
+				label: "3.11",
+			},
+			{
+				label: "3.12",
+			},
+			{
+				label: "3.13",
+			}],
 			storage: 'setting',
 		},
 		{

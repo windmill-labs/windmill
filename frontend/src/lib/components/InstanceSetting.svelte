@@ -33,7 +33,6 @@
 	export let version: string
 	export let values: Writable<Record<string, any>>
 	export let loading = true
-
 	const dispatch = createEventDispatcher()
 
 	let latestKeyRenewalAttempt: {
@@ -49,6 +48,11 @@
 		}
 		return true
 	}
+
+	console.log(
+	"val",
+				$values[setting.key]
+	)
 
 	let licenseKeyChanged = false
 	let renewing = false
@@ -121,6 +125,24 @@
 			EE only {#if setting.ee_only != ''}<Tooltip>{setting.ee_only}</Tooltip>{/if}
 		</div>
 	{/if}
+	{#if setting.fieldType == 'select'}
+		<div>
+			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+				{#if setting.description}
+					<span class="text-secondary text-xs">
+						{@html setting.description}
+					</span>
+				{/if}
+					</label>
+				<ToggleButtonGroup bind:selected={$values[setting.key]}>
+	        {#each (setting.select_items ?? []) as item, index}
+						<ToggleButton value={(index == 0) ? undefined : item.label} label={item.label} tooltip={item.tooltip} />
+	        {/each}
+				</ToggleButtonGroup>
+		</div>
+	{:else}
 	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label class="block pb-2">
 		<span class="text-primary font-semibold text-sm">{setting.label}</span>
@@ -778,14 +800,6 @@
 					/>
 				</div>
 			{:else if setting.fieldType == 'select'}
-				<div>
-			    	<ToggleButtonGroup
-			    	 bind:selected={$values[setting.key]}>
-  		        {#each ((setting.placeholder ?? 'parsing error').split(',')) as item, index}
-								<ToggleButton value={String(index)} size="xxl" label={item} />
-			        {/each}
-			    	</ToggleButtonGroup>
-				</div>
 			{/if}
 			{#if hasError}
 				<span class="text-red-500 dark:text-red-400 text-sm">
@@ -796,4 +810,5 @@
 			<input disabled placeholder="Loading..." />
 		{/if}
 	</label>
+	{/if}
 {/if}

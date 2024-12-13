@@ -107,19 +107,18 @@ pub enum PyVersion {
 
 impl PyVersion {
     pub async fn from_instance_version() -> Self {
-        INSTANCE_PYTHON_VERSION
-            .read()
-            .await
-            .clone()
-            .and_then(|v| PyVersion::from_index(&v))
-            .unwrap_or_else(|| {
+        match INSTANCE_PYTHON_VERSION.read().await.clone() {
+            Some(v) => PyVersion::from_string_with_dots(&v).unwrap_or_else(|| {
                 let v = PyVersion::default();
                 tracing::error!(
-                    "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})",
-                    *INSTANCE_PYTHON_VERSION
-                );
+                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})",
+                *INSTANCE_PYTHON_VERSION
+            );
                 v
-            })
+            }),
+            // Use latest stable
+            None => PyVersion::default(),
+        }
     }
     /// e.g.: `/tmp/windmill/cache/python_3xy`
     pub fn to_cache_dir(&self) -> String {
@@ -158,19 +157,6 @@ impl PyVersion {
             "3.11" => Some(Py311),
             "3.12" => Some(Py312),
             "3.13" => Some(Py313),
-            "latest_stable" => Some(PyVersion::default()),
-            _ => None,
-        }
-    }
-    // Check frontend for more context
-    pub fn from_index(value: &str) -> Option<Self> {
-        use PyVersion::*;
-        match value {
-            "0" => Some(PyVersion::default()),
-            "1" => Some(Py310),
-            "2" => Some(Py311),
-            "3" => Some(Py312),
-            "4" => Some(Py313),
             _ => None,
         }
     }
@@ -179,7 +165,7 @@ impl PyVersion {
         Self::from_string_with_dots(line.replace("# py-", "").as_str())
     }
     pub fn from_py_annotations(a: PythonAnnotations) -> Option<Self> {
-        let PythonAnnotations { py310, py311, py312, py313, py_latest_stable, .. } = a;
+        let PythonAnnotations { py310, py311, py312, py313, .. } = a;
         use PyVersion::*;
         if py313 {
             Some(Py313)
@@ -189,10 +175,27 @@ impl PyVersion {
             Some(Py311)
         } else if py310 {
             Some(Py310)
-        } else if py_latest_stable {
-            Some(PyVersion::default())
         } else {
             None
+        }
+    }
+    pub fn from_numeric(n: u32) -> Option<Self> {
+        use PyVersion::*;
+        match n {
+            310 => Some(Py310),
+            311 => Some(Py311),
+            312 => Some(Py312),
+            313 => Some(Py313),
+            _ => None,
+        }
+    }
+    pub fn to_numeric(&self) -> u32 {
+        use PyVersion::*;
+        match self {
+            Py310 => 310,
+            Py311 => 311,
+            Py312 => 312,
+            Py313 => 313,
         }
     }
     pub async fn install_python(
@@ -1418,8 +1421,9 @@ async fn handle_python_deps(
 
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let instance_version = PyVersion::from_instance_version().await;
-    let annotated_version = PyVersion::from_py_annotations(annotations);
+    let mut annotated_version = PyVersion::from_py_annotations(annotations);
     let mut is_deployed = true;
+    let mut annotated_pyv = annotated_version.map(|v| v.to_numeric());
 
     let requirements = match requirements_o {
         Some(r) => r,
@@ -1433,6 +1437,7 @@ async fn handle_python_deps(
                 script_path,
                 db,
                 &mut already_visited,
+                &mut annotated_pyv,
             )
             .await?
             .join("\n");
@@ -1461,6 +1466,11 @@ async fn handle_python_deps(
             }
         }
     };
+
+    if let Some(pyv) = annotated_pyv {
+        annotated_version = annotated_version.or(PyVersion::from_numeric(pyv));
+    }
+
     /*
      For deployed scripts we want to find out version in following order:
      1. Annotated version

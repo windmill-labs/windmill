@@ -25,6 +25,7 @@ def main():
             "f/foo/bar",
             &db,
             &mut already_visited,
+            &mut None,
         )
         .await?;
         // println!("{}", serde_json::to_string(&r)?);
@@ -57,6 +58,7 @@ def main():
             "f/foo/bar",
             &db,
             &mut already_visited,
+            &mut None,
         )
         .await?;
         println!("{}", serde_json::to_string(&r)?);
@@ -87,6 +89,7 @@ def main():
             "f/foo/bar",
             &db,
             &mut already_visited,
+            &mut None,
         )
         .await?;
         println!("{}", serde_json::to_string(&r)?);
