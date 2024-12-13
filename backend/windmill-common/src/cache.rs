@@ -36,6 +36,17 @@ impl<Key: Eq + Hash + fs::Item, Val: Clone> FsBackedCache<Key, Val> {
         Self { cache: Cache::new(items_capacity), root }
     }
 
+    /// Build a path for the given `key`.
+    pub fn path(&self, key: &Key) -> PathBuf {
+        key.path(self.root)
+    }
+
+    /// Remove the item with the given `key` from the cache.
+    pub fn remove(&self, key: &Key) -> Option<(Key, Val)> {
+        let _ = std::fs::remove_dir_all(self.path(key));
+        self.cache.remove(key)
+    }
+
     /// Gets or inserts an item in the cache with key `key`.
     pub async fn get_or_insert_async<'a, T: fs::Bundle, Q, F>(
         &'a self,
@@ -50,7 +61,7 @@ impl<Key: Eq + Hash + fs::Item, Val: Clone> FsBackedCache<Key, Val> {
         self.cache
             .get_or_insert_async(key, async {
                 let key = key.to_owned();
-                fs::import_or_insert_with(&key.path(self.root), with)
+                fs::import_or_insert_with(self.path(&key), with)
                     .await
                     .map(map)
             })
@@ -450,6 +461,11 @@ pub mod script {
             )
             .await
     }
+
+    /// Invalidate the script cache for the given `hash`.
+    pub fn invalidate(hash: ScriptHash) {
+        let _ = CACHE.remove(&hash);
+    }
 }
 
 pub mod app {
@@ -706,7 +722,7 @@ mod fs {
     }
 
     // JSON bundle.
-    impl<T: for<'de> Deserialize<'de> + Serialize + Default> Bundle for sqlx::types::Json<T> {
+    impl<T: for<'de> Deserialize<'de> + Serialize + Default> Bundle for Json<T> {
         type Item = &'static str;
 
         fn items() -> impl Iterator<Item = Self::Item> {

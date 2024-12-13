@@ -311,6 +311,9 @@ pub async fn handle_dependency_job(
             .execute(db)
             .await?;
 
+            // `lock` has been updated; invalidate the cache.
+            cache::script::invalidate(hash);
+
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -590,7 +593,9 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
-    // `JobKind::FlowDependencies` store the flow version id the the script hash:
+    // `JobKind::FlowDependencies` job store either:
+    // - A saved flow version `id` in the `script_hash` column.
+    // - Preview raw flow in the `queue` or `job` table.
     let mut flow = match job.script_hash {
         Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
         _ => match preview_data {

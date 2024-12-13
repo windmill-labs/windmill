@@ -8,6 +8,7 @@
 
 use axum::body::Body;
 use axum::http::HeaderValue;
+use futures::TryFutureExt;
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
@@ -3449,7 +3450,6 @@ impl Drop for Guard {
     }
 }
 
-use futures::TryFutureExt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
