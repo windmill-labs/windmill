@@ -486,6 +486,7 @@
 					<input
 						class="max-w-80 border rounded-md !pl-8"
 						placeholder="Search workers by name..."
+						autocomplete="off"
 						bind:value={search}
 					/>
 					<Search class="absolute left-2 " size={14} />
