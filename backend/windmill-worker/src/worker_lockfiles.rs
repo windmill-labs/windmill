@@ -534,6 +534,7 @@ async fn trigger_dependents_to_recompute_dependencies(
 
 pub async fn handle_flow_dependency_job(
     job: &QueuedJob,
+    preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -591,9 +592,12 @@ pub async fn handle_flow_dependency_job(
 
     // `JobKind::FlowDependencies` store the flow version id the the script hash:
     let mut flow = match job.script_hash {
-        Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await,
-        _ => Err(Error::InternalErr("expected script hash".into())),
-    }?
+        Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
+        _ => match preview_data {
+            Some(RawData::Flow(data)) => data.clone(),
+            _ => return Err(Error::InternalErr("expected script hash".into())),
+        },
+    }
     .value()?
     .clone();
 

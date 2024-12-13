@@ -1969,9 +1969,14 @@ async fn handle_queued_job(
     // The `raw_*` values passed to this function are the original raw values from `queue` tables,
     // they are kept for backward compatibility as they have been moved to the `job` table.
     let preview_data = match (job.job_kind, job.script_hash) {
-        (JobKind::Preview | JobKind::FlowPreview | JobKind::Dependencies | JobKind::Flow, None) => {
-            Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?)
-        }
+        (
+            JobKind::Preview
+            | JobKind::Dependencies
+            | JobKind::FlowPreview
+            | JobKind::Flow
+            | JobKind::FlowDependencies,
+            None,
+        ) => Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?),
         _ => None,
     };
     let cached_res_path = if job.cache_ttl.is_some() {
@@ -2093,6 +2098,7 @@ async fn handle_queued_job(
             JobKind::FlowDependencies => {
                 handle_flow_dependency_job(
                     &job,
+                    preview_data.as_ref(),
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
