@@ -74,6 +74,8 @@ websocket = ["windmill-api/websocket"]
 python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp"]
 csharp = ["windmill-worker/csharp"]
+license = ["windmill-api/license"]
+oauth2 = ["windmill-api/oauth2"]
 
 [dependencies]
 anyhow.workspace = true

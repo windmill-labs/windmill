@@ -11,6 +11,7 @@ use crate::db::ApiAuthed;
 use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
+#[cfg(feature = "oauth2")]
 use crate::oauth2_ee::AllClients;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
@@ -28,7 +29,9 @@ use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use http::HeaderValue;
 use reqwest::Client;
+#[cfg(feature = "oauth2")]
 use std::collections::HashMap;
+
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
@@ -61,6 +64,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+#[cfg(feature = "http_trigger")]
 mod http_triggers;
 mod indexer_ee;
 mod inputs;
@@ -126,6 +130,11 @@ lazy_static::lazy_static! {
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
+
+}
+
+#[cfg(feature = "oauth2")]
+lazy_static::lazy_static! {
     pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
@@ -174,8 +183,7 @@ pub async fn run_server(
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
-    #[cfg(feature = "smtp")]
-    base_internal_url: String,
+    #[cfg(feature = "smtp")] base_internal_url: String,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
@@ -313,7 +321,15 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", http_triggers::workspaced_service())
+                        .nest("/http_triggers", {
+                            #[cfg(feature = "http_trigger")]
+                            {
+                                http_triggers::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "http_trigger"))]
+                            Router::new()
+                        })
                         .nest("/websocket_triggers", {
                             #[cfg(feature = "websocket")]
                             {
@@ -321,9 +337,7 @@ pub async fn run_server(
                             }
 
                             #[cfg(not(feature = "websocket"))]
-                            {
-                                Router::new()
-                            }
+                            Router::new()
                         })
                         .nest("/kafka_triggers", kafka_triggers_service),
                 )
@@ -402,7 +416,18 @@ pub async fn run_server(
                 )
                 .nest(
                     "/r",
-                    http_triggers::routes_global_service().layer(from_extractor::<OptAuthed>()),
+                    {
+                        #[cfg(feature = "http_trigger")]
+                        {
+                            http_triggers::routes_global_service()
+                        }
+
+                        #[cfg(not(feature = "http_trigger"))]
+                        {
+                            Router::new()
+                        }
+                    }
+                    .layer(from_extractor::<OptAuthed>()),
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))

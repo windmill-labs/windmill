@@ -15,7 +15,6 @@ use crate::db::ApiAuthed;
 
 #[cfg(feature = "enterprise")]
 use crate::ee::ExternalJwks;
-use crate::oauth2_ee::InstanceEvent;
 use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -47,6 +46,7 @@ use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::auth::fetch_authed_from_permissioned_as;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
+use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
@@ -514,6 +514,7 @@ pub struct Tokened {
 }
 
 pub struct OptTokened {
+    #[allow(dead_code)]
     pub token: Option<String>,
 }
 
@@ -768,6 +769,7 @@ where
     }
 }
 
+#[allow(unused)]
 pub async fn fetch_api_authed(
     username: String,
     email: String,
@@ -779,6 +781,7 @@ pub async fn fetch_api_authed(
     fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
 }
 
+#[allow(unused)]
 pub async fn fetch_api_authed_from_permissioned_as(
     permissioned_as: String,
     email: String,
