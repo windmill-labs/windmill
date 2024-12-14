@@ -28,9 +28,6 @@ use windmill_api::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_api::{oauth2_ee::build_oauth_clients, OAUTH_CLIENTS};
-
-#[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 
 #[cfg(feature = "oauth2")]
@@ -1470,8 +1467,8 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
 
     #[cfg(feature = "oauth2")]
     {
-        let mut l = OAUTH_CLIENTS.write().await;
-        *l = build_oauth_clients(&base_url, oauths)
+        let mut l = windmill_api::OAUTH_CLIENTS.write().await;
+        *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths)
         .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
         .unwrap();
     }
