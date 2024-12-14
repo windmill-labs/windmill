@@ -44,7 +44,8 @@ const config = {
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages',
-			'monaco-graphql'
+			'monaco-graphql',
+			'monaco-editor-wrapper'
 		],
 		esbuildOptions: {
 			plugins: [importMetaUrlPlugin]

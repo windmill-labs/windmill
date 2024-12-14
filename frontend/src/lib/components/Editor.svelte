@@ -52,6 +52,7 @@
 	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
 		noSemanticValidation: false,
 		noSyntaxValidation: false,
+
 		noSuggestionDiagnostics: false,
 		diagnosticCodesToIgnore: [1108]
 	})
@@ -80,7 +81,9 @@
 		strict: true,
 		noLib: false,
 		allowImportingTsExtensions: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		allowSyntheticDefaultImports: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
+		jsx: languages.typescript.JsxEmit.React
 	})
 
 	// languages.typescript.javascriptDefaults.setCompilerOptions({
@@ -212,7 +215,7 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
 	export let small = false
-	export let scriptLang: Preview['language'] | 'bunnative'
+	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
 
@@ -248,7 +251,7 @@
 	const uri =
 		lang != 'go' && lang != 'typescript' && lang != 'python'
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
-			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
+			: `file:///tmp/monaco/${randomHash()}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
 
 	console.log('uri', uri)
 
@@ -688,8 +691,20 @@
 	}
 
 	export async function reloadWebsocket() {
-		console.log('reloadWebsocket')
 		await closeWebsockets()
+
+		if (
+			!useWebsockets ||
+			!(
+				(lang == 'typescript' && scriptLang === 'deno') ||
+				lang == 'python' ||
+				lang == 'go' ||
+				lang == 'shell'
+			)
+		) {
+			return
+		}
+		console.log('reloadWebsocket')
 
 		function createLanguageClient(
 			transports: MessageTransports,
@@ -840,11 +855,6 @@
 		const hostname = getHostname()
 
 		let encodedImportMap = ''
-		// if (lang == 'typescript') {
-
-		// 	let worker = await languages.typescript.getTypeScriptWorker()
-		// 	console.log(worker)
-		// }
 
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
@@ -1009,7 +1019,8 @@
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
-							scriptLang != 'bun'
+							scriptLang != 'bun' &&
+							scriptLang != 'tsx'
 						) {
 							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
@@ -1189,8 +1200,7 @@
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
-				!websocketInterval &&
-				scriptLang != 'bun'
+				!websocketInterval
 			) {
 				console.log('reconnecting to language servers on focus')
 				reloadWebsocket()
@@ -1199,7 +1209,7 @@
 
 		reloadWebsocket()
 
-		setTypescriptExtraLibs()
+		setTypescriptExtraLibsATA()
 		return () => {
 			console.log('disposing editor')
 			ata = undefined
@@ -1215,74 +1225,90 @@
 		}
 	}
 
-	async function setTypescriptExtraLibs() {
-		if (lang === 'typescript' && scriptLang != 'deno') {
+	export async function setPackageJson(libs: { name: string; version: string }) {
+		languages.typescript.typescriptDefaults.setExtraLibs(libs)
+		libs.forEach(async (lib) => {
+			console.log('adding library to runtime', lib.filePath)
+
+			if (lib.filePath) {
+				try {
+					const uri = mUri.parse(lib.filePath)
+					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+				} catch (e) {
+					console.log('error writing file', e)
+				}
+			}
+		})
+	}
+
+	async function setTypescriptExtraLibsATA() {
+		if (lang === 'typescript' && scriptLang == 'bun' && ata == undefined) {
 			const hostname = getHostname()
 
-			if (scriptLang == 'bun' && ata == undefined) {
-				const addLibraryToRuntime = async (code: string, _path: string) => {
-					const path = 'file://' + _path
-					let uri = mUri.parse(path)
-					console.log('adding library to runtime', path)
-					languages.typescript.typescriptDefaults.addExtraLib(code, path)
-					try {
-						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
-					} catch (e) {
-						console.log('error writing file', e)
-					}
+			const addLibraryToRuntime = async (code: string, _path: string) => {
+				const path = 'file://' + _path
+				let uri = mUri.parse(path)
+				console.log('adding library to runtime', path)
+				languages.typescript.typescriptDefaults.addExtraLib(code, path)
+				try {
+					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+				} catch (e) {
+					console.log('error writing file', e)
 				}
-
-				const addLocalFile = async (code: string, _path: string) => {
-					let p = new URL(_path, uri).href
-					// if (_path?.startsWith('/')) {
-					// 	p = 'file://' + p
-					// }
-					let nuri = mUri.parse(p)
-					console.log('adding local file', _path, nuri.toString())
-					if (editor) {
-						let localModel = meditor.getModel(nuri)
-						if (localModel) {
-							localModel.setValue(code)
-						} else {
-							meditor.createModel(code, 'typescript', nuri)
-						}
-						try {
-							if (model) {
-								model?.setValue(model.getValue())
-							}
-						} catch (e) {
-							console.log('error resetting model', e)
-						}
-					}
-				}
-				await initWasmTs()
-				const root = await genRoot(hostname)
-				console.log('SETUP TYPE ACQUISITION', { root, path })
-				ata = setupTypeAcquisition({
-					projectName: 'Windmill',
-					depsParser: (c) => {
-						return parseTypescriptDeps(c)
-					},
-					root,
-					scriptPath: path,
-					logger: console,
-					delegate: {
-						receivedFile: addLibraryToRuntime,
-						localFile: addLocalFile,
-						progress: (downloaded: number, total: number) => {
-							// console.log({ dl, ttl })
-						},
-						started: () => {
-							console.log('ATA start')
-						},
-						finished: (f) => {
-							console.log('ATA done')
-						}
-					}
-				})
-				ata?.('import "bun-types"')
-				ata?.(code)
 			}
+
+			const addLocalFile = async (code: string, _path: string) => {
+				let p = new URL(_path, uri).href
+				// if (_path?.startsWith('/')) {
+				// 	p = 'file://' + p
+				// }
+				let nuri = mUri.parse(p)
+				console.log('adding local file', _path, nuri.toString())
+				if (editor) {
+					let localModel = meditor.getModel(nuri)
+					if (localModel) {
+						localModel.setValue(code)
+					} else {
+						meditor.createModel(code, 'typescript', nuri)
+					}
+					try {
+						if (model) {
+							model?.setValue(model.getValue())
+						}
+					} catch (e) {
+						console.log('error resetting model', e)
+					}
+				}
+			}
+			await initWasmTs()
+			const root = await genRoot(hostname)
+			console.log('SETUP TYPE ACQUISITION', { root, path })
+			ata = setupTypeAcquisition({
+				projectName: 'Windmill',
+				depsParser: (c) => {
+					return parseTypescriptDeps(c)
+				},
+				root,
+				scriptPath: path,
+				logger: console,
+				delegate: {
+					receivedFile: addLibraryToRuntime,
+					localFile: addLocalFile,
+					progress: (downloaded: number, total: number) => {
+						// console.log({ dl, ttl })
+					},
+					started: () => {
+						console.log('ATA start')
+					},
+					finished: (f) => {
+						console.log('ATA done')
+					}
+				}
+			})
+			if (scriptLang == 'bun') {
+				ata?.('import "bun-types"')
+			}
+			ata?.(code)
 		}
 	}
 
