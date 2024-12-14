@@ -19,6 +19,7 @@ pub(crate) async fn s3_storage(
     tracing::info!("Logs length of {_job_id} has exceeded a threshold. Implementation to store excess on s3 in not OSS");
 }
 
+#[allow(dead_code)]
 pub(crate) async fn default_disk_log_storage(
     job_id: Uuid,
     _w_id: &str,

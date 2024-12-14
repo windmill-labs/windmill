@@ -8,7 +8,6 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    oauth2_ee::_refresh_token,
     users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };
@@ -183,10 +182,21 @@ async fn get_variable(
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-                Some(
-                    _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap(), &db)
+                #[cfg(feature = "oauth2")]
+                {
+                    Some(
+                        crate::oauth2_ee::_refresh_token(
+                            tx,
+                            &variable.path,
+                            &w_id,
+                            variable.account.unwrap(),
+                            &db,
+                        )
                         .await?,
-                )
+                    )
+                }
+                #[cfg(not(feature = "oauth2"))]
+                return Err(Error::InternalErr("Require oauth2 feature".to_string()));
             } else if !value.is_empty() && decrypt_secret {
                 let _ = tx.commit().await;
                 let mc = build_crypt(&db, &w_id).await?;
@@ -640,7 +650,19 @@ pub async fn get_value_internal<'c>(
         .await?;
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-            _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap(), db).await?
+            #[cfg(feature = "oauth2")]
+            {
+                crate::oauth2_ee::_refresh_token(
+                    tx,
+                    &variable.path,
+                    &w_id,
+                    variable.account.unwrap(),
+                    db,
+                )
+                .await?
+            }
+            #[cfg(not(feature = "oauth2"))]
+            return Err(Error::InternalErr("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
             tx.commit().await?;
             let mc = build_crypt(&db, &w_id).await?;

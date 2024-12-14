@@ -1,5 +1,6 @@
+#[cfg(feature = "oauth2")]
+use std::collections::HashMap;
 use std::{
-    collections::HashMap,
     fmt::Display,
     ops::Mul,
     str::FromStr,
@@ -22,19 +23,33 @@ use tokio::{
 #[cfg(feature = "embedding")]
 use windmill_api::embeddings::update_embeddings_db;
 use windmill_api::{
-    jobs::TIMEOUT_WAIT_RESULT,
-    oauth2_ee::{build_oauth_clients, OAuthClient},
-    DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
+    jobs::TIMEOUT_WAIT_RESULT, DEFAULT_BODY_LIMIT, IS_SECURE, REQUEST_SIZE_LIMIT, SAML_METADATA,
+    SCIM_TOKEN,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_api::{oauth2_ee::build_oauth_clients, OAUTH_CLIENTS};
+
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
+
+#[cfg(feature = "oauth2")]
+use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
     error,
     flow_status::FlowStatusModule,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     indexer::load_indexer_config,
     jobs::QueuedJob,
@@ -55,7 +70,9 @@ use windmill_common::{
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender, SendResult, BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY
+    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
+    SendResult, BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
+    NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "parquet")]
@@ -1430,10 +1447,15 @@ pub async fn load_base_url(db: &DB) -> error::Result<String> {
 }
 
 pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
+    #[cfg(feature = "oauth2")]
     let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
 
+    #[cfg(feature = "oauth2")]
     let oauths = if let Some(q) = q_oauth {
-        if let Ok(v) = serde_json::from_value::<Option<HashMap<String, OAuthClient>>>(q.clone()) {
+        if let Ok(v) = serde_json::from_value::<
+            Option<HashMap<String, windmill_api::oauth2_ee::OAuthClient>>,
+        >(q.clone())
+        {
             v
         } else {
             tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);
@@ -1446,6 +1468,7 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     let base_url = load_base_url(db).await?;
     let is_secure = base_url.starts_with("https://");
 
+    #[cfg(feature = "oauth2")]
     {
         let mut l = OAUTH_CLIENTS.write().await;
         *l = build_oauth_clients(&base_url, oauths)

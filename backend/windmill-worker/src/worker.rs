@@ -2292,7 +2292,7 @@ async fn handle_code_execution_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
-    worker_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     base_internal_url: &str,
@@ -2411,6 +2411,7 @@ async fn handle_code_execution_job(
             ));
         }
 
+        #[allow(unreachable_code)]
         #[cfg(not(feature = "bigquery"))]
         {
             return Err(Error::InternalErr(
@@ -2464,6 +2465,7 @@ async fn handle_code_execution_job(
             ));
         }
 
+        #[allow(unreachable_code)]
         #[cfg(not(feature = "mssql"))]
         {
             return Err(Error::InternalErr(
