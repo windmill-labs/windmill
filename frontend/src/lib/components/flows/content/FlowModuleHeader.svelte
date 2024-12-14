@@ -124,9 +124,12 @@
 				}}
 				startIcon={{ icon: Pen }}
 				iconOnly={false}
+				tooltip={module.value.hash != undefined
+					? 'Script is locked with a specific hash'
+					: undefined}
 				disabled={module.value.hash != undefined}
 			>
-				Edit {#if module.value.hash != undefined} (locked hash){/if}
+				Edit
 			</Button>
 		{/if}
 		{#if customUi?.tagEdit != false}

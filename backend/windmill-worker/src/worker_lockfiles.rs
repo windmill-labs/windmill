@@ -29,6 +29,7 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
+use crate::csharp_executor::generate_nuget_lockfile;
 
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
@@ -36,7 +37,7 @@ use crate::php_executor::{composer_install, parse_php_imports};
 use crate::python_executor::{
     create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
 };
-use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
+use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
     bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
@@ -1897,20 +1898,26 @@ async fn capture_dependency_job(
             )
             .await?;
 
-            build_rust_crate(
+            Ok(lockfile)
+        }
+        ScriptLang::CSharp => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for C#".to_string(),
+                ));
+            }
+
+            generate_nuget_lockfile(
                 job_id,
+                job_raw_code,
                 mem_peak,
                 canceled_by,
                 job_dir,
                 db,
                 worker_name,
                 w_id,
-                base_internal_url,
-                &compute_rust_hash(&job_raw_code, Some(&lockfile)),
                 occupancy_metrics,
-            )
-            .await?;
-            Ok(lockfile)
+            ).await
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

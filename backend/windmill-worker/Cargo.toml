@@ -27,6 +27,7 @@ dind = ["dep:bollard"]
 php = ["dep:windmill-parser-php"]
 mysql = ["dep:mysql_async"]
 python = ["dep:windmill-parser-py", "dep:windmill-parser-py-imports"]
+csharp = ["dep:windmill-parser-csharp"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -36,6 +37,7 @@ windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-rust.workspace = true
+windmill-parser-csharp = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-yaml.workspace = true
 windmill-parser-py-imports = { workspace = true, optional = true }

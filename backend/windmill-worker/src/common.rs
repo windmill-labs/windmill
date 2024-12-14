@@ -31,7 +31,13 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::path::Path;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::Duration,
+};
+
 use uuid::Uuid;
 use windmill_common::{variables, DB};
 
@@ -51,6 +57,23 @@ pub async fn build_args_map<'a>(
         return transform_json(client, &job.workspace_id, &args.0, &job, db).await;
     }
     return Ok(None);
+}
+
+pub fn check_executor_binary_exists(
+    executor: &str,
+    executor_path: &str,
+    language: &str,
+) -> Result<(), Error> {
+    if !Path::new(executor_path).exists() {
+        #[cfg(feature = "enterprise")]
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run {language} jobs.", executor_path);
+
+        #[cfg(not(feature = "enterprise"))]
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run {language} jobs.", executor_path);
+        return Err(Error::NotFound(msg));
+    }
+
+    Ok(())
 }
 
 pub async fn build_args_values(
