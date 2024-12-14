@@ -15,7 +15,6 @@ enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "wind
 mssql = ["dep:tiberius"]
 bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
-flamegraph = []
 parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []

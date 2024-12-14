@@ -9,6 +9,7 @@
 use std::sync::atomic::AtomicBool;
 
 use hmac::Hmac;
+use serde::Serialize;
 use sha2::Sha256;
 
 pub type HmacSha256 = Hmac<Sha256>;
@@ -24,4 +25,16 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
 
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+pub enum InstanceEvent {
+    UserSignupOAuth { email: String },
+    UserAdded { email: String },
+    // UserDeleted { email: String },
+    // UserDeletedWorkspace { workspace: String, email: String },
+    UserAddedWorkspace { workspace: String, email: String },
+    UserInvitedWorkspace { workspace: String, email: String },
+    UserJoinedWorkspace { workspace: String, email: String, username: String },
 }

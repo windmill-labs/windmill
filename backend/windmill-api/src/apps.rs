@@ -101,11 +101,6 @@ pub fn global_service() -> Router {
         .route("/hub/get/:id", get(get_hub_app_by_id))
 }
 
-#[cfg(not(feature = "enterprise"))]
-pub fn global_unauthed_service() -> Router {
-    Router::new()
-}
-
 #[derive(FromRow, Deserialize, Serialize)]
 pub struct ListableApp {
     pub id: i64,

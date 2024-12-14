@@ -149,22 +149,6 @@ pub fn initialize_tracing(
     (_guard, meter_provider)
 }
 
-#[cfg(feature = "flamegraph")]
-use tracing_flame::FlameLayer;
-
-#[cfg(feature = "flamegraph")]
-pub fn setup_flamegraph() -> impl Drop {
-    // let fmt_layer = Layer::default();
-
-    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
-
-    tracing_subscriber::registry()
-        // .with(fmt_layer)
-        .with(flame_layer)
-        .init();
-    _guard
-}
-
 lazy_static::lazy_static! {
     pub static ref LOG_COUNTING_BY_MIN: Arc<RwLock<HashMap<String, LogCounter>>> = Arc::new(RwLock::new(HashMap::new()));
 }

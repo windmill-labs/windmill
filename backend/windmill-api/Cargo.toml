@@ -21,7 +21,11 @@ openidconnect = ["dep:openidconnect"]
 tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:rdkafka"]
 websocket = ["dep:tokio-tungstenite"]
-smtp = ["dep:mail-parser"]
+smtp = ["dep:mail-parser", "dep:openssl"]
+license = ["dep:rsa"]
+zip = ["dep:async_zip"]
+oauth2 = ["dep:async-oauth2"]
+http_trigger = ["dep:matchit"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -45,7 +49,7 @@ itertools.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 sqlx.workspace = true
-async-oauth2.workspace = true
+async-oauth2 = { workspace = true, optional = true }
 tracing.workspace = true
 sql-builder.workspace = true
 serde_json.workspace = true
@@ -64,7 +68,7 @@ rand.workspace = true
 time.workspace = true
 native-tls.workspace = true
 tokio-native-tls.workspace = true
-openssl.workspace = true
+openssl = { workspace = true, optional = true }
 mail-parser = { workspace = true, features = ["serde_support"], optional = true }
 magic-crypt.workspace = true
 tempfile.workspace = true
@@ -77,12 +81,12 @@ urlencoding.workspace = true
 async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
-async_zip.workspace = true
+async_zip = { workspace = true, optional = true }
 regex.workspace = true
 bytes.workspace = true
 samael = { workspace = true, optional = true }
 async-recursion.workspace = true
-rsa.workspace = true
+rsa = { workspace = true, optional = true}
 uuid.workspace = true
 tinyvector = { workspace = true, optional = true}
 hf-hub  = { workspace = true, optional = true}
@@ -95,7 +99,7 @@ object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
 url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
-matchit.workspace = true
+matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
 rdkafka = { workspace = true, optional = true }
 const_format.workspace = true

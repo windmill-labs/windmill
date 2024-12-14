@@ -10,14 +10,17 @@ use std::{collections::HashMap, fmt::Debug};
 
 use axum::{routing::get, Json, Router};
 use hmac::Mac;
-use hyper::HeaderMap;
 
+#[cfg(feature = "oauth2")]
 use itertools::Itertools;
+#[cfg(feature = "oauth2")]
 use oauth2::{Client as OClient, *};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
+#[cfg(feature = "oauth2")]
 use windmill_common::more_serde::maybe_number_opt;
 
+#[cfg(feature = "oauth2")]
 use crate::OAUTH_CLIENTS;
 use windmill_common::error;
 use windmill_common::oauth2::*;
@@ -27,7 +30,6 @@ use std::str;
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/list_supabase", get(list_supabase))
         .route("/list_logins", get(list_logins))
         .route("/list_connects", get(list_connects))
 }
@@ -36,17 +38,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
 }
 
-#[derive(Serialize)]
-#[serde(tag = "type")]
-pub enum InstanceEvent {
-    UserAdded { email: String },
-    // UserDeleted { email: String },
-    // UserDeletedWorkspace { workspace: String, email: String },
-    UserAddedWorkspace { workspace: String, email: String },
-    UserInvitedWorkspace { workspace: String, email: String },
-    UserJoinedWorkspace { workspace: String, email: String, username: String },
-}
-
+#[cfg(feature = "oauth2")]
 #[derive(Debug, Clone)]
 pub struct ClientWithScopes {
     _client: OClient,
@@ -56,7 +48,7 @@ pub struct ClientWithScopes {
     _allowed_domains: Option<Vec<String>>,
     _userinfo_url: Option<String>,
 }
-
+#[cfg(feature = "oauth2")]
 pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -79,6 +71,7 @@ pub struct OAuthClient {
     login_config: Option<OAuthConfig>,
 }
 
+#[cfg(feature = "oauth2")]
 #[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
@@ -86,6 +79,7 @@ pub struct AllClients {
     pub slack: Option<OClient>,
 }
 
+#[cfg(feature = "oauth2")]
 pub fn build_oauth_clients(
     _base_url: &str,
     _oauths_from_config: Option<HashMap<String, OAuthClient>>,
@@ -98,6 +92,7 @@ pub fn build_oauth_clients(
     });
 }
 
+#[cfg(feature = "oauth2")]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TokenResponse {
     access_token: AccessToken,
@@ -121,6 +116,7 @@ async fn list_logins() -> error::JsonResult<Logins> {
     return Ok(Json(Logins { oauth: vec![], saml: None }));
 }
 
+#[cfg(feature = "oauth2")]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
     Ok(Json(
         (&OAUTH_CLIENTS.read().await.connects)
@@ -130,6 +126,12 @@ async fn list_connects() -> error::JsonResult<Vec<String>> {
     ))
 }
 
+#[cfg(not(feature = "oauth2"))]
+async fn list_connects() -> error::JsonResult<Vec<String>> {
+    // Implementation is not open source
+    return Ok(Json(vec![]));
+}
+
 pub async fn _refresh_token<'c>(
     _tx: Transaction<'c, Postgres>,
     _path: &str,
@@ -137,13 +139,6 @@ pub async fn _refresh_token<'c>(
     _id: i32,
     _db: &DB,
 ) -> error::Result<String> {
-    // Implementation is not open source
-    Err(error::Error::BadRequest(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
-}
-
-async fn list_supabase(_headers: HeaderMap) -> error::Result<String> {
     // Implementation is not open source
     Err(error::Error::BadRequest(
         "Not implemented in Windmill's Open Source repository".to_string(),
