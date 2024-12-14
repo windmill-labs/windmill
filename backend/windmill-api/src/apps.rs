@@ -20,7 +20,7 @@ use crate::{
 #[cfg(feature = "parquet")]
 use crate::{
     job_helpers_ee::{
-        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
+        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_from_req,
         UploadFileResponse,
     },
     users::fetch_api_authed_from_permissioned_as,
@@ -1681,7 +1681,7 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    upload_file_internal(s3_client, &file_key, request, options).await?;
+    upload_file_from_req(s3_client, &file_key, request, options).await?;
 
     return Ok(Json(UploadFileResponse { file_key }));
 }

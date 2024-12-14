@@ -3,12 +3,12 @@ use std::collections::HashMap;
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use axum::{
-    extract::{FromRequest, FromRequestParts, Query, Request},
+    extract::{FromRequest, FromRequestParts, Multipart, Query, Request},
     http::{HeaderMap, Uri},
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use http::{header::CONTENT_TYPE, request::Parts};
+use http::{header::CONTENT_TYPE, request::Parts, StatusCode};
 #[cfg(feature = "parquet")]
 use object_store::{Attribute, Attributes};
 use serde::Deserialize;
@@ -23,9 +23,11 @@ use crate::db::ApiAuthed;
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::{get_random_file_name, upload_file_internal};
 
+#[derive(Default)]
 pub struct WebhookArgs {
     pub args: PushArgsOwned,
-    pub file_req: Option<Request>,
+    pub multipart: Option<Multipart>,
+    pub wrap_body: Option<bool>,
 }
 
 impl WebhookArgs {
@@ -36,7 +38,7 @@ impl WebhookArgs {
         _db: &DB,
         _w_id: &str,
     ) -> Result<PushArgsOwned, Error> {
-        if self.file_req.is_some() {
+        if self.multipart.is_some() {
             return Err(Error::BadRequest(format!(
                 "Uploading files requires the parquet feature"
             )));
@@ -52,7 +54,9 @@ impl WebhookArgs {
         db: &DB,
         w_id: &str,
     ) -> Result<PushArgsOwned, Error> {
-        if let Some(req) = self.file_req {
+        use futures::TryStreamExt;
+
+        if let Some(mut multipart) = self.multipart {
             {
                 let (_, s3_resource) =
                     get_workspace_s3_resource(authed, db, None, "", w_id, None).await?;
@@ -60,40 +64,71 @@ impl WebhookArgs {
                 if let Some(s3_resource) = s3_resource {
                     let s3_client = build_object_store_client(&s3_resource).await?;
 
-                    let content_type = req
-                        .headers()
-                        .get(CONTENT_TYPE)
-                        .map(|x| x.to_str().ok().map(|x| x.to_string()))
-                        .flatten();
+                    let mut body = HashMap::new();
 
-                    let file_extension = content_type
-                        .as_ref()
-                        .map(|mime_str| {
-                            mime_guess::get_mime_extensions_str(mime_str)
-                                .map(|x| x.first().map(|x| x.to_string()))
-                        })
-                        .flatten()
-                        .flatten();
+                    while let Some(field) = multipart.next_field().await.map_err(|e| {
+                        Error::BadRequest(format!(
+                            "Error reading multipart field: {}",
+                            e.body_text()
+                        ))
+                    })? {
+                        if let Some(name) = field.name().map(|x| x.to_string()) {
+                            if let Some(content_type) = field.content_type() {
+                                let ext = field
+                                    .file_name()
+                                    .map(|x| x.split('.').last())
+                                    .flatten()
+                                    .map(|x| x.to_string());
 
-                    let file_key = get_random_file_name(file_extension);
+                                let file_key = get_random_file_name(ext);
 
-                    let options = Attributes::from_iter(vec![
-                        (
-                            Attribute::ContentType,
-                            content_type.unwrap_or("application/octet-stream".to_string()),
-                        ),
-                        (Attribute::ContentDisposition, "inline".to_string()),
-                    ])
-                    .into();
+                                let options = Attributes::from_iter(vec![
+                                    (Attribute::ContentType, content_type.to_string()),
+                                    (
+                                        Attribute::ContentDisposition,
+                                        if let Some(filename) = field.file_name() {
+                                            format!("inline; filename=\"{}\"", filename)
+                                        } else {
+                                            "inline".to_string()
+                                        },
+                                    ),
+                                ])
+                                .into();
 
-                    upload_file_internal(s3_client, &file_key, req, options).await?;
+                                let bytes_stream = field.into_stream().map_err(|err| {
+                                    std::io::Error::new(std::io::ErrorKind::Other, err)
+                                });
 
-                    self.args.args.insert(
-                        "body".to_string(),
-                        to_raw_value(&serde_json::json!({
-                            "s3": &file_key
-                        })),
-                    );
+                                upload_file_internal(
+                                    s3_client.clone(),
+                                    &file_key,
+                                    bytes_stream,
+                                    options,
+                                )
+                                .await?;
+
+                                body.insert(
+                                    name,
+                                    to_raw_value(&serde_json::json!({
+                                        "s3": &file_key
+                                    })),
+                                );
+                            } else {
+                                body.insert(
+                                    name,
+                                    to_raw_value(&field.text().await.unwrap_or_default()),
+                                );
+                            }
+                        }
+                    }
+
+                    if self.wrap_body.unwrap_or(false) {
+                        self.args
+                            .args
+                            .insert("body".to_string(), to_raw_value(&body));
+                    } else {
+                        self.args.args.extend(body);
+                    }
 
                     return Ok(self.args);
                 }
@@ -168,7 +203,7 @@ where
                 }
                 return Ok(Self {
                     args: PushArgsOwned { extra: Some(extra), args: args },
-                    file_req: None,
+                    ..Default::default()
                 });
             }
             let str = String::from_utf8(bytes.to_vec())
@@ -176,7 +211,7 @@ where
 
             PushArgsOwned::from_json(extra, use_raw, wrap_body, str)
                 .await
-                .map(|args| Self { args, file_req: None })
+                .map(|args| Self { args, ..Default::default() })
         } else if content_type
             .unwrap()
             .starts_with("application/cloudevents+json")
@@ -185,7 +220,7 @@ where
 
             PushArgsOwned::from_ce_json(extra, use_raw, str)
                 .await
-                .map(|args| Self { args, file_req: None })
+                .map(|args| Self { args, ..Default::default() })
         } else if content_type
             .unwrap()
             .starts_with("application/cloudevents-batch+json")
@@ -199,7 +234,7 @@ where
             extra.insert("raw_string".to_string(), to_raw_value(&str));
             Ok(Self {
                 args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-                file_req: None,
+                ..Default::default()
             })
         } else if content_type
             .unwrap()
@@ -227,7 +262,7 @@ where
 
             return Ok(Self {
                 args: PushArgsOwned { extra: Some(extra), args: payload },
-                file_req: None,
+                ..Default::default()
             });
         } else if content_type.unwrap().starts_with("application/xml")
             || content_type.unwrap().starts_with("text/xml")
@@ -236,15 +271,20 @@ where
             extra.insert("raw_string".to_string(), to_raw_value(&str));
             Ok(Self {
                 args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-                file_req: None,
+                ..Default::default()
+            })
+        } else if content_type.unwrap().starts_with("multipart/form-data") {
+            let multipart = Multipart::from_request(req, _state)
+                .await
+                .map_err(IntoResponse::into_response)?;
+
+            Ok(Self {
+                args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
+                multipart: Some(multipart),
+                wrap_body: Some(wrap_body),
             })
         } else {
-            return Ok(Self {
-                args: PushArgsOwned { extra: None, args: HashMap::new() },
-                file_req: Some(req),
-            });
-
-            // Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
+            Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
     }
 }
