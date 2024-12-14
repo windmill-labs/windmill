@@ -1,8 +1,10 @@
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.event_name != 'pull_request' && github.repository ||
+  IMAGE_NAME:
+    ${{ github.event_name != 'pull_request' && github.repository ||
     'windmill-labs/windmill-test' }}
-  DEV_SHA: ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
+  DEV_SHA:
+    ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
     github.event.number) }}
 
 name: Build windmill:main
@@ -24,7 +26,10 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud
-    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage_all') || contains(github.event.comment.body, '/buildimage_base'))
+    if:
+      (github.event_name != 'issue_comment') ||
+      (contains(github.event.comment.body, '/buildimage_all') ||
+      contains(github.event.comment.body, '/buildimage_base'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,7 +91,11 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if: (github.event_name != 'issue_comment') || (contains(github.event.comment.body, '/buildimage_ee') || contains(github.event.comment.body, '/buildimage_nsjail')) || contains(github.event.comment.body, '/buildimage_all')
+    if:
+      (github.event_name != 'issue_comment') ||
+      (contains(github.event.comment.body, '/buildimage_ee') ||
+      contains(github.event.comment.body, '/buildimage_nsjail')) ||
+      contains(github.event.comment.body, '/buildimage_all')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -138,7 +147,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,license,http_trigger,zip,oauth2,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -200,7 +209,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,license,http_trigger,zip,oauth2,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
             PYTHON_IMAGE=python:3.12.2-slim-bookworm
           tags: |
             ${{ steps.meta-ee-public-py312.outputs.tags }}
@@ -356,7 +365,9 @@ jobs:
   tag_latest:
     runs-on: ubicloud
     needs: [run_integration_test, build]
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if:
+      github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/v'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -375,7 +386,9 @@ jobs:
   tag_latest_ee:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if:
+      github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/v'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -436,7 +449,11 @@ jobs:
   build_ee_nsjail:
     needs: [build_ee]
     runs-on: ubicloud
-    if: (github.event_name != 'issue_comment') || (github.event_name != 'pull_request') || (contains(github.event.comment.body, '/buildimage_nsjail') || contains(github.event.comment.body, '/buildimage_all'))
+    if:
+      (github.event_name != 'issue_comment') || (github.event_name !=
+      'pull_request') || (contains(github.event.comment.body,
+      '/buildimage_nsjail') || contains(github.event.comment.body,
+      '/buildimage_all'))
     steps:
       - uses: actions/checkout@v4
         with:

@@ -64,7 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,kafka,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,kafka,license,http_trigger,zip,oauth2,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -81,7 +81,7 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,kafka,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,kafka,license,http_trigger,zip,oauth2,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -111,12 +111,16 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-amd64 build
-          path: ${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9
+          path:
+            ${{ steps.extract-ee-amd64.outputs.destination
+            }}/windmill-ee-amd64-rhel9
 
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-arm64 build
-          path: ${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9
+          path:
+            ${{ steps.extract-ee-arm64.outputs.destination
+            }}/windmill-ee-arm64-rhel9
 
       # - name: Attach binary to release
       #   uses: softprops/action-gh-release@v2
