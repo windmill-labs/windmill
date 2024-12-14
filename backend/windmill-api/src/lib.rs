@@ -13,15 +13,18 @@ use crate::ee::ExternalJwks;
 use crate::embeddings::load_embeddings_db;
 #[cfg(feature = "oauth2")]
 use crate::oauth2_ee::AllClients;
+#[cfg(feature = "oauth2")]
+use crate::oauth2_ee::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
+
 use crate::tracing_init::MyOnFailure;
 use crate::{
-    oauth2_ee::SlackVerifier,
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
 };
+
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
@@ -78,6 +81,7 @@ pub mod job_metrics;
 pub mod jobs;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_ee;
+#[cfg(feature = "oauth2")]
 pub mod oauth2_ee;
 mod oidc_ee;
 mod raw_apps;
@@ -117,10 +121,6 @@ lazy_static::lazy_static! {
 
     pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
 
-    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
-        .ok()
-        .map(|x| SlackVerifier::new(x).unwrap());
-
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -140,6 +140,12 @@ lazy_static::lazy_static! {
         connects: HashMap::new(),
         slack: None
     }));
+
+
+    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
+        .ok()
+        .map(|x| SlackVerifier::new(x).unwrap());
+
 }
 
 // Compliance with cloud events spec.
@@ -308,7 +314,15 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
-                        .nest("/oauth", oauth2_ee::workspaced_service())
+                        .nest("/oauth", {
+                            #[cfg(feature = "oauth2")]
+                            {
+                                oauth2_ee::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "oauth2"))]
+                            Router::new()
+                        })
                         .nest("/ai", ai::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
@@ -410,10 +424,15 @@ pub async fn run_server(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
                 )
-                .nest(
-                    "/oauth",
-                    oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
-                )
+                .nest("/oauth", {
+                    #[cfg(feature = "oauth2")]
+                    {
+                        oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension)))
+                    }
+
+                    #[cfg(not(feature = "oauth2"))]
+                    Router::new()
+                })
                 .nest(
                     "/r",
                     {

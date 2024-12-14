@@ -81,7 +81,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc,deno_core,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
+            features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -147,7 +147,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,license,http_trigger,zip,oauth2,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -209,7 +209,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,kafka,license,http_trigger,zip,oauth2,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp
             PYTHON_IMAGE=python:3.12.2-slim-bookworm
           tags: |
             ${{ steps.meta-ee-public-py312.outputs.tags }}

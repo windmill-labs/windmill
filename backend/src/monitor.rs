@@ -1,5 +1,5 @@
 #[cfg(feature = "oauth2")]
-use std::HashMap;
+use std::collections::HashMap;
 use std::{
     fmt::Display,
     ops::Mul,
@@ -1452,7 +1452,10 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
 
     #[cfg(feature = "oauth2")]
     let oauths = if let Some(q) = q_oauth {
-        if let Ok(v) = serde_json::from_value::<Option<HashMap<String, OAuthClient>>>(q.clone()) {
+        if let Ok(v) = serde_json::from_value::<
+            Option<HashMap<String, windmill_api::oauth2_ee::OAuthClient>>,
+        >(q.clone())
+        {
             v
         } else {
             tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);

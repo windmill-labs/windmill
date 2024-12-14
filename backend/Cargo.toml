@@ -51,7 +51,6 @@ enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmi
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
-flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
