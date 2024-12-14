@@ -1,1 +1,6 @@
-/git/windmill/../windmill-ee-private/windmill-autoscaling/src/autoscaling_ee.rs
+use windmill_common::DB;
+
+pub async fn apply_all_autoscaling(_db: &DB) -> anyhow::Result<()> {
+    // Autoscaling is an ee feature
+    Ok(())
+}
