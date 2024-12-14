@@ -10,8 +10,6 @@ use std::{collections::HashMap, fmt::Debug};
 
 use axum::{routing::get, Json, Router};
 use hmac::Mac;
-#[cfg(feature = "oauth2")]
-use hyper::HeaderMap;
 
 #[cfg(feature = "oauth2")]
 use itertools::Itertools;
@@ -128,6 +126,7 @@ async fn list_connects() -> error::JsonResult<Vec<String>> {
     ))
 }
 
+#[cfg(not(feature = "oauth2"))]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
     // Implementation is not open source
     return Ok(Json(vec![]));
