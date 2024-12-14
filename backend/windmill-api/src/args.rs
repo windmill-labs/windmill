@@ -40,7 +40,7 @@ impl WebhookArgs {
     ) -> Result<PushArgsOwned, Error> {
         if self.multipart.is_some() {
             return Err(Error::BadRequest(format!(
-                "Uploading files requires the parquet feature"
+                "multipart/form-data requires the parquet feature"
             )));
         }
 
@@ -135,7 +135,7 @@ impl WebhookArgs {
             }
 
             return Err(Error::BadRequest(format!(
-                "You need to connect your workspace to an S3 bucket to upload files"
+                "You need to connect your workspace to an S3 bucket to use multipart/form-data"
             )));
         }
 
