@@ -1,6 +1,6 @@
 resource "aws_launch_template" "windmill_cluster_high_performance_lt" {
   name          = "windmill-cluster-high-perf-lt"
-  image_id      = "ami-09c0b8e7f21923ac0"
+  image_id      = data.aws_ssm_parameter.amazon_linux_2023.value
   instance_type = "t3.xlarge"
   # vpc_security_group_ids = [aws_security_group.windmill_cluster_sg.id]
 
@@ -99,9 +99,9 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_high_performance_w
       environment = [{
         name  = "JSON_FMT"
         value = "true"
-      }, {
+        }, {
         name  = "DATABASE_URL"
-        value = "postgres://${aws_db_instance.windmill_cluster_rds.username}:${aws_db_instance.windmill_cluster_rds.password}@${aws_db_instance.windmill_cluster_rds.endpoint}/${aws_db_instance.windmill_cluster_rds.db_name}?sslmode=disable"
+        value = local.db_url
         }, {
         name  = "MODE"
         value = "worker"

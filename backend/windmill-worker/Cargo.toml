@@ -11,7 +11,9 @@ path = "src/lib.rs"
 [features]
 default = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:gcp_auth", "dep:pem", "dep:tiberius", "dep:tokio-util", "dep:openidconnect"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
+mssql = ["dep:tiberius"]
+bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
 flamegraph = []
 parquet = ["windmill-common/parquet", "dep:object_store"]
@@ -24,6 +26,7 @@ otel = ["windmill-common/otel", "dep:opentelemetry"]
 dind = ["dep:bollard"]
 php = ["dep:windmill-parser-php"]
 mysql = ["dep:mysql_async"]
+python = ["dep:windmill-parser-py", "dep:windmill-parser-py-imports"]
 csharp = ["dep:windmill-parser-csharp"]
 
 [dependencies]
@@ -35,9 +38,9 @@ windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-rust.workspace = true
 windmill-parser-csharp = { workspace = true, optional = true }
-windmill-parser-py.workspace = true
+windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-yaml.workspace = true
-windmill-parser-py-imports.workspace = true
+windmill-parser-py-imports = { workspace = true, optional = true }
 windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
@@ -93,7 +96,6 @@ reqwest.workspace = true
 hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
-openidconnect = { workspace = true, optional = true}
 tar.workspace = true
 object_store = { workspace = true, optional = true}
 convert_case.workspace = true

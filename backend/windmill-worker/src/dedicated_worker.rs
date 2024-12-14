@@ -679,6 +679,14 @@ async fn spawn_dedicated_worker(
 
             if let Err(e) = match language {
                 Some(ScriptLang::Python3) => {
+                    #[cfg(not(feature = "python"))]
+                    {
+                        tracing::error!("Python requires the python feature to be enabled");
+                        killpill_tx.send(()).expect("send");
+                        return;
+                    }
+
+                    #[cfg(feature = "python")]
                     crate::python_executor::start_worker(
                         lock,
                         &db,

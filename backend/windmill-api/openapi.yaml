@@ -1126,7 +1126,7 @@ paths:
           in: query
           required: false
           schema:
-            type: int
+            type: integer
       responses:
         "200":
           description: new token
