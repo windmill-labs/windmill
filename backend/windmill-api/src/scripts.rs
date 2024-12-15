@@ -12,7 +12,8 @@ use crate::{
     triggers::{
         get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
     },
-    users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
+    users::{maybe_refresh_folders, require_owner_of_path},
+    auth::AuthCache,
     utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
