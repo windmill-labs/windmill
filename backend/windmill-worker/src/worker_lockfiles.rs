@@ -40,6 +40,7 @@ use crate::php_executor::{composer_install, parse_php_imports};
 use crate::python_executor::{
     create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
 };
+#[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
     bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
@@ -1888,6 +1889,12 @@ async fn capture_dependency_job(
                 ));
             }
 
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::InternalErr(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
             let lockfile = generate_cargo_lockfile(
                 job_id,
                 job_raw_code,
@@ -1901,6 +1908,7 @@ async fn capture_dependency_job(
             )
             .await?;
 
+            #[cfg(feature = "rust")]
             Ok(lockfile)
         }
         ScriptLang::CSharp => {
