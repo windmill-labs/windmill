@@ -11,8 +11,9 @@ use std::sync::Arc;
 use crate::db::ApiAuthed;
 
 use crate::{
+    auth::AuthCache,
     db::DB,
-    users::{AuthCache, Tokened},
+    users::Tokened,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
