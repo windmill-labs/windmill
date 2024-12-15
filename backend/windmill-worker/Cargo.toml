@@ -100,7 +100,6 @@ tar.workspace = true
 object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
-swc_ecma_parser.workspace = true
 backon.workspace = true
 
 opentelemetry = { workspace = true, optional = true }
