@@ -287,7 +287,7 @@ rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
-openidconnect = { git = "https://github.com/ramosbugs/openidconnect-rs", rev = "5632960ea94ceda3a17c818d45c26648cc6bee8b"}
+openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sts = "^1"
 
