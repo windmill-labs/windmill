@@ -78,6 +78,7 @@ license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
 http_trigger = ["windmill-api/http_trigger"]
 zip = ["windmill-api/zip"]
+static_frontend = ["windmill-api/static_frontend"]
 
 
 [dependencies]
