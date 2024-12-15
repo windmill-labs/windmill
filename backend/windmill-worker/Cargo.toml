@@ -116,5 +116,3 @@ deno_core = { workspace = true, optional = true }
 deno_ast = { workspace = true, optional = true }
 deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
-
-zstd.workspace = true
