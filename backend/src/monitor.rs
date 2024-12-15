@@ -86,22 +86,8 @@ use crate::ee::verify_license_key;
 
 use crate::ee::set_license_key;
 
+#[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
-    static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
-    .ok()
-    .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "60".to_string());
-
-    static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
-    .ok()
-    .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "60".to_string());
-
-
-    pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
-    .ok()
-    .and_then(|x| x.parse::<bool>().ok())
-    .unwrap_or(true);
 
     static ref QUEUE_ZOMBIE_RESTART_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_zombie_restart_count",
@@ -119,6 +105,26 @@ lazy_static::lazy_static! {
         "Number of jobs in the queue",
         &["tag"]
     ).unwrap();
+
+}
+lazy_static::lazy_static! {
+    static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
+    .ok()
+    .and_then(|x| x.parse::<String>().ok())
+    .unwrap_or_else(|| "60".to_string());
+
+    static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
+    .ok()
+    .and_then(|x| x.parse::<String>().ok())
+    .unwrap_or_else(|| "60".to_string());
+
+
+    pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(true);
+
+
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
@@ -1163,6 +1169,7 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
     Ok(())
 }
 
+#[cfg(feature = "prometheus")]
 pub async fn monitor_pool(db: &DB) {
     if METRICS_ENABLED.load(Ordering::Relaxed) {
         let db = db.clone();
@@ -1288,6 +1295,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     if metrics_enabled || save_metrics {
         let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
+        #[cfg(feature = "prometheus")]
         if metrics_enabled {
             for q in QUEUE_COUNT_TAGS.read().await.iter() {
                 if queue_counts.get(q).is_none() {
@@ -1296,11 +1304,13 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             }
         }
 
+        #[allow(unused_mut)]
         let mut tags_to_watch = vec![];
         for q in queue_counts {
             let count = q.1;
             let tag = q.0;
 
+            #[cfg(feature = "prometheus")]
             if metrics_enabled {
                 let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
                 metric.set(count as i64);
@@ -1494,9 +1504,11 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             .ok()
             .unwrap_or_else(|| vec![]);
 
+        #[cfg(feature = "prometheus")]
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
+
         let base_url = BASE_URL.read().await.clone();
         for r in restarted {
             let last_ping = if let Some(x) = r.last_ping {
@@ -1533,6 +1545,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         .ok()
         .unwrap_or_else(|| vec![]);
 
+    #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }

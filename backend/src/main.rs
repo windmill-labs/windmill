@@ -75,7 +75,7 @@ use windmill_worker::{
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db, monitor_pool,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
@@ -283,7 +283,6 @@ async fn windmill_main() -> anyhow::Result<()> {
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     println!("jemalloc enabled");
 
-
     let cli_arg = std::env::args().nth(1).unwrap_or_default();
 
     match cli_arg.as_str() {
@@ -486,7 +485,8 @@ Windmill Community Edition {GIT_VERSION}
         )
         .await;
 
-        monitor_pool(&db).await;
+        #[cfg(feature = "prometheus")]
+        crate::monitor::monitor_pool(&db).await;
 
         send_logs_to_object_store(&db, &hostname, &mode);
 
