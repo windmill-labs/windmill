@@ -286,7 +286,6 @@ rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
-zstd = "=0.12.4"
 aws-config = "^1"
 aws-sdk-sts = "^1"
 
