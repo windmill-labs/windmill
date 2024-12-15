@@ -46,5 +46,5 @@ jobs:
           && touch windmill-api/openapi-deref.yaml &&
           DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
           DISABLE_EMBEDDING=true RUST_LOG=info cargo test --features
-          enterprise,deno_core,license,http_trigger,zip,oauth2,python --all --
+          enterprise,deno_core,license,http_trigger,zip,oauth2,python,rust --all --
           --nocapture
