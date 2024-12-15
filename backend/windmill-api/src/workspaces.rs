@@ -2116,7 +2116,7 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
 
 enum ArchiveImpl {
     #[cfg(feature = "zip")]
-    Zip(async_zip::write::ZipFileWriter<File>),
+    Zip(async_zip::tokio::write::ZipFileWriter<tokio::fs::File>),
     Tar(tokio_tar::Builder<File>),
 }
 
@@ -2136,13 +2136,11 @@ impl ArchiveImpl {
             }
             #[cfg(feature = "zip")]
             ArchiveImpl::Zip(z) => {
-                let header = async_zip::ZipEntryBuilder::new(
-                    path.to_owned(),
-                    async_zip::Compression::Deflate,
-                )
-                .last_modification_date(Default::default())
-                .unix_permissions(0o777)
-                .build();
+                let header =
+                    async_zip::ZipEntryBuilder::new(path.into(), async_zip::Compression::Deflate)
+                        .last_modification_date(Default::default())
+                        .unix_permissions(0o777)
+                        .build();
                 z.write_entry_whole(header, content.as_bytes())
                     .await
                     .map_err(to_anyhow)?;
@@ -2154,7 +2152,7 @@ impl ArchiveImpl {
         match self {
             ArchiveImpl::Tar(t) => t.into_inner().await?,
             #[cfg(feature = "zip")]
-            ArchiveImpl::Zip(z) => z.close().await.map_err(to_anyhow)?,
+            ArchiveImpl::Zip(z) => z.close().await.map_err(to_anyhow)?.into_inner(),
         }
         .sync_all()
         .await?;
@@ -2305,11 +2303,18 @@ async fn tarball_workspace(
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     let file_path = tmp_dir.path().join(&name);
-    let file = File::create(&file_path).await?;
     let mut archive = match archive_type.as_deref() {
-        Some("tar") | None => Ok(ArchiveImpl::Tar(tokio_tar::Builder::new(file))),
+        Some("tar") | None => {
+            let file = File::create(&file_path).await?;
+            Ok(ArchiveImpl::Tar(tokio_tar::Builder::new(file)))
+        }
         #[cfg(feature = "zip")]
-        Some("zip") => Ok(ArchiveImpl::Zip(async_zip::write::ZipFileWriter::new(file))),
+        Some("zip") => {
+            let file = tokio::fs::File::create(&file_path).await?;
+            Ok(ArchiveImpl::Zip(
+                async_zip::tokio::write::ZipFileWriter::with_tokio(file),
+            ))
+        }
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     {

@@ -457,23 +457,6 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.3.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942c7cd7ae39e91bde4820d74132e9862e62c2f386c3aa90ccf55949f5bad63a"
-dependencies = [
- "bzip2",
- "flate2",
- "futures-core",
- "memchr",
- "pin-project-lite",
- "tokio",
- "xz2",
- "zstd 0.11.2+zstd.1.5.2",
- "zstd-safe 5.0.2+zstd.1.5.2",
-]
-
-[[package]]
-name = "async-compression"
 version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df895a515f70646414f4b45c0b79082783b80552b373a68283012928df56f522"
@@ -581,17 +564,18 @@ dependencies = [
 
 [[package]]
 name = "async_zip"
-version = "0.0.11"
+version = "0.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c50d29ab7e2f9e808cca1a69ea56a36f4ff216f54a41a23aae1fd4afc05cc020"
+checksum = "00b9f7252833d5ed4b00aa9604b563529dd5e11de9c23615de2dcdf91eb87b52"
 dependencies = [
- "async-compression 0.3.15",
+ "async-compression",
  "chrono",
  "crc32fast",
- "log",
+ "futures-lite 2.5.0",
  "pin-project",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2194,7 +2178,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
- "async-compression 0.4.18",
+ "async-compression",
  "async-trait",
  "bytes",
  "bzip2",
@@ -3548,6 +3532,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-lite"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cef40d21ae2c515b51041df9ed313ed21e572df340ea58a922a0aefe7e8891a1"
+dependencies = [
+ "fastrand 2.3.0",
+ "futures-core",
+ "futures-io",
+ "parking",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "futures-macro"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4185,7 +4182,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "base64 0.13.1",
- "futures-lite",
+ "futures-lite 1.13.0",
  "http 0.2.12",
  "infer",
  "pin-project-lite",
@@ -7023,7 +7020,7 @@ version = "0.12.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a77c62af46e79de0a562e1a9849205ffcb7fc1238876e9bd743357570e04046f"
 dependencies = [
- "async-compression 0.4.18",
+ "async-compression",
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
@@ -9829,7 +9826,7 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "403fa3b783d4b626a8ad51d766ab03cb6d2dbfc46b1c5d4448395e6628dc9697"
 dependencies = [
- "async-compression 0.4.18",
+ "async-compression",
  "bitflags 2.6.0",
  "bytes",
  "futures-core",
@@ -11721,15 +11718,6 @@ dependencies = [
 
 [[package]]
 name = "zstd"
-version = "0.11.2+zstd.1.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20cc960326ece64f010d2d2107537f26dc589a6573a316bd5b1dba685fa5fde4"
-dependencies = [
- "zstd-safe 5.0.2+zstd.1.5.2",
-]
-
-[[package]]
-name = "zstd"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a27595e173641171fc74a1232b7b1c7a7cb6e18222c11e9dfb9888fa424c53c"
@@ -11744,16 +11732,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fcf2b778a664581e31e389454a7072dab1647606d44f7feea22cd5abb9c9f3f9"
 dependencies = [
  "zstd-safe 7.2.1",
-]
-
-[[package]]
-name = "zstd-safe"
-version = "5.0.2+zstd.1.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d2a5585e04f9eea4b2a3d1eca508c4dee9592a89ef6f450c11719da0726f4db"
-dependencies = [
- "libc",
- "zstd-sys",
 ]
 
 [[package]]

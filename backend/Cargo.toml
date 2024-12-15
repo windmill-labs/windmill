@@ -244,7 +244,7 @@ async-stripe = { version = "0.39.1", features = [
     "checkout",
     "billing",
 ] }
-async_zip = { version = "0.0.11", features = ["full"] }
+async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 gosyn = "0.2.6"
 bytes = "1.4.0"
