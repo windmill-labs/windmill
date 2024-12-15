@@ -9250,8 +9250,9 @@ dependencies = [
 
 [[package]]
 name = "tiberius"
-version = "0.12.2"
-source = "git+https://github.com/prisma/tiberius?rev=8f66a699dfa041e7b5f736c7e94f92c945453c9e#8f66a699dfa041e7b5f736c7e94f92c945453c9e"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1446cb4198848d1562301a3340424b4f425ef79f35ef9ee034769a9dd92c10d"
 dependencies = [
  "async-trait",
  "asynchronous-codec",
