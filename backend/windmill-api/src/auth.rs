@@ -1,3 +1,5 @@
+#[cfg(feature = "enterprise")]
+use crate::ee::ExternalJwks;
 use axum::{
     async_trait,
     extract::{FromRequestParts, OriginalUri, Query},
@@ -15,6 +17,9 @@ use std::sync::{
     atomic::{AtomicI64, AtomicU64, Ordering},
     Arc,
 };
+#[cfg(feature = "enterprise")]
+use tokio::sync::RwLock;
+
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, JWT_SECRET},
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},

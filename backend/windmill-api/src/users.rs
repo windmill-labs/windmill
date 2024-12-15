@@ -14,8 +14,7 @@ use std::sync::Arc;
 use crate::db::ApiAuthed;
 
 pub use crate::auth::Tokened;
-#[cfg(feature = "enterprise")]
-use crate::ee::ExternalJwks;
+
 use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -37,8 +36,6 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use time::OffsetDateTime;
-#[cfg(feature = "enterprise")]
-use tokio::sync::RwLock;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
