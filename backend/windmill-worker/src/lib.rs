@@ -12,6 +12,7 @@ mod bash_executor;
 mod bun_executor;
 pub mod common;
 mod config;
+mod csharp_executor;
 #[cfg(feature = "enterprise")]
 mod dedicated_worker;
 mod deno_executor;
@@ -30,11 +31,11 @@ mod php_executor;
 #[cfg(feature = "python")]
 mod python_executor;
 mod result_processor;
+#[cfg(feature = "rust")]
 mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
-mod csharp_executor;
 pub use worker::*;
 
 pub use result_processor::handle_job_error;
