@@ -187,7 +187,7 @@
 					{disabled}
 					color="light"
 					variant="border"
-					size="sm"
+					size="xs"
 					on:click={() => appConnect?.open?.(resourceType)}
 					startIcon={{ icon: Plus }}
 					iconOnly={collection?.length > 0}

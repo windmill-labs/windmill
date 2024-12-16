@@ -61,13 +61,18 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, setContext, tick } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
+	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
+	import {
+		BUN_PREPROCESSOR_MODULE_CODE,
+		PYTHON_PREPROCESSOR_MODULE_CODE
+	} from '$lib/script_helpers'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -90,6 +95,9 @@
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
+	let args: Record<string, any> = initialArgs // Test args input
+	let selectedInputTab: 'main' | 'preprocessor' = 'main'
+	let hasPreprocessor = false
 
 	let metadataOpen =
 		!neverShowMeta &&
@@ -137,12 +145,14 @@
 
 	const triggerDefaultValuesStore = writable<Record<string, any> | undefined>(undefined)
 
+	const captureOn = writable<boolean | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: triggerDefaultValuesStore
+		defaultValues: triggerDefaultValuesStore,
+		captureOn: captureOn
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
@@ -613,6 +623,46 @@
 		}
 		return lang
 	}
+
+	async function applyArgs(e) {
+		selectedInputTab = 'main'
+		metadataOpen = false
+		// TODO: that sucks, but don't know how to avoid it
+		await tick()
+		await tick()
+		args = e.detail.args ?? {}
+	}
+
+	function openTriggers(ev) {
+		metadataOpen = true
+		selectedTab = 'triggers'
+		selectedTriggerStore.set(ev.detail.kind)
+		triggerDefaultValuesStore.set(ev.detail.config)
+		captureOn.set(true)
+	}
+
+	function addPreprocessor() {
+		const code = editor?.getCode()
+		if (code) {
+			const preprocessorCode =
+				script.language === 'python3'
+					? PYTHON_PREPROCESSOR_MODULE_CODE
+					: BUN_PREPROCESSOR_MODULE_CODE
+			const mainIndex = code.indexOf(
+				script.language === 'python3' ? 'def main' : 'export async function main'
+			)
+			if (mainIndex === -1) {
+				editor?.setCode(code + preprocessorCode)
+			} else {
+				editor?.setCode(
+					code.slice(0, mainIndex) + preprocessorCode + '\n' + code.slice(mainIndex) + '\n\n'
+				)
+			}
+		}
+		selectedInputTab = 'preprocessor'
+	}
+
+	let shouldRefreshCaptures = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1207,12 +1257,21 @@
 						</TabContent>
 						<TabContent value="triggers">
 							<TriggersEditor
+								on:applyArgs={applyArgs}
+								on:addPreprocessor={addPreprocessor}
+								on:refreshCaptures={() => {
+									shouldRefreshCaptures = true
+								}}
 								{initialPath}
 								schema={script.schema}
 								noEditor={true}
 								isFlow={false}
 								currentPath={script.path}
 								newItem={initialPath == ''}
+								canHavePreprocessor={script.language === 'bun' ||
+									script.language === 'deno' ||
+									script.language === 'python3'}
+								{hasPreprocessor}
 							/>
 							<!-- <ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} /> -->
 						</TabContent>
@@ -1298,6 +1357,7 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
+					<CaptureButton on:openTriggers={openTriggers} />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							color="light"
@@ -1391,6 +1451,7 @@
 		</div>
 
 		<ScriptEditor
+			bind:selectedTab={selectedInputTab}
 			{customUi}
 			collabMode
 			edit={initialPath != ''}
@@ -1400,12 +1461,9 @@
 			on:saveDraft={() => {
 				saveDraft()
 			}}
-			on:openTriggers={(ev) => {
-				metadataOpen = true
-				selectedTab = 'triggers'
-				selectedTriggerStore.set(ev.detail.kind)
-				triggerDefaultValuesStore.set(ev.detail.config)
-			}}
+			on:openTriggers={openTriggers}
+			on:applyArgs={applyArgs}
+			on:addPreprocessor={addPreprocessor}
 			bind:editor
 			bind:this={scriptEditor}
 			bind:schema={script.schema}
@@ -1416,6 +1474,9 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			bind:args
+			bind:hasPreprocessor
+			bind:shouldRefreshCaptures
 		/>
 	</div>
 {:else}

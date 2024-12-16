@@ -13,7 +13,7 @@
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -28,11 +28,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import { slide } from 'svelte/transition'
-	import CapturePanel from './triggers/CapturePanel.svelte'
-	import {
-		BUN_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_MODULE_CODE
-	} from '$lib/script_helpers'
+	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -54,6 +50,10 @@
 	export let saveToWorkspace = false
 	export let watchChanges = false
 	export let customUi: ScriptEditorWhitelabelCustomUi = {}
+	export let args: Record<string, any> = initialArgs
+	export let selectedTab: 'main' | 'preprocessor' = 'main'
+	export let hasPreprocessor = false
+	export let shouldRefreshCaptures = false
 
 	let jobProgressReset: () => void
 
@@ -74,9 +74,6 @@
 	let width = 1200
 
 	let testJobLoader: TestJobLoader
-
-	// Test args input
-	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
 	let scriptProgress = undefined
@@ -130,8 +127,6 @@
 			scriptPathExact: path
 		})
 	}
-
-	let hasPreprocessor = false
 
 	export async function inferSchema(code: string, nlang?: SupportedLanguage, resetArgs = false) {
 		let nschema = schema ?? emptySchema()
@@ -247,8 +242,9 @@
 		url.search = ''
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
-	let selectedTab: 'main' | 'preprocessor' | 'capture' = 'main'
 
+	$: showTabs = hasPreprocessor
+	$: !hasPreprocessor && (selectedTab = 'main')
 	$: selectedTab && inferSchema(code)
 
 	let argsRender = 0
@@ -376,136 +372,115 @@
 		</Pane>
 		<Pane size={40} minSize={10}>
 			<div class="flex flex-col h-full">
-				<div transition:slide={{ duration: 200 }}>
-					<Tabs bind:selected={selectedTab}>
-						<Tab value="main">Main</Tab>
-						{#if hasPreprocessor}
-							<div transition:slide={{ duration: 200, axis: 'x' }}>
-								<Tab value="preprocessor">Preprocessor</Tab>
-							</div>
-						{/if}
-						<Tab value="capture">Capture</Tab>
-					</Tabs>
-				</div>
-				{#if selectedTab === 'capture'}
-					<CapturePanel
-						path={path ?? ''}
-						newItem={!edit}
-						{hasPreprocessor}
-						isFlow={false}
-						on:openTriggers
-						on:applyArgs={async (e) => {
-							selectedTab = e.detail.kind
-							// TODO: that sucks, but don't know how to avoid it
-							await tick()
-							await tick()
-							args = e.detail.args ?? {}
-						}}
-						canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
-						on:addPreprocessor={() => {
-							const code = editor?.getCode()
-							if (code) {
-								const preprocessorCode =
-									lang === 'python3'
-										? PYTHON_PREPROCESSOR_MODULE_CODE
-										: BUN_PREPROCESSOR_MODULE_CODE
-								const mainIndex = code.indexOf(
-									lang === 'python3' ? 'def main' : 'export async function main'
-								)
-								if (mainIndex === -1) {
-									editor?.setCode(code + preprocessorCode)
-								} else {
-									editor?.setCode(
-										code.slice(0, mainIndex) +
-											preprocessorCode +
-											'\n' +
-											code.slice(mainIndex) +
-											'\n\n'
-									)
-								}
-							}
-						}}
-					/>
-				{:else}
-					<div class="flex justify-center pt-1">
-						{#if testIsLoading}
-							<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
-								<WindmillIcon
-									white={true}
-									class="mr-2 text-white"
-									height="16px"
-									width="20px"
-									spin="fast"
-								/>
-								Cancel
-							</Button>
-						{:else}
-							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full"
-								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
-							</Button>
-						{/if}
-					</div>
-					<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
-						<Pane size={33}>
-							<div class="px-2">
-								<div class="break-words relative font-sans">
-									{#key argsRender}
-										<SchemaForm
-											helperScript={{
-												type: 'inline',
-												code,
-												//@ts-ignore
-												lang
-											}}
-											compact
-											{schema}
-											bind:args
-											bind:isValid
-											showSchemaExplorer
-										/>
-									{/key}
+				{#if showTabs}
+					<div transition:slide={{ duration: 200 }}>
+						<Tabs bind:selected={selectedTab}>
+							<Tab value="main">Main</Tab>
+							{#if hasPreprocessor}
+								<div transition:slide={{ duration: 200, axis: 'x' }}>
+									<Tab value="preprocessor">Preprocessor</Tab>
 								</div>
-							</div>
-						</Pane>
-						<Pane size={67}>
-							<LogPanel
-								{lang}
-								previewJob={testJob}
-								{pastPreviews}
-								previewIsLoading={testIsLoading}
-								{editor}
-								{diffEditor}
-								{args}
-							>
-								{#if scriptProgress}
-									<!-- Put to the slot in logpanel -->
-									<JobProgressBar
-										job={testJob}
-										bind:scriptProgress
-										bind:reset={jobProgressReset}
-										compact={true}
-									/>
-								{/if}
-							</LogPanel>
-						</Pane>
-					</Splitpanes>
+							{/if}
+						</Tabs>
+					</div>
 				{/if}
+
+				<div class="flex justify-center pt-1">
+					{#if testIsLoading}
+						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+							<WindmillIcon
+								white={true}
+								class="mr-2 text-white"
+								height="16px"
+								width="20px"
+								spin="fast"
+							/>
+							Cancel
+						</Button>
+					{:else}
+						<Button
+							color="dark"
+							on:click={() => {
+								runTest()
+							}}
+							btnClasses="w-full"
+							size="xs"
+							startIcon={{
+								icon: Play,
+								classes: 'animate-none'
+							}}
+							shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+						>
+							{#if testIsLoading}
+								Running
+							{:else}
+								Test
+							{/if}
+						</Button>
+					{/if}
+				</div>
+				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
+					<Pane size={33}>
+						<div class="px-2">
+							<div class="break-words relative font-sans">
+								{#key argsRender}
+									<SchemaForm
+										helperScript={{
+											type: 'inline',
+											code,
+											//@ts-ignore
+											lang
+										}}
+										compact
+										{schema}
+										bind:args
+										bind:isValid
+										showSchemaExplorer
+									/>
+								{/key}
+							</div>
+						</div>
+					</Pane>
+					<Pane size={67} class="relative">
+						<LogPanel
+							{lang}
+							previewJob={testJob}
+							{pastPreviews}
+							previewIsLoading={testIsLoading}
+							{editor}
+							{diffEditor}
+							{args}
+							showCaptures={true}
+						>
+							{#if scriptProgress}
+								<!-- Put to the slot in logpanel -->
+								<JobProgressBar
+									job={testJob}
+									bind:scriptProgress
+									bind:reset={jobProgressReset}
+									compact={true}
+								/>
+							{/if}
+							<svelte:fragment slot="capturesTab">
+								<div class="h-full p-2">
+									<CaptureTable
+										showAll={true}
+										{hasPreprocessor}
+										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
+										isFlow={false}
+										path={path ?? ''}
+										hideCapturesWhenEmpty={false}
+										canEdit={true}
+										on:applyArgs
+										on:updateSchema
+										on:addPreprocessor
+										bind:shouldRefreshCaptures
+									/>
+								</div>
+							</svelte:fragment>
+						</LogPanel>
+					</Pane>
+				</Splitpanes>
 			</div>
 		</Pane>
 	</Splitpanes>

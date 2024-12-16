@@ -7,7 +7,6 @@
 	export let label: string | undefined = undefined
 	export let tooltip: string | undefined = undefined
 	export let eeOnly = false
-	export let small: boolean = false
 
 	export let collapsable: boolean = false
 	export let collapsed: boolean = true
@@ -16,13 +15,8 @@
 
 <div class="w-full">
 	{#if !headless}
-		<div class="flex flex-row justify-between items-center mb-2">
-			<h2
-				class={twMerge(
-					'font-semibold flex flex-row items-center gap-1',
-					small ? 'text-sm' : 'text-base'
-				)}
-			>
+		<div class="flex flex-row justify-between items-center mb-1">
+			<h3 class={twMerge('font-semibold flex flex-row items-center gap-2', 'text-sm')}>
 				{#if collapsable}
 					<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
 						{#if collapsed}
@@ -48,7 +42,7 @@
 						</div>
 					{/if}
 				{/if}
-			</h2>
+			</h3>
 			<slot name="action" />
 			{#if collapsable && collapsed}
 				<slot name="badge" />
