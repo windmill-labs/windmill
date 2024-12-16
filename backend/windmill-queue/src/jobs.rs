@@ -51,7 +51,7 @@ use windmill_common::{
     worker::{
         to_raw_value, CLOUD_HOSTED, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
         DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432,
-        MIN_VERSION_IS_AT_LEAST_1_439, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        MIN_VERSION_IS_AT_LEAST_1_440, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -2872,8 +2872,8 @@ pub async fn push<'c, 'd>(
             let value = data.value()?;
             let status = Some(FlowStatus::new(value));
             // Keep inserting `value` if not all workers are updated.
-            // Starting at `v1.439`, the value is fetched on pull from the flow node id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_439.read().await {
+            // Starting at `v1.440`, the value is fetched on pull from the flow node id.
+            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
@@ -3015,10 +3015,10 @@ pub async fn push<'c, 'd>(
         ),
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             // Keep inserting `value` if not all workers are updated.
-            // Starting at `v1.439`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_439.read().await {
+            // Starting at `v1.440`, the value is fetched on pull from the version id.
+            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
                 let mut ntx = tx.into_tx().await?;
-                // The version has been inserted only within the trasnsaction.
+                // The version has been inserted only within the transaction.
                 let data = cache::flow::fetch_version(&mut *ntx, version).await?;
                 tx = PushIsolationLevel::Transaction(ntx);
                 Some(data.value()?.clone())
@@ -3241,8 +3241,8 @@ pub async fn push<'c, 'd>(
                 });
             }
             // Keep inserting `value` if not all workers are updated.
-            // Starting at `v1.439`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_439.read().await {
+            // Starting at `v1.440`, the value is fetched on pull from the version id.
+            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
                 let mut value = value;
                 add_virtual_items_if_necessary(&mut value.modules);
                 if same_worker {
@@ -3320,8 +3320,8 @@ pub async fn push<'c, 'd>(
             let concurrency_time_window_s = value.concurrency_time_window_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
-            // Starting at `v1.439`, the value is fetched on pull from the version id.
-            let value_o = if version.is_none() || !*MIN_VERSION_IS_AT_LEAST_1_439.read().await {
+            // Starting at `v1.440`, the value is fetched on pull from the version id.
+            let value_o = if version.is_none() || !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.

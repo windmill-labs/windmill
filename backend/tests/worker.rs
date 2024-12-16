@@ -32,7 +32,7 @@ use windmill_common::{
     jobs::{JobKind, JobPayload, RawCode},
     scripts::{ScriptHash, ScriptLang},
     worker::{
-        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_439,
+        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
     },
 };
 use windmill_queue::PushIsolationLevel;
@@ -3760,7 +3760,7 @@ mod job_payload {
         static ref VERSION_FLAGS: [Arc<RwLock<bool>>; 3] = [
             MIN_VERSION_IS_AT_LEAST_1_427.clone(),
             MIN_VERSION_IS_AT_LEAST_1_432.clone(),
-            MIN_VERSION_IS_AT_LEAST_1_439.clone(),
+            MIN_VERSION_IS_AT_LEAST_1_440.clone(),
         ];
     }
 
