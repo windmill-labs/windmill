@@ -72,14 +72,24 @@ export function displayDate(
 	displayDate = true
 ): string {
 	const date = new Date(dateString ?? '')
-	if (date.toString() === 'Invalid Date') {
+	if (Number.isNaN(date.valueOf())) {
 		return ''
 	} else {
-		return `${date.toLocaleTimeString([], {
+		const timeChoices: Intl.DateTimeFormatOptions = {
 			hour: '2-digit',
 			minute: '2-digit',
 			second: displaySecond ? '2-digit' : undefined
-		})}${displayDate ? ` ${date.getDate()}/${date.getMonth() + 1}` : ''}`
+		}
+		const dateChoices: Intl.DateTimeFormatOptions = displayDate
+			? {
+					day: 'numeric',
+					month: 'numeric'
+			  }
+			: {}
+		return date.toLocaleString(undefined, {
+			...timeChoices,
+			...dateChoices
+		})
 	}
 }
 

@@ -301,11 +301,11 @@
 						<div class="w-full flex justify-between items-baseline">
 							<div
 								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
-								><div class="truncate">edited by {edited_by}</div><div class="truncate"
-									>the {displayDate(edited_at)}</div
-								></div
-							></div
-						>
+							>
+								<div class="truncate">edited by {edited_by}</div>
+								<div class="truncate">at {displayDate(edited_at)}</div>
+							</div>
+						</div>
 					</div>
 				{/each}
 			</div>
