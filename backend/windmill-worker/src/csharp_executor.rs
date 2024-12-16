@@ -369,7 +369,7 @@ pub async fn handle_csharp_job(
     _client: &AuthedClientBackgroundTask,
     _inner_content: &str,
     _job_dir: &str,
-    _requirements_o: Option<String>,
+    _requirements_o: Option<&String>,
     _shared_mount: &str,
     _base_internal_url: &str,
     _worker_name: &str,
@@ -388,7 +388,7 @@ pub async fn handle_csharp_job(
     client: &AuthedClientBackgroundTask,
     inner_content: &str,
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
@@ -400,10 +400,7 @@ pub async fn handle_csharp_job(
     let hash = calculate_hash(&format!(
         "{}{}",
         inner_content,
-        requirements_o
-            .as_ref()
-            .map(|x| x.to_string())
-            .unwrap_or_default()
+        requirements_o.unwrap_or(&String::new())
     ));
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");

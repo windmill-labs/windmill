@@ -8,6 +8,7 @@
 
 use axum::body::Body;
 use axum::http::HeaderValue;
+use futures::TryFutureExt;
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
@@ -62,6 +63,7 @@ use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE};
 use windmill_common::{
+    cache,
     db::UserDB,
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
@@ -776,7 +778,7 @@ impl<'a> GetQuery<'a> {
         Self { with_in_tags: in_tags, ..self }
     }
 
-    fn check_auth(self, email: Option<&str>) -> error::Result<()> {
+    fn check_auth(&self, email: Option<&str>) -> error::Result<()> {
         if let Some(email) = email {
             if self.with_auth.is_some_and(|x| x.is_none()) && email != "anonymous" {
                 return Err(Error::BadRequest(
@@ -786,6 +788,53 @@ impl<'a> GetQuery<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Resolve job raw values.
+    /// This fetch the raw values from the cache and update the job accordingly.
+    ///
+    /// # Details
+    /// Most of the raw values (code, lock and flow) had been removed from the `job`, `queue` and
+    /// `completed_job` tables. Only remains ones for "preview" jobs (i.e. [`JobKind::Preview`],
+    /// [`JobKind::FlowPreview`] and [`JobKind::Dependencies`]). [`JobKind::Flow`] as well but only
+    /// when pushed from an un-updated workers.
+    /// This function is used to make the above change transparent for the API, as the returned jobs
+    /// will have the raw values as if they were still in the tables.
+    async fn resolve_raw_values<T>(
+        &self,
+        db: &DB,
+        id: Uuid,
+        kind: JobKind,
+        hash: Option<ScriptHash>,
+        job: &mut JobExtended<T>,
+    ) {
+        let (raw_code, raw_lock, raw_flow) = (
+            job.raw_code.take(),
+            job.raw_lock.take(),
+            job.raw_flow.take(),
+        );
+        if self.with_flow {
+            // Try to fetch the flow from the cache, fallback to the preview flow.
+            // NOTE: This could check for the job kinds instead of the `or_else` but it's not
+            // necessary as `fetch_flow` return early if the job kind is not a preview one.
+            cache::job::fetch_flow(db, kind, hash)
+                .or_else(|_| cache::job::fetch_preview_flow(db, &id, raw_flow))
+                .await
+                .ok()
+                .inspect(|data| job.raw_flow = Some(sqlx::types::Json(data.raw_flow.clone())));
+        }
+        if self.with_code {
+            // Try to fetch the code from the cache, fallback to the preview code.
+            // NOTE: This could check for the job kinds instead of the `or_else` but it's not
+            // necessary as `fetch_script` return early if the job kind is not a preview one.
+            cache::job::fetch_script(db, kind, hash)
+                .or_else(|_| cache::job::fetch_preview_script(db, &id, raw_lock, raw_code))
+                .await
+                .ok()
+                .inspect(|data| {
+                    (job.raw_lock, job.raw_code) = (data.lock.clone(), Some(data.code.clone()))
+                });
+        }
     }
 
     async fn fetch_queued(
@@ -807,6 +856,10 @@ impl<'a> GetQuery<'a> {
         let mut job = query.fetch_optional(db).await?;
 
         self.check_auth(job.as_ref().map(|job| job.created_by.as_str()))?;
+        if let Some(job) = job.as_mut() {
+            self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
+                .await;
+        }
         if self.with_flow {
             job = resolve_maybe_value(db, workspace_id, self.with_code, job, |job| {
                 job.raw_flow.as_mut()
@@ -835,6 +888,10 @@ impl<'a> GetQuery<'a> {
         let mut cjob = query.fetch_optional(db).await?;
 
         self.check_auth(cjob.as_ref().map(|job| job.created_by.as_str()))?;
+        if let Some(job) = cjob.as_mut() {
+            self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
+                .await;
+        }
         if self.with_flow {
             cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| {
                 job.raw_flow.as_mut()

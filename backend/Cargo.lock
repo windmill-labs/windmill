@@ -10851,6 +10851,7 @@ dependencies = [
  "crc",
  "cron",
  "croner",
+ "futures",
  "futures-core",
  "gethostname",
  "git-version",

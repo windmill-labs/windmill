@@ -8,7 +8,7 @@ def main():
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
 '',
 '',
-'f/system/same_folder_script', -28028598712388162, 'python3', '');
+'f/system/same_folder_script', 12346, 'python3', '');
 
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
 'test-workspace',
@@ -20,7 +20,7 @@ def main():
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
 '',
 '',
-'f/system_relative/different_folder_script', -28028598712388161, 'python3', '');
+'f/system_relative/different_folder_script', 12347, 'python3', '');
 
 
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
@@ -38,4 +38,4 @@ def main():
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
 '',
 '',
-'f/system_relative/nested_script', -28028598712388160, 'python3', '');
+'f/system_relative/nested_script', 12348, 'python3', '');

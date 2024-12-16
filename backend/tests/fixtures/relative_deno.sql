@@ -9,7 +9,7 @@ export function main() {
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
 '',
 '',
-'f/system/same_folder_script', -28028598712388162, 'deno', '');
+'f/system/same_folder_script', 12343, 'deno', '');
 
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
 'test-workspace',
@@ -22,7 +22,7 @@ export function main() {
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
 '',
 '',
-'f/system_relative/different_folder_script', -28028598712388161, 'deno', '');
+'f/system_relative/different_folder_script', 12344, 'deno', '');
 
 
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
@@ -41,4 +41,4 @@ export function main() {
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
 '',
 '',
-'f/system_relative/nested_script', -28028598712388160, 'deno', '');
+'f/system_relative/nested_script', 12345, 'deno', '');

@@ -179,7 +179,7 @@ pub async fn generate_deno_lock(
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
