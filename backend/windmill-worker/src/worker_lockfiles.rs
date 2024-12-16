@@ -628,16 +628,15 @@ pub async fn handle_flow_dependency_job(
         occupancy_metrics,
     )
     .await?;
-    let new_flow_value =
-        sqlx::types::Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
+    let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
-    // Re-check cancelation to ensure we don't accidentially override a flow.
+    // Re-check cancellation to ensure we don't accidentally override a flow.
     if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
         .fetch_optional(db)
         .await
         .map(|v| Some(true) == v)
         .unwrap_or_else(|err| {
-            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
             false
         })
     {
@@ -653,7 +652,7 @@ pub async fn handle_flow_dependency_job(
 
         sqlx::query!(
             "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-            &new_flow_value as &sqlx::types::Json<Box<RawValue>>,
+            &new_flow_value as &Json<Box<RawValue>>,
             job_path,
             job.workspace_id
         )
@@ -661,7 +660,7 @@ pub async fn handle_flow_dependency_job(
         .await?;
         sqlx::query!(
             "UPDATE flow_version SET value = $1 WHERE id = $2",
-            &new_flow_value as &sqlx::types::Json<Box<RawValue>>,
+            &new_flow_value as &Json<Box<RawValue>>,
             version
         )
         .execute(db)
@@ -682,9 +681,9 @@ pub async fn handle_flow_dependency_job(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
             version,
-            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
+            Json(value_lite) as Json<FlowValue>,
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
 
         tx.commit().await?;
