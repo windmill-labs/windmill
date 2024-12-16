@@ -3,7 +3,7 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use uuid::Uuid;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     common::{
@@ -100,7 +100,6 @@ pub async fn generate_deno_lock(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: Option<&sqlx::Pool<sqlx::Postgres>>,
     w_id: &str,
@@ -152,7 +151,6 @@ pub async fn generate_deno_lock(
             job_id,
             db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -181,7 +179,6 @@ pub async fn generate_deno_lock(
 pub async fn handle_deno_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -412,7 +409,6 @@ try {{
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         false,
         worker_name,

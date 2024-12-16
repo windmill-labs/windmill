@@ -1,10 +1,5 @@
 #[cfg(unix)]
-use std::{
-    collections::HashMap,
-    os::unix::fs::PermissionsExt,
-    path::PathBuf,
-    process::Stdio,
-};
+use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::PathBuf, process::Stdio};
 
 #[cfg(windows)]
 use std::{
@@ -24,12 +19,13 @@ use windmill_common::{
     worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
 use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     bash_executor::BIN_BASH,
     common::{
-        check_executor_binary_exists, get_reserved_variables, read_and_check_result, start_child_process, transform_json, OccupancyMetrics
+        check_executor_binary_exists, get_reserved_variables, read_and_check_result,
+        start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
@@ -57,7 +53,6 @@ async fn handle_ansible_python_deps(
     worker_name: &str,
     worker_dir: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
@@ -82,7 +77,6 @@ async fn handle_ansible_python_deps(
                     job_id,
                     &requirements,
                     mem_peak,
-                    canceled_by,
                     job_dir,
                     db,
                     worker_name,
@@ -109,7 +103,6 @@ async fn handle_ansible_python_deps(
             job_id,
             w_id,
             mem_peak,
-            canceled_by,
             db,
             worker_name,
             job_dir,
@@ -131,7 +124,6 @@ async fn install_galaxy_collections(
     worker_name: &str,
     w_id: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> anyhow::Result<()> {
@@ -169,7 +161,6 @@ async fn install_galaxy_collections(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -191,7 +182,6 @@ pub async fn handle_ansible_job(
     worker_name: &str,
     job: &QueuedJob,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &String,
@@ -200,7 +190,11 @@ pub async fn handle_ansible_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    check_executor_binary_exists("ansible-playbook", ANSIBLE_PLAYBOOK_PATH.as_str(), "ansible")?;
+    check_executor_binary_exists(
+        "ansible-playbook",
+        ANSIBLE_PLAYBOOK_PATH.as_str(),
+        "ansible",
+    )?;
 
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, db).await;
@@ -216,7 +210,6 @@ pub async fn handle_ansible_job(
         worker_name,
         worker_dir,
         mem_peak,
-        canceled_by,
         occupancy_metrics,
     )
     .await?;
@@ -289,7 +282,6 @@ pub async fn handle_ansible_job(
                 worker_name,
                 &job.workspace_id,
                 mem_peak,
-                canceled_by,
                 db,
                 occupancy_metrics,
             )
@@ -425,7 +417,6 @@ fi
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,

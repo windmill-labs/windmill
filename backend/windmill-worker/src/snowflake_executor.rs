@@ -13,7 +13,7 @@ use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
-use windmill_queue::{CanceledBy, HTTP_CLIENT};
+use windmill_queue::HTTP_CLIENT;
 
 use serde::{Deserialize, Serialize};
 
@@ -244,7 +244,6 @@ pub async fn do_snowflake(
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -414,7 +413,6 @@ pub async fn do_snowflake(
         job.timeout,
         db,
         mem_peak,
-        canceled_by,
         result_f.map_err(to_anyhow),
         worker_name,
         &job.workspace_id,

@@ -11,11 +11,12 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables, read_result, start_child_process, OccupancyMetrics
+        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -124,7 +125,6 @@ pub async fn generate_cargo_lockfile(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -154,7 +154,6 @@ pub async fn generate_cargo_lockfile(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         gen_lockfile_process,
         false,
         worker_name,
@@ -176,7 +175,6 @@ pub async fn generate_cargo_lockfile(
 pub async fn build_rust_crate(
     job_id: &Uuid,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -216,7 +214,6 @@ pub async fn build_rust_crate(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         build_rust_process,
         false,
         worker_name,
@@ -273,7 +270,6 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_rust_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -327,7 +323,6 @@ pub async fn handle_rust_job(
         build_rust_crate(
             &job.id,
             mem_peak,
-            canceled_by,
             job_dir,
             db,
             worker_name,
@@ -395,7 +390,6 @@ pub async fn handle_rust_job(
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
