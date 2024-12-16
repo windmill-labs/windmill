@@ -135,7 +135,7 @@
 			/>
 		</Label>
 
-		<Label label="Custom Title" class="w-full">
+		<Label label="Custom title" class="w-full">
 			<svelte:fragment slot="header">
 				<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
 			</svelte:fragment>

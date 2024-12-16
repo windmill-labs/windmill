@@ -115,7 +115,7 @@
 		<div class="w-full">
 			<Alert title="No critical alert channels are set up" type="warning" size="xs">
 				Go to the
-				<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}>Instance Settings</a>
+				<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}>Instance settings</a>
 				page to configure critical alert channels.
 			</Alert>
 		</div>

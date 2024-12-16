@@ -90,13 +90,13 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    ansible_executor::handle_ansible_job,
     bash_executor::{handle_bash_job, handle_powershell_job},
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
     },
+    csharp_executor::handle_csharp_job,
     deno_executor::handle_deno_job,
     go_executor::handle_go_job,
     graphql_executor::do_graphql,
@@ -105,15 +105,24 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
-    php_executor::handle_php_job,
-    python_executor::handle_python_job,
     result_processor::{process_result, start_background_processor},
-    rust_executor::handle_rust_job,
     worker_flow::{handle_flow, update_flow_status_in_progress},
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
 };
+
+#[cfg(feature = "rust")]
+use crate::rust_executor::handle_rust_job;
+
+#[cfg(feature = "php")]
+use crate::php_executor::handle_php_job;
+
+#[cfg(feature = "python")]
+use crate::python_executor::handle_python_job;
+
+#[cfg(feature = "python")]
+use crate::ansible_executor::handle_ansible_job;
 
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::do_mysql;
@@ -125,9 +134,13 @@ use backon::{BackoffBuilder, Retryable};
 use crate::dedicated_worker::create_dedicated_worker_map;
 
 #[cfg(feature = "enterprise")]
-use crate::{
-    bigquery_executor::do_bigquery, mssql_executor::do_mssql, snowflake_executor::do_snowflake,
-};
+use crate::snowflake_executor::do_snowflake;
+
+#[cfg(all(feature = "enterprise", feature = "mssql"))]
+use crate::mssql_executor::do_mssql;
+
+#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
@@ -268,6 +281,7 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
+pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
@@ -370,6 +384,7 @@ lazy_static::lazy_static! {
     pub static ref POWERSHELL_PATH: String = std::env::var("POWERSHELL_PATH").unwrap_or_else(|_| "/usr/bin/pwsh".to_string());
     pub static ref PHP_PATH: String = std::env::var("PHP_PATH").unwrap_or_else(|_| "/usr/bin/php".to_string());
     pub static ref COMPOSER_PATH: String = std::env::var("COMPOSER_PATH").unwrap_or_else(|_| "/usr/bin/composer".to_string());
+    pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| "/usr/bin/dotnet".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -384,6 +399,7 @@ lazy_static::lazy_static! {
 
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -2278,7 +2294,7 @@ async fn handle_code_execution_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
-    worker_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     base_internal_url: &str,
@@ -2372,7 +2388,9 @@ async fn handle_code_execution_job(
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
-        return Err(Error::InternalErr("MySQL requires the mysql feature to be enabled".to_string()));
+        return Err(Error::InternalErr(
+            "MySQL requires the mysql feature to be enabled".to_string(),
+        ));
 
         #[cfg(feature = "mysql")]
         return do_mysql(
@@ -2395,7 +2413,15 @@ async fn handle_code_execution_job(
             ));
         }
 
-        #[cfg(feature = "enterprise")]
+        #[allow(unreachable_code)]
+        #[cfg(not(feature = "bigquery"))]
+        {
+            return Err(Error::InternalErr(
+                "Bigquery requires the bigquery feature to be enabled".to_string(),
+            ));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "bigquery"))]
         {
             return do_bigquery(
                 job,
@@ -2441,7 +2467,15 @@ async fn handle_code_execution_job(
             ));
         }
 
-        #[cfg(feature = "enterprise")]
+        #[allow(unreachable_code)]
+        #[cfg(not(feature = "mssql"))]
+        {
+            return Err(Error::InternalErr(
+                "Microsoft SQL server requires the mssql feature to be enabled".to_string(),
+            ));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "mssql"))]
         {
             return do_mssql(
                 job,
@@ -2545,6 +2579,12 @@ mount {{
             ))?;
         }
         Some(ScriptLang::Python3) => {
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Python requires the python feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "python")]
             handle_python_job(
                 requirements_o,
                 job_dir,
@@ -2656,6 +2696,12 @@ mount {{
             .await
         }
         Some(ScriptLang::Php) => {
+            #[cfg(not(feature = "php"))]
+            return Err(Error::InternalErr(
+                "PHP requires the php feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "php")]
             handle_php_job(
                 requirements_o,
                 mem_peak,
@@ -2674,6 +2720,12 @@ mount {{
             .await
         }
         Some(ScriptLang::Rust) => {
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::InternalErr(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
             handle_rust_job(
                 mem_peak,
                 canceled_by,
@@ -2692,6 +2744,12 @@ mount {{
             .await
         }
         Some(ScriptLang::Ansible) => {
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Ansible requires the python feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "python")]
             handle_ansible_job(
                 requirements_o,
                 job_dir,
@@ -2705,6 +2763,24 @@ mount {{
                 &inner_content,
                 &shared_mount,
                 base_internal_url,
+                envs,
+                occupancy_metrics,
+            )
+            .await
+        }
+        Some(ScriptLang::CSharp) => {
+            handle_csharp_job(
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                &inner_content,
+                job_dir,
+                requirements_o,
+                &shared_mount,
+                base_internal_url,
+                worker_name,
                 envs,
                 occupancy_metrics,
             )

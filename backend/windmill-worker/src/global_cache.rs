@@ -1,6 +1,3 @@
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-use crate::PIP_CACHE_DIR;
-
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
 

@@ -1,5 +1,6 @@
+#[cfg(feature = "oauth2")]
+use std::collections::HashMap;
 use std::{
-    collections::HashMap,
     fmt::Display,
     ops::Mul,
     str::FromStr,
@@ -22,12 +23,15 @@ use tokio::{
 #[cfg(feature = "embedding")]
 use windmill_api::embeddings::update_embeddings_db;
 use windmill_api::{
-    jobs::TIMEOUT_WAIT_RESULT,
-    oauth2_ee::{build_oauth_clients, OAuthClient},
-    DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
+    jobs::TIMEOUT_WAIT_RESULT, DEFAULT_BODY_LIMIT, IS_SECURE, REQUEST_SIZE_LIMIT, SAML_METADATA,
+    SCIM_TOKEN,
 };
+
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
+
+#[cfg(feature = "oauth2")]
+use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -39,7 +43,7 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
         OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
@@ -65,7 +69,7 @@ use windmill_queue::cancel_job;
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
     SendResult, BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "parquet")]
@@ -82,22 +86,8 @@ use crate::ee::verify_license_key;
 
 use crate::ee::set_license_key;
 
+#[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
-    static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
-    .ok()
-    .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "60".to_string());
-
-    static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
-    .ok()
-    .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "60".to_string());
-
-
-    pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
-    .ok()
-    .and_then(|x| x.parse::<bool>().ok())
-    .unwrap_or(true);
 
     static ref QUEUE_ZOMBIE_RESTART_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_zombie_restart_count",
@@ -115,6 +105,26 @@ lazy_static::lazy_static! {
         "Number of jobs in the queue",
         &["tag"]
     ).unwrap();
+
+}
+lazy_static::lazy_static! {
+    static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
+    .ok()
+    .and_then(|x| x.parse::<String>().ok())
+    .unwrap_or_else(|| "60".to_string());
+
+    static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
+    .ok()
+    .and_then(|x| x.parse::<String>().ok())
+    .unwrap_or_else(|| "60".to_string());
+
+
+    pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(true);
+
+
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
@@ -188,6 +198,7 @@ pub async fn initial_load(
         reload_pip_index_url_setting(&db).await;
         reload_npm_config_registry_setting(&db).await;
         reload_bunfig_install_scopes_setting(&db).await;
+        reload_nuget_config_setting(&db).await;
     }
 }
 
@@ -916,6 +927,16 @@ pub async fn reload_bunfig_install_scopes_setting(db: &DB) {
     .await;
 }
 
+pub async fn reload_nuget_config_setting(db: &DB) {
+    reload_option_setting_with_tracing(
+        db,
+        NUGET_CONFIG_SETTING,
+        "NUGET_CONFIG",
+        NUGET_CONFIG.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_retention_period_setting(db: &DB) {
     if let Err(e) = reload_setting(
         db,
@@ -1148,6 +1169,7 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
     Ok(())
 }
 
+#[cfg(feature = "prometheus")]
 pub async fn monitor_pool(db: &DB) {
     if METRICS_ENABLED.load(Ordering::Relaxed) {
         let db = db.clone();
@@ -1273,6 +1295,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     if metrics_enabled || save_metrics {
         let queue_counts = windmill_common::queue::get_queue_counts(db).await;
 
+        #[cfg(feature = "prometheus")]
         if metrics_enabled {
             for q in QUEUE_COUNT_TAGS.read().await.iter() {
                 if queue_counts.get(q).is_none() {
@@ -1281,11 +1304,13 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             }
         }
 
+        #[allow(unused_mut)]
         let mut tags_to_watch = vec![];
         for q in queue_counts {
             let count = q.1;
             let tag = q.0;
 
+            #[cfg(feature = "prometheus")]
             if metrics_enabled {
                 let metric = (*QUEUE_COUNT).with_label_values(&[&tag]);
                 metric.set(count as i64);
@@ -1429,10 +1454,15 @@ pub async fn load_base_url(db: &DB) -> error::Result<String> {
 }
 
 pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
+    #[cfg(feature = "oauth2")]
     let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
 
+    #[cfg(feature = "oauth2")]
     let oauths = if let Some(q) = q_oauth {
-        if let Ok(v) = serde_json::from_value::<Option<HashMap<String, OAuthClient>>>(q.clone()) {
+        if let Ok(v) = serde_json::from_value::<
+            Option<HashMap<String, windmill_api::oauth2_ee::OAuthClient>>,
+        >(q.clone())
+        {
             v
         } else {
             tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);
@@ -1445,9 +1475,10 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     let base_url = load_base_url(db).await?;
     let is_secure = base_url.starts_with("https://");
 
+    #[cfg(feature = "oauth2")]
     {
-        let mut l = OAUTH_CLIENTS.write().await;
-        *l = build_oauth_clients(&base_url, oauths)
+        let mut l = windmill_api::OAUTH_CLIENTS.write().await;
+        *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths)
         .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
         .unwrap();
     }
@@ -1473,9 +1504,11 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             .ok()
             .unwrap_or_else(|| vec![]);
 
+        #[cfg(feature = "prometheus")]
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
+
         let base_url = BASE_URL.read().await.clone();
         for r in restarted {
             let last_ping = if let Some(x) = r.last_ping {
@@ -1512,6 +1545,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         .ok()
         .unwrap_or_else(|| vec![]);
 
+    #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
