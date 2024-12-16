@@ -1,24 +1,15 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import {
-		InputService,
-		type Input,
-		type RunnableType,
-		type CreateInput,
-		type Job,
-		JobService
-	} from '$lib/gen/index.js'
+	import { InputService, type Input, type RunnableType, type CreateInput } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
-	import { base } from '$lib/base'
-	import { classNames, displayDate, displayDateOnly, sendUserToast } from '$lib/utils.js'
+
+	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { ArrowLeftIcon, Edit, ExternalLink, Save, X } from 'lucide-svelte'
+	import { ArrowLeftIcon, Edit, Save, X } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import TimeAgo from './TimeAgo.svelte'
-	import JobLoader from './runs/JobLoader.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 
 	export let scriptHash: string | null = null
@@ -38,8 +29,6 @@
 	let previousInputs: Input[] | undefined = undefined
 	let savedInputs: EditableInput[] | undefined = undefined
 	let selectedInput: Input | null
-	let jobs: Job[] = []
-	let loading: boolean = false
 	let savingInputs = false
 	const dispatch = createEventDispatcher()
 
@@ -176,26 +165,6 @@
 	}
 </script>
 
-<JobLoader
-	bind:jobs
-	path={runnableId ?? null}
-	isSkipped={false}
-	jobKindsCat="jobs"
-	jobKinds="all"
-	user={null}
-	label={null}
-	folder={null}
-	concurrencyKey={null}
-	tag={null}
-	success="running"
-	argFilter={undefined}
-	bind:loading
-	syncQueuedRunsCount={false}
-	refreshRate={10000}
-	computeMinAndMax={undefined}
-	perPage={5}
-/>
-
 <div class="min-w-[300px] h-full">
 	<Splitpanes horizontal={true}>
 		<Pane>
@@ -318,136 +287,6 @@
 		</Pane>
 
 		<Pane>
-			<div class="w-full flex flex-col gap-4 p-2">
-				<span class="text-sm font-semibold">Previous runs</span>
-
-				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
-					{#if loading && (jobs == undefined || jobs?.length == 0)}
-						<div class="text-left text-tertiary text-xs">Loading current runs...</div>
-					{:else if jobs?.length > 0}
-						{#each jobs as i (i.id)}
-							<button
-								class={classNames(
-									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
-									'border-orange-400'
-								)}
-								on:click={async () => {
-									if (!$workspaceStore) {
-										return
-									}
-
-									const args = await JobService.getJobArgs({
-										workspace: $workspaceStore,
-										id: i.id
-									})
-
-									selectedInput = {
-										id: i.id,
-										name: 'Running job: ' + i.id,
-										created_at: i.created_at ?? '',
-										created_by: i.created_by ?? '',
-										is_public: true
-									}
-
-									selectArgs(args)
-								}}
-							>
-								<div
-									class="w-full h-full items-center text-xs font-normal grid grid-cols-8 gap-4 min-w-0"
-								>
-									<div class="">
-										<div class="rounded-full w-2 h-2 bg-orange-400 animate-pulse" />
-									</div>
-									<div class="col-span-2 truncate">
-										{i.created_by}
-									</div>
-									<div
-										class="whitespace-nowrap col-span-3 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-									>
-										<TimeAgo noDate date={i.started_at ?? ''} />
-									</div>
-									<div class="col-span-2">
-										<a
-											target="_blank"
-											href="{base}/run/{i.id}?workspace={$workspaceStore}"
-											class="text-right float-right text-secondary"
-											title="See run detail in a new tab"
-										>
-											<ExternalLink size={16} />
-										</a>
-									</div>
-								</div>
-							</button>
-						{/each}
-						{#if jobs?.length == 5}
-							<div class="text-left text-tertiary text-xs"
-								>... there may be more runs not displayed here as the limit is 5</div
-							>
-						{/if}
-					{:else}
-						<div class="text-left text-tertiary text-xs">No running runs</div>
-					{/if}
-				</div>
-
-				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
-					{#if previousInputs === undefined}
-						<Skeleton layout={[[8]]} />
-					{:else if previousInputs?.length > 0}
-						{#each previousInputs as i (i.id)}
-							<button
-								class={classNames(
-									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
-									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
-								)}
-								on:click={async () => {
-									if (selectedInput === i) {
-										selectedInput = null
-									} else {
-										selectedInput = i
-									}
-									selectArgs(await loadLargeArgs(i.id, false, false))
-								}}
-							>
-								<div
-									class="w-full h-full items-center text-xs font-normal grid grid-cols-8 gap-4 min-w-0"
-								>
-									<div class="">
-										<div class="rounded-full w-2 h-2 {i.success ? 'bg-green-400' : 'bg-red-400'}" />
-									</div>
-									<div class="col-span-2 truncate" title={i.created_by}>
-										{i.created_by}
-									</div>
-									<div
-										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-									>
-										{displayDateOnly(new Date(i.created_at))}
-									</div>
-									<div
-										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-									>
-										<TimeAgo noDate date={i.created_at ?? ''} />
-									</div>
-									<div class="col-span-1">
-										<a
-											target="_blank"
-											href="{base}/run/{i.id}?workspace={$workspaceStore}"
-											class="text-right float-right text-secondary"
-											title="See run detail in a new tab"
-										>
-											<ExternalLink size={16} />
-										</a>
-									</div>
-								</div>
-							</button>
-						{/each}
-					{:else}
-						<div class="text-center text-tertiary">No previous Runs</div>
-					{/if}
-				</div>
-			</div>
-		</Pane>
-
-		<Pane>
 			<div class="h-full overflow-hidden min-h-0 flex flex-col justify-between">
 				<div class="w-full flex flex-col min-h-0 gap-2 px-2 py-2 grow">
 					<div class="w-full flex flex-col">
@@ -462,7 +301,7 @@
 							disabled={!selectedInput}
 						>
 							<ArrowLeftIcon class="w-4 h-4 mr-2" />
-							Use input
+							Use Input
 						</Button>
 					</div>
 					<div class="w-full min-h-0 grow overflow-auto">

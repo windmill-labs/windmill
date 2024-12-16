@@ -13,7 +13,8 @@
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
-
+	import HistoricInpts from '$lib/components/HistoricInpts.svelte'
+	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
 	export let noEditor: boolean
 	export let disabled: boolean
 
@@ -94,7 +95,46 @@
 			}}
 			offset={yOffset}
 			displayWebhookWarning
-		/>
+		>
+			<svelte:fragment slot="historyTab">
+				<HistoricInpts
+					scriptHash={null}
+					scriptPath={null}
+					flowPath={initialPath}
+					isFlow={true}
+					on:updateSchema={(e) => {
+						const parsed = JSON.parse(JSON.stringify(e.detail))
+
+						if (!parsed) {
+							sendUserToast('Invalid JSON', true)
+							return
+						}
+
+						$flowStore.schema = { required: [], properties: {}, ...convert(parsed) }
+						inputLibraryDrawer?.closeDrawer()
+					}}
+				/>
+			</svelte:fragment>
+			<svelte:fragment slot="savedInputsTab">
+				<SavedInputsPicker
+					flowPath={initialPath}
+					isValid={true}
+					args={$previewArgs}
+					canSaveInputs={false}
+					on:updateSchema={(e) => {
+						const parsed = JSON.parse(JSON.stringify(e.detail))
+
+						if (!parsed) {
+							sendUserToast('Invalid JSON', true)
+							return
+						}
+
+						$flowStore.schema = { required: [], properties: {}, ...convert(parsed) }
+						inputLibraryDrawer?.closeDrawer()
+					}}
+				/>
+			</svelte:fragment>
+		</EditableSchemaForm>
 	{:else}
 		<div class="p-4 border-b">
 			<FlowInputViewer schema={$flowStore.schema} />
