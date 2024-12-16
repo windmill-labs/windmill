@@ -656,14 +656,14 @@ pub async fn handle_flow_dependency_job(
             job_path,
             job.workspace_id
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
         sqlx::query!(
             "UPDATE flow_version SET value = $1 WHERE id = $2",
             &new_flow_value as &Json<Box<RawValue>>,
             version
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
 
         // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
