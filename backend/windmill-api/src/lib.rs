@@ -97,6 +97,7 @@ mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
+mod slack_approvals;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
@@ -367,8 +368,8 @@ pub async fn run_server(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
-                .route("/slack", post(jobs::slack_app_callback_handler))
-                .route("/w/:workspace_id/jobs/slack_approval/:job_id/:resume_id", get(jobs::request_slack_approval))
+                .route("/slack", post(slack_approvals::slack_app_callback_handler))
+                .route("/w/:workspace_id/jobs/slack_approval/:job_id/:resume_id", get(slack_approvals::request_slack_approval))
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),
