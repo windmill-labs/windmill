@@ -6,32 +6,35 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, fmt};
-
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, head, post},
     Json, Router,
 };
+#[cfg(feature = "http_trigger")]
 use http::HeaderMap;
 use hyper::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
+#[cfg(feature = "http_trigger")]
+use std::collections::HashMap;
+use std::fmt;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use windmill_queue::PushArgs;
+use windmill_queue::{PushArgs, PushArgsOwned};
 
+#[cfg(feature = "http_trigger")]
+use crate::http_triggers::build_http_trigger_extra;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaResourceSecurity;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
-    http_triggers::build_http_trigger_extra,
 };
 
 const KEEP_LAST: i64 = 20;
@@ -49,15 +52,22 @@ pub fn workspaced_service() -> Router {
 }
 
 pub fn workspaced_unauthed_service() -> Router {
-    Router::new()
-        .route(
-            "/webhook/:runnable_kind/*path",
-            head(|| async {}).post(webhook_payload),
-        )
-        .route(
-            "/http/:runnable_kind/:path/*route_path",
-            head(|| async {}).fallback(http_payload),
-        )
+    let router = Router::new().route(
+        "/webhook/:runnable_kind/*path",
+        head(|| async {}).post(webhook_payload),
+    );
+
+    #[cfg(feature = "http_trigger")]
+    {
+        router.route("/http/:runnable_kind/:path/*route_path", {
+            head(|| async {}).fallback(http_payload)
+        })
+    }
+
+    #[cfg(not(feature = "http_trigger"))]
+    {
+        router
+    }
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize)]
@@ -375,11 +385,10 @@ pub async fn insert_capture_payload(
     path: &str,
     is_flow: bool,
     trigger_kind: &TriggerKind,
-    payload: WebhookArgs,
+    payload: PushArgsOwned,
     trigger_extra: Option<Box<RawValue>>,
     owner: &str,
 ) -> Result<()> {
-    let payload = payload.args;
     sqlx::query!(
         "INSERT INTO capture (workspace_id, path, is_flow, trigger_kind, payload, trigger_extra, created_by)
         VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -436,6 +445,7 @@ async fn webhook_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[cfg(feature = "http_trigger")]
 async fn http_payload(
     Extension(db): Extension<DB>,
     Path((w_id, kind, path, route_path)): Path<(String, RunnableKind, String, StripPath)>,
