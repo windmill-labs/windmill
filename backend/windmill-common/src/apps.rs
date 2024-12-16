@@ -13,12 +13,6 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct AppScriptId(pub i64);
 
-impl Into<u64> for AppScriptId {
-    fn into(self) -> u64 {
-        self.0 as u64
-    }
-}
-
 #[derive(Deserialize)]
 pub struct ListAppQuery {
     pub starred_only: Option<bool>,

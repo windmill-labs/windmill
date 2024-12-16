@@ -41,7 +41,7 @@ pub async fn handle_go_job(
     client: &AuthedClientBackgroundTask,
     inner_content: &str,
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,

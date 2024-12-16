@@ -64,6 +64,7 @@ semver.workspace = true
 croner = "2.0.6"
 quick_cache.workspace = true
 pin-project-lite.workspace = true
+futures.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
