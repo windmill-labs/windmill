@@ -33,9 +33,9 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_server_td" {
       environment = [{
         name  = "JSON_FMT"
         value = "true"
-      }, {
+        }, {
         name  = "DATABASE_URL"
-        value = "postgres://${aws_db_instance.windmill_cluster_rds.username}:${aws_db_instance.windmill_cluster_rds.password}@${aws_db_instance.windmill_cluster_rds.endpoint}/${aws_db_instance.windmill_cluster_rds.db_name}?sslmode=disable"
+        value = local.db_url
         }, {
         name  = "MODE"
         value = "server"

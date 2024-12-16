@@ -241,6 +241,7 @@ export async function main(message: string, name: string, step_id: string) {
 `
 
 const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -348,8 +349,7 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
 }
 `
 
-const CSHARP_INIT_CODE = `
-#r "nuget: Humanizer, 2.14.1"
+const CSHARP_INIT_CODE = `#r "nuget: Humanizer, 2.14.1"
 
 using System;
 using System.Linq;

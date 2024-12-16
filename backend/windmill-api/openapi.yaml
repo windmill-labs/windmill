@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.437.1
+  version: 1.439.0
   title: Windmill API
 
   contact:
@@ -1121,9 +1121,15 @@ paths:
       operationId: refreshUserToken
       tags:
         - user
+      parameters:
+        - name: if_expiring_in_less_than_s
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
-          description: free usage
+          description: new token
           content:
             text/plain:
               schema:

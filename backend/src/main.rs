@@ -8,7 +8,9 @@
 
 use anyhow::Context;
 use monitor::{
-    load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config, reload_nuget_config_setting, reload_timeout_wait_result_setting, send_current_log_file_to_object_store, send_logs_to_object_store
+    load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
+    reload_nuget_config_setting, reload_timeout_wait_result_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store,
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
@@ -29,7 +31,16 @@ use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICE
 
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -64,7 +75,7 @@ use windmill_worker::{
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db, monitor_pool,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
@@ -272,9 +283,6 @@ async fn windmill_main() -> anyhow::Result<()> {
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     println!("jemalloc enabled");
 
-    #[cfg(feature = "flamegraph")]
-    let _guard = windmill_common::tracing_init::setup_flamegraph();
-
     let cli_arg = std::env::args().nth(1).unwrap_or_default();
 
     match cli_arg.as_str() {
@@ -351,7 +359,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "local")
         .to_string();
 
-    #[cfg(not(feature = "flamegraph"))]
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
@@ -478,7 +485,8 @@ Windmill Community Edition {GIT_VERSION}
         )
         .await;
 
-        monitor_pool(&db).await;
+        #[cfg(feature = "prometheus")]
+        crate::monitor::monitor_pool(&db).await;
 
         send_logs_to_object_store(&db, &hostname, &mode);
 
@@ -601,6 +609,7 @@ Windmill Community Edition {GIT_VERSION}
                     server_killpill_rx,
                     base_internal_tx,
                     server_mode,
+                    #[cfg(feature = "smtp")]
                     base_internal_url.clone(),
                 )
                 .await?;

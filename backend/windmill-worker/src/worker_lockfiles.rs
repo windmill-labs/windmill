@@ -13,7 +13,10 @@ use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, PythonAnnotations};
+#[cfg(feature = "python")]
+use windmill_common::worker::PythonAnnotations;
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+
 use windmill_common::{
     apps::AppScriptId,
     error::{self, to_anyhow},
@@ -23,21 +26,25 @@ use windmill_common::{
     DB,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+#[cfg(feature = "python")]
 use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
+
+#[cfg(feature = "php")]
+use crate::php_executor::{composer_install, parse_php_imports};
+#[cfg(feature = "python")]
 use crate::python_executor::{
     create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
 };
+#[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
-    bun_executor::gen_bun_lockfile,
-    deno_executor::generate_deno_lock,
+    bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
-    php_executor::{composer_install, parse_php_imports},
 };
 
 pub async fn update_script_dependency_map(
@@ -199,6 +206,7 @@ pub fn extract_relative_imports(
     language: &Option<ScriptLang>,
 ) -> Option<Vec<String>> {
     match language {
+        #[cfg(feature = "python")]
         Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
         Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
             parse_bun_relative_imports(&raw_code, script_path).ok()
@@ -1566,6 +1574,7 @@ pub async fn handle_app_dependency_job(
     }
 }
 
+#[cfg(feature = "python")]
 async fn python_dep(
     reqs: String,
     job_id: &Uuid,
@@ -1633,7 +1642,7 @@ async fn capture_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
-    worker_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
     base_internal_url: &str,
     token: &str,
     script_path: &str,
@@ -1643,95 +1652,111 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
-            let reqs = if raw_deps {
-                job_raw_code.to_string()
-            } else {
-                let mut already_visited = vec![];
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Python requires the python feature to be enabled".to_string(),
+            ));
 
-                windmill_parser_py_imports::parse_python_imports(
-                    job_raw_code,
-                    &w_id,
-                    script_path,
-                    &db,
-                    &mut already_visited,
-                )
-                .await?
-                .join("\n")
-            };
+            #[cfg(feature = "python")]
+            {
+                let reqs = if raw_deps {
+                    job_raw_code.to_string()
+                } else {
+                    let mut already_visited = vec![];
 
-            let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
-                PythonAnnotations::parse(job_raw_code);
+                    windmill_parser_py_imports::parse_python_imports(
+                        job_raw_code,
+                        &w_id,
+                        script_path,
+                        &db,
+                        &mut already_visited,
+                    )
+                    .await?
+                    .join("\n")
+                };
 
-            if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                if let Err(e) = sqlx::query!(
-                    r#"
-                      INSERT INTO metrics (id, value) 
-                           VALUES ('no_uv_usage_py', $1)
-                    "#,
-                    serde_json::to_value("").map_err(to_anyhow)?
-                )
-                .execute(db)
-                .await
-                {
-                    tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
+                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
+                    PythonAnnotations::parse(job_raw_code);
+
+                if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                    if let Err(e) = sqlx::query!(
+                        r#"
+                          INSERT INTO metrics (id, value) 
+                               VALUES ('no_uv_usage_py', $1)
+                        "#,
+                        serde_json::to_value("").map_err(to_anyhow)?
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
+                    }
                 }
-            }
 
-            python_dep(
-                reqs,
-                job_id,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                worker_dir,
-                &mut Some(occupancy_metrics),
-                no_uv_compile | no_uv,
-                no_uv_install | no_uv,
-            )
-            .await
+                python_dep(
+                    reqs,
+                    job_id,
+                    mem_peak,
+                    canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    w_id,
+                    worker_dir,
+                    &mut Some(occupancy_metrics),
+                    no_uv_compile | no_uv,
+                    no_uv_install | no_uv,
+                )
+                .await
+            }
         }
         ScriptLang::Ansible => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for ansible".to_string(),
-                ));
-            }
-            let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
-            let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Ansible requires the python feature to be enabled".to_string(),
+            ));
 
-            if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                if let Err(e) = sqlx::query!(
-                    r#"
-                      INSERT INTO metrics (id, value) 
-                           VALUES ('no_uv_usage_ansible', $1)
-                    "#,
-                    serde_json::to_value("").map_err(to_anyhow)?
+            #[cfg(feature = "python")]
+            {
+                if raw_deps {
+                    return Err(Error::ExecutionErr(
+                        "Raw dependencies not supported for ansible".to_string(),
+                    ));
+                }
+                let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
+                let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
+
+                if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                    if let Err(e) = sqlx::query!(
+                        r#"
+                        INSERT INTO metrics (id, value) 
+                            VALUES ('no_uv_usage_ansible', $1)
+                        "#,
+                        serde_json::to_value("").map_err(to_anyhow)?
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
+                    };
+                }
+
+                python_dep(
+                    reqs,
+                    job_id,
+                    mem_peak,
+                    canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    w_id,
+                    worker_dir,
+                    &mut Some(occupancy_metrics),
+                    false,
+                    false,
                 )
-                .execute(db)
                 .await
-                {
-                    tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
-                };
             }
-
-            python_dep(
-                reqs,
-                job_id,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                worker_dir,
-                &mut Some(occupancy_metrics),
-                false,
-                false,
-            )
-            .await
         }
         ScriptLang::Go => {
             if raw_deps {
@@ -1822,33 +1847,40 @@ async fn capture_dependency_job(
             Ok(req.unwrap_or_else(String::new))
         }
         ScriptLang::Php => {
-            let reqs = if raw_deps {
-                if job_raw_code.is_empty() {
-                    return Ok("".to_string());
-                }
-                job_raw_code.to_string()
-            } else {
-                match parse_php_imports(job_raw_code)? {
-                    Some(reqs) => reqs,
-                    None => {
+            #[cfg(not(feature = "php"))]
+            return Err(Error::InternalErr(
+                "PHP requires the php feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "php")]
+            {
+                let reqs = if raw_deps {
+                    if job_raw_code.is_empty() {
                         return Ok("".to_string());
                     }
-                }
-            };
-
-            composer_install(
-                mem_peak,
-                canceled_by,
-                job_id,
-                w_id,
-                db,
-                job_dir,
-                worker_name,
-                reqs,
-                None,
-                occupancy_metrics,
-            )
-            .await
+                    job_raw_code.to_string()
+                } else {
+                    match parse_php_imports(job_raw_code)? {
+                        Some(reqs) => reqs,
+                        None => {
+                            return Ok("".to_string());
+                        }
+                    }
+                };
+                composer_install(
+                    mem_peak,
+                    canceled_by,
+                    job_id,
+                    w_id,
+                    db,
+                    job_dir,
+                    worker_name,
+                    reqs,
+                    None,
+                    occupancy_metrics,
+                )
+                .await
+            }
         }
         ScriptLang::Rust => {
             if raw_deps {
@@ -1857,6 +1889,12 @@ async fn capture_dependency_job(
                 ));
             }
 
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::InternalErr(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
             let lockfile = generate_cargo_lockfile(
                 job_id,
                 job_raw_code,
@@ -1870,6 +1908,7 @@ async fn capture_dependency_job(
             )
             .await?;
 
+            #[cfg(feature = "rust")]
             Ok(lockfile)
         }
         ScriptLang::CSharp => {
@@ -1889,7 +1928,8 @@ async fn capture_dependency_job(
                 worker_name,
                 w_id,
                 occupancy_metrics,
-            ).await
+            )
+            .await
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

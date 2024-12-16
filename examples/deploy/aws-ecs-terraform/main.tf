@@ -26,3 +26,11 @@ variable "database_password" {
   sensitive   = true
   description = "RDS Database password"
 }
+
+locals {
+  db_url = "postgres://${aws_db_instance.windmill_cluster_rds.username}:${aws_db_instance.windmill_cluster_rds.password}@${aws_db_instance.windmill_cluster_rds.endpoint}/${aws_db_instance.windmill_cluster_rds.db_name}"
+}
+
+data "aws_ssm_parameter" "amazon_linux_2023" {
+  name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id"
+}

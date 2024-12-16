@@ -2124,10 +2124,7 @@ fn fullpath_with_workspace(
     job_kind: &JobKind,
 ) -> String {
     let path = script_path.map(String::as_str).unwrap_or("tmp/main");
-    let is_flow = matches!(
-        job_kind,
-        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow | &JobKind::FlowNode
-    );
+    let is_flow = job_kind.is_flow();
     format!(
         "{}/{}/{}",
         workspace_id,
@@ -2518,7 +2515,7 @@ macro_rules! fetch_scalar_isolated {
 
 use sqlx::types::JsonRawValue;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PushArgsOwned {
     pub extra: Option<HashMap<String, Box<RawValue>>>,
     pub args: HashMap<String, Box<RawValue>>,
@@ -3415,11 +3412,7 @@ pub async fn push<'c, 'd>(
         let interpolated_tag = tag.map(|x| interpolate_args(x, &args, workspace_id));
 
         let default = || {
-            let ntag = if job_kind == JobKind::Flow
-                || job_kind == JobKind::FlowPreview
-                || job_kind == JobKind::SingleScriptFlow
-                || job_kind == JobKind::Identity
-            {
+            let ntag = if job_kind.is_flow() || job_kind == JobKind::Identity {
                 "flow".to_string()
             } else if job_kind == JobKind::Dependencies
                 || job_kind == JobKind::FlowDependencies

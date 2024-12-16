@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.439.0](https://github.com/windmill-labs/windmill/compare/v1.438.0...v1.439.0) (2024-12-15)
+
+
+### Features
+
+* add multipart/form-data support ([#4927](https://github.com/windmill-labs/windmill/issues/4927)) ([83a60cb](https://github.com/windmill-labs/windmill/commit/83a60cbc517d5ddab24b247fd5e452175d59ad07))
+
+
+### Bug Fixes
+
+* ECS terraform db url + ami issues ([#4924](https://github.com/windmill-labs/windmill/issues/4924)) ([5172c13](https://github.com/windmill-labs/windmill/commit/5172c13ab8e9aeb1a83c161e7e7f63ebfb40b008))
+
+## [1.438.0](https://github.com/windmill-labs/windmill/compare/v1.437.1...v1.438.0) (2024-12-13)
+
+
+### Features
+
+* accept direct file upload for webhook/http (s3) ([#4903](https://github.com/windmill-labs/windmill/issues/4903)) ([563a492](https://github.com/windmill-labs/windmill/commit/563a49200898bc32ab114f63c7dd575000f49e60))
+* add C# support ([#4908](https://github.com/windmill-labs/windmill/issues/4908)) ([c85d2a4](https://github.com/windmill-labs/windmill/commit/c85d2a495715e9506984b0d26bcf34a25d476c09))
+* **backend:** handle xml payload as raw_string ([#4915](https://github.com/windmill-labs/windmill/issues/4915)) ([3864cfc](https://github.com/windmill-labs/windmill/commit/3864cfce246d2b0d1a61b46578ed39221ebbbd31))
+* **cache:** re-work job results cache ([#4898](https://github.com/windmill-labs/windmill/issues/4898)) ([af5cca1](https://github.com/windmill-labs/windmill/commit/af5cca1b002ecb6eae14684620e0a695394b6df8))
+
+
+### Bug Fixes
+
+* add `DOTNET_ROOT` env variable ([#4921](https://github.com/windmill-labs/windmill/issues/4921)) ([eb3ed7a](https://github.com/windmill-labs/windmill/commit/eb3ed7a2c7623a5ee87e245dfda16266ed8e467c))
+* app custom url diff ([#4914](https://github.com/windmill-labs/windmill/issues/4914)) ([952cbd1](https://github.com/windmill-labs/windmill/commit/952cbd182de5358cc326d7582f4494c860e3836e))
+* c#: nsjail image, default langs and feature cage imports ([#4917](https://github.com/windmill-labs/windmill/issues/4917)) ([afac8a7](https://github.com/windmill-labs/windmill/commit/afac8a73f0a76850ff9eca0e368db0e3ec793328))
+* flow node default tag ([3634ade](https://github.com/windmill-labs/windmill/commit/3634ade41b07cbae0fd1ba40b109815b7f57562d))
+* **frontend:** form and content update when script is emptied ([#4887](https://github.com/windmill-labs/windmill/issues/4887)) ([4ce4fba](https://github.com/windmill-labs/windmill/commit/4ce4fba18f529f5f81ad6e242059f50254fc509b))
+* **frontend:** schedule operator perms + add instance settings in operator menu ([#4912](https://github.com/windmill-labs/windmill/issues/4912)) ([762ac30](https://github.com/windmill-labs/windmill/commit/762ac30b59e1d23d2a043a86c2ce4b069030941d))
+
 ## [1.437.1](https://github.com/windmill-labs/windmill/compare/v1.437.0...v1.437.1) (2024-12-10)
 
 
