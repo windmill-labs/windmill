@@ -13,7 +13,10 @@ use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, PythonAnnotations};
+#[cfg(feature = "python")]
+use windmill_common::worker::PythonAnnotations;
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+
 use windmill_common::{
     apps::AppScriptId,
     error::{self, to_anyhow},
@@ -37,6 +40,7 @@ use crate::php_executor::{composer_install, parse_php_imports};
 use crate::python_executor::{
     create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
 };
+#[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
     bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
@@ -1638,7 +1642,7 @@ async fn capture_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
-    worker_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
     base_internal_url: &str,
     token: &str,
     script_path: &str,
@@ -1885,6 +1889,12 @@ async fn capture_dependency_job(
                 ));
             }
 
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::InternalErr(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
             let lockfile = generate_cargo_lockfile(
                 job_id,
                 job_raw_code,
@@ -1898,6 +1908,7 @@ async fn capture_dependency_job(
             )
             .await?;
 
+            #[cfg(feature = "rust")]
             Ok(lockfile)
         }
         ScriptLang::CSharp => {
@@ -1917,7 +1928,8 @@ async fn capture_dependency_job(
                 worker_name,
                 w_id,
                 occupancy_metrics,
-            ).await
+            )
+            .await
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

@@ -6,15 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{
-    body::Body,
-    extract::OriginalUri,
-    http::{header, Response},
-    response::IntoResponse,
-};
+use axum::{body::Body, extract::OriginalUri, http::Response, response::IntoResponse};
+
+#[cfg(feature = "static_frontend")]
+use axum::http::header;
 
 use hyper::Uri;
+#[cfg(feature = "static_frontend")]
 use mime_guess::mime;
+#[cfg(feature = "static_frontend")]
 use rust_embed::RustEmbed;
 
 // static_handler is a handler that serves static files from the
@@ -22,6 +22,7 @@ pub async fn static_handler(OriginalUri(original_uri): OriginalUri) -> StaticFil
     StaticFile(original_uri)
 }
 
+#[cfg(feature = "static_frontend")]
 #[derive(RustEmbed)]
 #[folder = "${FRONTEND_BUILD_DIR:-../../frontend/build/}"]
 struct Asset;
@@ -34,6 +35,7 @@ impl IntoResponse for StaticFile {
     }
 }
 
+#[cfg(feature = "static_frontend")]
 const TWO_HUNDRED: &str = "200.html";
 
 fn serve_path(path: &str) -> Response<Body> {
@@ -41,6 +43,7 @@ fn serve_path(path: &str) -> Response<Body> {
         return Response::builder().status(404).body(Body::empty()).unwrap();
     }
 
+    #[cfg(feature = "static_frontend")]
     match Asset::get(path) {
         Some(content) => {
             let body = Body::from(content.data);
@@ -67,5 +70,10 @@ fn serve_path(path: &str) -> Response<Body> {
             Response::builder().status(404).body(Body::empty()).unwrap()
         }
         None => serve_path(TWO_HUNDRED),
+    }
+
+    #[cfg(not(feature = "static_frontend"))]
+    {
+        Response::builder().status(404).body(Body::empty()).unwrap()
     }
 }

@@ -51,11 +51,10 @@ enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmi
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
-flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
-prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
+prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
@@ -67,13 +66,20 @@ kafka = ["windmill-api/kafka"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
 php = ["windmill-worker/php"]
+rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
 mssql = ["windmill-worker/mssql"]
 bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
 python = ["windmill-worker/python"]
-smtp = ["windmill-api/smtp"]
+smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 csharp = ["windmill-worker/csharp"]
+license = ["windmill-api/license"]
+oauth2 = ["windmill-api/oauth2"]
+http_trigger = ["windmill-api/http_trigger"]
+zip = ["windmill-api/zip"]
+static_frontend = ["windmill-api/static_frontend"]
+
 
 [dependencies]
 anyhow.workspace = true
@@ -97,7 +103,7 @@ sha2.workspace = true
 url.workspace = true
 lazy_static.workspace = true
 once_cell.workspace = true
-prometheus.workspace = true
+prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
@@ -175,7 +181,7 @@ rand = "^0"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = { git = "https://github.com/RustPython/Parser", rev = "9ce55aefdeb35e2f706ce0b02d5a2dfe6295fc57" }
+rustpython-parser = "^0"
 php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb411dec09450946ef57920b7ffced7f6495d" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
@@ -234,13 +240,13 @@ lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
-rsa = "0.7.2"
+rsa = "^0"
 async-stripe = { version = "0.39.1", features = [
     "runtime-tokio-hyper",
     "checkout",
     "billing",
 ] }
-async_zip = { version = "0.0.11", features = ["full"] }
+async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 gosyn = "0.2.6"
 bytes = "1.4.0"
@@ -270,7 +276,7 @@ tokenizers = "0.14.1"
 candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
-tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7b5f736c7e94f92c945453c9e", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
+tiberius = { version = "0.12.3", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
 tokio-native-tls = "^0"
@@ -281,8 +287,7 @@ rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
-openidconnect = { version = "3.4.0" }
-zstd = "=0.12.4"
+openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sts = "^1"
 

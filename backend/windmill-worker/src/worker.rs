@@ -106,12 +106,14 @@ use crate::{
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
     result_processor::{process_result, start_background_processor},
-    rust_executor::handle_rust_job,
     worker_flow::{handle_flow, update_flow_status_in_progress},
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
 };
+
+#[cfg(feature = "rust")]
+use crate::rust_executor::handle_rust_job;
 
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
@@ -2292,7 +2294,7 @@ async fn handle_code_execution_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
-    worker_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     base_internal_url: &str,
@@ -2411,6 +2413,7 @@ async fn handle_code_execution_job(
             ));
         }
 
+        #[allow(unreachable_code)]
         #[cfg(not(feature = "bigquery"))]
         {
             return Err(Error::InternalErr(
@@ -2464,6 +2467,7 @@ async fn handle_code_execution_job(
             ));
         }
 
+        #[allow(unreachable_code)]
         #[cfg(not(feature = "mssql"))]
         {
             return Err(Error::InternalErr(
@@ -2716,6 +2720,12 @@ mount {{
             .await
         }
         Some(ScriptLang::Rust) => {
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::InternalErr(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
             handle_rust_job(
                 mem_peak,
                 canceled_by,

@@ -11,16 +11,20 @@ use crate::db::ApiAuthed;
 use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
+#[cfg(feature = "oauth2")]
 use crate::oauth2_ee::AllClients;
+#[cfg(feature = "oauth2")]
+use crate::oauth2_ee::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
+
 use crate::tracing_init::MyOnFailure;
 use crate::{
-    oauth2_ee::SlackVerifier,
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
 };
+
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
@@ -28,7 +32,9 @@ use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use http::HeaderValue;
 use reqwest::Client;
+#[cfg(feature = "oauth2")]
 use std::collections::HashMap;
+
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
@@ -49,6 +55,7 @@ mod ai;
 mod apps;
 mod args;
 mod audit;
+mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
@@ -61,6 +68,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+#[cfg(feature = "http_trigger")]
 mod http_triggers;
 mod indexer_ee;
 mod inputs;
@@ -74,6 +82,7 @@ pub mod job_metrics;
 pub mod jobs;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_ee;
+#[cfg(feature = "oauth2")]
 pub mod oauth2_ee;
 mod oidc_ee;
 mod raw_apps;
@@ -100,6 +109,8 @@ mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
+mod workspaces_export;
+mod workspaces_extra;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
@@ -113,10 +124,6 @@ lazy_static::lazy_static! {
 
     pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
 
-    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
-        .ok()
-        .map(|x| SlackVerifier::new(x).unwrap());
-
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -126,11 +133,22 @@ lazy_static::lazy_static! {
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
+
+}
+
+#[cfg(feature = "oauth2")]
+lazy_static::lazy_static! {
     pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
         slack: None
     }));
+
+
+    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
+        .ok()
+        .map(|x| SlackVerifier::new(x).unwrap());
+
 }
 
 // Compliance with cloud events spec.
@@ -174,13 +192,13 @@ pub async fn run_server(
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
-    base_internal_url: String,
+    #[cfg(feature = "smtp")] base_internal_url: String,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
     #[cfg(feature = "enterprise")]
     let ext_jwks = ExternalJwks::load().await;
-    let auth_cache = Arc::new(users::AuthCache::new(
+    let auth_cache = Arc::new(crate::auth::AuthCache::new(
         db.clone(),
         std::env::var("SUPERADMIN_SECRET").ok(),
         #[cfg(feature = "enterprise")]
@@ -299,7 +317,15 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
-                        .nest("/oauth", oauth2_ee::workspaced_service())
+                        .nest("/oauth", {
+                            #[cfg(feature = "oauth2")]
+                            {
+                                oauth2_ee::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "oauth2"))]
+                            Router::new()
+                        })
                         .nest("/ai", ai::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
@@ -312,7 +338,15 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", http_triggers::workspaced_service())
+                        .nest("/http_triggers", {
+                            #[cfg(feature = "http_trigger")]
+                            {
+                                http_triggers::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "http_trigger"))]
+                            Router::new()
+                        })
                         .nest("/websocket_triggers", {
                             #[cfg(feature = "websocket")]
                             {
@@ -320,9 +354,7 @@ pub async fn run_server(
                             }
 
                             #[cfg(not(feature = "websocket"))]
-                            {
-                                Router::new()
-                            }
+                            Router::new()
                         })
                         .nest("/kafka_triggers", kafka_triggers_service),
                 )
@@ -395,13 +427,29 @@ pub async fn run_server(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
                 )
-                .nest(
-                    "/oauth",
-                    oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
-                )
+                .nest("/oauth", {
+                    #[cfg(feature = "oauth2")]
+                    {
+                        oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension)))
+                    }
+
+                    #[cfg(not(feature = "oauth2"))]
+                    Router::new()
+                })
                 .nest(
                     "/r",
-                    http_triggers::routes_global_service().layer(from_extractor::<OptAuthed>()),
+                    {
+                        #[cfg(feature = "http_trigger")]
+                        {
+                            http_triggers::routes_global_service()
+                        }
+
+                        #[cfg(not(feature = "http_trigger"))]
+                        {
+                            Router::new()
+                        }
+                    }
+                    .layer(from_extractor::<OptAuthed>()),
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))
