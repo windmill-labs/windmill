@@ -1,1 +1,5 @@
-/Users/alex/windmill/dev/repos/windmill/../windmill-ee-private//windmill-api/src/apps_ee.rs
+use axum::Router;
+
+pub fn global_unauthed_service() -> Router {
+    Router::new()
+}
