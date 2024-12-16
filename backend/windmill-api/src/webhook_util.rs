@@ -8,7 +8,7 @@ use tokio::{select, sync::mpsc};
 use windmill_common::METRICS_ENABLED;
 
 use crate::db::DB;
-use crate::oauth2_ee::InstanceEvent;
+use windmill_common::oauth2::InstanceEvent;
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {

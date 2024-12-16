@@ -100,7 +100,10 @@
 				'appdependencies',
 				'preview',
 				'flowpreview',
-				'script_hub'
+				'script_hub',
+				'flowscript',
+				'flownode',
+				'appscript',
 			]
 			return kinds.join(',')
 		} else if (jobKindsCat == 'dependencies') {
@@ -117,7 +120,7 @@
 			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
 			return kinds.join(',')
 		} else {
-			let kinds: CompletedJob['job_kind'][] = ['script', 'flow']
+			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'flowscript', 'flownode', 'appscript']
 			return kinds.join(',')
 		}
 	}

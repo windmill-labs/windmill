@@ -41,10 +41,10 @@
 		{:else if label === 'End Flow'}
 			<Square size={14} />
 			End Flow
-		{:else if label === 'For Loop'}
+		{:else if label === 'For loop'}
 			<Repeat size={14} />
 			For Loop
-		{:else if label === 'While Loop'}
+		{:else if label === 'While loop'}
 			<Repeat size={14} />
 			While Loop
 		{:else if label === 'Branch to one'}

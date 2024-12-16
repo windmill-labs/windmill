@@ -615,7 +615,7 @@
 
 		{#if !hideButton}
 			<div class="mt-16 flex flex-row-reverse max-w-3xl"
-				><Button on:click={deployAll}>Deploy All Toggled</Button></div
+				><Button on:click={deployAll}>Deploy all toggled</Button></div
 			>
 		{/if}
 	{:else}

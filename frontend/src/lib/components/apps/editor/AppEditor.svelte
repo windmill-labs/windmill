@@ -28,7 +28,6 @@
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
-	import { page } from '$app/stores'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService, type Job, type Policy } from '$lib/gen'
@@ -51,7 +50,6 @@
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
-	import { goto, replaceState } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
@@ -70,9 +68,18 @@
 				summary: string
 				policy: any
 				draft_only?: boolean
+				custom_path?: string
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
+	export let newApp: boolean = false
+	export let newPath: string | undefined = undefined
+	export let replaceStateFn: (path: string) => void = (path: string) =>
+		window.history.replaceState(null, '', path)
+	export let gotoFn: (path: string, opt?: Record<string, any> | undefined) => void = (
+		path: string,
+		opt?: Record<string, any>
+	) => window.history.pushState(null, '', path)
 
 	migrateApp(app)
 
@@ -118,8 +125,9 @@
 		email: $userStore?.email,
 		groups: $userStore?.groups,
 		username: $userStore?.username,
-		query: Object.fromEntries($page.url.searchParams.entries()),
-		hash: $page.url.hash.substring(1),
+		name: $userStore?.name,
+		query: Object.fromEntries(new URL(window.location.href).searchParams.entries()),
+		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
 		summary: $summaryStore,
@@ -135,6 +143,13 @@
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
 
+	let writablePath = writable(path)
+	$: path && onPathChange()
+
+	function onPathChange() {
+		writablePath.set(path)
+	}
+
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore,
 		app: appStore,
@@ -146,7 +161,7 @@
 		bgRuns: writable([]),
 		breakpoint,
 		runnableComponents: writable({}),
-		appPath: path,
+		appPath: writablePath,
 		workspace: $workspaceStore ?? '',
 		onchange: () => saveFrontendDraft(),
 		isEditor: true,
@@ -167,7 +182,7 @@
 		cssEditorOpen,
 		previewTheme,
 		debuggingComponents: writable({}),
-		replaceStateFn: (path) => replaceState(path, $page.state),
+		replaceStateFn: replaceStateFn,
 		policy: policy,
 		recomputeAllContext: writable({
 			loading: false,
@@ -474,7 +489,7 @@
 					true,
 					[
 						{
-							label: 'Open Troubleshoot Panel',
+							label: 'Open troubleshoot panel',
 							callback: () => {
 								appEditorHeader?.openTroubleshootPanel()
 							}
@@ -814,6 +829,8 @@
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader
+			{newPath}
+			{newApp}
 			on:restore
 			{policy}
 			{fromHub}
@@ -824,6 +841,7 @@
 			leftPanelHidden={leftPanelSize === 0}
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
+			on:savedNewAppPath
 			on:showLeftPanel={() => showLeftPanel()}
 			on:showRightPanel={() => showRightPanel()}
 			on:hideLeftPanel={() => hideLeftPanel()}
@@ -851,8 +869,8 @@
 						isEditor
 						{context}
 						noBackend={false}
-						replaceStateFn={(path) => replaceState(path, $page.state)}
-						gotoFn={(path, opt) => goto(path, opt)}
+						{replaceStateFn}
+						{gotoFn}
 					/>
 				</div>
 			</SplitPanesWrapper>
@@ -1246,7 +1264,7 @@
 				variableEditor?.initNew?.()
 			}}
 		>
-			New Variable
+			New variable
 		</Button>
 	</div>
 </ItemPicker>

@@ -2,7 +2,7 @@
 use std::{
     collections::HashMap,
     os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Stdio,
 };
 
@@ -29,8 +29,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     bash_executor::BIN_BASH,
     common::{
-        get_reserved_variables, read_and_check_result, start_child_process, transform_json,
-        OccupancyMetrics,
+        check_executor_binary_exists, get_reserved_variables, read_and_check_result, start_child_process, transform_json, OccupancyMetrics
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
@@ -116,8 +115,8 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
-            true,
-            true,
+            false,
+            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -185,24 +184,6 @@ async fn install_galaxy_collections(
     Ok(())
 }
 
-#[cfg(not(feature = "enterprise"))]
-fn check_ansible_exists() -> Result<(), error::Error> {
-    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
-        return Err(error::Error::NotFound(msg));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-fn check_ansible_exists() -> Result<(), error::Error> {
-    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
-        return Err(error::Error::NotFound(msg));
-    }
-    Ok(())
-}
-
 pub async fn handle_ansible_job(
     requirements_o: Option<String>,
     job_dir: &str,
@@ -219,7 +200,7 @@ pub async fn handle_ansible_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    check_ansible_exists()?;
+    check_executor_binary_exists("ansible-playbook", ANSIBLE_PLAYBOOK_PATH.as_str(), "ansible")?;
 
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, db).await;
@@ -433,6 +414,10 @@ fi
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        ansible_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+
         start_child_process(ansible_cmd, ANSIBLE_PLAYBOOK_PATH.as_str()).await?
     };
 
@@ -565,13 +550,9 @@ async fn create_file_resources(
             get_resource_or_variable_content(client, &file_res.resource_path, job_id.to_string())
                 .await?;
         let path = file_res.target_path.clone();
-        let validated_path = write_file_at_user_defined_location(
-            job_dir,
-            path.as_str(),
-            &r,
-            file_res.mode,
-        )
-        .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
+        let validated_path =
+            write_file_at_user_defined_location(job_dir, path.as_str(), &r, file_res.mode)
+                .map_err(|e| anyhow!("Couldn't write text file at {}: {}", path, e))?;
 
         nsjail_mounts.push(
             define_nsjail_mount(job_dir, &validated_path)

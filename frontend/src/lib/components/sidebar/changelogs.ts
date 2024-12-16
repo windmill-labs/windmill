@@ -6,6 +6,71 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Full text search on jobs and logs',
+		href: 'https://www.windmill.dev/changelog/instant-full-text-search-on-jobs-and-logs',
+		date: '2024-12-05'
+	},
+	{
+		label: 'Force dark/light theme in apps',
+		href: 'https://www.windmill.dev/changelog/force-dark-light-theme',
+		date: '2024-11-28'
+	},
+	{
+		label: 'Kafka triggers',
+		href: 'https://www.windmill.dev/changelog/kafka-triggers',
+		date: '2024-11-18'
+	},
+	{
+		label: 'Critical channels in UI',
+		href: 'https://www.windmill.dev/changelog/critical-channels-ui',
+		date: '2024-11-15'
+	},
+	{
+		label: 'Support for Mistral and Anthropic AI models',
+		href: 'https://www.windmill.dev/changelog/mistral-anthropic-support',
+		date: '2024-11-14'
+	},
+	{
+		label: 'Websocket triggers',
+		href: 'https://www.windmill.dev/changelog/websocket-triggers',
+		date: '2024-11-06'
+	},
+	{
+		label: 'Autoscaling',
+		href: 'https://www.windmill.dev/changelog/autoscaling',
+		date: '2024-10-28'
+	},
+	{
+		label: 'File download helper',
+		href: 'https://www.windmill.dev/changelog/file-download-helper',
+		date: '2024-10-12'
+	},
+	{
+		label: 'Queue metric alerts',
+		href: 'https://www.windmill.dev/changelog/queue-metric-alerts',
+		date: '2024-10-10'
+	},
+	{
+		label: 'Deno 2.0',
+		href: 'https://www.windmill.dev/changelog/deno-2.0',
+		date: '2024-10-10'
+	},
+	{
+		label: 'Move components inside containers with ctrl+click',
+		href: 'https://www.windmill.dev/changelog/move-components-inside-containers-with-ctrl',
+		date: '2024-10-09'
+	},
+	{
+		label: 'Support workers to run natively on Windows',
+		href: 'https://www.windmill.dev/changelog/workers-run-natively-windows',
+		date: '2024-10-03'
+	},
+	{
+		label: 'Quick access menu for faster component insertion',
+		href: 'https://www.windmill.dev/changelog/flow-quick-access-menu',
+		date: '2024-10-03'
+	},
+	{
 		label: 'Custom HTTP routes',
 		href: 'https://www.windmill.dev/changelog/http-routing',
 		date: '2024-09-23'
@@ -22,7 +87,7 @@ const changelogs: Changelog[] = [
 	},
 	{
 		label: 'Critical alert channels',
-		href: 'https://www.windmill.dev/changelog/critical-alert-channels',
+		href: 'https://www.windmill.dev/changelog/critical-alerts',
 		date: '2024-09-01'
 	},
 	{
@@ -66,7 +131,7 @@ const changelogs: Changelog[] = [
 		date: '2024-07-26'
 	},
 	{
-		label: 'Dynamic Select',
+		label: 'Dynamic select',
 		href: 'https://www.windmill.dev/changelog/dynamic-select',
 		date: '2024-07-22'
 	},
@@ -76,17 +141,17 @@ const changelogs: Changelog[] = [
 		date: '2024-07-14'
 	},
 	{
-		label: 'Navbar Component',
+		label: 'Navbar component',
 		href: 'https://www.windmill.dev/changelog/navbar',
 		date: '2024-07-05'
 	},
 	{
-		label: 'Flow Versioning',
+		label: 'Flow versioning',
 		href: 'https://www.windmill.dev/changelog/flow-versioning',
 		date: '2024-07-04'
 	},
 	{
-		label: 'OneOf Inputs',
+		label: 'OneOf inputs',
 		href: 'https://www.windmill.dev/changelog/oneof-inputs',
 		date: '2024-06-17'
 	},
@@ -101,7 +166,7 @@ const changelogs: Changelog[] = [
 		date: '2024-06-04'
 	},
 	{
-		label: 'Secondary Storage',
+		label: 'Secondary storage',
 		href: 'https://www.windmill.dev/changelog/secondary-storage',
 		date: '2024-05-31'
 	},
@@ -116,12 +181,12 @@ const changelogs: Changelog[] = [
 		date: '2024-05-27'
 	},
 	{
-		label: 'Concurrency Limit Observability',
+		label: 'Concurrency limit observability',
 		href: 'https://www.windmill.dev/changelog/concurrency-limit-observability',
 		date: '2024-05-15'
 	},
 	{
-		label: 'Full Height Components',
+		label: 'Full height components',
 		href: 'https://www.windmill.dev/changelog/full-height-components',
 		date: '2024-05-15'
 	},
@@ -136,7 +201,7 @@ const changelogs: Changelog[] = [
 		date: '2024-05-13'
 	},
 	{
-		label: 'Workers Metrics',
+		label: 'Workers metrics',
 		href: 'https://www.windmill.dev/changelog/workers-metrics',
 		date: '2024-05-10'
 	},
@@ -151,7 +216,7 @@ const changelogs: Changelog[] = [
 		date: '2024-04-24'
 	},
 	{
-		label: 'Jobs Labels',
+		label: 'Jobs labels',
 		href: 'https://www.windmill.dev/changelog/jobs-labels',
 		date: '2024-04-24'
 	},
@@ -166,12 +231,12 @@ const changelogs: Changelog[] = [
 		date: '2024-04-02'
 	},
 	{
-		label: 'While Loops',
+		label: 'While loops',
 		href: 'https://www.windmill.dev/changelog/while-loops',
 		date: '2024-04-02'
 	},
 	{
-		label: 'Approval Steps Improvements',
+		label: 'Approval steps improvements',
 		href: 'https://www.windmill.dev/changelog/approval-steps-improvements',
 		date: '2024-03-27'
 	},
@@ -186,12 +251,12 @@ const changelogs: Changelog[] = [
 		date: '2024-03-27'
 	},
 	{
-		label: 'Custom Flow States',
+		label: 'Custom flow states',
 		href: 'https://www.windmill.dev/changelog/custom-flow-states',
 		date: '2024-03-26'
 	},
 	{
-		label: 'Custom Contextual Variables',
+		label: 'Custom contextual variables',
 		href: 'https://www.windmill.dev/changelog/custom-contextual-variables',
 		date: '2024-03-23'
 	},
@@ -206,7 +271,7 @@ const changelogs: Changelog[] = [
 		date: '2024-03-22'
 	},
 	{
-		label: 'Configurable Available Languages',
+		label: 'Configurable available languages',
 		href: 'https://www.windmill.dev/changelog/configurable-languages',
 		date: '2024-03-13'
 	},
@@ -221,7 +286,7 @@ const changelogs: Changelog[] = [
 		date: '2024-02-27'
 	},
 	{
-		label: 'Custom Workspace Secret Encryption',
+		label: 'Custom workspace secret encryption',
 		href: 'https://www.windmill.dev/changelog/workspace-encryption',
 		date: '2024-02-15'
 	},
@@ -236,7 +301,7 @@ const changelogs: Changelog[] = [
 		date: '2024-01-24'
 	},
 	{
-		label: 'Database Studio',
+		label: 'Database studio',
 		href: 'https://www.windmill.dev/changelog/database-studio',
 		date: '2024-01-24'
 	},

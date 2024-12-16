@@ -14,6 +14,7 @@ pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
 
 use crate::{
+    apps::AppScriptId,
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
@@ -41,6 +42,16 @@ pub enum JobKind {
     DeploymentCallback,
     FlowScript,
     FlowNode,
+    AppScript,
+}
+
+impl JobKind {
+    pub fn is_flow(&self) -> bool {
+        matches!(
+            self,
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
+        )
+    }
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -114,10 +125,7 @@ impl QueuedJob {
             .unwrap_or("tmp/main")
     }
     pub fn is_flow(&self) -> bool {
-        matches!(
-            self.job_kind,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
-        )
+        self.job_kind.is_flow()
     }
 
     pub fn full_path_with_workspace(&self) -> String {
@@ -276,7 +284,13 @@ pub enum JobPayload {
     },
     FlowNode {
         id: FlowNodeId, // flow_node(id).
-        path: String, // flow node inner path (e.g. `outer/branchall-42`).
+        path: String,   // flow node inner path (e.g. `outer/branchall-42`).
+    },
+    AppScript {
+        id: AppScriptId, // app_script(id).
+        path: Option<String>,
+        language: ScriptLang,
+        cache_ttl: Option<i32>,
     },
     Code(RawCode),
     Dependencies {

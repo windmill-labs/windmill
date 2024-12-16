@@ -10,7 +10,7 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { getContext, onMount } from 'svelte'
-
+	import Description from '$lib/components/Description.svelte'
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
@@ -59,6 +59,11 @@
 />
 
 <div class="flex flex-col gap-4">
+	<Description link="https://www.windmill.dev/docs/core_concepts/http_routing">
+		Routes expose your scripts and flows as HTTP endpoints. Each route can be configured with a
+		specific HTTP method and path.
+	</Description>
+
 	{#if !newItem}
 		{#if $userStore?.is_admin || $userStore?.is_super_admin}
 			<Button
@@ -68,7 +73,7 @@
 				size="xs"
 				startIcon={{ icon: RouteIcon }}
 			>
-				New Route
+				New route
 			</Button>
 		{:else}
 			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />

@@ -8,7 +8,9 @@
 
 use anyhow::Context;
 use monitor::{
-    reload_delete_logs_periodically_setting, reload_indexer_config, reload_timeout_wait_result_setting, send_current_log_file_to_object_store, send_logs_to_object_store
+    load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
+    reload_nuget_config_setting, reload_timeout_wait_result_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store,
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
@@ -29,7 +31,16 @@ use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICE
 
 use windmill_common::{
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TIMEOUT_WAIT_RESULT_SETTING
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -56,15 +67,15 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR, TMP_LOGS_DIR,
-    UV_CACHE_DIR,
+    BUN_DEPSTAR_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
+    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR,
+    TMP_LOGS_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db, monitor_pool,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
@@ -211,14 +222,66 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let hostname = hostname();
 
-    #[cfg(not(feature = "flamegraph"))]
-    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname);
+    let mut enable_standalone_indexer: bool = false;
+
+    let mode = std::env::var("MODE")
+        .map(|x| x.to_lowercase())
+        .map(|x| {
+            if &x == "server" {
+                println!("Binary is in 'server' mode");
+                Mode::Server
+            } else if &x == "worker" {
+                tracing::info!("Binary is in 'worker' mode");
+                #[cfg(windows)]
+                {
+                    println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
+                }
+                Mode::Worker
+            } else if &x == "agent" {
+                println!("Binary is in 'agent' mode");
+                if std::env::var("BASE_INTERNAL_URL").is_err() {
+                    panic!("BASE_INTERNAL_URL is required in agent mode")
+                }
+                if std::env::var("JOB_TOKEN").is_err() {
+                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
+                }
+
+                #[cfg(not(feature = "enterprise"))]
+                {
+                    panic!("Agent mode is only available in the EE, ignoring...");
+                }
+                #[cfg(feature = "enterprise")]
+                Mode::Agent
+            } else if &x == "indexer" {
+                tracing::info!("Binary is in 'indexer' mode");
+                #[cfg(not(feature = "tantivy"))]
+                {
+                    eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
+                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
+                }
+                #[cfg(feature = "tantivy")]
+                Mode::Indexer
+            } else if &x == "standalone+search"{
+                    enable_standalone_indexer = true;
+                    println!("Binary is in 'standalone' mode with search enabled");
+                    Mode::Standalone
+            }
+            else {
+                if &x != "standalone" {
+                    eprintln!("mode not recognized, defaulting to standalone: {x}");
+                } else {
+                    println!("Binary is in 'standalone' mode");
+                }
+                Mode::Standalone
+            }
+        })
+        .unwrap_or_else(|_| {
+            tracing::info!("Mode not specified, defaulting to standalone");
+            Mode::Standalone
+        });
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
-    tracing::info!("jemalloc enabled");
-
-    #[cfg(feature = "flamegraph")]
-    let _guard = windmill_common::tracing_init::setup_flamegraph();
+    println!("jemalloc enabled");
 
     let cli_arg = std::env::args().nth(1).unwrap_or_default();
 
@@ -226,13 +289,13 @@ async fn windmill_main() -> anyhow::Result<()> {
         "cache" => {
             #[cfg(feature = "embedding")]
             {
-                tracing::info!("Caching embedding model...");
+                println!("Caching embedding model...");
                 windmill_api::embeddings::ModelInstance::load_model_files().await?;
-                tracing::info!("Cached embedding model");
+                println!("Cached embedding model");
             }
             #[cfg(not(feature = "embedding"))]
             {
-                tracing::warn!("Embeddings are not enabled, ignoring...");
+                println!("Embeddings are not enabled, ignoring...");
             }
 
             cache_hub_scripts(std::env::args().nth(2)).await?;
@@ -246,60 +309,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
-    let mut enable_standalone_indexer: bool = false;
-
-    let mode = std::env::var("MODE")
-        .map(|x| x.to_lowercase())
-        .map(|x| {
-            if &x == "server" {
-                tracing::info!("Binary is in 'server' mode");
-                Mode::Server
-            } else if &x == "worker" {
-                tracing::info!("Binary is in 'worker' mode");
-                Mode::Worker
-            } else if &x == "agent" {
-                tracing::info!("Binary is in 'agent' mode");
-                if std::env::var("BASE_INTERNAL_URL").is_err() {
-                    panic!("BASE_INTERNAL_URL is required in agent mode")
-                }
-                if std::env::var("JOB_TOKEN").is_err() {
-                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
-                }
-
-                #[cfg(not(feature = "enterprise"))]
-                {
-                    panic!("Agent mode is only available in the EE, ignoring...");
-                }
-                #[cfg(feature = "enterprise")]
-                Mode::Agent
-            } else if &x == "indexer" {
-                tracing::info!("Binary is in 'indexer' mode");
-                #[cfg(not(feature = "tantivy"))]
-                {
-                    tracing::error!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
-                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
-                }
-                #[cfg(feature = "tantivy")]
-                Mode::Indexer
-            } else if &x == "standalone+search"{
-                    enable_standalone_indexer = true;
-                    tracing::info!("Binary is in 'standalone' mode with search enabled");
-                    Mode::Standalone
-            }
-            else {
-                if &x != "standalone" {
-                    tracing::error!("mode not recognized, defaulting to standalone: {x}");
-                } else {
-                    tracing::info!("Binary is in 'standalone' mode");
-                }
-                Mode::Standalone
-            }
-        })
-        .unwrap_or_else(|_| {
-            tracing::info!("Mode not specified, defaulting to standalone");
-            Mode::Standalone
-        });
-
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
@@ -311,7 +320,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     if num_workers > 1 {
-        tracing::warn!(
+        println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
         );
     }
@@ -333,9 +342,24 @@ async fn windmill_main() -> anyhow::Result<()> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
 
-    tracing::info!("Connecting to database...");
+    println!("Connecting to database...");
     let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
+
+    load_otel(&db).await;
+
     tracing::info!("Database connected");
+
+    let environment = load_base_url(&db)
+        .await
+        .unwrap_or_else(|_| "local".to_string())
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split(".")
+        .next()
+        .unwrap_or_else(|| "local")
+        .to_string();
+
+    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 
@@ -461,7 +485,8 @@ Windmill Community Edition {GIT_VERSION}
         )
         .await;
 
-        monitor_pool(&db).await;
+        #[cfg(feature = "prometheus")]
+        crate::monitor::monitor_pool(&db).await;
 
         send_logs_to_object_store(&db, &hostname, &mode);
 
@@ -533,7 +558,7 @@ Windmill Community Edition {GIT_VERSION}
                 _ = indexer_rx.recv() => {
                     tracing::info!("Received killpill, aborting index initialization");
                 },
-                res = windmill_indexer::service_logs_ee::init_index(&db) => {
+                res = windmill_indexer::service_logs_ee::init_index(&db, killpill_tx.clone()) => {
                         let res = res?;
                         reader = Some(res.0);
                         writer = Some(res.1);
@@ -584,6 +609,7 @@ Windmill Community Edition {GIT_VERSION}
                     server_killpill_rx,
                     base_internal_tx,
                     server_mode,
+                    #[cfg(feature = "smtp")]
                     base_internal_url.clone(),
                 )
                 .await?;
@@ -742,6 +768,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 BUNFIG_INSTALL_SCOPES_SETTING => {
                                                     reload_bunfig_install_scopes_setting(&db).await
                                                 },
+                                                NUGET_CONFIG_SETTING => {
+                                                    reload_nuget_config_setting(&db).await
+                                                },
                                                 KEEP_JOB_DIR_SETTING => {
                                                     load_keep_job_dir(&db).await;
                                                 },
@@ -760,6 +789,15 @@ Windmill Community Edition {GIT_VERSION}
                                                 EXPOSE_DEBUG_METRICS_SETTING => {
                                                     if let Err(e) = load_metrics_debug_enabled(&db).await {
                                                         tracing::error!(error = %e, "Could not reload debug metrics setting");
+                                                    }
+                                                },
+                                                OTEL_SETTING => {
+                                                    tracing::info!("OTEL setting changed, restarting");
+                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
+                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                    if let Err(e) = tx.send(()) {
+                                                        tracing::error!(error = %e, "Could not send killpill");
                                                     }
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {
@@ -987,6 +1025,7 @@ pub async fn run_workers(
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         RUST_CACHE_DIR,
+        CSHARP_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
     ] {

@@ -54,6 +54,7 @@ export function graphBuilder(
 	edges: Edge[]
 	error?: string | undefined
 } {
+	console.debug('Building graph')
 	const nodes: Node[] = []
 	const edges: Edge[] = []
 	try {

@@ -12,7 +12,8 @@ use crate::{
     triggers::{
         get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
     },
-    users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
+    users::{maybe_refresh_folders, require_owner_of_path},
+    auth::AuthCache,
     utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -583,6 +584,7 @@ async fn create_script_internal<'c>(
         || ns.language == ScriptLang::Deno
         || ns.language == ScriptLang::Rust
         || ns.language == ScriptLang::Ansible
+        || ns.language == ScriptLang::CSharp
         || ns.language == ScriptLang::Php)
     {
         Some(String::new())
@@ -1439,14 +1441,27 @@ async fn delete_script_by_path(
         require_admin(authed.is_admin, &authed.username)?;
     }
 
-    let script = sqlx::query_scalar!(
-        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
-        path,
-        w_id
-    )
-    .fetch_one(&db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?;
+    let script = if !draft_only {
+        require_admin(authed.is_admin, &authed.username)?;
+        sqlx::query_scalar!(
+            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+            path,
+            w_id
+        )
+        .fetch_one(&db)
+        .await
+        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+    } else {
+        // If the script is draft only, we can delete it without admin permissions but we still need write permissions
+        sqlx::query_scalar!(
+            "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+            path,
+            w_id
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+    };
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",

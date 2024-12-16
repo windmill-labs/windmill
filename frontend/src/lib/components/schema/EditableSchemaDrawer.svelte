@@ -6,7 +6,7 @@
 	import AddProperty from './AddProperty.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
-	import { emptyString, generateRandomString } from '$lib/utils'
+	import { emptyString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Label from '../Label.svelte'
@@ -25,7 +25,7 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
 	$: items = ((schema?.order ?? Object.keys(schema.properties ?? {}))?.map((item, index) => {
-		return { value: item, id: generateRandomString() }
+		return { value: item, id: item }
 	}) ?? []) as Array<{
 		value: string
 		id: string
@@ -68,7 +68,7 @@
 		label="JSON View"
 		size="xs"
 		options={{
-			right: 'JSON Editor',
+			right: 'JSON editor',
 			rightTooltip:
 				'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 		}}
@@ -152,7 +152,7 @@
 
 						{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
 							<div class="flex flex-col w-full mt-2">
-								<Label label="Nested Properties">
+								<Label label="Nested properties">
 									<svelte:self
 										on:change={() => (schema = schema)}
 										schema={schema.properties[item.value]}

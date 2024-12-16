@@ -77,7 +77,11 @@ async fn initialize_tracing() {
 
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        let _ = windmill_common::tracing_init::initialize_tracing("test");
+        let _ = windmill_common::tracing_init::initialize_tracing(
+            "test",
+            &windmill_common::utils::Mode::Standalone,
+            "test",
+        );
     });
 }
 
@@ -130,6 +134,7 @@ impl ApiServer {
             rx,
             port_tx,
             false,
+            #[cfg(feature = "smtp")]
             format!("http://localhost:{}", addr.port()),
         ));
 
@@ -1793,6 +1798,48 @@ fn main(world: String) -> Result<String, String> {
 
     assert_eq!(result, serde_json::json!("Hello Hyrule!"));
 }
+
+// #[sqlx::test(fixtures("base"))]
+// async fn test_csharp_job(db: Pool<Postgres>) {
+//     initialize_tracing().await;
+//     let server = ApiServer::start(db.clone()).await;
+//     let port = server.addr.port();
+//
+//     let content = r#"
+// using System;
+//
+// class Script
+// {
+//     public static string Main(string world, int b = 2)
+//     {
+//         Console.WriteLine($"Hello {world} - {b}. This is a log line");
+//         return $"Hello {world} - {b}";
+//     }
+// }
+//         "#
+//     .to_owned();
+//
+//     let result = RunJob::from(JobPayload::Code(RawCode {
+//         hash: None,
+//         content,
+//         path: None,
+//         lock: None,
+//         language: ScriptLang::CSharp,
+//         custom_concurrency_key: None,
+//         concurrent_limit: None,
+//         concurrency_time_window_s: None,
+//         cache_ttl: None,
+//         dedicated_worker: None,
+//     }))
+//     .arg("world", json!("Arakis"))
+//     .arg("b", json!(3))
+//     .run_until_complete(&db, port)
+//     .await
+//     .json_result()
+//     .unwrap();
+//
+//     assert_eq!(result, serde_json::json!("Hello Arakis - 3"));
+// }
 
 #[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) {

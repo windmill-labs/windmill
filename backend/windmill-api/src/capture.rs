@@ -24,11 +24,12 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use windmill_queue::{PushArgs, PushArgsOwned};
+use windmill_queue::PushArgs;
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaResourceSecurity;
 use crate::{
+    args::WebhookArgs,
     db::{ApiAuthed, DB},
     http_triggers::build_http_trigger_extra,
 };
@@ -374,10 +375,11 @@ pub async fn insert_capture_payload(
     path: &str,
     is_flow: bool,
     trigger_kind: &TriggerKind,
-    payload: PushArgsOwned,
+    payload: WebhookArgs,
     trigger_extra: Option<Box<RawValue>>,
     owner: &str,
 ) -> Result<()> {
+    let payload = payload.args;
     sqlx::query!(
         "INSERT INTO capture (workspace_id, path, is_flow, trigger_kind, payload, trigger_extra, created_by)
         VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -403,8 +405,9 @@ pub async fn insert_capture_payload(
 async fn webhook_payload(
     Extension(db): Extension<DB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> Result<StatusCode> {
+    let args = args.args;
     let (owner, _) = get_active_capture_owner_and_email(
         &db,
         &w_id,
@@ -439,10 +442,11 @@ async fn http_payload(
     Query(query): Query<HashMap<String, String>>,
     method: http::Method,
     headers: HeaderMap,
-    args: PushArgsOwned,
+    args: WebhookArgs,
 ) -> Result<StatusCode> {
     let route_path = route_path.to_path();
     let path = path.replace(".", "/");
+    let args = args.args;
 
     let (http_trigger_config, owner): (HttpTriggerConfig, _) =
         get_capture_trigger_config_and_owner(

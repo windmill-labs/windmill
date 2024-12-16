@@ -279,7 +279,7 @@
 					variant="border"
 					on:click={() => {
 						inputLibraryDrawer?.openDrawer()
-					}}>Past Runs/Input library</Button
+					}}>Past runs/Input library</Button
 				>
 			{/if}
 		</div>

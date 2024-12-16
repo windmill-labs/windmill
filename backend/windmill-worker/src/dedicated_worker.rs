@@ -16,7 +16,7 @@ use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
-    error,
+    cache, error,
     flows::{FlowModule, FlowModuleValue},
     jobs::QueuedJob,
     scripts::{ScriptHash, ScriptLang},
@@ -393,18 +393,14 @@ async fn spawn_dedicated_workers_for_flow(
                     }
                 }
                 FlowModuleValue::FlowScript { id, language, .. } => {
-                    let spawn = sqlx::query!(
-                        "SELECT lock, code AS \"code!: String\" FROM flow_node WHERE id = $1 LIMIT 1",
-                        id.0
-                    )
-                    .fetch_one(db)
-                    .await
-                    .map(|record| SpawnWorker::RawScript {
-                        path: "".to_string(),
-                        content: record.code,
-                        lock: record.lock,
-                        lang: language.clone(),
-                    });
+                    let spawn = cache::flow::fetch_script(db, *id)
+                        .await
+                        .map(|(lock, content)| SpawnWorker::RawScript {
+                            path: "".to_string(),
+                            content,
+                            lock,
+                            lang: language.clone(),
+                        });
                     match spawn {
                         Ok(spawn) => {
                             if let Some(dedi_w) = spawn_dedicated_worker(
@@ -419,17 +415,18 @@ async fn spawn_dedicated_workers_for_flow(
                                 job_completed_tx,
                                 Some(module.id.clone()),
                             )
-                              .await
+                            .await
                             {
                                 workers.push(dedi_w);
                             }
-                        },
+                        }
                         Err(err) => tracing::error!(
                             "failed to get script for module: {:?}, err: {:?}",
-                            module, err
-                        )
+                            module,
+                            err
+                        ),
                     }
-                },
+                }
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
             }
@@ -682,6 +679,14 @@ async fn spawn_dedicated_worker(
 
             if let Err(e) = match language {
                 Some(ScriptLang::Python3) => {
+                    #[cfg(not(feature = "python"))]
+                    {
+                        tracing::error!("Python requires the python feature to be enabled");
+                        killpill_tx.send(()).expect("send");
+                        return;
+                    }
+
+                    #[cfg(feature = "python")]
                     crate::python_executor::start_worker(
                         lock,
                         &db,

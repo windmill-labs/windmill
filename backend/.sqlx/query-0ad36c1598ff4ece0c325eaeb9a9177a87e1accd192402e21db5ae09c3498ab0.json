@@ -44,7 +44,8 @@
                 "deploymentcallback",
                 "singlescriptflow",
                 "flowscript",
-                "flownode"
+                "flownode",
+                "appscript"
               ]
             }
           }
@@ -74,7 +75,8 @@
                 "php",
                 "bunnative",
                 "rust",
-                "ansible"
+                "ansible",
+                "csharp"
               ]
             }
           }

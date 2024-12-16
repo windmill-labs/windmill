@@ -191,6 +191,7 @@
 		| 'javascript'
 		| 'rust'
 		| 'yaml'
+		| 'csharp'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -210,10 +211,10 @@
 	export let folding = false
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
-	export let listenEmptyChanges = false
 	export let small = false
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
+	export let lineNumbersMinChars = 3
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -410,6 +411,10 @@
 				formatAction()
 			}
 		}
+	}
+
+	export function getScriptLang(): string | undefined {
+		return scriptLang
 	}
 
 	let command: Disposable | undefined = undefined
@@ -1101,6 +1106,7 @@
 		}
 	}
 
+	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
 		try {
 			console.log("Loading Monaco's language client")
@@ -1131,6 +1137,7 @@
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
 			fontSize: !small ? 14 : 12,
+			lineNumbersMinChars,
 			// overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2,
 			folding
@@ -1138,17 +1145,14 @@
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		let ataModel: NodeJS.Timeout | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
-				if (ncode != '' || listenEmptyChanges) {
-					code = ncode
-					dispatch('change', code)
-				}
+				code = ncode
+				dispatch('change', code)
 			}, 500)
 
 			ataModel && clearTimeout(ataModel)
@@ -1313,6 +1317,7 @@
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
 		copilotCompletor && copilotCompletor.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
+		timeoutModel && clearTimeout(timeoutModel)
 	})
 
 	async function genRoot(hostname: string) {

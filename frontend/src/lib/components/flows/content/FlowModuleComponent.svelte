@@ -265,6 +265,9 @@
 							$flowStateStore[flowModule.id].schema,
 							$pathStore
 						)
+						if (flowModule.value.type == 'rawscript') {
+							module.value.input_transforms = flowModule.value.input_transforms
+						}
 						flowModule = module
 						$flowStateStore[module.id] = state
 					}}
@@ -478,7 +481,7 @@
 											<FlowRetries bind:flowModuleRetry={flowModule.retry} />
 										</Section>
 									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
-										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
+										<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
 											</svelte:fragment>

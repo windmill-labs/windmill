@@ -250,7 +250,7 @@
 		</Label>
 
 		{#if !disabled}
-			<div class="flex flex-row gap-2">
+			<div class="flex flex-row gap-2 mb-2">
 				<CronBuilder let:close>
 					<div class="w-full flex flex-col">
 						<div class="w-full flex flex-col gap-1">
@@ -388,7 +388,7 @@
 								close(null)
 							}}
 						>
-							Set Cron Schedule
+							Set cron schedule
 						</Button>
 					</div>
 				</CronBuilder>

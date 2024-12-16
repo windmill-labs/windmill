@@ -241,6 +241,7 @@ export async function main(message: string, name: string, step_id: string) {
 `
 
 const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -345,6 +346,55 @@ fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
             .choose(&mut rand::thread_rng())
             .ok_or(anyhow!("There should be some numbers to choose from"))?,
     })
+}
+`
+
+const CSHARP_INIT_CODE = `#r "nuget: Humanizer, 2.14.1"
+
+using System;
+using System.Linq;
+using Humanizer;
+
+
+class Script
+{
+    public static int Main(string[] extraWords, string word = "clue", int highNumberThreshold = 50)
+    {
+        Console.WriteLine("Hello, World!");
+
+        Console.WriteLine("Your chosen words are pluralized here:");
+
+        string[] newWordArray = extraWords.Concat(new[] { word }).ToArray();
+
+        foreach (var s in newWordArray)
+        {
+            Console.WriteLine($"  {s.Pluralize()}");
+        }
+
+        var random = new Random();
+        int randomNumber = random.Next(1, 101);
+
+        Console.WriteLine($"Random number: {randomNumber}");
+
+        string greeting = randomNumber > highNumberThreshold ? "High number!" : "Low number!";
+        greeting += " (according to the threshold parameter)";
+        Console.WriteLine(greeting);
+         // Humanize a timespan
+        var timespan = TimeSpan.FromMinutes(90);
+        Console.WriteLine($"Timespan: {timespan.Humanize()}");
+
+        // Humanize numbers into words
+        int number = 123;
+        Console.WriteLine($"Number: {number.ToWords()}");
+
+        // Pluralize words
+        string singular = "apple";
+
+        // Humanize date difference
+        var date = DateTime.UtcNow.AddDays(-3);
+        Console.WriteLine($"Date: {date.Humanize()}");
+        return 2;
+    }
 }
 `
 
@@ -630,8 +680,11 @@ def preprocessor(
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
-# Bash script that calls docker as a client to the host daemon
-# See documentation: https://www.windmill.dev/docs/advanced/docker
+# docker
+# The annotation "docker" above is important, it tells windmill that after 
+# the end of the bash script, it should manage the container at id $WM_JOB_ID:
+# pipe logs, monitor memory usage, kill container if job is cancelled.
+
 msg="\${1:-world}"
 
 IMAGE="alpine:latest"
@@ -639,7 +692,9 @@ COMMAND="/bin/echo Hello $msg"
 
 # ensure that the image is up-to-date
 docker pull $IMAGE
-docker run --rm $IMAGE $COMMAND
+
+# if using the 'docker' mode, name it with $WM_JOB_ID for windmill to monitor it
+docker run --name $WM_JOB_ID -it -d $IMAGE $COMMAND
 `
 
 const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
@@ -767,6 +822,9 @@ export const INITIAL_CODE = {
 	ansible: {
 		script: ANSIBLE_PLAYBOOK_INIT_CODE
 	},
+	csharp: {
+		script: CSHARP_INIT_CODE
+	},
 	docker: {
 		script: DOCKER_INIT_CODE
 	},
@@ -871,6 +929,8 @@ export function initialCode(
 		return INITIAL_CODE.rust.script
 	} else if (language == 'ansible') {
 		return INITIAL_CODE.ansible.script
+	} else if (language == 'csharp') {
+		return INITIAL_CODE.csharp.script
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

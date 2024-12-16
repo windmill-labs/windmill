@@ -52,6 +52,7 @@
 				flowJobs: string[]
 				flowJobsSuccess: (boolean | undefined)[]
 				length: number
+				branchall?: boolean
 		  }
 		| undefined = undefined
 
@@ -112,41 +113,47 @@
 		newValue: GraphModuleState,
 		keepType: boolean | undefined
 	) {
-		moduleState.update((x) => {
+		const state = get(moduleState)
+		if (
+			newValue.selectedForloop != undefined &&
+			state[key]?.selectedForloop != undefined &&
+			newValue.selectedForloop != state[key].selectedForloop
+		) {
+			if (newValue.type == 'InProgress' && state[key]?.type != 'InProgress') {
+				moduleState.update((state) => {
+					state[key].type = 'InProgress'
+					return state
+				})
+			}
+			return
+		}
+
+		if (state[key]?.selectedForLoopSetManually) {
 			if (
 				newValue.selectedForloop != undefined &&
-				x[key]?.selectedForloop != undefined &&
-				newValue.selectedForloop != x[key].selectedForloop
+				state[key]?.selectedForloop != newValue.selectedForloop
 			) {
-				if (newValue.type == 'InProgress') {
-					x[key].type = 'InProgress'
-				}
-				return x
+				return state
+			} else {
+				newValue.selectedForLoopSetManually = true
+				newValue.selectedForloopIndex = state[key]?.selectedForloopIndex
+				newValue.selectedForloop = state[key]?.selectedForloop
 			}
+		} else if (state[key]?.selectedForloopIndex != undefined) {
+			newValue.selectedForloopIndex = state[key]?.selectedForloopIndex
+			newValue.selectedForloop = state[key]?.selectedForloop
+		}
 
-			if (x[key]?.selectedForLoopSetManually) {
-				if (
-					newValue.selectedForloop != undefined &&
-					x[key]?.selectedForloop != newValue.selectedForloop
-				) {
-					return x
-				} else {
-					newValue.selectedForLoopSetManually = true
-					newValue.selectedForloopIndex = x[key]?.selectedForloopIndex
-					newValue.selectedForloop = x[key]?.selectedForloop
-				}
-			} else if (x[key]?.selectedForloopIndex != undefined) {
-				newValue.selectedForloopIndex = x[key]?.selectedForloopIndex
-				newValue.selectedForloop = x[key]?.selectedForloop
-			}
+		if (keepType && (state[key]?.type == 'Success' || state[key]?.type == 'Failure')) {
+			newValue.type = state[key].type
+		}
 
-			if (keepType && (x[key]?.type == 'Success' || x[key]?.type == 'Failure')) {
-				newValue.type = x[key].type
-			}
-
-			x[key] = newValue
-			return x
-		})
+		if (!deepEqual(state[key], newValue)) {
+			moduleState.update((state) => {
+				state[key] = newValue
+				return state
+			})
+		}
 	}
 
 	function buildSubflowKey(key: string, prefix: string | undefined) {
@@ -203,10 +210,10 @@
 
 		for (let [k, rec] of Object.entries(recursiveRefresh)) {
 			if (rootJob != undefined && rootJob != k) {
-				return
+				continue
 			}
 			await tick()
-			await rec(clearLoop, false)
+			await rec(clearLoop, undefined)
 		}
 	}
 
@@ -460,9 +467,7 @@
 				let modId = flowJobIds?.moduleId ?? ''
 
 				let common = {
-					iteration_from:
-						// $localDurationStatuses?.[modId]?.iteration_from ??
-						Math.max(flowJobIds.flowJobs.length - 20, 0),
+					iteration_from: flowJobIds?.branchall ? 0 : Math.max(flowJobIds.flowJobs.length - 20, 0),
 					iteration_total: $localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
 				}
 				$localDurationStatuses[modId] = {
@@ -595,32 +600,45 @@
 		isForloop: boolean
 	) {
 		if (modId) {
-			if (clicked) {
-				await globalRefreshes?.[modId]?.(true, id)
+			let globalState = globalModuleStates?.[globalModuleStates?.length - 1]
+			let globalStateGet = globalState ? get(globalState) : undefined
+			let state = globalStateGet?.[modId]
+
+			if (clicked && state?.selectedForloop) {
+				await globalRefreshes?.[modId]?.(true, state.selectedForloop)
 			}
-			globalModuleStates?.[globalModuleStates?.length - 1]?.update((topLevelModuleStates) => {
-				let state = topLevelModuleStates?.[modId]
-				if (state) {
-					let manualOnce = state.selectedForLoopSetManually
-					if (
-						clicked ||
-						(!manualOnce &&
-							(state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)))
-					) {
-						let setManually = clicked || manualOnce
+			let manualOnce = state?.selectedForLoopSetManually
+			if (
+				clicked ||
+				(!manualOnce &&
+					(state == undefined || !isForloop || j >= (state.selectedForloopIndex ?? -1)))
+			) {
+				let setManually = clicked || manualOnce
 
-						topLevelModuleStates[modId] = {
-							...(topLevelModuleStates[modId] ?? {}),
-							selectedForloop: id,
-							selectedForloopIndex: j,
-							selectedForLoopSetManually: setManually ?? false
-						}
-
-						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})
-					}
+				let newState = {
+					...(state ?? {}),
+					selectedForloop: id,
+					selectedForloopIndex: j,
+					selectedForLoopSetManually: setManually
 				}
-				return topLevelModuleStates
-			})
+
+				const selectedNotEqual =
+					id != state?.selectedForloop ||
+					j != state?.selectedForloopIndex ||
+					setManually != state?.selectedForLoopSetManually
+				if (selectedNotEqual) {
+					console.log('not equal')
+					globalState?.update((topLevelModuleStates) => {
+						topLevelModuleStates[modId] = {
+							type: 'WaitingForPriorSteps',
+							args: {},
+							...newState
+						}
+						return topLevelModuleStates
+						// clicked && callGlobRefresh(modId, {index: j, job: id, selectedManually: setManually ?? false})
+					})
+				}
+			}
 
 			if (clicked) {
 				await globalRefreshes?.[modId]?.(false, id)
@@ -711,9 +729,16 @@
 				})
 			}
 
-			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'flowscript' || jobLoaded.job_kind == 'preview') {
+			if (
+				jobLoaded.job_kind == 'script' ||
+				jobLoaded.job_kind == 'flowscript' ||
+				jobLoaded.job_kind == 'preview'
+			) {
 				let id: string | undefined = undefined
-				if ((innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow') && innerModule.modules.length == 1) {
+				if (
+					(innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow') &&
+					innerModule.modules.length == 1
+				) {
 					id = innerModule?.modules?.[0]?.id
 				}
 				if (id) {
@@ -792,6 +817,8 @@
 
 		return rec(ids, undefined)
 	}
+
+	let subflowsSize = 500
 </script>
 
 {#if notAnonynmous}
@@ -921,7 +948,12 @@
 				</h3>
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
-						{#if render}
+						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
+							<Button variant="border" color="light" on:click={() => (subflowsSize += 500)}
+								>Load 500 more...</Button
+							>
+						{/if}
+						{#if render && j + subflowsSize + 1 > (flowJobIds?.flowJobs.length ?? 0)}
 							<Button
 								variant={forloop_selected === loopJobId ? 'contained' : 'border'}
 								color={flowJobIds?.flowJobsSuccess?.[j] === false
@@ -1115,7 +1147,8 @@
 													moduleId: mod.id,
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success,
-													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length
+													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
+													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 											  }
 											: undefined}
 										on:jobsLoaded={(e) => {
@@ -1194,7 +1227,12 @@
 								let detail = e.detail
 								if (detail.manuallySet) {
 									let rootJobId = detail.id
-									await globalRefreshes?.[detail.moduleId]?.(true, rootJobId)
+									await tick()
+
+									let previousId = $localModuleStates[detail.moduleId]?.selectedForloop
+									if (previousId) {
+										await globalRefreshes?.[detail.moduleId]?.(true, previousId)
+									}
 
 									$localModuleStates[detail.moduleId] = {
 										...$localModuleStates[detail.moduleId],
@@ -1213,6 +1251,8 @@
 									}
 								}
 							}}
+							earlyStop={job.raw_flow?.skip_expr !== undefined}
+							cache={job.raw_flow?.cache_ttl !== undefined}
 							modules={job.raw_flow?.modules ?? []}
 							failureModule={job.raw_flow?.failure_module}
 							preprocessorModule={job.raw_flow?.preprocessor_module}

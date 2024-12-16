@@ -75,7 +75,7 @@
 											size="xs2"
 											variant="border"
 										>
-											Copy Direct Link
+											Copy direct link
 										</Button>
 									{/if}
 									*/
@@ -151,7 +151,7 @@
 			outputs.result.set(value)
 		}}
 		{forceDisplayUploads}
-		appPath={defaultIfEmptyString(appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
+		appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
 		{computeForceViewerPolicies}
 	/>
 {/if}

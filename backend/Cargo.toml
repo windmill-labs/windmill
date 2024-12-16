@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.430.2"
+version = "1.438.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -21,6 +21,7 @@ members = [
     "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
+    "./parsers/windmill-parser-csharp",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
@@ -29,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.430.2"
+version = "1.438.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -46,23 +47,39 @@ lto = "thin"
 
 [features]
 default = []
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
-flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 embedding = ["windmill-api/embedding"]
-parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-indexer/parquet", "dep:object_store"]
-prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
+prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
-tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
+tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 kafka = ["windmill-api/kafka"]
+otel = ["windmill-common/otel", "windmill-worker/otel"]
+dind = ["windmill-worker/dind"]
+php = ["windmill-worker/php"]
+rust = ["windmill-worker/rust"]
+mysql = ["windmill-worker/mysql"]
+mssql = ["windmill-worker/mssql"]
+bigquery = ["windmill-worker/bigquery"]
+websocket = ["windmill-api/websocket"]
+python = ["windmill-worker/python"]
+smtp = ["windmill-api/smtp", "windmill-common/smtp"]
+csharp = ["windmill-worker/csharp"]
+license = ["windmill-api/license"]
+oauth2 = ["windmill-api/oauth2"]
+http_trigger = ["windmill-api/http_trigger"]
+zip = ["windmill-api/zip"]
+static_frontend = ["windmill-api/static_frontend"]
+
 
 [dependencies]
 anyhow.workspace = true
@@ -86,7 +103,7 @@ sha2.workspace = true
 url.workspace = true
 lazy_static.workspace = true
 once_cell.workspace = true
-prometheus.workspace = true
+prometheus = { workspace = true, optional = true }
 uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
@@ -94,7 +111,6 @@ serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 quote.workspace = true
-
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -128,6 +144,7 @@ windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
+windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
@@ -137,7 +154,7 @@ windmill-api-client = { path = "./windmill-api-client" }
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
-tokio = { version = "^1", features = ["full", "tracing"] }
+tokio = { version = "^1.42.0", features = ["full", "tracing"] }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
@@ -164,7 +181,7 @@ rand = "^0"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = { git = "https://github.com/RustPython/Parser", rev = "9ce55aefdeb35e2f706ce0b02d5a2dfe6295fc57" }
+rustpython-parser = "^0"
 php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb411dec09450946ef57920b7ffced7f6495d" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
@@ -182,15 +199,16 @@ itertools = "^0"
 regex = "^1"
 semver = "^1"
 
-deno_fetch = "0.195.0"
-deno_tls = "0.158.0"
-deno_console = "0.171.0"
-deno_url = "0.171.0"
-deno_webidl = "0.171.0"
-deno_web = "0.202.0"
-deno_net = "0.163.0"
-deno_core = "0.311.0"
-deno_ast = { version = "=0.42.2", features = ["transpiling"] }
+deno_fetch = "0.203.0"
+deno_tls = "0.166.0"
+deno_console = "0.179.0"
+deno_url = "0.179.0"
+deno_webidl = "0.179.0"
+deno_web = "0.210.0"
+deno_net = "0.171.0"
+deno_core = "0.321.0"
+deno_ast = { version = "=0.43.3", features = ["transpiling"] }
+deno_permissions = "0.39.0"
 
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"
@@ -222,13 +240,13 @@ lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
-rsa = "0.7.2"
+rsa = "^0"
 async-stripe = { version = "0.39.1", features = [
     "runtime-tokio-hyper",
     "checkout",
     "billing",
 ] }
-async_zip = { version = "0.0.11", features = ["full"] }
+async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 gosyn = "0.2.6"
 bytes = "1.4.0"
@@ -258,7 +276,7 @@ tokenizers = "0.14.1"
 candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
-tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7b5f736c7e94f92c945453c9e", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
+tiberius = { version = "0.12.3", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
 tokio-native-tls = "^0"
@@ -269,8 +287,7 @@ rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
-openidconnect = { version = "3.4.0" }
-zstd = "=0.12.4"
+openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sts = "^1"
 
@@ -279,11 +296,23 @@ tar = "^0"
 http = "^1"
 async-stream = "^0"
 
+opentelemetry = "0.27.0"
+tracing-opentelemetry = "0.28.0"
+opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
+opentelemetry-appender-tracing = "0.27.0"
+opentelemetry-semantic-conventions = { version = "*", features = ["semconv_experimental"] }
+
+bollard = "0.18.1"
+
+tonic = { version = "^0", features = ["tls-native-roots"] }
+
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
 
 triomphe = "^0"
+pin-project-lite = "^0"
 
 tantivy = "0.22.0"
 
@@ -298,3 +327,5 @@ quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
+tree-sitter = {version = "0.23.0", features = []}
+tree-sitter-c-sharp = "0.23.0"

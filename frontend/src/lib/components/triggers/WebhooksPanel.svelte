@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import bash from 'svelte-highlight/languages/bash'
@@ -21,6 +20,7 @@
 	import { base } from '$lib/base'
 	import Label from '$lib/components/Label.svelte'
 	import TriggerTokens from './TriggerTokens.svelte'
+	import Description from '$lib/components/Description.svelte'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -48,7 +48,7 @@
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let webhookBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
+		let webhookBase = `${window.location.origin}${base}/api/w/${$workspaceStore}/jobs`
 		return {
 			async: {
 				hash: `${webhookBase}/run/h/${hash}`,
@@ -63,7 +63,7 @@
 	}
 
 	function computeFlowWebhooks(path: string) {
-		let webhooksBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
+		let webhooksBase = `${window.location.origin}${base}/api/w/${$workspaceStore}/jobs`
 
 		let urlAsync = `${webhooksBase}/run/f/${path}`
 		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
@@ -167,7 +167,7 @@ function waitForJobCompletion(UUID) {
   return new Promise(async (resolve, reject) => {
     try {
       const endpoint = \`${
-				$page.url.origin
+				window.location.origin
 			}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/\${UUID}\`;
       const checkResponse = await fetch(endpoint, {
         method: 'GET',
@@ -209,7 +209,7 @@ ${
 	webhookType === 'sync'
 		? 'echo -E $RESULT | jq'
 		: `
-URL="${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
+URL="${window.location.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
   curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
   COMPLETED=$(cat res.json | jq .completed)
@@ -228,18 +228,22 @@ done`
 
 <HighlightTheme />
 
-<UserSettings
-	bind:this={userSettings}
-	on:tokenCreated={(e) => {
-		token = e.detail
-		triggerTokens?.listTokens()
-	}}
-	newTokenWorkspace={$workspaceStore}
-	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
-	{scopes}
-/>
-
 <div class="flex flex-col w-full gap-4">
+	<Description link="https://www.windmill.dev/docs/core_concepts/webhooks">
+		Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
+		synchronously or asynchronously. You can secure webhooks using tokens with specific permissions.
+	</Description>
+
+	<UserSettings
+		bind:this={userSettings}
+		on:tokenCreated={(e) => {
+			token = e.detail
+			triggerTokens?.listTokens()
+		}}
+		newTokenWorkspace={$workspaceStore}
+		newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+		{scopes}
+	/>
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 		<Label label="Token">
 			<div class="flex flex-row justify-between gap-2">
