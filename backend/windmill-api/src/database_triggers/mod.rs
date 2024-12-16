@@ -12,17 +12,18 @@ use axum::{
     Router,
 };
 use handler::{
-    create_database_trigger, delete_database_trigger, exists_database_trigger, get_custom_script,
-    get_database_trigger, list_database_triggers, set_enabled, update_database_trigger,
-    DatabaseTrigger,
+    create_database_trigger, delete_database_trigger, exists_database_trigger,
+    get_database_trigger, get_template_script, list_database_triggers, set_enabled,
+    update_database_trigger, DatabaseTrigger,
 };
-use windmill_common::{db::UserDB, utils::StripPath, worker::to_raw_value};
+use windmill_common::{db::UserDB, utils::StripPath};
 use windmill_queue::PushArgsOwned;
 
 mod bool;
 mod converter;
 mod handler;
 mod hex;
+mod mapper;
 mod relation;
 mod replication_message;
 mod trigger;
@@ -39,7 +40,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_database_trigger))
         .route("/exists/*path", get(exists_database_trigger))
         .route("/setenabled/*path", post(set_enabled))
-        .route("/custom-script", get(get_custom_script))
+        .route("/get-template-script", post(get_template_script))
 }
 
 async fn run_job(
@@ -49,10 +50,7 @@ async fn run_job(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     trigger: &DatabaseTrigger,
 ) -> anyhow::Result<()> {
-    let args = PushArgsOwned {
-        args: args.unwrap_or_default(),
-        extra,
-    };
+    let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
     println!("Args: {:#?}", args);
     let label_prefix = Some(format!("db-{}-", trigger.path));
 

@@ -18,7 +18,6 @@ use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
-use tracing_subscriber::fmt::format;
 use windmill_common::{
     resource::get_resource, variables::get_variable_or_self, worker::to_raw_value, INSTANCE_NAME,
 };

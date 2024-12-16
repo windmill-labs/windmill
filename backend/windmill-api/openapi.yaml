@@ -3933,6 +3933,11 @@ paths:
         - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
+        - name: languages
+          description: Filter scripts by comma-separated programming languages (e.g., "Python,JavaScript").
+          in: query
+          schema:
+            type: string
         - name: path_start
           description: mask to filter matching starting path
           in: query
@@ -7667,6 +7672,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/database_triggers/get-template-script:
+    post:
+      summary: get template script
+      operationId: getTemplateScript
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: template script
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateScript"
+      responses:
+        "200":
+          description: template script
+          content:
+            text/plain:
+              schema:
+                type: string
+        
   /w/{workspace}/database_triggers/create:
     post:
       summary: create database trigger
@@ -10534,26 +10562,7 @@ components:
         lock_error_logs:
           type: string
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -10636,26 +10645,7 @@ components:
         lock:
           type: string
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -10857,26 +10847,7 @@ components:
         is_flow_step:
           type: boolean
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         email:
           type: string
         visible_to_owner:
@@ -10976,26 +10947,7 @@ components:
         is_flow_step:
           type: boolean
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         is_skipped:
           type: boolean
         email:
@@ -11519,6 +11471,28 @@ components:
         - no_main_func
         - has_preprocessor
 
+    ScriptLang:
+      type: string
+      enum:
+        [
+          python3,
+          deno,
+          go,
+          bash,
+          powershell,
+          postgresql,
+          mysql,
+          bigquery,
+          snowflake,
+          mssql,
+          graphql,
+          nativets,
+          bun,
+          php,
+          rust,
+          ansible,
+        ]
+
     Preview:
       type: object
       properties:
@@ -11529,26 +11503,7 @@ components:
         args:
           $ref: "#/components/schemas/ScriptArgs"
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         tag:
           type: string
         kind:
@@ -12248,6 +12203,7 @@ components:
           required:
             - runnable_result
 
+
     TableToTrack:
       type: array
       items:
@@ -12275,6 +12231,27 @@ components:
         - schema_name
         - table_to_track
 
+    Language:
+      type: string
+      enum:
+        - Typescript
+
+    TemplateScript:
+      type: object
+      properties:
+        database_resource_path:
+          type: string
+        relations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Relations"
+        language:
+          $ref: "#/components/schemas/Language"
+      required:
+        - database_resource_path
+        - relations
+        - language
+  
     DatabaseTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -13172,26 +13149,7 @@ components:
         path:
           type: string
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
       required:
         - raw_code
         - path

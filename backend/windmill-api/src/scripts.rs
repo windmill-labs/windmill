@@ -27,6 +27,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -198,7 +199,7 @@ async fn list_scripts(
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
     let (per_page, offset) = paginate(pagination);
-
+    println!("Inside list script");
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",
@@ -285,6 +286,15 @@ async fn list_scripts(
             sqlb.and_where_in("kind", lowercased_kinds.as_slice());
         }
     }
+
+    if let Some(languages) = lq.languages {
+        let languages = languages
+            .into_iter()
+            .map(quote)
+            .collect_vec();
+        sqlb.and_where_in("language", languages.as_slice());
+    }
+
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
     }
@@ -956,7 +966,6 @@ async fn get_latest_version(
 ) -> JsonResult<Option<ScriptHistory>> {
     let mut tx = user_db.begin(&authed).await?;
     let row_o = sqlx::query!(
-
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
@@ -964,7 +973,6 @@ async fn get_latest_version(
         w_id,
         path.to_path(),
     )
-
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -978,7 +986,6 @@ async fn get_latest_version(
     } else {
         return Ok(Json(None));
     }
-
 }
 
 async fn update_script_history(

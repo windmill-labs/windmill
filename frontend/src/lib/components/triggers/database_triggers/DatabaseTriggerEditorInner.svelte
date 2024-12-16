@@ -5,7 +5,12 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { DatabaseTriggerService, type Relations, type TransactionType } from '$lib/gen'
+	import {
+		DatabaseTriggerService,
+		type Language,
+		type Relations,
+		type TransactionType
+	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -37,6 +42,8 @@
 	let relations: Relations[] = []
 	let transactionType: TransactionType[] = ['Insert', 'Update', 'Delete']
 	let transactionToTrack: TransactionType[] = []
+	let languages = 'bun,deno'
+	let language: Language = 'Typescript'
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -139,6 +146,27 @@
 		dispatch('update')
 		drawer.closeDrawer()
 	}
+
+	const getTemplateScript = async () => {
+		if (relations.length === 0) {
+			sendUserToast('You must at least choose one schema', true)
+			return
+		}
+		if (!database_resource_path) {
+			sendUserToast('You must pick a database resource first', true)
+			return
+		}
+
+		let template = await DatabaseTriggerService.getTemplateScript({
+			workspace: $workspaceStore!,
+			requestBody: {
+				relations,
+				language,
+				database_resource_path
+			}
+		})
+		console.log({ template })
+	}
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -223,6 +251,7 @@
 							allowFlow={true}
 							bind:itemKind
 							bind:scriptPath={script_path}
+							bind:languages
 							allowRefresh
 						/>
 
@@ -231,7 +260,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								on:click={() => {}}
+								on:click={getTemplateScript}
 								target="_blank">Create from template</Button
 							>
 						{/if}

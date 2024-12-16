@@ -1,22 +1,36 @@
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
+};
+
 use axum::{
     extract::{Path, Query},
-    response, Extension, Json,
+    Extension, Json,
 };
 use http::StatusCode;
 use itertools::Itertools;
+use pg_escape::quote_literal;
+use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::FromRow;
+use sqlx::{
+    postgres::{types::Oid, PgConnectOptions},
+    Connection, FromRow, PgConnection,
+};
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
     resource::get_resource,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
+    variables::get_variable_or_self,
     worker::CLOUD_HOSTED,
 };
 
-use crate::db::{ApiAuthed, DB};
+use crate::{
+    database_triggers::mapper::{Mapper, MappingInfo},
+    db::{ApiAuthed, DB},
+};
 
 use super::SqlxJson;
 
@@ -80,10 +94,36 @@ pub struct NewDatabaseTrigger {
     publication_name: String,
 }
 
+#[derive(Debug)]
+pub enum Language {
+    Typescript,
+}
+
 #[derive(Debug, Deserialize)]
-pub struct CustomScript {
+pub struct TemplateScript {
     database_resource_path: String,
+    #[serde(deserialize_with = "check_if_not_duplication_relation")]
     relations: Option<Vec<Relations>>,
+    #[serde(deserialize_with = "check_if_valid_language")]
+    language: Language,
+}
+
+fn check_if_valid_language<'de, D>(language: D) -> std::result::Result<Language, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let language: String = String::deserialize(language)?;
+
+    let language = match language.to_lowercase().as_str() {
+        "typescript" => Language::Typescript,
+        _ => {
+            return Err(serde::de::Error::custom(
+                "Language supported for custom script is only: Typescript",
+            ))
+        }
+    };
+
+    Ok(language)
 }
 
 fn check_if_not_duplication_relation<'de, D>(
@@ -583,18 +623,170 @@ pub async fn set_enabled(
     ))
 }
 
-pub async fn get_custom_script(
-    authed: ApiAuthed,
+pub async fn get_template_script(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(custom_script): Json<CustomScript>,
+    Json(template_script): Json<TemplateScript>,
 ) -> error::Result<String> {
-    let CustomScript { database_resource_path, relations } = custom_script;
-    let mut resource = get_resource::<Database>(&db, &database_resource_path, &w_id)
+    let TemplateScript { database_resource_path, relations, language } = template_script;
+    if relations.is_none() {
+        return Err(error::Error::BadRequest(
+            "You must at least choose schema to fetch table from".to_string(),
+        ));
+    }
+
+    let resource = get_resource::<Database>(&db, &database_resource_path, &w_id)
         .await
         .map_err(|_| {
             windmill_common::error::Error::NotFound("Database resource do not exist".to_string())
         })?;
 
-    Ok(String::new())
+    let Database { username, password, host, port, db_name } = resource.value;
+
+    let options = {
+        let options = PgConnectOptions::new()
+            .port(port)
+            .database(&db_name)
+            .username(&username)
+            .host(&host);
+        if let Some(password_path) = password {
+            let password = get_variable_or_self(password_path, &db, &w_id).await?;
+            options.password(&password)
+        } else {
+            options
+        }
+    };
+
+    let mut pg_connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|e| error::Error::ConnectingToDatabase(e.to_string()))?;
+
+    #[derive(Debug, FromRow, Deserialize)]
+    struct ColumnInfo {
+        table_schema: Option<String>,
+        table_name: Option<String>,
+        column_name: Option<String>,
+        oid: Oid,
+        is_nullable: bool,
+    }
+
+    let relations = relations.unwrap();
+    let mut schema_or_fully_qualified_name = Vec::with_capacity(relations.len());
+    let mut columns_list = Vec::new();
+    for relation in relations {
+        if !relation.table_to_track.is_empty() {
+            for table_to_track in relation.table_to_track {
+                let fully_qualified_name =
+                    format!("{}.{}", &relation.schema_name, table_to_track.table_name);
+                schema_or_fully_qualified_name.push(quote_literal(&fully_qualified_name));
+                columns_list.push(
+                    table_to_track
+                        .columns_name
+                        .into_iter()
+                        .map(|column_name| quote_literal(&column_name))
+                        .join(","),
+                );
+            }
+            continue;
+        }
+
+        schema_or_fully_qualified_name.push(quote_literal(&relation.schema_name));
+        columns_list.push(String::from("''"));
+    }
+
+    let tables_name = schema_or_fully_qualified_name.join(",");
+    let columns_list = columns_list.join(",");
+
+    let query = format!(
+        r#"
+        WITH table_column_mapping AS (
+            SELECT
+                unnest(ARRAY[{}]) AS table_name,
+                unnest(ARRAY[{}]) AS column_list
+        ),
+        parsed_columns AS (
+            SELECT
+                tcm.table_name,
+                CASE
+                    WHEN tcm.column_list = '' THEN NULL
+                    ELSE string_to_array(tcm.column_list, ',')
+                END AS columns
+            FROM
+                table_column_mapping tcm
+        )
+        SELECT
+            ns.nspname AS table_schema,
+            cls.relname AS table_name,
+            attr.attname AS column_name,
+            attr.atttypid AS oid,
+            attr.attnotnull AS is_nullable
+        FROM
+            pg_attribute attr
+        JOIN
+            pg_class cls
+            ON attr.attrelid = cls.oid
+        JOIN
+            pg_namespace ns
+            ON cls.relnamespace = ns.oid
+        JOIN
+            parsed_columns pc
+            ON ns.nspname || '.' || cls.relname = pc.table_name
+            OR ns.nspname = pc.table_name
+        WHERE
+            attr.attnum > 0 -- Exclude system columns
+            AND NOT attr.attisdropped -- Exclude dropped columns
+            AND cls.relkind = 'r' -- Restrict to base tables
+            AND (
+                pc.columns IS NULL
+                OR attr.attname = ANY(pc.columns)
+            );
+        "#,
+        tables_name, columns_list
+    );
+
+    let rows: Vec<ColumnInfo> = sqlx::query_as(&query)
+        .fetch_all(&mut pg_connection)
+        .await
+        .map_err(error::Error::SqlErr)?;
+
+    let mut mapper: HashMap<String, HashMap<String, Vec<MappingInfo>>> = HashMap::new();
+
+    for row in rows {
+        let ColumnInfo { table_schema, table_name, column_name, oid, is_nullable } = row;
+
+        let entry = mapper.entry(table_schema.unwrap());
+
+        let mapped_info =
+            MappingInfo::new(column_name.unwrap(), Type::from_oid(oid.0), is_nullable);
+
+        match entry {
+            Occupied(mut occupied) => {
+                let entry = occupied.get_mut().entry(table_name.unwrap());
+                match entry {
+                    Occupied(mut occuped) => {
+                        let mapping_info = occuped.get_mut();
+                        mapping_info.push(mapped_info);
+                    }
+                    Vacant(vacant) => {
+                        let mut mapping_info = Vec::with_capacity(10);
+                        mapping_info.push(mapped_info);
+                        vacant.insert(mapping_info);
+                    }
+                }
+            }
+            Vacant(vacant) => {
+                let mut mapping_info = Vec::with_capacity(10);
+                mapping_info.push(mapped_info);
+                vacant.insert(HashMap::from([(table_name.unwrap(), mapping_info)]));
+            }
+        }
+    }
+
+    let mapper = Mapper::new(mapper, language);
+
+    let template = mapper.get_template();
+
+    println!("{}", template);
+
+    Ok(template)
 }

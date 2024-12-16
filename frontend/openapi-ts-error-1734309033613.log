@@ -1,0 +1,12 @@
+Cannot read properties of undefined (reading 'replace')
+TypeError: Cannot read properties of undefined (reading 'replace')
+    at /home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:16370
+    at Me (/home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:16406)
+    at /home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:30182
+    at /home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:31472
+    at Array.forEach (<anonymous>)
+    at nt (/home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:29879)
+    at it (/home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:34666)
+    at /home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:38377
+    at Array.forEach (<anonymous>)
+    at /home/dieri/windmill/frontend/node_modules/@hey-api/openapi-ts/dist/node/index.cjs:1:38356
