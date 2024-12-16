@@ -15,7 +15,7 @@ use windmill_common::error::to_anyhow;
 
 use windmill_common::error::{self, Error};
 
-use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED};
+use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -46,7 +46,7 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::common::{resolve_job_timeout, OccupancyMetrics};
+use crate::common::resolve_job_timeout;
 use crate::job_logger::{append_job_logs, append_with_limit, LARGE_LOG_THRESHOLD_SIZE};
 use crate::job_logger_ee::process_streaming_log_lines;
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
@@ -99,7 +99,6 @@ pub async fn handle_child(
     child_name: &str,
     custom_timeout: Option<i32>,
     sigterm: bool,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<()> {
     let start = Instant::now();
 
@@ -141,7 +140,6 @@ pub async fn handle_child(
         worker,
         w_id,
         rx,
-        occupancy_metrics,
     );
 
     enum KillReason {
@@ -494,7 +492,6 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     result_f: Fut,
     worker_name: &str,
     w_id: &str,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     get_mem: S,
 ) -> error::Result<T>
 where
@@ -503,16 +500,7 @@ where
 {
     let (tx, rx) = broadcast::channel::<()>(3);
 
-    let update_job = update_job_poller(
-        job_id,
-        db,
-        mem_peak,
-        get_mem,
-        worker_name,
-        w_id,
-        rx,
-        occupancy_metrics,
-    );
+    let update_job = update_job_poller(job_id, db, mem_peak, get_mem, worker_name, w_id, rx);
 
     let timeout_ms = u64::try_from(
         resolve_job_timeout(&db, &w_id, job_id, timeout)
@@ -556,7 +544,6 @@ pub async fn update_job_poller<S>(
     worker_name: &str,
     w_id: &str,
     mut rx: broadcast::Receiver<()>,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> UpdateJobPollingExit
 where
     S: stream::Stream<Item = i32> + Unpin,
@@ -581,36 +568,11 @@ where
             _ = interval.tick() => {
                 // update the last_ping column every 5 seconds
                 i+=1;
-                if i == 1 || i % 10 == 0 {
-                    let memory_usage = get_worker_memory_usage();
-                    let wm_memory_usage = get_windmill_memory_usage();
-                    tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
-                    let occupancy = occupancy_metrics.as_mut().map(|x| x.update_occupancy_metrics());
-                    if job_id != Uuid::nil() {
-                        sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-                            occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
-                            &job_id,
-                            &w_id,
-                            memory_usage,
-                            wm_memory_usage,
-                            &worker_name,
-                            occupancy.map(|x| x.0),
-                            occupancy.and_then(|x| x.1),
-                            occupancy.and_then(|x| x.2),
-                            occupancy.and_then(|x| x.3),
-                        )
-                        .execute(&db)
-                        .await
-                        .expect("update worker ping");
-                    }
-                }
                 let current_mem = get_mem.next().await.unwrap_or(0);
                 if current_mem > *mem_peak {
                     *mem_peak = current_mem
                 }
                 tracing::info!("job {job_id} on {worker_name} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
-
 
                 let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
                 if update_job_row {

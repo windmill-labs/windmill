@@ -34,7 +34,6 @@ use crate::{
     NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
 
-use crate::common::OccupancyMetrics;
 use crate::AuthedClientBackgroundTask;
 
 #[cfg(windows)]
@@ -62,7 +61,6 @@ pub async fn generate_nuget_lockfile(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
@@ -92,7 +90,6 @@ pub async fn generate_nuget_lockfile(
         "dotnet restore",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -118,7 +115,6 @@ pub async fn generate_nuget_lockfile(
     _db: &sqlx::Pool<sqlx::Postgres>,
     _worker_name: &str,
     _w_id: &str,
-    _occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
@@ -262,7 +258,6 @@ async fn build_cs_proj(
     w_id: &str,
     base_internal_url: &str,
     hash: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
         write_file(job_dir, "nuget.config", &nuget_config)?;
@@ -311,7 +306,6 @@ async fn build_cs_proj(
         "dotnet publish",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -366,7 +360,6 @@ pub async fn handle_csharp_job(
     _base_internal_url: &str,
     _worker_name: &str,
     _envs: HashMap<String, String>,
-    _occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
@@ -384,7 +377,6 @@ pub async fn handle_csharp_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
@@ -449,7 +441,6 @@ pub async fn handle_csharp_job(
             &job.workspace_id,
             base_internal_url,
             &hash,
-            occupancy_metrics,
         )
         .await?
     };
@@ -520,7 +511,6 @@ pub async fn handle_csharp_job(
         "csharp run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

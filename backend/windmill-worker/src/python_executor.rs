@@ -80,7 +80,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, read_file,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, start_child_process,
     },
     handle_child::{get_mem_peak, handle_child},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, LOCK_CACHE_DIR,
@@ -128,7 +128,6 @@ pub async fn uv_pip_compile(
     db: &Pool<Postgres>,
     worker_name: &str,
     w_id: &str,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // Fallback to pip-compile. Will be removed in future
     mut no_uv: bool,
     // Debug-only flag
@@ -262,7 +261,6 @@ pub async fn uv_pip_compile(
             "pip-compile",
             None,
             false,
-            occupancy_metrics,
         )
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
@@ -347,7 +345,6 @@ pub async fn uv_pip_compile(
             "uv",
             None,
             false,
-            occupancy_metrics,
         )
         .await
         .map_err(|e| {
@@ -518,7 +515,6 @@ pub async fn handle_python_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.script_path());
     let mut additional_python_paths = handle_python_deps(
@@ -532,7 +528,6 @@ pub async fn handle_python_job(
         worker_name,
         worker_dir,
         mem_peak,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -784,7 +779,6 @@ mount {{
         "python run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -1052,7 +1046,6 @@ async fn handle_python_deps(
     worker_name: &str,
     worker_dir: &str,
     mem_peak: &mut i32,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
 
@@ -1089,7 +1082,6 @@ async fn handle_python_deps(
                     db,
                     worker_name,
                     w_id,
-                    occupancy_metrics,
                     annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
                 )
@@ -1115,7 +1107,6 @@ async fn handle_python_deps(
             worker_name,
             job_dir,
             worker_dir,
-            occupancy_metrics,
             annotations.no_uv || annotations.no_uv_install,
             false,
         )
@@ -1326,7 +1317,6 @@ pub async fn handle_python_reqs(
     _worker_name: &str,
     job_dir: &str,
     worker_dir: &str,
-    _occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
     is_ansible: bool,
@@ -1936,7 +1926,6 @@ pub async fn start_worker(
         worker_name,
         job_dir,
         &mut mem_peak,
-        &mut None,
     )
     .await?;
 

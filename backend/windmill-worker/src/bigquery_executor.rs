@@ -209,7 +209,6 @@ pub async fn do_bigquery(
     mem_peak: &mut i32,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let bigquery_args = build_args_values(job, client, db).await?;
 
@@ -363,7 +362,6 @@ pub async fn do_bigquery(
         result_f.map_err(to_anyhow),
         worker_name,
         &job.workspace_id,
-        &mut Some(occupancy_metrics),
         Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;

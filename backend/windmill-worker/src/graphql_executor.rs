@@ -12,7 +12,6 @@ use windmill_queue::HTTP_CLIENT;
 
 use serde::Deserialize;
 
-use crate::common::OccupancyMetrics;
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
@@ -41,7 +40,6 @@ pub async fn do_graphql(
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
     worker_name: &str,
-    occupation_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -151,7 +149,6 @@ pub async fn do_graphql(
         result_f,
         worker_name,
         &job.workspace_id,
-        &mut Some(occupation_metrics),
         Box::pin(stream::once(async { 0 })),
     )
     .await?;

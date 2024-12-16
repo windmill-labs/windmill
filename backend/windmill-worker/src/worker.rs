@@ -35,12 +35,14 @@ use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_ENABLED;
 
+use futures::{future, future::Either};
 use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
     collections::HashMap,
     fs::DirBuilder,
+    pin::pin,
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
@@ -84,7 +86,7 @@ use tokio::{
         RwLock,
     },
     task::JoinHandle,
-    time::Instant,
+    time::{interval, Instant, MissedTickBehavior},
 };
 
 use rand::Rng;
@@ -127,11 +129,10 @@ use crate::ansible_executor::handle_ansible_job;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::do_mysql;
 
-use backon::ConstantBuilder;
-use backon::{BackoffBuilder, Retryable};
-
 #[cfg(feature = "enterprise")]
 use crate::dedicated_worker::create_dedicated_worker_map;
+use backon::ConstantBuilder;
+use backon::{BackoffBuilder, Retryable};
 
 #[cfg(feature = "enterprise")]
 use crate::snowflake_executor::do_snowflake;
@@ -1591,28 +1592,90 @@ pub async fn run_worker(
                     windmill_common::otel_ee::set_span_parent(&span, &rj);
                     // span.context().span().add_event_with_timestamp("job created".to_string(), arc_job.created_at.into(), vec![]);
 
-                    match handle_queued_job(
-                        arc_job.clone(),
-                        raw_code,
-                        raw_lock,
-                        raw_flow,
-                        db,
-                        &authed_client,
-                        &hostname,
-                        &worker_name,
-                        &worker_dir,
-                        &job_dir,
-                        same_worker_tx.clone(),
-                        base_internal_url,
-                        job_completed_tx.clone(),
-                        &mut occupancy_metrics,
-                        &mut killpill_rx2,
-                        #[cfg(feature = "benchmark")]
-                        &mut bench,
+                    let mut script_duration = 0f32;
+                    let mut ping_interval = interval(Duration::from_secs(5));
+                    ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                    let Either::Left((result, _)) = future::select(
+                        // Handle job:
+                        pin!(handle_queued_job(
+                            arc_job.clone(),
+                            raw_code,
+                            raw_lock,
+                            raw_flow,
+                            db,
+                            &authed_client,
+                            &hostname,
+                            &worker_name,
+                            &worker_dir,
+                            &job_dir,
+                            same_worker_tx.clone(),
+                            base_internal_url,
+                            job_completed_tx.clone(),
+                            &mut script_duration,
+                            &mut killpill_rx2,
+                            #[cfg(feature = "benchmark")]
+                            &mut bench,
+                        )
+                        .instrument(span)),
+                        // Ping worker every 5 seconds:
+                        pin!(async {
+                            loop {
+                                ping_interval.tick().await;
+
+                                let memory_usage = get_worker_memory_usage();
+                                let wm_memory_usage = get_windmill_memory_usage();
+                                tracing::info!(
+                                    "job {} on {worker_name} in {} worker memory snapshot {}kB/{}kB",
+                                    &arc_job.id,
+                                    &arc_job.workspace_id,
+                                    memory_usage.unwrap_or_default() / 1024,
+                                    wm_memory_usage.unwrap_or_default() / 1024
+                                );
+                                let (
+                                    occupancy_rate,
+                                    occupancy_rate_15s,
+                                    occupancy_rate_5m,
+                                    occupancy_rate_30m,
+                                ) = occupancy_metrics.update_occupancy_metrics();
+                                let ping_res = sqlx::query!(
+                                    "UPDATE worker_ping SET
+                                          ping_at = now()
+                                        , current_job_id = $1
+                                        , current_job_workspace_id = $2
+                                        , memory_usage = $3
+                                        , wm_memory_usage = $4
+                                        , occupancy_rate = $6
+                                        , occupancy_rate_15s = $7
+                                        , occupancy_rate_5m = $8
+                                        , occupancy_rate_30m = $9
+                                    WHERE worker = $5",
+                                    &arc_job.id,
+                                    &arc_job.workspace_id,
+                                    memory_usage,
+                                    wm_memory_usage,
+                                    &worker_name,
+                                    occupancy_rate,
+                                    occupancy_rate_15s,
+                                    occupancy_rate_5m,
+                                    occupancy_rate_30m
+                                )
+                                .execute(db)
+                                .await;
+                                if let Err(err) = ping_res {
+                                    tracing::error!("failed to update worker ping: {}", err);
+                                }
+                                last_ping = Instant::now();
+                            }
+                        }),
                     )
-                    .instrument(span)
                     .await
-                    {
+                    else {
+                        unreachable!()
+                    };
+
+                    occupancy_metrics.total_duration_of_running_jobs += script_duration;
+                    match result {
                         Err(err) => {
                             handle_job_error(
                                 db,
@@ -1672,7 +1735,7 @@ pub async fn run_worker(
 
                     if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !(arc_job.is_flow() && same_worker)
                     {
-                        let _ = tokio::fs::remove_dir_all(job_dir).await;
+                        let _ = tokio::fs::remove_dir_all(&job_dir).await;
                     }
                 }
 
@@ -1844,7 +1907,6 @@ async fn do_nativets(
     db: &Pool<Postgres>,
     mem_peak: &mut i32,
     worker_name: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -1865,7 +1927,6 @@ async fn do_nativets(
         worker_name,
         &job.workspace_id,
         true,
-        occupancy_metrics,
     )
     .await?)
 }
@@ -1890,7 +1951,7 @@ async fn handle_queued_job(
     same_worker_tx: SameWorkerSender,
     base_internal_url: &str,
     job_completed_tx: JobCompletedSender,
-    occupancy_metrics: &mut OccupancyMetrics,
+    duration: &mut f32,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
@@ -2083,7 +2144,6 @@ async fn handle_queued_job(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
-                    occupancy_metrics,
                 )
                 .await
             }
@@ -2098,7 +2158,6 @@ async fn handle_queued_job(
                     worker_dir,
                     base_internal_url,
                     &client.get_token().await,
-                    occupancy_metrics,
                 )
                 .await
             }
@@ -2111,7 +2170,6 @@ async fn handle_queued_job(
                 worker_dir,
                 base_internal_url,
                 &client.get_token().await,
-                occupancy_metrics,
             )
             .await
             .map(|()| serde_json::from_str("{}").unwrap()),
@@ -2140,12 +2198,10 @@ async fn handle_queued_job(
                     worker_name,
                     &mut column_order,
                     &mut new_args,
-                    occupancy_metrics,
                     killpill_rx,
                 )
                 .await;
-                occupancy_metrics.total_duration_of_running_jobs +=
-                    metric_timer.elapsed().as_secs_f32();
+                *duration = metric_timer.elapsed().as_secs_f32();
                 r
             }
         };
@@ -2264,7 +2320,6 @@ async fn handle_code_execution_job(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
-    occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<Box<RawValue>> {
     let script_hash = || {
@@ -2353,7 +2408,6 @@ async fn handle_code_execution_job(
             mem_peak,
             worker_name,
             column_order,
-            occupancy_metrics,
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
@@ -2371,7 +2425,6 @@ async fn handle_code_execution_job(
             mem_peak,
             worker_name,
             column_order,
-            occupancy_metrics,
         )
         .await;
     } else if language == Some(ScriptLang::Bigquery) {
@@ -2400,7 +2453,6 @@ async fn handle_code_execution_job(
                 mem_peak,
                 worker_name,
                 column_order,
-                occupancy_metrics,
             )
             .await;
         }
@@ -2422,7 +2474,6 @@ async fn handle_code_execution_job(
                 mem_peak,
                 worker_name,
                 column_order,
-                occupancy_metrics,
             )
             .await;
         }
@@ -2444,28 +2495,10 @@ async fn handle_code_execution_job(
 
         #[cfg(all(feature = "enterprise", feature = "mssql"))]
         {
-            return do_mssql(
-                job,
-                &client,
-                &code,
-                db,
-                mem_peak,
-                worker_name,
-                occupancy_metrics,
-            )
-            .await;
+            return do_mssql(job, &client, &code, db, mem_peak, worker_name).await;
         }
     } else if language == Some(ScriptLang::Graphql) {
-        return do_graphql(
-            job,
-            &client,
-            &code,
-            db,
-            mem_peak,
-            worker_name,
-            occupancy_metrics,
-        )
-        .await;
+        return do_graphql(job, &client, &code, db, mem_peak, worker_name).await;
     } else if language == Some(ScriptLang::Nativets) {
         append_logs(
             &job.id,
@@ -2493,7 +2526,6 @@ async fn handle_code_execution_job(
             db,
             mem_peak,
             worker_name,
-            occupancy_metrics,
         )
         .await?;
         return Ok(result);
@@ -2563,7 +2595,6 @@ mount {{
                 base_internal_url,
                 envs,
                 new_args,
-                occupancy_metrics,
             )
             .await
         }
@@ -2580,7 +2611,6 @@ mount {{
                 worker_name,
                 envs,
                 new_args,
-                occupancy_metrics,
             )
             .await
         }
@@ -2599,7 +2629,6 @@ mount {{
                 envs,
                 &shared_mount,
                 new_args,
-                occupancy_metrics,
             )
             .await
         }
@@ -2616,7 +2645,6 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
-                occupancy_metrics,
             )
             .await
         }
@@ -2632,7 +2660,6 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
-                occupancy_metrics,
                 killpill_rx,
             )
             .await
@@ -2649,7 +2676,6 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
-                occupancy_metrics,
             )
             .await
         }
@@ -2672,7 +2698,6 @@ mount {{
                 worker_name,
                 envs,
                 &shared_mount,
-                occupancy_metrics,
             )
             .await
         }
@@ -2695,7 +2720,6 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
-                occupancy_metrics,
             )
             .await
         }
@@ -2719,7 +2743,6 @@ mount {{
                 &shared_mount,
                 base_internal_url,
                 envs,
-                occupancy_metrics,
             )
             .await
         }
@@ -2736,7 +2759,6 @@ mount {{
                 base_internal_url,
                 worker_name,
                 envs,
-                occupancy_metrics,
             )
             .await
         }

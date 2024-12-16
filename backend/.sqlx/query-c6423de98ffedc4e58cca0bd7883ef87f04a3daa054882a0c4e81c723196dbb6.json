@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_ping SET\n                                          ping_at = now()\n                                        , current_job_id = $1\n                                        , current_job_workspace_id = $2\n                                        , memory_usage = $3\n                                        , wm_memory_usage = $4\n                                        , occupancy_rate = $6\n                                        , occupancy_rate_15s = $7\n                                        , occupancy_rate_5m = $8\n                                        , occupancy_rate_30m = $9\n                                    WHERE worker = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Int8",
+        "Int8",
+        "Text",
+        "Float4",
+        "Float4",
+        "Float4",
+        "Float4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c6423de98ffedc4e58cca0bd7883ef87f04a3daa054882a0c4e81c723196dbb6"
+}

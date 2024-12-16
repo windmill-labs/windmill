@@ -25,7 +25,7 @@ use crate::{
     bash_executor::BIN_BASH,
     common::{
         check_executor_binary_exists, get_reserved_variables, read_and_check_result,
-        start_child_process, transform_json, OccupancyMetrics,
+        start_child_process, transform_json,
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
@@ -53,7 +53,6 @@ async fn handle_ansible_python_deps(
     worker_name: &str,
     worker_dir: &str,
     mem_peak: &mut i32,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
 
@@ -81,7 +80,6 @@ async fn handle_ansible_python_deps(
                     db,
                     worker_name,
                     w_id,
-                    &mut Some(occupancy_metrics),
                     false,
                     false,
                 )
@@ -107,7 +105,6 @@ async fn handle_ansible_python_deps(
             worker_name,
             job_dir,
             worker_dir,
-            &mut Some(occupancy_metrics),
             false,
             false,
         )
@@ -125,7 +122,6 @@ async fn install_galaxy_collections(
     w_id: &str,
     mem_peak: &mut i32,
     db: &sqlx::Pool<sqlx::Postgres>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> anyhow::Result<()> {
     write_file(job_dir, "requirements.yml", collections_yml)?;
 
@@ -168,7 +164,6 @@ async fn install_galaxy_collections(
         "ansible galaxy install",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -188,7 +183,6 @@ pub async fn handle_ansible_job(
     shared_mount: &str,
     base_internal_url: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     check_executor_binary_exists(
         "ansible-playbook",
@@ -210,7 +204,6 @@ pub async fn handle_ansible_job(
         worker_name,
         worker_dir,
         mem_peak,
-        occupancy_metrics,
     )
     .await?;
 
@@ -283,7 +276,6 @@ pub async fn handle_ansible_job(
                 &job.workspace_id,
                 mem_peak,
                 db,
-                occupancy_metrics,
             )
             .await?;
         }
@@ -424,7 +416,6 @@ fi
         "python run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     read_and_check_result(job_dir).await

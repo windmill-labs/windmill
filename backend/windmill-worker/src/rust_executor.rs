@@ -16,7 +16,7 @@ use windmill_queue::append_logs;
 use crate::{
     common::{
         check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, start_child_process,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -129,7 +129,6 @@ pub async fn generate_cargo_lockfile(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
@@ -161,7 +160,6 @@ pub async fn generate_cargo_lockfile(
         "cargo generate-lockfile",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -181,7 +179,6 @@ pub async fn build_rust_crate(
     w_id: &str,
     base_internal_url: &str,
     hash: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
@@ -221,7 +218,6 @@ pub async fn build_rust_crate(
         "rust build",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -280,7 +276,6 @@ pub async fn handle_rust_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
@@ -329,7 +324,6 @@ pub async fn handle_rust_job(
             &job.workspace_id,
             base_internal_url,
             &hash,
-            occupancy_metrics,
         )
         .await?
     };
@@ -397,7 +391,6 @@ pub async fn handle_rust_job(
         "rust run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

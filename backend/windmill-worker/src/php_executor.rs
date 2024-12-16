@@ -70,7 +70,6 @@ pub async fn composer_install(
     worker_name: &str,
     requirements: String,
     lock: Option<String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<String> {
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
@@ -101,7 +100,6 @@ pub async fn composer_install(
         "composer install",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -142,7 +140,6 @@ pub async fn handle_php_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     shared_mount: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
@@ -172,7 +169,6 @@ pub async fn handle_php_job(
             worker_name,
             composer_json,
             composer_lock,
-            occupancy_metrics,
         )
         .await?;
         "require './vendor/autoload.php';"
@@ -328,7 +324,6 @@ try {{
         "php run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

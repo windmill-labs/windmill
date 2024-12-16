@@ -44,7 +44,6 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{
         build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
-        OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -71,7 +70,6 @@ pub async fn handle_bash_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
     _killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
     let annotation = windmill_common::worker::BashAnnotations::parse(&content);
@@ -212,7 +210,6 @@ exit $exit_status
         "bash run",
         job.timeout,
         true,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -225,7 +222,6 @@ exit $exit_status
             job.timeout,
             mem_peak,
             worker_name,
-            occupancy_metrics,
             _killpill_rx,
         )
         .await;
@@ -269,7 +265,6 @@ async fn handle_docker_job(
     job_timeout: Option<i32>,
     mem_peak: &mut i32,
     worker_name: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
     let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow)?;
@@ -360,7 +355,6 @@ async fn handle_docker_job(
         wait_f,
         worker_name,
         workspace_id,
-        &mut Some(occupancy_metrics),
         Box::pin(match mem_client {
             Ok(client) => client
                 .stats(
@@ -462,7 +456,6 @@ pub async fn handle_powershell_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let pwsh_args = {
         let args = build_args_map(job, client, db).await?.map(Json);
@@ -549,7 +542,6 @@ pub async fn handle_powershell_job(
             "powershell install",
             job.timeout,
             false,
-            &mut Some(occupancy_metrics),
         )
         .await?;
     }
@@ -759,7 +751,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         "powershell run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 

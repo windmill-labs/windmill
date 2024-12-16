@@ -17,7 +17,7 @@ use windmill_queue::append_logs;
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, read_result,
-        start_child_process, OccupancyMetrics,
+        start_child_process,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
@@ -45,7 +45,6 @@ pub async fn handle_go_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupation_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -89,7 +88,6 @@ pub async fn handle_go_job(
             skip_tidy,
             worker_name,
             &job.workspace_id,
-            occupation_metrics,
         )
         .await?;
 
@@ -208,7 +206,6 @@ func Run(req Req) (interface{{}}, error){{
             "go build",
             None,
             false,
-            &mut Some(occupation_metrics),
         )
         .await?;
 
@@ -311,7 +308,6 @@ func Run(req Req) (interface{{}}, error){{
         "go run",
         job.timeout,
         false,
-        &mut Some(occupation_metrics),
     )
     .await?;
 
@@ -350,7 +346,6 @@ pub async fn install_go_dependencies(
     has_sum: bool,
     worker_name: &str,
     w_id: &str,
-    occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     if !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
@@ -373,7 +368,6 @@ pub async fn install_go_dependencies(
             "go init",
             None,
             false,
-            &mut Some(occupation_metrics),
         )
         .await?;
 
@@ -438,7 +432,6 @@ pub async fn install_go_dependencies(
         &format!("go {mod_command}"),
         None,
         false,
-        &mut Some(occupation_metrics),
     )
     .await?;
 

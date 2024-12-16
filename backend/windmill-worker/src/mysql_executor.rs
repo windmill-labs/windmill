@@ -109,7 +109,6 @@ pub async fn do_mysql(
     mem_peak: &mut i32,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -294,7 +293,6 @@ pub async fn do_mysql(
         result_f,
         worker_name,
         &job.workspace_id,
-        &mut Some(occupancy_metrics),
         Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;

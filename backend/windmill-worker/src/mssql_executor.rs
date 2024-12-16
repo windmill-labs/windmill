@@ -39,7 +39,6 @@ pub async fn do_mssql(
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
     worker_name: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
@@ -157,7 +156,6 @@ pub async fn do_mssql(
         result_f,
         worker_name,
         &job.workspace_id,
-        &mut Some(occupancy_metrics),
         Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
