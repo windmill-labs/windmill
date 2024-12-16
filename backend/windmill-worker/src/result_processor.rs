@@ -28,7 +28,7 @@ use windmill_common::{
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
-use windmill_queue::{append_logs, get_queued_job, CanceledBy, WrappedError};
+use windmill_queue::{append_logs, get_queued_job, WrappedError};
 
 #[cfg(feature = "prometheus")]
 use windmill_queue::register_metric;
@@ -236,22 +236,12 @@ async fn send_job_completed(
     job: Arc<QueuedJob>,
     result: Arc<Box<RawValue>>,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     success: bool,
     cached_res_path: Option<String>,
     token: String,
     duration: Option<i64>,
 ) {
-    let jc = JobCompleted {
-        job,
-        result,
-        mem_peak,
-        canceled_by,
-        success,
-        cached_res_path,
-        token,
-        duration,
-    };
+    let jc = JobCompleted { job, result, mem_peak, success, cached_res_path, token, duration };
     job_completed_tx
         .send(jc)
         .with_context(windmill_common::otel_ee::otel_ctx())
@@ -265,7 +255,6 @@ pub async fn process_result(
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
     token: String,
     column_order: Option<Vec<String>>,
@@ -322,7 +311,6 @@ pub async fn process_result(
                 job,
                 r,
                 mem_peak,
-                canceled_by,
                 true,
                 cached_res_path,
                 token,
@@ -367,7 +355,6 @@ pub async fn process_result(
                 job,
                 Arc::new(to_raw_value(&error_value)),
                 mem_peak,
-                canceled_by,
                 false,
                 cached_res_path,
                 token,
@@ -400,7 +387,6 @@ pub async fn handle_receive_completed_job(
     };
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
-    let canceled_by = jc.canceled_by.clone();
     match process_completed_job(
         jc,
         &client,
@@ -420,7 +406,6 @@ pub async fn handle_receive_completed_job(
                 &client,
                 job.as_ref(),
                 mem_peak,
-                canceled_by,
                 err,
                 false,
                 same_worker_tx.clone(),
@@ -438,7 +423,7 @@ pub async fn handle_receive_completed_job(
 }
 
 pub async fn process_completed_job(
-    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, duration, .. }: JobCompleted,
+    JobCompleted { job, result, mem_peak, success, cached_res_path, duration, .. }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -465,7 +450,7 @@ pub async fn process_completed_job(
             false,
             Json(&result),
             mem_peak.to_owned(),
-            canceled_by,
+            None,
             false,
             duration,
         )
@@ -505,7 +490,7 @@ pub async fn process_completed_job(
             db,
             &job,
             mem_peak.to_owned(),
-            canceled_by,
+            None,
             serde_json::from_str(result.get()).unwrap_or_else(
                 |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
             ),
@@ -549,7 +534,6 @@ pub async fn handle_job_error(
     client: &AuthedClient,
     job: &QueuedJob,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     err: Error,
     unrecoverable: bool,
     same_worker_tx: SameWorkerSender,
@@ -575,7 +559,7 @@ pub async fn handle_job_error(
             db,
             job,
             mem_peak,
-            canceled_by.clone(),
+            None,
             err.clone(),
             worker_name,
             false,
@@ -635,7 +619,7 @@ pub async fn handle_job_error(
                         db,
                         &parent_job,
                         mem_peak,
-                        canceled_by.clone(),
+                        None,
                         e,
                         worker_name,
                         false,

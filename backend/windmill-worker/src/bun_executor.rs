@@ -12,7 +12,7 @@ use serde_json::value::RawValue;
 use sha2::Digest;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 #[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
@@ -21,7 +21,6 @@ use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
         read_file, read_file_content, read_result, start_child_process, write_file_binary,
-        OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
@@ -85,7 +84,6 @@ fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool) {
 
 pub async fn gen_bun_lockfile(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
     db: Option<&sqlx::Pool<sqlx::Postgres>>,
@@ -97,7 +95,6 @@ pub async fn gen_bun_lockfile(
     export_pkg: bool,
     raw_deps: Option<String>,
     npm_mode: bool,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
@@ -149,7 +146,6 @@ pub async fn gen_bun_lockfile(
                 job_id,
                 db,
                 mem_peak,
-                canceled_by,
                 child_process,
                 false,
                 worker_name,
@@ -157,7 +153,6 @@ pub async fn gen_bun_lockfile(
                 "bun build",
                 None,
                 false,
-                occupancy_metrics,
             )
             .await?;
         } else {
@@ -174,7 +169,6 @@ pub async fn gen_bun_lockfile(
     if !empty_deps {
         install_bun_lockfile(
             mem_peak,
-            canceled_by,
             job_id,
             w_id,
             db,
@@ -182,7 +176,6 @@ pub async fn gen_bun_lockfile(
             worker_name,
             common_bun_proc_envs,
             npm_mode,
-            occupancy_metrics,
         )
         .await?;
     } else {
@@ -261,7 +254,6 @@ registry = {}
 
 pub async fn install_bun_lockfile(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
     db: Option<&sqlx::Pool<sqlx::Postgres>>,
@@ -269,7 +261,6 @@ pub async fn install_bun_lockfile(
     worker_name: &str,
     common_bun_proc_envs: HashMap<String, String>,
     npm_mode: bool,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
     child_cmd
@@ -332,7 +323,6 @@ pub async fn install_bun_lockfile(
             job_id,
             db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -340,7 +330,6 @@ pub async fn install_bun_lockfile(
             "bun install",
             None,
             false,
-            occupancy_metrics,
         )
         .await?
     } else {
@@ -479,9 +468,7 @@ pub async fn generate_wrapper_mjs(
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: Option<i32>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     common_bun_proc_envs: &HashMap<String, String>,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
     child
@@ -501,7 +488,6 @@ pub async fn generate_wrapper_mjs(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         child_process,
         false,
         worker_name,
@@ -509,7 +495,6 @@ pub async fn generate_wrapper_mjs(
         "bun build",
         timeout,
         false,
-        occupancy_metrics,
     )
     .await?;
     fs::rename(
@@ -528,9 +513,7 @@ pub async fn generate_bun_bundle(
     db: Option<sqlx::Pool<sqlx::Postgres>>,
     timeout: Option<i32>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     common_bun_proc_envs: &HashMap<String, String>,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child = Command::new(&*BUN_PATH);
     child
@@ -551,7 +534,6 @@ pub async fn generate_bun_bundle(
             job_id,
             &db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -559,7 +541,6 @@ pub async fn generate_bun_bundle(
             "bun build",
             timeout,
             false,
-            occupancy_metrics,
         )
         .await?;
     } else {
@@ -674,7 +655,6 @@ pub async fn prebundle_bun_script(
     base_internal_url: &str,
     worker_name: &str,
     token: &str,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
@@ -720,9 +700,7 @@ pub async fn prebundle_bun_script(
         db.clone(),
         None,
         &mut 0,
-        &mut None,
         &common_bun_proc_envs,
-        occupancy_metrics,
     )
     .await?;
 
@@ -811,7 +789,6 @@ pub async fn handle_bun_job(
     requirements_o: Option<&String>,
     codebase: Option<&String>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -822,7 +799,6 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
@@ -939,7 +915,6 @@ pub async fn handle_bun_job(
             if !skip_install {
                 install_bun_lockfile(
                     mem_peak,
-                    canceled_by,
                     &job.id,
                     &job.workspace_id,
                     Some(db),
@@ -947,7 +922,6 @@ pub async fn handle_bun_job(
                     worker_name,
                     common_bun_proc_envs.clone(),
                     annotation.npm,
-                    &mut Some(occupancy_metrics),
                 )
                 .await?;
 
@@ -977,7 +951,6 @@ pub async fn handle_bun_job(
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
         let _ = gen_bun_lockfile(
             mem_peak,
-            canceled_by,
             &job.id,
             &job.workspace_id,
             Some(db),
@@ -989,7 +962,6 @@ pub async fn handle_bun_job(
             false,
             None,
             annotation.npm,
-            &mut Some(occupancy_metrics),
         )
         .await?;
 
@@ -1223,9 +1195,7 @@ try {{
                 Some(db.clone()),
                 job.timeout,
                 mem_peak,
-                canceled_by,
                 &common_bun_proc_envs,
-                &mut Some(occupancy_metrics),
             )
             .await?;
             if !local_path.is_empty() {
@@ -1265,9 +1235,7 @@ try {{
                 db,
                 job.timeout,
                 mem_peak,
-                canceled_by,
                 &common_bun_proc_envs,
-                &mut Some(occupancy_metrics),
             )
             .await?;
         }
@@ -1312,11 +1280,9 @@ try {{
                 job.timeout,
                 db,
                 mem_peak,
-                canceled_by,
                 worker_name,
                 &job.workspace_id,
                 false,
-                occupancy_metrics,
             )
             .await?;
             tracing::info!(
@@ -1461,7 +1427,6 @@ try {{
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -1469,7 +1434,6 @@ try {{
         "bun run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -1553,7 +1517,6 @@ pub async fn start_worker(
 ) -> Result<()> {
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
-    let mut canceled_by: Option<CanceledBy> = None;
     tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
     if !codebase.is_some() {
         let _ = write_file(job_dir, "main.ts", inner_content)?;
@@ -1612,7 +1575,6 @@ pub async fn start_worker(
 
             install_bun_lockfile(
                 &mut mem_peak,
-                &mut canceled_by,
                 &Uuid::nil(),
                 &w_id,
                 Some(db),
@@ -1620,7 +1582,6 @@ pub async fn start_worker(
                 worker_name,
                 common_bun_proc_envs.clone(),
                 annotation.npm,
-                &mut None,
             )
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
@@ -1629,7 +1590,6 @@ pub async fn start_worker(
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_bun_lockfile(
             &mut mem_peak,
-            &mut canceled_by,
             &Uuid::nil(),
             &w_id,
             Some(db),
@@ -1641,7 +1601,6 @@ pub async fn start_worker(
             false,
             None,
             annotation.npm,
-            &mut None,
         )
         .await?;
     }
@@ -1736,9 +1695,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             db,
             None,
             &mut mem_peak,
-            &mut canceled_by,
             &common_bun_proc_envs,
-            &mut None,
         )
         .await?;
     }

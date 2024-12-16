@@ -11,11 +11,12 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables, read_result, start_child_process, OccupancyMetrics
+        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -124,12 +125,10 @@ pub async fn generate_cargo_lockfile(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
@@ -154,7 +153,6 @@ pub async fn generate_cargo_lockfile(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         gen_lockfile_process,
         false,
         worker_name,
@@ -162,7 +160,6 @@ pub async fn generate_cargo_lockfile(
         "cargo generate-lockfile",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -176,14 +173,12 @@ pub async fn generate_cargo_lockfile(
 pub async fn build_rust_crate(
     job_id: &Uuid,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
     base_internal_url: &str,
     hash: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
@@ -216,7 +211,6 @@ pub async fn build_rust_crate(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         build_rust_process,
         false,
         worker_name,
@@ -224,7 +218,6 @@ pub async fn build_rust_crate(
         "rust build",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -273,7 +266,6 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_rust_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -284,7 +276,6 @@ pub async fn handle_rust_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
@@ -327,14 +318,12 @@ pub async fn handle_rust_job(
         build_rust_crate(
             &job.id,
             mem_peak,
-            canceled_by,
             job_dir,
             db,
             worker_name,
             &job.workspace_id,
             base_internal_url,
             &hash,
-            occupancy_metrics,
         )
         .await?
     };
@@ -395,7 +384,6 @@ pub async fn handle_rust_job(
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -403,7 +391,6 @@ pub async fn handle_rust_job(
         "rust run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

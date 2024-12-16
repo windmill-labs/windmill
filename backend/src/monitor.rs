@@ -1592,7 +1592,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             &client,
             &job,
             0,
-            None,
             error::Error::ExecutionErr(format!(
                 "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {})",
                 last_ping

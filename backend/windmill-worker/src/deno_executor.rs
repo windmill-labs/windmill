@@ -3,12 +3,12 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use uuid::Uuid;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
-        read_file, read_result, start_child_process, OccupancyMetrics,
+        read_file, read_result, start_child_process,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
@@ -100,13 +100,11 @@ pub async fn generate_deno_lock(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: Option<&sqlx::Pool<sqlx::Postgres>>,
     w_id: &str,
     worker_name: &str,
     base_internal_url: &str,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<String> {
     let _ = write_file(job_dir, "main.ts", code)?;
 
@@ -152,7 +150,6 @@ pub async fn generate_deno_lock(
             job_id,
             db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -160,7 +157,6 @@ pub async fn generate_deno_lock(
             "deno cache",
             None,
             false,
-            occupancy_metrics,
         )
         .await?;
     } else {
@@ -181,7 +177,6 @@ pub async fn generate_deno_lock(
 pub async fn handle_deno_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -191,7 +186,6 @@ pub async fn handle_deno_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
@@ -412,7 +406,6 @@ try {{
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         false,
         worker_name,
@@ -420,7 +413,6 @@ try {{
         "deno run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());

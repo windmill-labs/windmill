@@ -23,8 +23,6 @@ use windmill_common::jobs::QueuedJob;
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
-use windmill_queue::CanceledBy;
-
 #[cfg(feature = "csharp")]
 use crate::{
     common::{
@@ -36,7 +34,6 @@ use crate::{
     NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
 
-use crate::common::OccupancyMetrics;
 use crate::AuthedClientBackgroundTask;
 
 #[cfg(windows)]
@@ -60,12 +57,10 @@ pub async fn generate_nuget_lockfile(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
@@ -88,7 +83,6 @@ pub async fn generate_nuget_lockfile(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         gen_lockfile_process,
         false,
         worker_name,
@@ -96,7 +90,6 @@ pub async fn generate_nuget_lockfile(
         "dotnet restore",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -118,12 +111,10 @@ pub async fn generate_nuget_lockfile(
     _job_id: &Uuid,
     _code: &str,
     _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
     _job_dir: &str,
     _db: &sqlx::Pool<sqlx::Postgres>,
     _worker_name: &str,
     _w_id: &str,
-    _occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
@@ -261,14 +252,12 @@ namespace WindmillScriptCSharpInternal {{
 async fn build_cs_proj(
     job_id: &Uuid,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
     base_internal_url: &str,
     hash: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
         write_file(job_dir, "nuget.config", &nuget_config)?;
@@ -310,7 +299,6 @@ async fn build_cs_proj(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         build_cs_process,
         false,
         worker_name,
@@ -318,7 +306,6 @@ async fn build_cs_proj(
         "dotnet publish",
         None,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -363,7 +350,6 @@ fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> Stri
 #[cfg(not(feature = "csharp"))]
 pub async fn handle_csharp_job(
     _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
     _job: &QueuedJob,
     _db: &sqlx::Pool<sqlx::Postgres>,
     _client: &AuthedClientBackgroundTask,
@@ -374,7 +360,6 @@ pub async fn handle_csharp_job(
     _base_internal_url: &str,
     _worker_name: &str,
     _envs: HashMap<String, String>,
-    _occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
@@ -382,7 +367,6 @@ pub async fn handle_csharp_job(
 #[cfg(feature = "csharp")]
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -393,7 +377,6 @@ pub async fn handle_csharp_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
@@ -452,14 +435,12 @@ pub async fn handle_csharp_job(
         build_cs_proj(
             &job.id,
             mem_peak,
-            canceled_by,
             job_dir,
             db,
             worker_name,
             &job.workspace_id,
             base_internal_url,
             &hash,
-            occupancy_metrics,
         )
         .await?
     };
@@ -523,7 +504,6 @@ pub async fn handle_csharp_job(
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -531,7 +511,6 @@ pub async fn handle_csharp_job(
         "csharp run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
     read_result(job_dir).await

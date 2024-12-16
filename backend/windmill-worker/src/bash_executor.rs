@@ -25,7 +25,7 @@ use windmill_common::DB;
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -44,7 +44,6 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{
         build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
-        OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -62,7 +61,6 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -72,7 +70,6 @@ pub async fn handle_bash_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
     _killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
     let annotation = windmill_common::worker::BashAnnotations::parse(&content);
@@ -206,7 +203,6 @@ exit $exit_status
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -214,7 +210,6 @@ exit $exit_status
         "bash run",
         job.timeout,
         true,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 
@@ -226,9 +221,7 @@ exit $exit_status
             db,
             job.timeout,
             mem_peak,
-            canceled_by,
             worker_name,
-            occupancy_metrics,
             _killpill_rx,
         )
         .await;
@@ -271,9 +264,7 @@ async fn handle_docker_job(
     db: &DB,
     job_timeout: Option<i32>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
-    occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
     let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow)?;
@@ -361,11 +352,9 @@ async fn handle_docker_job(
         job_timeout,
         db,
         mem_peak,
-        canceled_by,
         wait_f,
         worker_name,
         workspace_id,
-        &mut Some(occupancy_metrics),
         Box::pin(match mem_client {
             Ok(client) => client
                 .stats(
@@ -458,7 +447,6 @@ fn raw_to_string(x: &str) -> String {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -468,7 +456,6 @@ pub async fn handle_powershell_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let pwsh_args = {
         let args = build_args_map(job, client, db).await?.map(Json);
@@ -548,7 +535,6 @@ pub async fn handle_powershell_job(
             &job.id,
             db,
             mem_peak,
-            canceled_by,
             child,
             false,
             worker_name,
@@ -556,7 +542,6 @@ pub async fn handle_powershell_job(
             "powershell install",
             job.timeout,
             false,
-            &mut Some(occupancy_metrics),
         )
         .await?;
     }
@@ -759,7 +744,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -767,7 +751,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         "powershell run",
         job.timeout,
         false,
-        &mut Some(occupancy_metrics),
     )
     .await?;
 

@@ -154,13 +154,11 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                 &Uuid::nil(),
                 &res.content,
                 &mut 0,
-                &mut None,
                 &job_dir,
                 None,
                 "global",
                 "global",
                 "",
-                &mut None,
             )
             .await?;
             tokio::fs::remove_dir_all(job_dir).await?;
@@ -173,7 +171,6 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                 let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                 let _ = windmill_worker::install_bun_lockfile(
                     &mut 0,
-                    &mut None,
                     &job_id,
                     "admins",
                     None,
@@ -181,7 +178,6 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     "cache_init",
                     envs.clone(),
                     false,
-                    &mut None,
                 )
                 .await?;
 
@@ -198,7 +194,6 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                     "",
                     "cache_init",
                     "",
-                    &mut None,
                 )
                 .await
                 {

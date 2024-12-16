@@ -12,12 +12,12 @@ use windmill_common::{
     worker::{save_cache, write_file},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, read_result,
-        start_child_process, OccupancyMetrics,
+        start_child_process,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
@@ -35,7 +35,6 @@ pub const GO_OBJECT_STORE_PREFIX: &str = "gobin/";
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -46,7 +45,6 @@ pub async fn handle_go_job(
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
-    occupation_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -83,7 +81,6 @@ pub async fn handle_go_job(
             &job.id,
             inner_content,
             mem_peak,
-            canceled_by,
             job_dir,
             db,
             true,
@@ -91,7 +88,6 @@ pub async fn handle_go_job(
             skip_tidy,
             worker_name,
             &job.workspace_id,
-            occupation_metrics,
         )
         .await?;
 
@@ -203,7 +199,6 @@ func Run(req Req) (interface{{}}, error){{
             &job.id,
             db,
             mem_peak,
-            canceled_by,
             build_go_process,
             false,
             worker_name,
@@ -211,7 +206,6 @@ func Run(req Req) (interface{{}}, error){{
             "go build",
             None,
             false,
-            &mut Some(occupation_metrics),
         )
         .await?;
 
@@ -307,7 +301,6 @@ func Run(req Req) (interface{{}}, error){{
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -315,7 +308,6 @@ func Run(req Req) (interface{{}}, error){{
         "go run",
         job.timeout,
         false,
-        &mut Some(occupation_metrics),
     )
     .await?;
 
@@ -347,7 +339,6 @@ pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     non_dep_job: bool,
@@ -355,7 +346,6 @@ pub async fn install_go_dependencies(
     has_sum: bool,
     worker_name: &str,
     w_id: &str,
-    occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     if !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
@@ -371,7 +361,6 @@ pub async fn install_go_dependencies(
             job_id,
             db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -379,7 +368,6 @@ pub async fn install_go_dependencies(
             "go init",
             None,
             false,
-            &mut Some(occupation_metrics),
         )
         .await?;
 
@@ -437,7 +425,6 @@ pub async fn install_go_dependencies(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         child_process,
         false,
         worker_name,
@@ -445,7 +432,6 @@ pub async fn install_go_dependencies(
         &format!("go {mod_command}"),
         None,
         false,
-        &mut Some(occupation_metrics),
     )
     .await?;
 
