@@ -297,7 +297,7 @@ impl PostgresClient {
                             if let Some(where_clause) = &table.where_clause {
                                 //query.push_str("WHERE ");
                             }
-                            
+
                             if j + 1 != relation.table_to_track.len() {
                                 query.push_str(", ")
                             }
@@ -309,7 +309,8 @@ impl PostgresClient {
                 }
             }
             _ => {
-                let to_execute = format!(r#"
+                let to_execute = format!(
+                    r#"
                                                     DROP
                                                         PUBLICATION {};
                                                     CREATE
@@ -724,7 +725,7 @@ async fn listen_to_transactions(
                                 let database_info = HashMap::from([("schema_name".to_string(), relation.namespace.as_str()), ("table_name".to_string(), relation.name.as_str()), ("transaction_type".to_string(), transaction_type)]);
                                 let extra = Some(HashMap::from([(
                                     "wm_trigger".to_string(),
-                                    to_raw_value(&serde_json::json!({"kind": "database", "trigger_info": database_info })),
+                                    to_raw_value(&serde_json::json!({"kind": "database", "database": serde_json::json!({ "trigger_info": database_info }) })),
                                 )]));
                                 body.insert("trigger_info".to_string(), to_raw_value(&database_info));
                                 let body = HashMap::from([("data".to_string(), to_raw_value(&serde_json::json!(body)))]);

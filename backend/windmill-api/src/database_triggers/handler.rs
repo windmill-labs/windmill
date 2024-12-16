@@ -679,13 +679,13 @@ pub async fn get_template_script(
                 let fully_qualified_name =
                     format!("{}.{}", &relation.schema_name, table_to_track.table_name);
                 schema_or_fully_qualified_name.push(quote_literal(&fully_qualified_name));
-                columns_list.push(
-                    table_to_track
-                        .columns_name
-                        .into_iter()
-                        .map(|column_name| quote_literal(&column_name))
-                        .join(","),
-                );
+
+                let columns = if !table_to_track.columns_name.is_empty() {
+                    quote_literal(&table_to_track.columns_name.join(","))
+                } else {
+                    "''".to_string()
+                };
+                columns_list.push(columns);
             }
             continue;
         }

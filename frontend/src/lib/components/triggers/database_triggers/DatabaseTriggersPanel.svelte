@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { WebsocketTriggerService, type WebsocketTrigger } from '$lib/gen'
+	import { DatabaseTriggerService, type DatabaseTrigger } from '$lib/gen'
 	import { UnplugIcon } from 'lucide-svelte'
 
 	import { canWrite } from '$lib/utils'
@@ -20,11 +20,11 @@
 
 	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 
-	let databaseTriggers: (WebsocketTrigger & { canWrite: boolean })[] | undefined = undefined
+	let databaseTriggers: (DatabaseTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {
 		try {
 			databaseTriggers = (
-				await WebsocketTriggerService.listWebsocketTriggers({
+				await DatabaseTriggerService.listDatabaseTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
 					isFlow
@@ -75,9 +75,6 @@
 				{#each databaseTriggers as databaseTriggers (databaseTriggers.path)}
 					<div class="grid grid-cols-5 text-2xs items-center py-2">
 						<div class="col-span-2 truncate">{databaseTriggers.path}</div>
-						<div class="col-span-2 truncate">
-							{databaseTriggers.url}
-						</div>
 						<div class="flex justify-end">
 							<button
 								on:click={() => databaseTriggerEditor?.openEdit(databaseTriggers.path, isFlow)}

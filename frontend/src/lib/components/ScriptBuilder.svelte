@@ -10,7 +10,13 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import {
+		defaultScripts,
+		enterpriseLicense,
+		templateScript,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		cleanValueProperties,
 		emptySchema,
@@ -109,7 +115,14 @@
 	)
 	const simplifiedPoll = writable(false)
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll' | 'database'
+		| 'webhooks'
+		| 'emails'
+		| 'schedules'
+		| 'cli'
+		| 'routes'
+		| 'websockets'
+		| 'scheduledPoll'
+		| 'database'
 	>('webhooks')
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
@@ -216,10 +229,25 @@
 	function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		template:
+			| 'pgsql'
+			| 'mysql'
+			| 'flow'
+			| 'script'
+			| 'fetch'
+			| 'docker'
+			| 'powershell'
+			| 'bunnative'
+			| 'preprocessor'
+			| undefined
 	) {
 		scriptEditor?.disableCollaboration()
-		script.content = initialCode(language, kind, template)
+		let getInitBlockTemplate = $templateScript != undefined
+		script.content = initialCode(language, kind, template, getInitBlockTemplate)
+		if (getInitBlockTemplate) {
+			script.content += '\r\n' + $templateScript
+			templateScript.set(undefined)
+		}
 		scriptEditor?.inferSchema(script.content, language)
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)

@@ -11,7 +11,7 @@
 		type Relations,
 		type TransactionType
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { templateScript, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
@@ -21,6 +21,8 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
 	import { fade } from 'svelte/transition'
+	import { goto } from '$app/navigation'
+	import { base } from '$app/paths'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -44,6 +46,7 @@
 	let transactionToTrack: TransactionType[] = []
 	let languages = 'bun,deno'
 	let language: Language = 'Typescript'
+	let loading = false
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -157,15 +160,22 @@
 			return
 		}
 
-		let template = await DatabaseTriggerService.getTemplateScript({
-			workspace: $workspaceStore!,
-			requestBody: {
-				relations,
-				language,
-				database_resource_path
-			}
-		})
-		console.log({ template })
+		try {
+			loading = true
+			let template = await DatabaseTriggerService.getTemplateScript({
+				workspace: $workspaceStore!,
+				requestBody: {
+					relations,
+					language,
+					database_resource_path
+				}
+			})
+			templateScript.set(template)
+			await goto(`${base}/scripts/add`)
+		} catch (error) {
+			loading = false
+			console.log({ error })
+		}
 	}
 </script>
 
@@ -239,6 +249,30 @@
 					</Label>
 				</div>
 
+				<Section label="Database">
+					<p class="text-xs mb-1 text-tertiary">
+						Pick a database to connect to<Required required={true} />
+					</p>
+					<div class="flex flex-row mb-2">
+						<ResourcePicker bind:value={database_resource_path} resourceType={'database'} />
+					</div>
+				</Section>
+
+				<Section label="Transactions">
+					<p class="text-xs mb-1 text-tertiary">
+						Choose what kind of database transaction you want to track allowed operations are
+						<strong>Inser</strong>t, <strong>Update</strong>, <strong>Delete</strong><Required
+							required={true}
+						/>
+					</p>
+
+					<MultiSelect
+						options={transactionType}
+						bind:selected={transactionToTrack}
+						duplicates={false}
+					/>
+				</Section>
+
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered<Required required={true} />
@@ -261,17 +295,11 @@
 								color="dark"
 								size="xs"
 								on:click={getTemplateScript}
-								target="_blank">Create from template</Button
-							>
+								target="_blank"
+								{loading}
+								>Create from template
+							</Button>
 						{/if}
-					</div>
-				</Section>
-				<Section label="Database">
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a database to connect to<Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ResourcePicker bind:value={database_resource_path} resourceType={'database'} />
 					</div>
 				</Section>
 
@@ -294,21 +322,6 @@
 							/>
 						</div>
 					</div>
-				</Section>
-
-				<Section label="Transactions">
-					<p class="text-xs mb-1 text-tertiary">
-						Choose what kind of database transaction you want to track allowed operations are
-						<strong>Inser</strong>t, <strong>Update</strong>, <strong>Delete</strong><Required
-							required={true}
-						/>
-					</p>
-
-					<MultiSelect
-						options={transactionType}
-						bind:selected={transactionToTrack}
-						duplicates={false}
-					/>
 				</Section>
 
 				<Section label="Relations">
@@ -380,7 +393,7 @@
 										}}
 										startIcon={{ icon: Plus }}
 									>
-										Add item
+										Add Table
 									</Button>
 								</div>
 								<button
@@ -413,7 +426,7 @@
 								}}
 								startIcon={{ icon: Plus }}
 							>
-								Add item
+								Add Schema
 							</Button>
 						</div>
 					</div></Section
