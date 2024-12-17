@@ -85,7 +85,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push publicly
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -150,7 +150,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push publicly
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
