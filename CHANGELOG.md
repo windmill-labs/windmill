@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.439.0](https://github.com/windmill-labs/windmill/compare/v1.438.0...v1.439.0) (2024-12-15)
+
+
+### Features
+
+* add multipart/form-data support ([#4927](https://github.com/windmill-labs/windmill/issues/4927)) ([83a60cb](https://github.com/windmill-labs/windmill/commit/83a60cbc517d5ddab24b247fd5e452175d59ad07))
+
+
+### Bug Fixes
+
+* ECS terraform db url + ami issues ([#4924](https://github.com/windmill-labs/windmill/issues/4924)) ([5172c13](https://github.com/windmill-labs/windmill/commit/5172c13ab8e9aeb1a83c161e7e7f63ebfb40b008))
+
 ## [1.438.0](https://github.com/windmill-labs/windmill/compare/v1.437.1...v1.438.0) (2024-12-13)
 
 
