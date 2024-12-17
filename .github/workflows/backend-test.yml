@@ -20,7 +20,6 @@ defaults:
 jobs:
   cargo_test:
     runs-on: ubicloud-standard-30
-    container: "ubuntu:latest"
     services:
       postgres:
         image: postgres
