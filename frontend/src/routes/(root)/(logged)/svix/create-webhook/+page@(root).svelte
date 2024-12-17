@@ -1,7 +1,5 @@
 <script lang="ts">
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button } from '$lib/components/common'
 	import { page } from '$app/stores'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -9,6 +7,7 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 
 	let itemPath: string | undefined = undefined
 	let itemKind: 'script' | 'flow' | 'app' = 'script'
@@ -77,73 +76,90 @@
 	{scopes}
 />
 
-<CenteredPage>
-	<div class="flex items-center justify-center h-screen">
-		<div class="flex flex-col gap-5">
-			<div class="flex flex-row gap-3 items-center justify-center">
-				<PageHeader title={`${clientName} wants to create a webhook`} />
+<div class="flex items-center justify-center h-screen w-screen min-w-0">
+	<div class="flex flex-col gap-5 min-w-0 px-2">
+		<div class="flex flex-row gap-3 items-center justify-center break-words whitespace-normal py-8">
+			<h1 class="!text-3xl font-semibold text-center"
+				>{`${clientName} wants to create a webhook`}</h1
+			>
+		</div>
+		<div class="flex flex-row gap-3 items-center">
+			<div
+				class="flex items-center justify-center min-w-10 w-10 h-10 border-2 border-blue-500 text-blue-500 font-bold rounded-full"
+			>
+				1
 			</div>
-			<div class="flex flex-row gap-3 items-center">
-				<div
-					class="flex items-center justify-center w-10 h-10 border-2 border-blue-500 text-blue-500 font-bold rounded-full"
-				>
-					1
+			<h2>Select the script or flow to be triggered by the webhook</h2>
+		</div>
+		<div class="flex flex-row items-center justify-center w-100%">
+			<div class="flex flex-col items-center gap-3 w-full">
+				<div class="flex flex-row items-center justify-center w-full">
+					<span class="flex justify-end w-full items-right"> Selected Workspace: </span>
+					<WorkspaceMenu strictWorkspaceSelect />
 				</div>
-				<h2>Select the script or flow to be triggered by the webhook</h2>
+				<ScriptPicker
+					allowEdit={false}
+					allowFlow={true}
+					allowRefresh={true}
+					bind:scriptPath={itemPath}
+					bind:itemKind
+				/>
+				<h4>or</h4>
+				<div class="flex flex-row gap-2">
+					<Button size="xs" color="light" variant="border" target="_blank" href="/scripts/add"
+						>Create new script</Button
+					>
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						target="_blank"
+						href="/flows/add?nodraft=true">Create new flow</Button
+					>
+				</div>
 			</div>
-			<div class="flex flex-row items-center justify-center w-100%">
-				<div class="flex flex-col items-center gap-3 w-full">
-					<ScriptPicker
-						allowEdit={false}
-						allowFlow={true}
-						allowRefresh={true}
-						bind:scriptPath={itemPath}
-						bind:itemKind
+		</div>
+		<div class="flex flex-row gap-3 items-center mt-3">
+			<div
+				class="flex items-center justify-center w-10 h-10 border-2 border-blue-500 text-blue-500 font-bold rounded-full min-w-10"
+			>
+				2
+			</div>
+			<h2>Create a token for this webhook</h2>
+			<Tooltip customSize="150%">
+				By generating a webhook specific token, you get a token that can only be used to trigger
+				this {itemKind}, making it safe to share without risk of impersonation. You can also opt to
+				use another token by entering it in the input field directly.
+			</Tooltip>
+		</div>
+		<div class="flex flex-row items-center justify-center">
+			<div class="flex flex-col items-center gap-5 w-100%">
+				<div class="flex flex-row items-center gap-2">
+					<input
+						bind:value={token}
+						disabled={itemPath == undefined}
+						placeholder="enter or generate token"
+						class="!text-md min-w-10 max-w-40"
 					/>
-					<h4>or</h4>
-					<div class="flex flex-row gap-2">
-						<Button size="xs" color="light" variant="border" target="_blank" href="/scripts/add">Create new script</Button>
-						<Button size="xs" color="light" variant="border" target="_blank" href="/flows/add?nodraft=true">Create new flow</Button>
-					</div>
+					<Button
+						size="md"
+						btnClasses="whitespace-normal break-words flex flex-wrap"
+						disabled={itemPath == undefined}
+						on:click={userSettings.openDrawer}
+					>
+						Generate webhook-specific Token
+					</Button>
 				</div>
-			</div>
-			<div class="flex flex-row gap-3 items-center mt-3">
-				<div
-					class="flex items-center justify-center w-10 h-10 border-2 border-blue-500 text-blue-500 font-bold rounded-full"
-				>
-					2
-				</div>
-				<h2>Create a token for this webhook</h2>
-				<Tooltip customSize="150%">
-					If you generate a token, it will have a scope such that it can only be used to
-					trigger this {itemKind}. It is safe to share as it cannot be used to impersonate you.
-					Otherwise you may enter another token but beware that it will be shared with the external
-					application.
-				</Tooltip>
-			</div>
-			<div class="flex flex-row items-center justify-center">
-				<div class="flex flex-col items-center gap-5 w-100%">
-					<div class="flex flex-row items-center gap-2">
-						<input
-							bind:value={token}
-							disabled={itemPath == undefined}
-							placeholder="enter or generate token"
-							class="!text-md"
-						/>
-						<Button size="md" disabled={itemPath == undefined} on:click={userSettings.openDrawer}>
-							Generate webhook-specific Token
-						</Button>
-					</div>
-					<div class="flex flex-row gap-2 mt-10">
-						<Button
-							disabled={!itemPath || !token || token === ''}
-							on:click={() => itemPath && token && createWebhook(itemPath, itemKind, token)}
-							>Approve and share with {clientName}</Button
-						>
-						<Button color="red" on:click={() => redirectCancel('user_canceled')}>Cancel</Button>
-					</div>
+				<div class="flex flex-row gap-2 mt-10">
+					<Button
+						disabled={!itemPath || !token || token === ''}
+						btnClasses="whitespace-normal break-words flex flex-wrap"
+						on:click={() => itemPath && token && createWebhook(itemPath, itemKind, token)}
+						>Approve and share with {clientName}</Button
+					>
+					<Button color="red" on:click={() => redirectCancel('user_canceled')}>Cancel</Button>
 				</div>
 			</div>
 		</div>
 	</div>
-</CenteredPage>
+</div>

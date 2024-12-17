@@ -23,6 +23,9 @@
 
 	export let isCollapsed: boolean = false
 
+	 // When used outside of the side bar, where links to workspace settings and such don't make as much sense.
+	export let strictWorkspaceSelect = false
+
 	async function toggleSwitchWorkspace(id: string) {
 		if ($workspaceStore === id) {
 			return
@@ -76,7 +79,7 @@
 				</MenuItem>
 			{/each}
 		</div>
-		{#if isCloudHosted() || $superadmin}
+		{#if (isCloudHosted() || $superadmin) && !strictWorkspaceSelect}
 			<div class="py-1" role="none">
 				<a
 					href="{base}/user/create_workspace"
@@ -89,6 +92,7 @@
 				</a>
 			</div>
 		{/if}
+		{#if !strictWorkspaceSelect}
 		<div class="py-1" role="none">
 			<a
 				href="{base}/user/workspaces"
@@ -102,7 +106,8 @@
 				All workspaces
 			</a>
 		</div>
-		{#if $userStore?.is_admin || $superadmin}
+		{/if}
+		{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect}
 			<div class="py-1" role="none">
 				<MenuItem>
 					<a
@@ -118,7 +123,7 @@
 			</div>
 		{/if}
 	</div>
-	{#if isCloudHosted() && !$isPremiumStore}
+	{#if isCloudHosted() && !$isPremiumStore && !strictWorkspaceSelect}
 		<div class="py-1" role="none">
 			{#if $workspaceStore != 'demo'}
 				<span class="text-secondary block w-full text-left px-4 py-2 text-xs"
@@ -146,7 +151,7 @@
 			{/if}
 		</div>
 	{/if}
-	{#if $enterpriseLicense}
+	{#if $enterpriseLicense && !strictWorkspaceSelect}
 		<MultiplayerMenu />
 	{/if}
 </Menu>
