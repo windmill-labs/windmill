@@ -49,7 +49,7 @@ const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansi
 
 async fn handle_ansible_python_deps(
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     ansible_reqs: Option<&AnsibleRequirements>,
     w_id: &str,
     job_id: &Uuid,
@@ -70,16 +70,15 @@ async fn handle_ansible_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
+    let mut requirements;
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let requirements = ansible_reqs
+            requirements = ansible_reqs
                 .map(|x| x.python_reqs.join("\n"))
                 .unwrap_or("".to_string());
-            if requirements.is_empty() {
-                "".to_string()
-            } else {
-                uv_pip_compile(
+            if !requirements.is_empty() {
+                requirements = uv_pip_compile(
                     job_id,
                     &requirements,
                     mem_peak,
@@ -95,8 +94,9 @@ async fn handle_ansible_python_deps(
                 .await
                 .map_err(|e| {
                     error::Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
-                })?
+                })?;
             }
+            &requirements
         }
     };
 
@@ -185,7 +185,7 @@ async fn install_galaxy_collections(
 }
 
 pub async fn handle_ansible_job(
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,

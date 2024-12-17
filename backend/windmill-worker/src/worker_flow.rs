@@ -18,6 +18,7 @@ use crate::{
     KEEP_JOB_DIR,
 };
 use anyhow::Context;
+use futures::TryFutureExt;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -31,15 +32,17 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::cache::{self, RawData};
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId};
 use windmill_common::jobs::{
-    script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobPayload, QueuedJob,
-    RawCode, ENTRYPOINT_OVERRIDE,
+    script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobKind, JobPayload,
+    QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
@@ -53,7 +56,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, handle_maybe_scheduled_job,
-    CanceledBy, PulledJob, PushArgs, PushIsolationLevel, WrappedError,
+    CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -205,8 +208,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     let (
         should_continue_flow,
         flow_job,
-        flow_value,
-        raw_flow,
+        flow_data,
         stop_early,
         skip_if_stop_early,
         nresult,
@@ -215,31 +217,46 @@ pub async fn update_flow_status_after_job_completion_internal(
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
-        let (old_status, current_module) = sqlx::query!(
+        let (job_kind, script_hash, old_status, raw_flow) = sqlx::query!(
             "SELECT
+                job_kind AS \"job_kind: JobKind\",
+                script_hash AS \"script_hash: ScriptHash\",
                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",
-                coalesce(job.raw_flow, queue.raw_flow)->'modules'->(flow_status->'step')::int AS \"module: Json<Box<RawValue>>\"
-            FROM queue LEFT JOIN job USING(id, workspace_id) WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-            flow, w_id
+                raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
+            FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            flow,
+            w_id
         )
         .fetch_one(db)
         .await
-        .map_err(|e| Error::InternalErr(
-            format!("fetching flow status {flow} while reporting {success} {result:?}: {e:#}")
-        ))
-        .and_then(|record| Ok((
-            serde_json::from_str::<FlowStatus>(record.flow_status.0.get()).map_err(|e| Error::InternalErr(
-                format!("requiring current module to be parsable as FlowStatus: {e:?}")
-            ))?,
-            record.module.map(|json| {
-                serde_json::from_str::<FlowModule>(json.0.get()).map_err(|e| Error::InternalErr(format!(
-                    "requiring current module to be parsable as FlowModule: {e:?}"
-                )))
-            }).transpose()?,
-        )))?;
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "fetching flow status {flow} while reporting {success} {result:?}: {e:#}"
+            ))
+        })
+        .and_then(|record| {
+            Ok((
+                record.job_kind,
+                record.script_hash,
+                serde_json::from_str::<FlowStatus>(record.flow_status.0.get()).map_err(|e| {
+                    Error::InternalErr(format!(
+                        "requiring current module to be parsable as FlowStatus: {e:?}"
+                    ))
+                })?,
+                record.raw_flow,
+            ))
+        })?;
+
+        let flow_data = cache::job::fetch_flow(db, job_kind, script_hash)
+            .or_else(|_| cache::job::fetch_preview_flow(db, &flow, raw_flow))
+            .await?;
+        let flow_value = flow_data.value()?;
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
-
+        let current_module = match module_step {
+            Step::Step(i) => flow_value.modules.get(i),
+            _ => None,
+        };
         let module_status = match module_step {
             Step::PreprocessorStep => old_status
                 .preprocessor_module
@@ -385,7 +402,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 *branch,
                 *parallel,
                 db,
-                current_module.as_ref(),
+                current_module,
             )
             .await?
             .unwrap_or(false),
@@ -919,7 +936,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .context("remove flow status retry")?;
         }
 
-        let flow_job = sqlx::query_as::<_, PulledJob>(
+        let flow_job = sqlx::query_as::<_, QueuedJob>(
             "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
         )
         .bind(flow)
@@ -936,24 +953,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             .unwrap_or_else(|| "none".to_string());
         tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
-        let PulledJob { job: flow_job, raw_flow, .. } = flow_job;
-        let raw_flow = if let Some(raw_flow) = raw_flow {
-            Some(raw_flow)
-        } else {
-            sqlx::query_scalar!(
-                "SELECT raw_flow AS \"raw_flow!: Json<Box<sqlx::types::JsonRawValue>>\"
-                FROM job WHERE id = $1 AND workspace_id = $2 LIMIT 1",
-                &flow_job.id,
-                w_id
-            )
-            .fetch_one(db)
-            .await
-            .ok()
-        };
-        let flow_value = raw_flow
-            .as_ref()
-            .and_then(|raw_flow| serde_json::from_str::<FlowValue>(raw_flow.get()).ok());
-
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.canceled => false,
@@ -964,21 +963,22 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             false
                 if next_retry(
-                    flow_value
-                        .as_ref()
-                        .and_then(|value| match module_step {
-                            Step::PreprocessorStep => value
-                                .preprocessor_module
-                                .as_ref()
-                                .and_then(|m| m.retry.as_ref()),
-                            Step::Step(i) => {
-                                value.modules.get(i).as_ref().and_then(|m| m.retry.as_ref())
-                            }
-                            Step::FailureStep => {
-                                value.failure_module.as_ref().and_then(|m| m.retry.as_ref())
-                            }
-                        })
-                        .unwrap_or(&Retry::default()),
+                    match module_step {
+                        Step::PreprocessorStep => flow_value
+                            .preprocessor_module
+                            .as_ref()
+                            .and_then(|m| m.retry.as_ref()),
+                        Step::Step(i) => flow_value
+                            .modules
+                            .get(i)
+                            .as_ref()
+                            .and_then(|m| m.retry.as_ref()),
+                        Step::FailureStep => flow_value
+                            .failure_module
+                            .as_ref()
+                            .and_then(|m| m.retry.as_ref()),
+                    }
+                    .unwrap_or(&Retry::default()),
                     &old_status.retry,
                 )
                 .is_some() =>
@@ -988,10 +988,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
                 if !is_failure_step
                     && !skip_error_handler
-                    && flow_value
-                        .as_ref()
-                        .map(|v| v.failure_module.is_some())
-                        .unwrap_or(false) =>
+                    && flow_value.failure_module.is_some() =>
             {
                 true
             }
@@ -1003,8 +1000,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         (
             should_continue_flow,
             flow_job,
-            flow_value,
-            raw_flow,
+            flow_data,
             stop_early,
             skip_if_stop_early,
             nresult,
@@ -1066,8 +1062,8 @@ pub async fn update_flow_status_after_job_completion_internal(
             .await?;
         } else {
             if flow_job.cache_ttl.is_some() && success {
-                let cached_res_path =
-                    cached_result_path(db, client, &flow_job, None, None, raw_flow.as_ref()).await;
+                let flow = RawData::Flow(flow_data.clone());
+                let cached_res_path = cached_result_path(db, client, &flow_job, Some(&flow)).await;
 
                 save_in_cache(db, client, &flow_job, cached_res_path, nresult.clone()).await;
             }
@@ -1117,7 +1113,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         tracing::debug!(id = %flow_job.id,  "start handle flow");
         match handle_flow(
             flow_job.clone(),
-            flow_value,
+            &flow_data,
             db,
             client,
             Some(nresult.clone()),
@@ -1495,7 +1491,7 @@ async fn transform_input(
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_flow(
     flow_job: Arc<QueuedJob>,
-    flow_value: Option<FlowValue>,
+    flow_data: &cache::FlowData,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_result: Option<Arc<Box<RawValue>>>,
@@ -1503,7 +1499,7 @@ pub async fn handle_flow(
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
 ) -> anyhow::Result<()> {
-    let flow = flow_value.with_context(|| "Unable to parse flow definition")?;
+    let flow = flow_data.value()?;
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
@@ -1614,7 +1610,7 @@ lazy_static::lazy_static! {
 async fn push_next_flow_job(
     flow_job: Arc<QueuedJob>,
     mut status: FlowStatus,
-    flow: FlowValue,
+    flow: &FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
     last_job_result: Option<Arc<Box<RawValue>>>,
@@ -1950,8 +1946,8 @@ async fn push_next_flow_job(
             ) && is_disapproved.is_none()
             {
                 sqlx::query(
-                    "UPDATE queue SET 
-                        flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step'::text], $1), 
+                    "UPDATE queue SET
+                        flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step'::text], $1),
                         suspend = $2,
                         suspend_until = now() + $3
                     WHERE id = $4",
@@ -2349,8 +2345,13 @@ async fn push_next_flow_job(
         }
     };
 
+    // Also check `flow_job.same_worker` for [`JobKind::Flow`] jobs as it's no
+    // more reflected to the flow value on push.
+    let job_same_worker = flow_job.same_worker
+        && matches!(flow_job.job_kind, JobKind::Flow)
+        && flow_job.script_hash.is_some();
     let continue_on_same_worker =
-        flow.same_worker && module.suspend.is_none() && module.sleep.is_none();
+        (flow.same_worker || job_same_worker) && module.suspend.is_none() && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
     let mut uuids = vec![];
