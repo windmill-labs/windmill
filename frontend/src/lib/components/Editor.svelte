@@ -205,6 +205,7 @@
 	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'json'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
+	export let files: Record<string, { code: string }> | undefined = {}
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
@@ -232,16 +233,25 @@
 	let dbSchema: DBSchema | undefined = undefined
 
 	let destroyed = false
-	const uri = !['deno', 'go', 'python3'].includes(scriptLang ?? '')
-		? `file:///${filePath}.${langToExt(lang)}`
-		: `file:///tmp/monaco/${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+	const uri = computeUri(filePath, scriptLang)
 
 	console.log('uri', uri)
 
 	buildWorkerDefinition()
 
+	function computeUri(filePath: string, scriptLang: string | undefined) {
+		return !['deno', 'go', 'python3'].includes(scriptLang ?? '')
+			? `file:///${filePath}.${langToExt(lang)}`
+			: `file:///tmp/monaco/${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+	}
+
 	function computePath(path: string | undefined): string {
-		if (path == '' || path == undefined || path.startsWith('/')) {
+		if (
+			['deno', 'go', 'python3'].includes(scriptLang ?? '') ||
+			path == '' ||
+			path == undefined ||
+			path.startsWith('/')
+		) {
 			return randomHash()
 		} else {
 			return path as string
@@ -1146,6 +1156,14 @@
 			model = nmodel
 		}
 		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
+
+		if (files) {
+			for (const [path, { code }] of Object.entries(files)) {
+				const uri = mUri.parse(path)
+				const model = meditor.createModel(code, lang, uri)
+				models[path] = model
+			}
+		}
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
