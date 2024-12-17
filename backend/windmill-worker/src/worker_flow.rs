@@ -3147,7 +3147,9 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, modules_node, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = !parallel && is_simple_modules(&modules, flow.failure_module.as_ref());
+            let is_simple = !matches!(flow_job.job_kind, JobKind::FlowPreview)
+                && !parallel
+                && is_simple_modules(&modules, flow.failure_module.as_ref());
 
             // if is_simple {
             //     match value {
