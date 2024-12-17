@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
     services:
       postgres:
         image: postgres
@@ -58,9 +58,9 @@ jobs:
         run:
           deno --version && bun -v && go version && python3 --version &&
           SQLX_OFFLINE=true
-          DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info PYTHON_PATH=$(which python)
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
-          cargo test --features
+          DATABASE_URL=postgres://postgres:changeme@postgres:$❴❴
+          job.services.postgres.ports[5432] ❵❵/windmill DISABLE_EMBEDDING=true
+          RUST_LOG=info PYTHON_PATH=$(which python) DENO_PATH=$(which deno)
+          BUN_PATH=$(which bun) GO_PATH=$(which go) cargo test --features
           enterprise,deno_core,license,http_trigger,zip,oauth2,python,rust --all
           -- --nocapture
