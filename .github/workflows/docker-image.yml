@@ -38,8 +38,8 @@ jobs:
   build:
     runs-on: ubicloud-standard-30
     if:
-      (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
-      !github.event.inputs.ee)
+      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee ==
+      false)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,8 +103,8 @@ jobs:
   build_arm:
     runs-on: ubicloud-standard-30-arm
     if:
-      (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
-      !github.event.inputs.ee)
+      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee ==
+      false)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -167,7 +167,9 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
+    if:
+      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee ==
+      true)
     steps:
       - uses: actions/checkout@v4
         with:
