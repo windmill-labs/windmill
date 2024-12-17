@@ -1,11 +1,9 @@
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && github.repository ||
-    'windmill-labs/windmill-test' }}
+    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
   DEV_SHA:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || format('pr-{0}',
-    github.event.number) }}
+    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || github.event.inputs.tag }}
 
 name: Build windmill:main
 on:
@@ -19,8 +17,14 @@ on:
   workflow_dispatch:
     inputs:
       ee:
-        description: 'Build EE image'
+        description: 'Build EE image (true, false)'
         required: false
+        default: false
+        type: boolean
+      tag:
+        description: 'Tag the image'
+        required: true
+        default: 'test'
 
 concurrency:
   group: ${{ github.ref }}
@@ -31,6 +35,7 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud
+    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs && !github.event.inputs.ee)
     steps:
       - uses: actions/checkout@v4
         with:
