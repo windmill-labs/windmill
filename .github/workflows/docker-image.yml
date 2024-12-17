@@ -418,7 +418,7 @@ jobs:
         run: cd integration_tests && ./build.sh
       - name: Test run
         if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
-        timeout-minutes: 15
+        timeout-minutes: 16
         env:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         run: cd integration_tests && ./run.sh

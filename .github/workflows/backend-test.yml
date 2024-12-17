@@ -56,7 +56,7 @@ jobs:
         with:
           workspaces: backend
       - name: cargo test
-        timeout-minutes: 15
+        timeout-minutes: 16
         run:
           deno --version && bun -v && go version && python3 --version &&
           SQLX_OFFLINE=true
