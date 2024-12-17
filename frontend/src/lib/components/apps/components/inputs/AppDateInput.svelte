@@ -30,7 +30,12 @@
 
 	$componentControl[id] = {
 		setValue(nvalue: string) {
-			value = nvalue
+			if (typeof nvalue === 'string') {
+				value = nvalue?.split('T')?.[0]
+			} else {
+				console.error('Invalid value', nvalue)
+				value = undefined
+			}
 		}
 	}
 
