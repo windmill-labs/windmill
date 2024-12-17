@@ -125,12 +125,10 @@ impl Mapper {
 
         template.push_str(&format!(
             r#"
-export async function main(data: {{
-    trigger_info: {{
-        transaction_type: "insert" | "update" | "delete";
-        schema_name: string;
-        table_name: string;
-    }};
+export async function main(database: {{
+    transaction_type: "insert" | "update" | "delete";
+    schema_name: string;
+    table_name: string;
     row: {}
 }}) {{
 }}

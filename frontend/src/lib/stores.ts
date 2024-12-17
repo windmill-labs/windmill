@@ -1,6 +1,11 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
-import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList } from './gen'
+import {
+	type WorkspaceDefaultScripts,
+	type TokenResponse,
+	type UserWorkspaceList,
+	type CreateDatabaseTriggerData
+} from './gen'
 import type { IntrospectionQuery } from 'graphql'
 import { getLocalSetting } from './utils'
 
@@ -40,7 +45,9 @@ export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined
 )
-export const templateScript = writable<string | undefined>(undefined)
+export const databaseTrigger = writable<
+	{ codeTemplate: string; databaseTrigger?: CreateDatabaseTriggerData['requestBody'] } | undefined
+>(undefined)
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
 export const isPremiumStore = writable<boolean>(false)

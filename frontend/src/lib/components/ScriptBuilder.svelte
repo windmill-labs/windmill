@@ -11,9 +11,9 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import {
+		databaseTrigger,
 		defaultScripts,
 		enterpriseLicense,
-		templateScript,
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
@@ -242,11 +242,10 @@
 			| undefined
 	) {
 		scriptEditor?.disableCollaboration()
-		let getInitBlockTemplate = $templateScript != undefined
+		let getInitBlockTemplate = $databaseTrigger?.codeTemplate != undefined
 		script.content = initialCode(language, kind, template, getInitBlockTemplate)
 		if (getInitBlockTemplate) {
-			script.content += '\r\n' + $templateScript
-			templateScript.set(undefined)
+			script.content += '\r\n' + $databaseTrigger?.codeTemplate
 		}
 		scriptEditor?.inferSchema(script.content, language)
 		if (script.content != editor?.getCode()) {

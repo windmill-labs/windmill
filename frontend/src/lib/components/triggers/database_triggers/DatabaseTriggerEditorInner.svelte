@@ -11,7 +11,7 @@
 		type Relations,
 		type TransactionType
 	} from '$lib/gen'
-	import { templateScript, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { databaseTrigger, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
@@ -19,7 +19,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import MultiSelect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
@@ -71,18 +71,32 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
-			is_flow = nis_flow
+			if ($databaseTrigger?.databaseTrigger) {
+				let trigger = $databaseTrigger.databaseTrigger
+				database_resource_path = trigger.database_resource_path
+				is_flow = trigger.is_flow
+				itemKind = is_flow ? 'flow' : 'script'
+				script_path = trigger.script_path
+				path = trigger.path
+				relations = trigger.table_to_track
+				replication_slot_name = trigger.replication_slot_name
+				publication_name = trigger.publication_name
+				databaseTrigger.set(undefined)
+			} else {
+				is_flow = nis_flow
+				itemKind = nis_flow ? 'flow' : 'script'
+				initialScriptPath = ''
+				fixedScriptPath = fixedScriptPath_ ?? ''
+				script_path = fixedScriptPath
+				path = ''
+				initialPath = ''
+				relations = []
+				replication_slot_name = ''
+				publication_name = ''
+				database_resource_path = ''
+			}
 			edit = false
-			itemKind = nis_flow ? 'flow' : 'script'
-			initialScriptPath = ''
-			fixedScriptPath = fixedScriptPath_ ?? ''
-			script_path = fixedScriptPath
-			path = ''
-			initialPath = ''
-			relations = []
 			dirtyPath = false
-			replication_slot_name = ''
-			publication_name = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -124,7 +138,7 @@
 					transaction_to_track: transactionToTrack
 				}
 			})
-			sendUserToast(`Route ${path} updated`)
+			sendUserToast(`Database ${path} updated`)
 		} else {
 			await DatabaseTriggerService.createDatabaseTrigger({
 				workspace: $workspaceStore!,
@@ -140,7 +154,7 @@
 					table_to_track: relations
 				}
 			})
-			sendUserToast(`Route ${path} created`)
+			sendUserToast(`Database ${path} created`)
 		}
 
 		if (!$usedTriggerKinds.includes('database')) {
@@ -170,7 +184,20 @@
 					database_resource_path
 				}
 			})
-			templateScript.set(template)
+			databaseTrigger.set({
+				codeTemplate: template,
+				databaseTrigger: {
+					transaction_to_track: transactionToTrack,
+					path,
+					script_path,
+					is_flow,
+					enabled: true,
+					database_resource_path,
+					replication_slot_name,
+					publication_name,
+					table_to_track: relations
+				}
+			})
 			await goto(`${base}/scripts/add`)
 		} catch (error) {
 			loading = false
@@ -270,6 +297,7 @@
 						options={transactionType}
 						bind:selected={transactionToTrack}
 						duplicates={false}
+						liOptionClass={'box'}
 					/>
 				</Section>
 
@@ -289,7 +317,7 @@
 							allowRefresh
 						/>
 
-						{#if script_path === undefined}
+						{#if script_path === undefined && is_flow === false}
 							<Button
 								btnClasses="ml-4 mt-2"
 								color="dark"

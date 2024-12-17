@@ -15,7 +15,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { databaseTrigger, userStore, workspaceStore } from '$lib/stores'
 	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -190,6 +190,9 @@
 
 	onMount(() => {
 		loadQueryFilters()
+		if ($databaseTrigger?.databaseTrigger) {
+			databaseTriggerEditor.openNew(false)
+		}
 	})
 
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)

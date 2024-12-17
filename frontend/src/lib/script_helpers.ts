@@ -535,11 +535,10 @@ export async function preprocessor(
 			url: string // The websocket url
 		},
 		database?: {
-			trigger_info: {
-				schema_name: string,
-				table_name: string,
-				transaction_type : 'insert' | 'update' | 'delete'
-			}
+			schema_name: string,
+			table_name: string,
+			transaction_type : 'insert' | 'update' | 'delete',
+			row: unknown
 		}
 	},
 	/* your other args */ 
@@ -566,11 +565,10 @@ export async function preprocessor(
 			url: string // The websocket url
 		},
 		database?: {
-			trigger_info: {
-				schema_name: string,
-				table_name: string,
-				transaction_type : 'insert' | 'update' | 'delete'
-			}
+			schema_name: string,
+			table_name: string,
+			transaction_type : 'insert' | 'update' | 'delete',
+			row: unknown
 		}
 	},
 	/* your other args */ 
