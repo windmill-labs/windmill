@@ -37,9 +37,7 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud-standard-30
-    if:
-      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee ==
-      false)
+    if: (github.event_name != 'workflow_dispatch') || (inputs.ee == false)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,9 +100,7 @@ jobs:
 
   build_arm:
     runs-on: ubicloud-standard-30-arm
-    if:
-      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee ==
-      false)
+    if: (github.event_name != 'workflow_dispatch') || (inputs.ee == false)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -167,9 +163,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if:
-      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee ==
-      true)
+    if: (github.event_name != 'workflow_dispatch') || (inputs.ee == true)
     steps:
       - uses: actions/checkout@v4
         with:
