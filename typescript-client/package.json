@@ -18,5 +18,8 @@
     "LICENSE",
     "README.md",
     "package.json"
-  ]
+  ],
+  "dependencies": {
+    "@slack/web-api": "^7.8.0"
+  }
 }
