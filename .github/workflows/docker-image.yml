@@ -1,9 +1,11 @@
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
+    ${{ github.event_name != 'pull_request' && github.event_name !=
+    'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
   DEV_SHA:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || github.event.inputs.tag }}
+    ${{ github.event_name != 'pull_request' && github.event_name !=
+    'workflow_dispatch' && 'dev' || github.event.inputs.tag }}
 
 name: Build windmill:main
 on:
@@ -17,14 +19,14 @@ on:
   workflow_dispatch:
     inputs:
       ee:
-        description: 'Build EE image (true, false)'
+        description: "Build EE image (true, false)"
         required: false
         default: false
         type: boolean
       tag:
-        description: 'Tag the image'
+        description: "Tag the image"
         required: true
-        default: 'test'
+        default: "test"
 
 concurrency:
   group: ${{ github.ref }}
@@ -34,8 +36,10 @@ permissions: write-all
 
 jobs:
   build:
-    runs-on: ubicloud
-    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs && !github.event.inputs.ee)
+    runs-on: ubicloud-standard-30
+    if:
+      (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
+      !github.event.inputs.ee)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,9 +57,9 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
-      - uses: depot/setup-action@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      # - uses: depot/setup-action@v1
 
       - name: Login to registry
         uses: docker/login-action@v3
@@ -84,7 +88,6 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
@@ -94,11 +97,77 @@ jobs:
           labels: |
             ${{ steps.meta-public.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build_arm:
+    runs-on: ubicloud-standard-30-arm
+    if:
+      (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
+      !github.event.inputs.ee)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      # - uses: depot/setup-action@v1
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Substitute EE code (EE logic is behind feature flag)
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - name: Docker meta
+        id: meta-public
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push publicly
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          push: true
+          build-args: |
+            features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+            ${{ steps.meta-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-public.outputs.labels }}
+            org.opencontainers.image.licenses=AGPLv3
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   build_ee:
     runs-on: ubicloud
-    if:
-      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
+    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -453,7 +522,8 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     if:
-      (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch')
+      (github.event_name != 'pull_request') && (github.event_name !=
+      'workflow_dispatch')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -546,7 +616,9 @@ jobs:
   publish_ecr_s3:
     needs: [build_ee_nsjail]
     runs-on: ubicloud-standard-2-arm
-    if: (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch')
+    if:
+      (github.event_name != 'pull_request') && (github.event_name !=
+      'workflow_dispatch')
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

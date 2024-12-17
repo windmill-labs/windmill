@@ -13,6 +13,10 @@ on:
       - "backend/**"
       - ".github/workflows/backend-test.yml"
 
+defaults:
+  run:
+    working-directory: ./backend
+
 jobs:
   cargo_test:
     runs-on: ubicloud-standard-8
@@ -34,11 +38,8 @@ jobs:
         with:
           toolchain: 1.80.0
       - uses: ubicloud/rust-cache@v2
-        with:
-          workspaces: backend
       - name: cargo test
         timeout-minutes: 15
-        working-directory: backend
         run:
           /usr/bin/deno --version && /usr/bin/bun -v && go version &&
           /usr/local/bin/python3 --version && mkdir ../frontend/build && touch
