@@ -525,10 +525,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-      - uses: depot/setup-action@v1
+      # - uses: depot/setup-action@v1
 
       - name: Docker meta
         id: meta-ee-public
@@ -553,7 +553,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
