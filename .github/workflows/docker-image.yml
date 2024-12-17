@@ -5,7 +5,7 @@ env:
     'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
   DEV_SHA:
     ${{ github.event_name != 'pull_request' && github.event_name !=
-    'workflow_dispatch' && 'dev' || github.event.inputs.tag }}
+    'workflow_dispatch' && 'dev' || github.event.inputs.tag || 'test' }}
 
 name: Build windmill:main
 on:
@@ -36,7 +36,7 @@ permissions: write-all
 
 jobs:
   build:
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
     if: (github.event_name != 'workflow_dispatch') || (inputs.ee == false)
     steps:
       - uses: actions/checkout@v4
@@ -99,7 +99,7 @@ jobs:
           cache-to: type=gha
 
   build_arm:
-    runs-on: ubicloud-standard-16-arm
+    runs-on: ubicloud-standard-30-arm
     if: (github.event_name != 'workflow_dispatch') || (inputs.ee == false)
     steps:
       - uses: actions/checkout@v4

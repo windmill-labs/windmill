@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
     services:
       postgres:
         image: postgres
