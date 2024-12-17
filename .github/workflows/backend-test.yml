@@ -39,7 +39,7 @@ jobs:
           toolchain: 1.80.0
       - uses: ubicloud/rust-cache@v2
         with:
-          workspaces: backend -> backend/target
+          workspaces: backend
       - name: cargo test
         timeout-minutes: 15
         run:
