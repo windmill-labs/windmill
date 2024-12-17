@@ -1324,7 +1324,7 @@ async fn execute_component(
                 let cache = cache::anon!({ u64 => Arc<Policy> } in "policy" <= 1000);
                 arc_policy = policy_fut
                     .map_ok(sqlx::types::Json) // cache as json.
-                    .cached(cache, &(id as u64), |sqlx::types::Json(x)| Arc::new(x))
+                    .cached(cache, id as u64, |sqlx::types::Json(x)| Arc::new(x))
                     .await?;
                 &*arc_policy
             } else {
@@ -1353,7 +1353,7 @@ async fn execute_component(
                     .fetch_one(&db)
                     .map_err(Into::<Error>::into)
                     .map_ok(sqlx::types::Json) // cache as json.
-                    .cached(cache, &(*id as u64), |sqlx::types::Json(x)| Arc::new(x))
+                    .cached(cache, *id as u64, |sqlx::types::Json(x)| Arc::new(x))
                     .await?
                 }
                 _ => unreachable!(),
