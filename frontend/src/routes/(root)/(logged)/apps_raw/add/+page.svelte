@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { versionRangeToVersion } from '$lib/ata'
 	import Editor from '$lib/components/Editor.svelte'
 	import {
 		loadSandpackClient,
@@ -10,7 +11,11 @@
 
 	let iframe: HTMLIFrameElement | undefined = undefined
 
-	let code: string = `import React from 'react';
+	let activeFile = '/index.tsx'
+
+	let files: Record<string, { code: string }> = {
+		'/index.tsx': {
+			code: `import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 const App = () => {
@@ -20,21 +25,22 @@ const App = () => {
 
 const root = createRoot(document.getElementById('root')!);
 root.render(<App />);`
-
-	function buildFiles(code: string) {
-		return {
-			'/index.tsx': {
-				code
-			},
-			'/index.css': {
-				code: `
+		},
+		'/index.css': {
+			code: `
 body: {
 	background: blue;
 }`
+		},
+		'/package.json': {
+			code: `{
+			"dependencies": {
+				"react": "^18",
+				"react-dom": "^18"
 			}
+		}`
 		}
 	}
-	let files = buildFiles(code)
 
 	let client: SandpackClient | undefined = undefined
 	let bundlerState: BundlerState | undefined = undefined
@@ -46,13 +52,12 @@ body: {
 					files,
 					entry: '/index.tsx',
 					dependencies: {
-						uuid: 'latest',
 						react: '^18',
 						'react-dom': '^18'
 					}
 				},
 				{
-					bundlerURL: 'http://localhost:3001/',
+					// bundlerURL: 'http://localhost:3001/',
 					showOpenInCodeSandbox: false
 				}
 			)
@@ -73,17 +78,79 @@ body: {
 		}
 		// code here
 	})
+
+	function getLangOfExt(path: string) {
+		if (path.endsWith('.tsx')) return 'typescript'
+		if (path.endsWith('.ts')) return 'typescript'
+		if (path.endsWith('.js')) return 'javascript'
+		if (path.endsWith('.jsx')) return 'typescript'
+		if (path.endsWith('.css')) return 'css'
+		if (path.endsWith('.json')) return 'json'
+		return 'text'
+	}
+
+	function onPackageJsonChange() {
+		let pkg = JSON.parse(files['/package.json'].code)
+		let dependencies: Record<string, string> =
+			typeof pkg.dependencies == 'object' ? pkg?.dependencies : {}
+		client?.updateSandbox({
+			files,
+			dependencies
+		})
+		const ataDeps = Object.entries(dependencies).map(([name, version]) => ({
+			raw: name,
+			module: name,
+			version: versionRangeToVersion(version)
+		}))
+		editor?.fetchPackageDeps(ataDeps)
+		console.log(ataDeps)
+	}
+
+	function onContentChange() {
+		if (activeFile == '/package.json') {
+			onPackageJsonChange()
+			return
+		}
+		client?.updateSandbox({
+			files
+		})
+	}
+
+	function onActiveFileChange() {
+		editor?.setCode(files[activeFile].code)
+		editor?.focus()
+	}
+
+	$: activeFile && onActiveFileChange()
 </script>
+
+<button
+	on:click={() => {
+		activeFile = '/index.css'
+	}}>CSS</button
+>
+<button
+	on:click={() => {
+		activeFile = '/index.tsx'
+	}}>TSX</button
+>
+<button
+	on:click={() => {
+		activeFile = '/package.json'
+	}}>PACKAGE</button
+>
 
 <div class="w-full grid grid-cols-2">
 	<Editor
-		lang="typescript"
+		lang={getLangOfExt(activeFile)}
 		scriptLang="tsx"
 		bind:this={editor}
-		bind:code
+		bind:code={files[activeFile].code}
+		on:ataReady={() => {
+			onPackageJsonChange()
+		}}
 		on:change={() => {
-			files = buildFiles(code)
-			client?.updateSandbox({ files })
+			onContentChange()
 		}}
 	/>
 	<iframe class="min-h-screen w-full" bind:this={iframe} />

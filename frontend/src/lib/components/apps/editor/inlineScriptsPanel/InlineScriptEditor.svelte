@@ -308,7 +308,6 @@
 						bind:this={editor}
 						small
 						class="flex flex-1 grow h-full"
-						lang={scriptLangToEditorLang(inlineScript?.language)}
 						scriptLang={inlineScript.language}
 						bind:code={inlineScript.content}
 						fixedOverflowWidgets={true}

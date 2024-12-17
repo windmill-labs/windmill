@@ -312,7 +312,6 @@
 										bind:this={editor}
 										class="h-full relative"
 										bind:code={flowModule.value.content}
-										lang={scriptLangToEditorLang(flowModule.value.language)}
 										scriptLang={flowModule.value.language}
 										automaticLayout={true}
 										cmdEnterAction={async () => {

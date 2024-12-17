@@ -169,32 +169,19 @@
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
-	import { setupTypeAcquisition } from '$lib/ata/index'
+	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 	import type { AiProviderTypes } from './copilot/lib'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor | null = null
 
-	export let lang:
-		| 'typescript'
-		| 'python'
-		| 'go'
-		| 'shell'
-		| 'sql'
-		| 'graphql'
-		| 'powershell'
-		| 'php'
-		| 'css'
-		| 'javascript'
-		| 'rust'
-		| 'yaml'
-		| 'csharp'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -215,20 +202,17 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
 	export let small = false
-	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx'
+	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'json'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
 
-	const rHash = randomHash()
+	let lang = scriptLangToEditorLang(scriptLang)
+	$: lang = scriptLangToEditorLang(scriptLang)
+
+	let filePath = computePath(path)
 	$: filePath = computePath(path)
 
-	function computePath(path: string | undefined): string {
-		if (path == '' || path == undefined || path.startsWith('/')) {
-			return rHash
-		} else {
-			return path as string
-		}
-	}
+	let models: Record<string, meditor.ITextModel> = {}
 
 	let initialPath: string | undefined = path
 
@@ -248,15 +232,34 @@
 	let dbSchema: DBSchema | undefined = undefined
 
 	let destroyed = false
-	const uri =
-		lang != 'go' && lang != 'typescript' && lang != 'python'
-			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
-			: `file:///tmp/monaco/${randomHash()}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+	const uri = !['deno', 'go', 'python3'].includes(scriptLang ?? '')
+		? `file:///${filePath}.${langToExt(lang)}`
+		: `file:///tmp/monaco/${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
 
 	console.log('uri', uri)
 
 	buildWorkerDefinition()
 
+	function computePath(path: string | undefined): string {
+		if (path == '' || path == undefined || path.startsWith('/')) {
+			return randomHash()
+		} else {
+			return path as string
+		}
+	}
+
+	export function switchToFile(path: string, value: string, lang: string) {
+		if (editor) {
+			const uri = mUri.parse(path)
+			if (models[path]) {
+				editor.setModel(models[path])
+			} else {
+				meditor.createModel(code, lang)
+				models[path] = editor.getModel()!
+			}
+			editor.setModel(meditor.createModel(code, lang, uri))
+		}
+	}
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
 	}
@@ -1095,7 +1098,7 @@
 	}
 
 	let initialized = false
-	let ata: ((s: string) => void) | undefined = undefined
+	let ata: ((s: string | DepsToGet) => void) | undefined = undefined
 
 	let statusDiv: Element | null = null
 
@@ -1168,7 +1171,9 @@
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
-				ata?.(getCode())
+				if (scriptLang == 'bun') {
+					ata?.(getCode())
+				}
 			}, 1000)
 		})
 
@@ -1225,24 +1230,12 @@
 		}
 	}
 
-	export async function setPackageJson(libs: { name: string; version: string }) {
-		languages.typescript.typescriptDefaults.setExtraLibs(libs)
-		libs.forEach(async (lib) => {
-			console.log('adding library to runtime', lib.filePath)
-
-			if (lib.filePath) {
-				try {
-					const uri = mUri.parse(lib.filePath)
-					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
-				} catch (e) {
-					console.log('error writing file', e)
-				}
-			}
-		})
+	export async function fetchPackageDeps(deps: DepsToGet) {
+		ata?.(deps)
 	}
 
 	async function setTypescriptExtraLibsATA() {
-		if (lang === 'typescript' && scriptLang == 'bun' && ata == undefined) {
+		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1307,8 +1300,9 @@
 			})
 			if (scriptLang == 'bun') {
 				ata?.('import "bun-types"')
+				ata?.(code)
 			}
-			ata?.(code)
+			dispatch('ataReady')
 		}
 	}
 
