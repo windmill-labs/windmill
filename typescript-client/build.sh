@@ -27,9 +27,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i '' "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 else
-  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' "${script_dirpath}/src/core/OpenAPI.ts"
-  sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' "${script_dirpath}/src/core/OpenAPI.ts"
-  sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" "${script_dirpath}/src/core/OpenAPI.ts"
+  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
+  sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
+  sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 fi
 
 

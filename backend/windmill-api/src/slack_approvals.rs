@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use axum::{
     extract::{Form, Json, Path, Query},
     Extension,
@@ -8,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
+use std::str::FromStr;
 use windmill_common::error::{self, Error};
 
 use regex::Regex;
@@ -54,142 +54,104 @@ struct SelectedOption {
     value: String,
 }
 
-pub async fn slack_app_callback_handler(
-    authed: Option<ApiAuthed>,
-    Extension(db): Extension<DB>,
-    Form(form_data): Form<SlackFormData>,
-) -> error::Result<StatusCode> {
-    tracing::debug!("Form data: {:?}", form_data);
-    let payload: Payload = serde_json::from_str(&form_data.payload)?;
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ResumeSchema {
+    pub schema: Schema,
+}
 
-    let action_value = payload.actions[0].value.clone();
-    let response_url = payload.response_url;
+#[derive(Debug, Deserialize)]
+pub struct ResumeFormRow {
+    pub resume_form: Option<serde_json::Value>,
+    pub hide_cancel: Option<bool>,
+}
 
-    let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>resume|cancel)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[a-fA-F0-9]+)(?:\?approver=(?P<approver>[^&]+))?").unwrap();
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Schema {
+    pub order: Vec<String>,
+    pub required: Vec<String>,
+    pub properties: HashMap<String, ResumeFormField>,
+}
 
-    if let Some(captures) = re.captures(&action_value) {
-        let w_id = captures.name("w_id").map_or("", |m| m.as_str());
-        let action = captures.name("action").map_or("", |m| m.as_str());
-        let job_id = captures.name("job_id").map_or("", |m| m.as_str());
-        let resume_id = captures.name("resume_id").map_or("", |m| m.as_str());
-        let secret = captures.name("secret").map_or("", |m| m.as_str());
-        let approver =
-            QueryApprover { approver: captures.name("approver").map(|m| m.as_str().to_string()) };
-
-        tracing::debug!("Request: {:?}", &form_data.payload.clone());
-
-        let state_values: HashMap<String, serde_json::Value> = payload
-            .state
-            .values
-            .iter()
-            .flat_map(|(_, inputs)| {
-                inputs.iter().filter_map(|(action_id, input)| {
-                    if action_id.ends_with("_date") {
-                        let base_key = action_id.strip_suffix("_date").unwrap();
-                        let time_key = format!("{}_time", base_key);
-
-                        // Check for Datepicker and Timepicker inputs specifically
-                        if let ValueInput::Datepicker { selected_date: Some(date) } = input {
-                            let matching_time = payload
-                                .state
-                                .values
-                                .values()
-                                .flat_map(|inputs| {
-                                    inputs.get(&time_key).and_then(|time_input| {
-                                        if let ValueInput::Timepicker {
-                                            selected_time: Some(time),
-                                        } = time_input
-                                        {
-                                            Some(time)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                })
-                                .next();
-
-                            if let Some(time) = matching_time {
-                                return Some((
-                                    base_key.to_string(),
-                                    serde_json::json!(format!("{}T{}:00.000Z", date, time)),
-                                ));
-                            }
-                        }
-                    }
-
-                    // Process non-datetime inputs, including plain text or other types with `_date`
-                    match input {
-                        ValueInput::PlainTextInput { value } => value
-                            .as_ref()
-                            .map(|v| (action_id.clone(), v.clone().into())),
-                        ValueInput::StaticSelect { selected_option } => selected_option
-                            .as_ref()
-                            .map(|so| (action_id.clone(), serde_json::json!(so.value))),
-                        ValueInput::RadioButtons { selected_option } => selected_option
-                            .as_ref()
-                            .map(|so| (action_id.clone(), serde_json::json!(so.value))),
-                        ValueInput::Checkboxes { selected_options } => {
-                            selected_options.as_ref().map(|so| {
-                                (
-                                    action_id.clone(),
-                                    serde_json::json!(so
-                                        .iter()
-                                        .map(|option| option.value.clone())
-                                        .collect::<Vec<_>>()),
-                                )
-                            })
-                        }
-                        _ => None,
-                    }
-                })
-            })
-            .collect();
-
-        let state_json =
-            serde_json::to_value(state_values).unwrap_or_else(|_| serde_json::json!({}));
-
-        tracing::debug!("W ID: {}", w_id);
-        tracing::debug!("Action: {}", action);
-        tracing::debug!("Job ID: {}", job_id);
-        tracing::debug!("Resume ID: {}", resume_id);
-        tracing::debug!("Secret: {}", secret);
-        tracing::debug!("Approver: {:?}", approver.approver);
-        tracing::debug!("State JSON: {:?}", state_json);
-
-        let res = resume_suspended_job(
-            authed,
-            Extension(db),
-            Path((
-                w_id.to_string(),
-                Uuid::from_str(job_id).unwrap_or_default(),
-                resume_id.parse::<u32>().unwrap_or_default(),
-                secret.to_string(),
-            )),
-            Query(approver),
-            QueryOrBody(Some(state_json)),
-        )
-        .await;
-
-        tracing::debug!("Res: {:?}", res);
-
-        if let Some(url) = response_url {
-            let message = if action == "resume" {
-                "\n\n*Workflow has been resumed!*"
-            } else {
-                "\n\n*Workflow has been canceled!*"
-            };
-            let _ = post_slack_response(&url, message).await;
-        }
-    } else {
-        tracing::error!("Resume URL does not match the pattern.");
-    }
-
-    Ok(StatusCode::OK)
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ResumeFormField {
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub format: Option<String>,
+    pub default: Option<serde_json::Value>,
+    pub description: Option<String>,
+    pub title: Option<String>,
+    #[serde(rename = "enum")]
+    pub r#enum: Option<Vec<String>>,
+    #[serde(rename = "enumLabels")]
+    pub enum_labels: Option<HashMap<String, String>>,
 }
 
 #[derive(Deserialize)]
 pub struct QueryMessage {
     pub message: Option<String>,
+}
+
+pub async fn slack_app_callback_handler(
+    authed: Option<ApiAuthed>,
+    Extension(db): Extension<DB>,
+    Form(form_data): Form<SlackFormData>,
+) -> error::Result<StatusCode> {
+    tracing::debug!("Form data: {:#?}", form_data);
+    let payload: Payload = serde_json::from_str(&form_data.payload)?;
+
+    let action_value = payload.actions[0].value.clone();
+    let response_url = payload.response_url.clone();
+
+    let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>resume|cancel)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[a-fA-F0-9]+)(?:\?approver=(?P<approver>[^&]+))?").unwrap();
+
+    let captures = re.captures(&action_value).ok_or_else(|| {
+        tracing::error!("Resume URL does not match the pattern.");
+        Error::BadRequest("Invalid URL format.".to_string())
+    })?;
+
+    let (w_id, action, job_id, resume_id, secret, approver) = (
+        captures.name("w_id").map_or("", |m| m.as_str()),
+        captures.name("action").map_or("", |m| m.as_str()),
+        captures.name("job_id").map_or("", |m| m.as_str()),
+        captures.name("resume_id").map_or("", |m| m.as_str()),
+        captures.name("secret").map_or("", |m| m.as_str()),
+        captures.name("approver").map(|m| m.as_str().to_string()),
+    );
+
+    let approver = QueryApprover { approver: approver };
+
+    let state_values = parse_state_values(&payload);
+    let state_json = serde_json::to_value(state_values).unwrap_or_else(|_| serde_json::json!({}));
+
+    tracing::debug!("W ID: {}, Action: {}, Job ID: {}, Resume ID: {}, Secret: {}, Approver: {:?}, State JSON: {:?}", 
+        w_id, action, job_id, resume_id, secret, approver.approver, state_json);
+
+    let res = resume_suspended_job(
+        authed,
+        Extension(db),
+        Path((
+            w_id.to_string(),
+            Uuid::from_str(job_id).unwrap_or_default(),
+            resume_id.parse::<u32>().unwrap_or_default(),
+            secret.to_string(),
+        )),
+        Query(approver),
+        QueryOrBody(Some(state_json)),
+    )
+    .await;
+
+    tracing::debug!("resume_suspended_job: {:#?}", res);
+
+    if let Some(url) = response_url {
+        let message = if action == "resume" {
+            "\n\n*Workflow has been resumed!*"
+        } else {
+            "\n\n*Workflow has been canceled!*"
+        };
+        let _ = post_slack_response(&url, message).await;
+    }
+
+    Ok(StatusCode::OK)
 }
 
 pub async fn request_slack_approval(
@@ -226,7 +188,7 @@ pub async fn request_slack_approval(
     .fetch_optional(&db)
     .await?;
 
-    tracing::debug!("schema: {:?}", schema);
+    tracing::debug!("Approval form schema: {:#?}", schema);
     tracing::debug!("job_id: {:?}", job_id);
 
     let message_str = message
@@ -280,9 +242,11 @@ pub async fn request_slack_approval(
         let properties_value = inner_schema.get("properties").ok_or_else(|| {
             Error::BadRequest("Schema does not contain properties field!".to_string())
         })?;
+
         let properties: HashMap<String, ResumeFormField> =
             serde_json::from_value(properties_value.clone()).map_err(|e| {
                 tracing::error!("Deserialization failed: {:?}", e);
+                tracing::error!("Properties value: {:?}", properties_value);
                 Error::BadRequest("Failed to deserialize properties!".to_string())
             })?;
 
@@ -295,6 +259,8 @@ pub async fn request_slack_approval(
             hide_cancel,
         )
         .await?;
+
+        tracing::debug!("Slack Blocks: {:#?}", blocks);
         Ok(Json(blocks))
     } else {
         Err(Error::BadRequest(
@@ -342,38 +308,6 @@ async fn post_slack_response(
     Ok(())
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ResumeSchema {
-    pub schema: Schema,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ResumeFormRow {
-    pub resume_form: Option<serde_json::Value>,
-    pub hide_cancel: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Schema {
-    pub order: Vec<String>,
-    pub required: Vec<String>,
-    pub properties: HashMap<String, ResumeFormField>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ResumeFormField {
-    #[serde(rename = "type")]
-    pub r#type: String,
-    pub format: Option<String>,
-    pub default: Option<String>,
-    pub description: Option<String>,
-    pub title: Option<String>,
-    #[serde(rename = "enum")]
-    pub r#enum: Option<Vec<String>>,
-    #[serde(rename = "enumLabels")]
-    pub enum_labels: Option<HashMap<String, String>>,
-}
-
 async fn transform_schemas(
     text: &str,
     properties: Option<&HashMap<String, ResumeFormField>>,
@@ -382,7 +316,7 @@ async fn transform_schemas(
     required: Option<&Vec<String>>,
     hide_cancel: bool,
 ) -> Result<serde_json::Value, Error> {
-    tracing::debug!("{:?}", urls);
+    tracing::debug!("Resume urls: {:#?}", urls);
 
     let mut blocks = vec![serde_json::json!({
         "type": "section",
@@ -397,8 +331,6 @@ async fn transform_schemas(
             if let Some(schema) = properties.get(key) {
                 let is_required = required.unwrap().contains(key);
                 let input_block = create_input_block(key, schema, is_required);
-                tracing::debug!("Key: {:?}", key);
-                tracing::debug!("Required: {:?}", required);
                 match input_block {
                     serde_json::Value::Array(arr) => blocks.extend(arr),
                     _ => blocks.push(input_block),
@@ -419,6 +351,58 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
         .filter(|desc| !desc.is_empty())
         .unwrap_or("Select an option");
 
+    let title = schema.title.as_deref().unwrap_or(key);
+    let title_with_required = if required {
+        format!("{} (required)", title)
+    } else {
+        title.to_string()
+    };
+
+    // Handle boolean type
+    if schema.r#type == "boolean" {
+        let initial_value = schema
+            .default
+            .as_ref()
+            .and_then(|default| default.as_bool())
+            .unwrap_or(false);
+
+        let mut element = serde_json::json!({
+            "type": "checkboxes",
+            "options": [{
+                "text": {
+                    "type": "plain_text",
+                    "text": title_with_required,
+                    "emoji": true
+                },
+                "value": "true"
+            }],
+            "action_id": key
+        });
+
+        if initial_value {
+            element["initial_options"] = serde_json::json!([
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": title_with_required,
+                        "emoji": true
+                    },
+                    "value": "true"
+                }
+            ]);
+        }
+
+        return serde_json::json!({
+            "type": "input",
+            "element": element,
+            "label": {
+                "type": "plain_text",
+                "text": title_with_required,
+                "emoji": true
+            }
+        });
+    }
+
     // Handle date-time format
     if schema.r#type == "string" && schema.format.as_deref() == Some("date-time") {
         let now = chrono::Local::now();
@@ -426,7 +410,8 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
         let current_time = now.format("%H:%M").to_string();
 
         let (default_date, default_time) = if let Some(default) = &schema.default {
-            if let Ok(parsed_date) = chrono::DateTime::parse_from_rfc3339(default) {
+            if let Ok(parsed_date) = chrono::DateTime::parse_from_rfc3339(default.as_str().unwrap())
+            {
                 (
                     parsed_date.format("%Y-%m-%d").to_string(),
                     parsed_date.format("%H:%M").to_string(),
@@ -436,13 +421,6 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
             }
         } else {
             (current_date.clone(), current_time.clone())
-        };
-
-        let title = schema.title.as_deref().unwrap_or(key);
-        let title_with_required = if required {
-            format!("{}*", title)
-        } else {
-            title.to_string()
         };
 
         return serde_json::json!([
@@ -536,22 +514,55 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
             "element": element,
             "label": {
                 "type": "plain_text",
-                "text": schema.title.as_deref().unwrap_or(key),
+                "text": title_with_required,
+                "emoji": true
+            }
+        })
+    } else if schema.r#type == "number" || schema.r#type == "integer" {
+        // Handle number and integer types
+        let initial_value = schema
+            .default
+            .as_ref()
+            .and_then(|default| default.as_f64())
+            .unwrap_or(0.0);
+
+        let action_id_suffix = if schema.r#type == "number" {
+            "_type_number"
+        } else {
+            "_type_integer"
+        };
+
+        serde_json::json!({
+            "type": "input",
+            "element": {
+                "type": "plain_text_input",
+                "action_id": format!("{}{}", key, action_id_suffix),
+                "initial_value": initial_value.to_string()
+            },
+            "label": {
+                "type": "plain_text",
+                "text": title_with_required,
                 "emoji": true
             }
         })
     } else {
-        // Handle other types
+        // Handle other types as string
+        let initial_value = schema
+            .default
+            .as_ref()
+            .and_then(|default| default.as_str())
+            .unwrap_or("");
+
         serde_json::json!({
             "type": "input",
             "element": {
                 "type": "plain_text_input",
                 "action_id": key,
-                "initial_value": schema.default.as_deref().unwrap_or("")
+                "initial_value": initial_value
             },
             "label": {
                 "type": "plain_text",
-                "text": schema.title.as_deref().unwrap_or(key),
+                "text": title_with_required,
                 "emoji": true
             }
         })
@@ -587,4 +598,108 @@ fn create_action_buttons(urls: &ResumeUrls, hide_cancel: bool) -> serde_json::Va
         "type": "actions",
         "elements": elements
     })
+}
+
+fn parse_state_values(payload: &Payload) -> HashMap<String, serde_json::Value> {
+    payload
+        .state
+        .values
+        .iter()
+        .flat_map(|(_, inputs)| {
+            inputs.iter().filter_map(|(action_id, input)| {
+                if action_id.ends_with("_date") {
+                    process_datetime_inputs(action_id, input, &payload)
+                } else {
+                    process_non_datetime_inputs(action_id, input)
+                }
+            })
+        })
+        .collect()
+}
+
+fn process_datetime_inputs(
+    action_id: &str,
+    input: &ValueInput,
+    payload: &Payload,
+) -> Option<(String, serde_json::Value)> {
+    let base_key = action_id.strip_suffix("_date").unwrap();
+    let time_key = format!("{}_time", base_key);
+
+    if let ValueInput::Datepicker { selected_date: Some(date) } = input {
+        let matching_time = payload
+            .state
+            .values
+            .values()
+            .flat_map(|inputs| inputs.get(&time_key))
+            .find_map(|time_input| match time_input {
+                ValueInput::Timepicker { selected_time: Some(time) } => Some(time),
+                _ => None,
+            });
+
+        return matching_time.map(|time| {
+            (
+                base_key.to_string(),
+                serde_json::json!(format!("{}T{}:00.000Z", date, time)),
+            )
+        });
+    }
+    None
+}
+
+fn process_non_datetime_inputs(
+    action_id: &str,
+    input: &ValueInput,
+) -> Option<(String, serde_json::Value)> {
+    match input {
+        // Handle number and integer types first
+        ValueInput::PlainTextInput { value }
+            if action_id.ends_with("_type_number") || action_id.ends_with("_type_integer") =>
+        {
+            let base_action_id = action_id
+                .trim_end_matches("_type_number")
+                .trim_end_matches("_type_integer");
+            value
+                .as_ref()
+                .and_then(|v| {
+                    v.as_str().and_then(|s| s.parse::<f64>().ok()).map(|num| {
+                        if action_id.ends_with("_type_integer") {
+                            (
+                                base_action_id.to_string(),
+                                serde_json::json!(num.floor() as i64),
+                            )
+                        } else {
+                            (base_action_id.to_string(), serde_json::json!(num))
+                        }
+                    })
+                })
+                .or_else(|| {
+                    tracing::error!("Failed to parse value to number: {:?}", value);
+                    None
+                })
+        }
+
+        // Plain text input: Extracts the text value
+        ValueInput::PlainTextInput { value } => value
+            .as_ref()
+            .map(|v| (action_id.to_string(), v.clone().into())),
+
+        // Static select: Extracts the selected option's value
+        ValueInput::StaticSelect { selected_option } => selected_option
+            .as_ref()
+            .map(|so| (action_id.to_string(), serde_json::json!(so.value))),
+
+        // Radio buttons: Extracts the selected option's value
+        ValueInput::RadioButtons { selected_option } => selected_option
+            .as_ref()
+            .map(|so| (action_id.to_string(), serde_json::json!(so.value))),
+
+        // Checkboxes: Convert single "true/false" string to boolean true/false
+        ValueInput::Checkboxes { selected_options } => selected_options.as_ref().map(|options| {
+            let is_true = options.iter().any(|opt| opt.value == "true");
+            (action_id.to_string(), serde_json::json!(is_true))
+        }),
+
+        // Default case: Unsupported types return `None`
+        _ => None,
+    }
 }
