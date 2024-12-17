@@ -209,10 +209,10 @@ jobs:
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
@@ -225,6 +225,69 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha
 
+  build_ee_arm:
+    runs-on: ubicloud
+    if: (github.event_name != 'workflow_dispatch') || (inputs.ee == true)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      # - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Substitute EE code
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - name: Build and push publicly ee
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
+          cache-from: type=gha
+          cache-to: type=gha
   build_ee_312:
     runs-on: ubicloud
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -245,9 +308,9 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
-      - uses: depot/setup-action@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      # - uses: depot/setup-action@v1
 
       - name: Docker meta
         id: meta-ee-public-py312
@@ -273,10 +336,10 @@ jobs:
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64
+          # platforms: linux/amd64
           push: true
           build-args: |
             features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
@@ -286,6 +349,8 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public-py312.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
+          cache-from: type=gha
+          cache-to: type=gha
 
   # disabled until we make it 100% reliable and add more meaningful tests
   # playwright:
@@ -409,7 +474,7 @@ jobs:
   #           ${{ steps.extract-ee.outputs.destination }}/*
 
   run_integration_test:
-    runs-on: ubicloud
+    runs-on: ubicloud-standard-8
     needs: [build_ee]
     steps:
       - uses: actions/checkout@v4
@@ -558,7 +623,58 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # platforms: linux/amd64,linux/arm64
+          push: true
+          file: "./docker/DockerfileNsjail"
+          tags: |
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+  build_ee_nsjail_arm:
+    needs: [build_ee_arm]
+    runs-on: ubicloud
+    if:
+      (github.event_name != 'pull_request') && (github.event_name !=
+      'workflow_dispatch')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      # - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push publicly ee
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileNsjail"
           tags: |
@@ -575,10 +691,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-      - uses: depot/setup-action@v1
+      # - uses: depot/setup-action@v1
 
       - name: Login to registry
         uses: docker/login-action@v3
@@ -599,10 +715,54 @@ jobs:
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short
 
       - name: Build and push publicly ee reports
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # platforms: linux/amd64,linux/arm64
+          push: true
+          file: "./docker/DockerfileReports"
+          tags: |
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+  build_ee_reports_privately_arm:
+    needs: [build_ee_nsjail_arm]
+    runs-on: ubicloud
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      # - uses: depot/setup-action@v1
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
+
+      - name: Build and push publicly ee reports
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileReports"
           tags: |
@@ -612,7 +772,7 @@ jobs:
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
   publish_ecr_s3:
-    needs: [build_ee_nsjail]
+    needs: [build_ee_nsjail_arm]
     runs-on: ubicloud-standard-2-arm
     if:
       (github.event_name != 'pull_request') && (github.event_name !=
@@ -733,10 +893,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          # platforms: linux/amd64
           push: true
           file: "./docker/DockerfileSlim"
           tags: |
@@ -779,7 +939,7 @@ jobs:
         uses: docker/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64
+          # platforms: linux/amd64
           push: true
           file: "./docker/DockerfileSlimEe"
           tags: |
@@ -823,7 +983,50 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # platforms: linux/amd64,linux/arm64
+          push: true
+          file: "./docker/DockerfileFull"
+          tags: |
+            ${{ steps.meta-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-public.outputs.labels }}
+
+  build_full_arm:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: [build_arm]
+    runs-on: ubicloud
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      # - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta-public
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-full
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push publicly
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileFull"
           tags: |
@@ -861,10 +1064,52 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # platforms: linux/amd64,linux/arm64
+          push: true
+          file: "./docker/DockerfileFullEe"
+          tags: |
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+  build_ee_full_arm:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: [build_ee_arm]
+    runs-on: ubicloud
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-full
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push publicly ee
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileFullEe"
           tags: |
