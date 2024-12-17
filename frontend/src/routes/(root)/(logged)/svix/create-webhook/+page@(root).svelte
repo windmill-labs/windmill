@@ -127,9 +127,9 @@
 			</div>
 			<h2>Create a token for this webhook</h2>
 			<Tooltip customSize="150%">
-				If you generate a token, it will have a scope such that it can only be used to trigger this {itemKind}.
-				It is safe to share as it cannot be used to impersonate you. Otherwise you may enter another
-				token but beware that it will be shared with the external application.
+				By generating a webhook specific token, you get a token that can only be used to trigger
+				this {itemKind}, making it safe to share without risk of impersonation. You can also opt to
+				use another token by entering it in the input field directly.
 			</Tooltip>
 		</div>
 		<div class="flex flex-row items-center justify-center">
