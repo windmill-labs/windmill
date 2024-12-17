@@ -35,15 +35,14 @@ jobs:
           toolchain: 1.80.0
       - uses: ubicloud/rust-cache@v2
         with:
-          workspaces: |
-            backend
-            backend -> target
+          workspaces: backend
       - name: cargo test
         timeout-minutes: 15
+        working-directory: backend
         run:
           /usr/bin/deno --version && /usr/bin/bun -v && go version &&
-          /usr/local/bin/python3 --version && mkdir frontend/build && cd backend
-          && touch windmill-api/openapi-deref.yaml &&
+          /usr/local/bin/python3 --version && mkdir frontend/build && touch
+          windmill-api/openapi-deref.yaml &&
           DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
           DISABLE_EMBEDDING=true RUST_LOG=info cargo test --features
           enterprise,deno_core,license,http_trigger,zip,oauth2,python,rust --all
