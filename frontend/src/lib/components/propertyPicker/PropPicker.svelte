@@ -94,8 +94,10 @@
 	let filteringFlowInputsOrResult = ''
 	async function filterPickableProperties() {
 		if (!$propPickerConfig || !filterActive) {
-			flowInputsFiltered = pickableProperties.flow_input
-			resultByIdFiltered = pickableProperties.priorIds
+			if (search === EMPTY_STRING) {
+				flowInputsFiltered = pickableProperties.flow_input
+				resultByIdFiltered = pickableProperties.priorIds
+			}
 			filteringFlowInputsOrResult = ''
 			return
 		}
@@ -189,7 +191,7 @@
 		await updateCollapsable()
 	}
 
-	$: search, $inputMatches, $propPickerConfig, updateState()
+	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
 </script>
 
 <div class="flex flex-col h-full rounded">

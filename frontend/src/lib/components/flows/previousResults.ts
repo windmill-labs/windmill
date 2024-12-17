@@ -74,12 +74,18 @@ function getFlowInput(
 	if (parentState && parentModule) {
 		if (
 			parentState.previewArgs &&
-			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1) &&
 			parentState &&
 			typeof parentState.previewArgs == 'object' &&
 			`iter` in parentState.previewArgs
 		) {
-			return { ...topFlowInput, ...parentState.previewArgs }
+			return {
+				iter: {
+					value: "Iteration's value",
+					index: "Iteration's index"
+				},
+				...topFlowInput,
+				...parentState.previewArgs
+			}
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 			if (parentModule.value.type === 'forloopflow') {

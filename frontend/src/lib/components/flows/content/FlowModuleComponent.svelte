@@ -57,7 +57,8 @@
 		pathStore,
 		saveDraft,
 		flowInputsStore,
-		customUi
+		customUi,
+		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -107,17 +108,18 @@
 
 	$: editor !== undefined && setCopilotModuleEditor()
 
-	$: stepPropPicker = failureModule
-		? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
-		: getStepPropPicker(
-				$flowStateStore,
-				parentModule,
-				previousModule,
-				flowModule.id,
-				$flowStore,
-				$previewArgs,
-				false
-		  )
+	$: stepPropPicker =
+		$executionCount != undefined && failureModule
+			? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
+			: getStepPropPicker(
+					$flowStateStore,
+					parentModule,
+					previousModule,
+					flowModule.id,
+					$flowStore,
+					$previewArgs,
+					false
+			  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
