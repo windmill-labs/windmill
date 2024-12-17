@@ -20,13 +20,13 @@ defaults:
 jobs:
   cargo_test:
     runs-on: ubicloud-standard-30
+    container: "ubuntu:latest"
     services:
       postgres:
         image: postgres
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
-
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
@@ -59,7 +59,7 @@ jobs:
         run:
           deno --version && bun -v && go version && python3 --version &&
           SQLX_OFFLINE=true
-          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
+          DATABASE_URL=postgres://localhost:changeme@postgres:5432/windmill
           DISABLE_EMBEDDING=true RUST_LOG=info PYTHON_PATH=$(which python)
           DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
           cargo test --features
