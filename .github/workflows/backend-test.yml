@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-30
     container:
       image: ghcr.io/windmill-labs/backend-tests
     services:
@@ -34,6 +34,9 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
