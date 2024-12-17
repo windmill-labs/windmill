@@ -1,10 +1,10 @@
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME:
-    ${{ github.event_name != 'pull_request' && github.repository ||
+    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && github.repository ||
     'windmill-labs/windmill-test' }}
   DEV_SHA:
-    ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}',
+    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || format('pr-{0}',
     github.event.number) }}
 
 name: Build windmill:main
@@ -16,6 +16,11 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "Dockerfile"
+  workflow_dispatch:
+    inputs:
+      ee:
+        description: 'Build EE image'
+        required: false
 
 concurrency:
   group: ${{ github.ref }}
@@ -26,10 +31,6 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud
-    if:
-      (github.event_name != 'issue_comment') ||
-      (contains(github.event.comment.body, '/buildimage_all') ||
-      contains(github.event.comment.body, '/buildimage_base'))
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,10 +93,7 @@ jobs:
   build_ee:
     runs-on: ubicloud
     if:
-      (github.event_name != 'issue_comment') ||
-      (contains(github.event.comment.body, '/buildimage_ee') ||
-      contains(github.event.comment.body, '/buildimage_nsjail')) ||
-      contains(github.event.comment.body, '/buildimage_all')
+      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -450,10 +448,7 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     if:
-      (github.event_name != 'issue_comment') || (github.event_name !=
-      'pull_request') || (contains(github.event.comment.body,
-      '/buildimage_nsjail') || contains(github.event.comment.body,
-      '/buildimage_all'))
+      (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -546,7 +541,7 @@ jobs:
   publish_ecr_s3:
     needs: [build_ee_nsjail]
     runs-on: ubicloud-standard-2-arm
-    if: github.event_name != 'pull_request'
+    if: (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch')
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
