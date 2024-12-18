@@ -20,8 +20,6 @@ use reqwest::Client;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
-#[cfg(feature = "benchmark")]
-use std::time::Instant;
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
