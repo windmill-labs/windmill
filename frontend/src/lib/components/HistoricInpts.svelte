@@ -1,26 +1,18 @@
 <script lang="ts">
 	import { InputService, type Input, type RunnableType, type Job } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores.js'
-	import type { Capture } from '$lib/gen'
-	import { CaptureService } from '$lib/gen'
 	import { sendUserToast } from '$lib/utils.js'
-	import { isObject } from '$lib/utils'
 	import JobSchemaPicker from '$lib/components/schema/JobSchemaPicker.svelte'
-	import SchemaPicker from '$lib/components/schema/SchemaPicker.svelte'
-
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import JobLoader from './runs/JobLoader.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import { _ } from 'ag-grid-community'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
 	export let isFlow = false
-	export let testKind: 'main' | 'preprocessor' = 'main'
-	export let hasPreprocessor = false
 
-	$: path = isFlow ? flowPath : scriptPath
-	$: console.log('dbg path', path)
+	const dispatch = createEventDispatcher()
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -76,18 +68,22 @@
 		}
 	}
 
-	let captures: Capture[] = []
-	async function refreshCaptures() {
-		console.log('dbg refreshCaptures', captures)
-		captures = await CaptureService.listCaptures({
-			workspace: $workspaceStore!,
-			runnableKind: isFlow ? 'flow' : 'script',
-			path: path ?? ''
-		})
+	function handleSelected(data: any) {
+		if (selected === data.jobId) {
+			selected = undefined
+			dispatch('select', undefined)
+			return
+		}
+		selected = data.jobId
+		dispatch('select', data.payloadData)
 	}
-	$: path && refreshCaptures()
 
-	$: console.log('dbg captures', captures)
+	let selected: string | undefined = undefined
+
+	onDestroy(() => {
+		selected = undefined
+		dispatch('select', undefined)
+	})
 </script>
 
 <JobLoader
@@ -110,8 +106,8 @@
 	perPage={5}
 />
 
-<div class="min-w-[300px] h-full">
-	<div class="w-full flex flex-col gap-4 p-2">
+<div class="h-full">
+	<div class="w-full flex flex-col gap-4">
 		<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 			{#if loading && (jobs == undefined || jobs?.length == 0)}
 				<div class="text-left text-tertiary text-xs">Loading current runs...</div>
@@ -132,42 +128,16 @@
 				<Skeleton layout={[[8]]} />
 			{:else if previousInputs?.length > 0}
 				{#each previousInputs as job (job.id)}
-					<JobSchemaPicker {job} {isFlow} on:updateSchema on:applyArgs />
+					<JobSchemaPicker
+						{job}
+						{isFlow}
+						selected={selected === job.id}
+						on:select={(e) => handleSelected(e.detail)}
+					/>
 				{/each}
 			{:else}
 				<div class="text-center text-tertiary">No previous Runs</div>
 			{/if}
-
-			<div class="flex flex-col gap-1 pt-2 grow overflow-y-auto">
-				{#if captures.length === 0}
-					<div class="text-xs text-secondary">No captures yet</div>
-				{:else}
-					{#each captures as capture}
-						{@const payload = isObject(capture.payload) ? capture.payload : {}}
-						{@const triggerExtra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}}
-						{@const payloadData =
-							testKind === 'preprocessor'
-								? {
-										...payload,
-										...triggerExtra
-								  }
-								: payload}
-						<SchemaPicker
-							date={capture.created_at}
-							{payloadData}
-							{testKind}
-							{isFlow}
-							canEdit={false}
-							deleteLoading={false}
-							{hasPreprocessor}
-							allowApplyArgs={false}
-							on:updateSchema
-							on:applyArgs
-							on:addPreprocessor
-						/>
-					{/each}
-				{/if}
-			</div>
 		</div>
 	</div>
 </div>

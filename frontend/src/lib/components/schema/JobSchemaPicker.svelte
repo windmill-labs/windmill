@@ -9,10 +9,9 @@
 
 	export let job: any
 	export let isFlow = false
-
+	export let selected = false
+	export let payloadData: any | undefined = undefined
 	const dispatch = createEventDispatcher()
-
-	let payloadData: any | undefined = undefined
 
 	loadLargeArgs(job.id, undefined, false)
 
@@ -49,8 +48,10 @@
 			on:applyArgs={async () => {
 				dispatch('selected_args', payloadData)
 			}}
+			on:select={() => dispatch('select', { jobId: job.id, payloadData })}
 			allowApplyArgs={false}
 			date={job.created_at}
+			{selected}
 		>
 			<svelte:fragment slot="start">
 				<div class="center-center">
