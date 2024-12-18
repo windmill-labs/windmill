@@ -393,14 +393,14 @@ async fn spawn_dedicated_workers_for_flow(
                     }
                 }
                 FlowModuleValue::FlowScript { id, language, .. } => {
-                    let spawn = cache::flow::fetch_script(db, *id)
-                        .await
-                        .map(|(lock, content)| SpawnWorker::RawScript {
+                    let spawn = cache::flow::fetch_script(db, *id).await.map(|data| {
+                        SpawnWorker::RawScript {
                             path: "".to_string(),
-                            content,
-                            lock,
-                            lang: language.clone(),
-                        });
+                            content: data.code.clone(),
+                            lock: data.lock.clone(),
+                            lang: *language,
+                        }
+                    });
                     match spawn {
                         Ok(spawn) => {
                             if let Some(dedi_w) = spawn_dedicated_worker(
@@ -675,12 +675,20 @@ async fn spawn_dedicated_worker(
                 token
             };
 
-            let worker_envs = build_envs(envs).expect("failed to build envs");
+            let worker_envs = build_envs(envs.as_ref()).expect("failed to build envs");
 
             if let Err(e) = match language {
                 Some(ScriptLang::Python3) => {
+                    #[cfg(not(feature = "python"))]
+                    {
+                        tracing::error!("Python requires the python feature to be enabled");
+                        killpill_tx.send(()).expect("send");
+                        return;
+                    }
+
+                    #[cfg(feature = "python")]
                     crate::python_executor::start_worker(
-                        lock,
+                        lock.as_ref(),
                         &db,
                         &content,
                         &base_internal_url,

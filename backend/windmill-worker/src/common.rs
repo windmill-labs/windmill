@@ -22,7 +22,7 @@ use windmill_common::worker::{
     to_raw_value, write_file, CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
 };
 use windmill_common::{
-    cache::Cache,
+    cache::{Cache, RawData},
     error::{self, Error},
     jobs::QueuedJob,
     scripts::ScriptHash,
@@ -31,7 +31,13 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::path::Path;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::Duration,
+};
+
 use uuid::Uuid;
 use windmill_common::{variables, DB};
 
@@ -51,6 +57,23 @@ pub async fn build_args_map<'a>(
         return transform_json(client, &job.workspace_id, &args.0, &job, db).await;
     }
     return Ok(None);
+}
+
+pub fn check_executor_binary_exists(
+    executor: &str,
+    executor_path: &str,
+    language: &str,
+) -> Result<(), Error> {
+    if !Path::new(executor_path).exists() {
+        #[cfg(feature = "enterprise")]
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run {language} jobs.", executor_path);
+
+        #[cfg(not(feature = "enterprise"))]
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run {language} jobs.", executor_path);
+        return Err(Error::NotFound(msg));
+    }
+
+    Ok(())
 }
 
 pub async fn build_args_values(
@@ -640,24 +663,24 @@ pub async fn cached_result_path(
     db: &DB,
     client: &AuthedClient,
     job: &QueuedJob,
-    raw_code: Option<&String>,
-    raw_lock: Option<&String>,
-    raw_flow: Option<&Json<Box<RawValue>>>,
+    raw_data: Option<&RawData>,
 ) -> String {
     let mut hasher = sha2::Sha256::new();
     hasher.update(&[job.job_kind as u8]);
     if let Some(ScriptHash(hash)) = job.script_hash {
         hasher.update(&hash.to_le_bytes())
-    } else if let None = job.script_hash {
+    } else {
         job.script_path
             .as_ref()
             .inspect(|x| hasher.update(x.as_bytes()));
-        raw_code.inspect(|x| hasher.update(x));
-        raw_lock.inspect(|x| hasher.update(x));
-        raw_flow.inspect(|x| hasher.update(x.get()));
+        match raw_data {
+            Some(RawData::Flow(data)) => hasher.update(data.raw_flow.get()),
+            Some(RawData::Script(data)) => hasher.update(&data.code),
+            _ => {}
+        }
     }
     hash_args(db, client, &job.workspace_id, &job.args, &mut hasher).await;
-    format!("g/results/{:032x}", hasher.finalize())
+    format!("g/results/{:064x}", hasher.finalize())
 }
 
 #[cfg(feature = "parquet")]

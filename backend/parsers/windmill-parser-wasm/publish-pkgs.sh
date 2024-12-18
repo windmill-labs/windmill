@@ -24,3 +24,6 @@ popd
 
 pushd "pkg-yaml" && npm publish ${args}
 popd
+
+pushd "pkg-csharp" && npm publish ${args}
+popd

@@ -16,6 +16,7 @@
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let justifyEnd: boolean = true
+	export let disabled = false
 
 	async function computeItems(): Promise<Item[]> {
 		if (typeof items === 'function') {
@@ -26,7 +27,7 @@
 	}
 </script>
 
-<Menu placement="bottom-end" {justifyEnd} on:close on:open>
+<Menu placement="bottom-end" {justifyEnd} on:close on:open {disabled}>
 	<div slot="trigger">
 		{#if $$slots.buttonReplacement}
 			<slot name="buttonReplacement" />

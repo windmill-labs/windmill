@@ -39,6 +39,8 @@ export function scriptLangToEditorLang(
 		return 'graphql'
 	} else if (lang == 'ansible') {
 		return 'yaml'
+	} else if (lang == 'csharp') {
+		return 'csharp'
 	} else if (lang == undefined) {
 		return 'typescript'
 	} else {
@@ -116,6 +118,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['php', 'PHP'],
 	['rust', 'Rust'],
 	['ansible', 'Ansible Playbook'],
+	['csharp', 'C#'],
 	['docker', 'Docker']
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -125,7 +128,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp']
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {
 				ls.push(lang)

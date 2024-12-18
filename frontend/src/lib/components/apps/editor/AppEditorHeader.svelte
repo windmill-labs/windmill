@@ -391,14 +391,16 @@
 					path,
 					summary: $summary,
 					policy,
-					deployment_message: deploymentMsg
+					deployment_message: deploymentMsg,
+					custom_path: customPath
 				}
 			})
 			savedApp = {
 				summary: $summary,
 				value: structuredClone($app),
 				path: path,
-				policy: policy
+				policy: policy,
+				custom_path: customPath
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
@@ -435,7 +437,8 @@
 							summary: $summary,
 							value: $app,
 							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy
+							policy,
+							custom_path: customPath
 						})
 					)
 			) {
@@ -482,7 +485,10 @@
 				policy,
 				path: npath,
 				deployment_message: deploymentMsg,
-				custom_path: $userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
+				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
+				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
+				custom_path:
+					$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined
 			}
 		})
 		savedApp = {
@@ -553,7 +559,8 @@
 					path: newEditedPath,
 					summary: $summary,
 					policy,
-					draft_only: true
+					draft_only: true,
+					custom_path: customPath
 				}
 			})
 			await DraftService.createDraft({
@@ -565,7 +572,8 @@
 						value: $app,
 						path: newEditedPath,
 						summary: $summary,
-						policy
+						policy,
+						custom_path: customPath
 					}
 				}
 			})
@@ -579,8 +587,10 @@
 					summary: $summary,
 					value: structuredClone($app),
 					path: newEditedPath,
-					policy
-				}
+					policy,
+					custom_path: customPath
+				},
+				custom_path: customPath
 			}
 
 			draftDrawerOpen = false
@@ -634,7 +644,8 @@
 						summary: $summary,
 						policy,
 						path: newEditedPath || path,
-						draft_only: true
+						draft_only: true,
+						custom_path: customPath
 					}
 				})
 			}
@@ -659,14 +670,16 @@
 							value: structuredClone($app),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
-							draft_only: true
+							draft_only: true,
+							custom_path: customPath
 					  }
 					: savedApp),
 				draft: {
 					summary: $summary,
 					value: structuredClone($app),
 					path: newEditedPath || path,
-					policy
+					policy,
+					custom_path: customPath
 				}
 			}
 
@@ -779,7 +792,7 @@
 
 	let moreItems = [
 		{
-			displayName: 'Deployment History',
+			displayName: 'Deployment history',
 			icon: History,
 			action: () => {
 				historyBrowserDrawerOpen = true
@@ -809,14 +822,14 @@
 			}
 		},
 		{
-			displayName: 'App Inputs',
+			displayName: 'App inputs',
 			icon: FormInput,
 			action: () => {
 				inputsDrawerOpen = true
 			}
 		},
 		{
-			displayName: 'Schedule Reports',
+			displayName: 'Schedule reports',
 			icon: FileClock,
 			action: () => {
 				appReportingDrawerOpen = true
@@ -843,7 +856,8 @@
 						summary: $summary,
 						value: $app,
 						path: newEditedPath || savedApp.draft?.path || savedApp.path,
-						policy
+						policy,
+						custom_path: customPath
 					}
 				})
 			},
@@ -932,7 +946,8 @@
 		summary: $summary,
 		value: $app,
 		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy
+		policy,
+		custom_path: customPath
 	}}
 	additionalExitAction={() => {
 		setTheme(priorDarkMode)
@@ -949,7 +964,8 @@
 		summary: $summary,
 		value: $app,
 		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy
+		policy,
+		custom_path: customPath
 	}}
 />
 
@@ -1084,7 +1100,8 @@
 							summary: $summary,
 							value: $app,
 							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy
+							policy,
+							custom_path: customPath
 						},
 						button: {
 							text: 'Looks good, deploy',

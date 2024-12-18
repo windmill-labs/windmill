@@ -504,7 +504,8 @@
 		initialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
-		insertButtonOpen: writable(false)
+		insertButtonOpen: writable(false),
+		executionCount: writable(0),
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
