@@ -7,8 +7,7 @@
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
-
-	export let dark = false
+	import CaptureIcon from './CaptureIcon.svelte'
 
 	let isOpen = false
 
@@ -25,13 +24,8 @@
 
 <Popover closeButton={false} bind:open={isOpen}>
 	<svelte:fragment slot="trigger">
-		<Button
-			color={dark ? 'dark' : 'light'}
-			variant={dark ? 'contained' : 'border'}
-			size="xs"
-			nonCaptureEvent
-		>
-			Capture
+		<Button color="dark" btnClasses="rounded-l-none" wrapperClasses="h-full" nonCaptureEvent>
+			<CaptureIcon />
 		</Button>
 	</svelte:fragment>
 	<svelte:fragment slot="content">

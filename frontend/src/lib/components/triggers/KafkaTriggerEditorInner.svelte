@@ -133,9 +133,6 @@
 		drawer.closeDrawer()
 	}
 
-	$: topicsError = args.topics?.some((b) => /[^[a-zA-Z0-9-_.]/.test(b)) ? 'Invalid topics' : ''
-	$: groupIdError = /[^a-zA-Z0-9-_.]/.test(args.group_id) ? 'Invalid group ID' : ''
-
 	function useDefaultValues() {
 		if (args.kafka_resource_path && args.kafka_resource_path != '') {
 			return false
@@ -149,6 +146,8 @@
 			defaultValues.brokers.some((broker: string) => broker.trim() !== '')
 		)
 	}
+
+	let isValid = false
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -182,15 +181,7 @@
 				{#if can_write}
 					<Button
 						startIcon={{ icon: Save }}
-						disabled={pathError != '' ||
-							emptyString(script_path) ||
-							emptyString(args.kafka_resource_path) ||
-							args.topics.length < 1 ||
-							args.topics.some((t) => emptyString(t)) ||
-							topicsError != '' ||
-							emptyString(args.group_id) ||
-							groupIdError != '' ||
-							!can_write}
+						disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
 						on:click={updateTrigger}
 					>
 						Save
@@ -226,6 +217,7 @@
 
 				<KafkaTriggersConfigSection
 					bind:args
+					bind:isValid
 					defaultValues={useDefaultValues() ? defaultValues : undefined}
 				/>
 

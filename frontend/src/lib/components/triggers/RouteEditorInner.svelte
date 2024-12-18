@@ -85,7 +85,7 @@
 
 	let path: string = ''
 	let pathError = ''
-	let routeError = ''
+	let isValid = false
 	let dirtyRoutePath = false
 	let is_async = false
 	let requires_auth = false
@@ -193,7 +193,7 @@
 				<Button
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' ||
-						routeError != '' ||
+						!isValid ||
 						(!static_asset_config && emptyString(script_path)) ||
 						(static_asset_config && emptyString(static_asset_config.s3)) ||
 						!can_write}
@@ -226,7 +226,7 @@
 				<RouteEditorConfigSection
 					bind:route_path
 					bind:args
-					bind:routeError
+					bind:isValid
 					bind:dirtyRoutePath
 					bind:http_method
 					{can_write}

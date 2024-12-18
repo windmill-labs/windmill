@@ -61,18 +61,18 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, setContext, tick } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
-	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import {
 		BUN_PREPROCESSOR_MODULE_CODE,
 		PYTHON_PREPROCESSOR_MODULE_CODE
 	} from '$lib/script_helpers'
+	import CaptureTable from './triggers/CaptureTable.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -108,6 +108,7 @@
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
+	let captureTable: CaptureTable | undefined = undefined
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
 	const triggersCount = writable<TriggersCount | undefined>(
@@ -625,11 +626,8 @@
 	}
 
 	async function applyArgs(e) {
-		selectedInputTab = 'main'
+		selectedInputTab = e.detail.kind
 		metadataOpen = false
-		// TODO: that sucks, but don't know how to avoid it
-		await tick()
-		await tick()
 		args = e.detail.args ?? {}
 	}
 
@@ -661,8 +659,6 @@
 		}
 		selectedInputTab = 'preprocessor'
 	}
-
-	let shouldRefreshCaptures = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1259,14 +1255,15 @@
 							<TriggersEditor
 								on:applyArgs={applyArgs}
 								on:addPreprocessor={addPreprocessor}
-								on:refreshCaptures={() => {
-									shouldRefreshCaptures = true
+								on:exitTriggers={() => {
+									captureTable?.refreshCaptures()
 								}}
 								{initialPath}
 								schema={script.schema}
 								noEditor={true}
 								isFlow={false}
 								currentPath={script.path}
+								hash={script.parent_hash}
 								newItem={initialPath == ''}
 								canHavePreprocessor={script.language === 'bun' ||
 									script.language === 'deno' ||
@@ -1357,7 +1354,6 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					<CaptureButton on:openTriggers={openTriggers} />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							color="light"
@@ -1476,7 +1472,7 @@
 			tag={script.tag}
 			bind:args
 			bind:hasPreprocessor
-			bind:shouldRefreshCaptures
+			bind:captureTable
 		/>
 	</div>
 {:else}

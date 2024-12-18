@@ -12,7 +12,6 @@
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
-	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -44,7 +43,6 @@
 	{#if !disabled}
 		<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
 			<div class="text-sm">Copy input's schema from</div>
-			<CaptureButton on:openTriggers dark={true} />
 			<Button
 				color="dark"
 				size="xs"

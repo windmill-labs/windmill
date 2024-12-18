@@ -59,7 +59,7 @@ struct NewWebsocketTrigger {
     enabled: Option<bool>,
     filters: Vec<Box<RawValue>>,
     initial_messages: Vec<Box<RawValue>>,
-    url_runnable_args: Box<RawValue>,
+    url_runnable_args: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -99,7 +99,7 @@ pub struct WebsocketTrigger {
     enabled: bool,
     filters: Vec<SqlxJson<Box<RawValue>>>,
     initial_messages: Vec<SqlxJson<Box<RawValue>>>,
-    url_runnable_args: SqlxJson<Box<RawValue>>,
+    url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -110,7 +110,7 @@ struct EditWebsocketTrigger {
     is_flow: bool,
     filters: Vec<Box<RawValue>>,
     initial_messages: Vec<Box<RawValue>>,
-    url_runnable_args: Box<RawValue>,
+    url_runnable_args: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -207,7 +207,7 @@ async fn create_websocket_trigger(
     .bind(ct.enabled.unwrap_or(true))
     .bind(filters.as_slice())
     .bind(initial_messages.as_slice())
-    .bind(SqlxJson(ct.url_runnable_args))
+    .bind(ct.url_runnable_args.map(SqlxJson))
     .bind(&authed.username)
     .bind(&authed.email)
     .fetch_one(&mut *tx).await?;
@@ -250,7 +250,7 @@ async fn update_websocket_trigger(
         ct.is_flow,
         filters.as_slice() as &[SqlxJson<Box<RawValue>>],
         initial_messages.as_slice() as &[SqlxJson<Box<RawValue>>],
-        SqlxJson(ct.url_runnable_args) as SqlxJson<Box<RawValue>>,
+        ct.url_runnable_args.map(SqlxJson) as Option<SqlxJson<Box<RawValue>>>,
         &authed.username,
         &authed.email,
         w_id,
@@ -392,7 +392,7 @@ async fn listen_to_unlistened_websockets(
 
     match sqlx::query_as!(
         CaptureConfigForWebsocket,
-        r#"SELECT path, is_flow, workspace_id, trigger_config as "trigger_config!: _", owner FROM capture_config WHERE trigger_kind = 'websocket' AND last_client_ping > NOW() - INTERVAL '10 seconds' AND trigger_config IS NOT NULL AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')"#
+        r#"SELECT path, is_flow, workspace_id, trigger_config as "trigger_config!: _", owner, email FROM capture_config WHERE trigger_kind = 'websocket' AND last_client_ping > NOW() - INTERVAL '10 seconds' AND trigger_config IS NOT NULL AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')"#
     )
     .fetch_all(db)
     .await
@@ -495,32 +495,29 @@ where
 async fn wait_runnable_result(
     path: String,
     is_flow: bool,
-    args: &Box<RawValue>,
-    ws_trigger: &WebsocketTrigger,
-    username_override: String,
+    args: Option<&Box<RawValue>>,
+    authed: ApiAuthed,
     db: &DB,
+    workspace_id: &str,
+    trigger_path: &str,
 ) -> error::Result<String> {
     let user_db = UserDB::new(db.clone());
-    let authed = fetch_api_authed(
-        ws_trigger.edited_by.clone(),
-        ws_trigger.email.clone(),
-        &ws_trigger.workspace_id,
-        &db,
-        Some(username_override),
-    )
-    .await?;
 
-    let args = serde_json::from_str::<Option<HashMap<String, Box<RawValue>>>>(args.get())
-        .map_err(|e| error::Error::BadRequest(format!("invalid json: {}", e)))?
-        .unwrap_or_else(HashMap::new);
+    let args = if let Some(args) = args {
+        serde_json::from_str::<Option<HashMap<String, Box<RawValue>>>>(args.get())
+            .map_err(|e| error::Error::BadRequest(format!("invalid json: {}", e)))?
+            .unwrap_or_else(HashMap::new)
+    } else {
+        HashMap::new()
+    };
 
-    let label_prefix = Some(format!("ws-{}-", ws_trigger.path));
+    let label_prefix = Some(format!("ws-{}-", trigger_path));
     let (_, job_id) = if is_flow {
         run_flow_by_path_inner(
             authed,
             db.clone(),
             user_db,
-            ws_trigger.workspace_id.clone(),
+            workspace_id.to_string(),
             StripPath(path.clone()),
             RunJobQuery::default(),
             PushArgsOwned { args, extra: None },
@@ -532,7 +529,7 @@ async fn wait_runnable_result(
             authed,
             db.clone(),
             user_db,
-            ws_trigger.workspace_id.clone(),
+            workspace_id.to_string(),
             StripPath(path.clone()),
             RunJobQuery::default(),
             PushArgsOwned { args, extra: None },
@@ -561,7 +558,7 @@ async fn wait_runnable_result(
             "SELECT result, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
         .bind(Uuid::parse_str(&job_id).unwrap())
-        .bind(&ws_trigger.workspace_id)
+        .bind(workspace_id)
         .fetch_optional(db)
         .await;
 
@@ -597,6 +594,35 @@ async fn loop_ping(db: &DB, ws: &WebsocketEnum, error: Option<&str>) -> () {
             return;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    }
+}
+
+async fn get_url_from_runnable(
+    path: &str,
+    is_flow: bool,
+    db: &DB,
+    authed: ApiAuthed,
+    args: Option<&Box<RawValue>>,
+    workspace_id: &str,
+    trigger_path: &str,
+) -> error::Result<String> {
+    tracing::info!("Running runnable {path} (is_flow: {is_flow}) to get websocket URL",);
+
+    let result = wait_runnable_result(
+        path.to_string(),
+        is_flow,
+        args,
+        authed,
+        db,
+        workspace_id,
+        trigger_path,
+    )
+    .await?;
+
+    if result.starts_with("\"") && result.ends_with("\"") {
+        Ok(result[1..result.len() - 1].to_string())
+    } else {
+        Err(anyhow::anyhow!("Runnable {path} (is_flow: {is_flow}) did not return a string").into())
     }
 }
 
@@ -675,26 +701,16 @@ impl WebsocketTrigger {
         is_flow: bool,
         db: &DB,
     ) -> error::Result<String> {
-        tracing::info!("Running runnable {path} (is_flow: {is_flow}) to get websocket URL",);
-
-        let result = wait_runnable_result(
-            path.to_string(),
+        get_url_from_runnable(
+            &path,
             is_flow,
-            &self.url_runnable_args.0,
-            self,
-            "url".to_string(),
             db,
+            self.fetch_authed(db, Some("url".to_string())).await?,
+            self.url_runnable_args.as_ref().map(|r| &r.0),
+            &self.workspace_id,
+            &self.path,
         )
-        .await?;
-
-        if result.starts_with("\"") && result.ends_with("\"") {
-            Ok(result[1..result.len() - 1].to_string())
-        } else {
-            Err(
-                anyhow::anyhow!("Runnable {path} (is_flow: {is_flow}) did not return a string")
-                    .into(),
-            )
-        }
+        .await
     }
 
     async fn send_initial_messages(
@@ -736,10 +752,11 @@ impl WebsocketTrigger {
                     let result = wait_runnable_result(
                         path.clone(),
                         is_flow,
-                        &args,
-                        self,
-                        "init".to_string(),
+                        Some(&args),
+                        self.fetch_authed(db, Some("init".to_string())).await?,
                         db,
+                        &self.workspace_id,
+                        &self.path,
                     )
                     .await?;
 
@@ -782,6 +799,21 @@ impl WebsocketTrigger {
             .await;
         };
     }
+
+    async fn fetch_authed(
+        &self,
+        db: &DB,
+        username_override: Option<String>,
+    ) -> error::Result<ApiAuthed> {
+        fetch_api_authed(
+            self.edited_by.clone(),
+            self.email.clone(),
+            &self.workspace_id,
+            db,
+            username_override,
+        )
+        .await
+    }
 }
 
 #[derive(Deserialize)]
@@ -791,6 +823,7 @@ struct CaptureConfigForWebsocket {
     is_flow: bool,
     workspace_id: String,
     owner: String,
+    email: String,
 }
 
 impl CaptureConfigForWebsocket {
@@ -858,6 +891,65 @@ impl CaptureConfigForWebsocket {
             tracing::error!("Error inserting capture payload: {:?}", err);
         }
     }
+
+    async fn get_url_from_runnable(
+        &self,
+        path: &str,
+        is_flow: bool,
+        db: &DB,
+    ) -> error::Result<String> {
+        let url_runnable_args = self
+            .trigger_config
+            .url_runnable_args
+            .as_ref()
+            .map(to_raw_value);
+        get_url_from_runnable(
+            &path,
+            is_flow,
+            db,
+            self.fetch_authed(db, Some("url".to_string())).await?,
+            url_runnable_args.as_ref(),
+            &self.workspace_id,
+            &self.get_trigger_path(),
+        )
+        .await
+    }
+
+    async fn fetch_authed(
+        &self,
+        db: &DB,
+        username_override: Option<String>,
+    ) -> error::Result<ApiAuthed> {
+        fetch_api_authed(
+            self.owner.clone(),
+            self.email.clone(),
+            &self.workspace_id,
+            db,
+            username_override,
+        )
+        .await
+    }
+
+    async fn disable_with_error(&self, db: &DB, error: String) -> () {
+        if let Err(err) = sqlx::query!(
+            "UPDATE capture_config SET error = $1, server_id = NULL, last_server_ping = NULL WHERE workspace_id = $2 AND path = $3 AND is_flow = $4 AND trigger_kind = 'websocket'",
+            error,
+            self.workspace_id,
+            self.path,
+            self.is_flow,
+        )
+        .execute(db).await {
+            tracing::error!("Could not disable websocket capture {} ({}) with err {}, disabling because of error {}", self.path, self.workspace_id, err, error);
+        }
+    }
+
+    fn get_trigger_path(&self) -> String {
+        format!(
+            "{}-{}",
+            if self.is_flow { "flow" } else { "script" },
+            self.path
+        )
+    }
 }
 
 enum WebsocketEnum {
@@ -870,6 +962,27 @@ impl WebsocketEnum {
         match self {
             WebsocketEnum::Trigger(ws) => ws.update_ping(db, error).await,
             WebsocketEnum::Capture(capture) => capture.update_ping(db, error).await,
+        }
+    }
+
+    async fn get_url_from_runnable(
+        &self,
+        path: &str,
+        is_flow: bool,
+        db: &DB,
+    ) -> error::Result<String> {
+        match self {
+            WebsocketEnum::Trigger(ws) => ws.get_url_from_runnable(path, is_flow, db).await,
+            WebsocketEnum::Capture(capture) => {
+                capture.get_url_from_runnable(path, is_flow, db).await
+            }
+        }
+    }
+
+    async fn disable_with_error(&self, db: &DB, error: String) -> () {
+        match self {
+            WebsocketEnum::Trigger(ws) => ws.disable_with_error(db, error).await,
+            WebsocketEnum::Capture(capture) => capture.disable_with_error(db, error).await,
         }
     }
 }
@@ -898,48 +1011,41 @@ async fn listen_to_websocket(
     };
 
     loop {
-        let connect_url: Cow<str> = match &ws {
-            WebsocketEnum::Trigger(ws_trigger) => {
-                if url.starts_with("$") {
-                    if url.starts_with("$flow:") || url.starts_with("$script:") {
-                        let path = url.splitn(2, ':').nth(1).unwrap();
-                        tokio::select! {
-                            biased;
-                            _ = killpill_rx.recv() => {
-                                return;
-                            },
-                            _ = loop_ping(&db, &ws, Some(
-                                "Waiting on runnable to return websocket URL..."
-                            )) => {
-                                return;
-                            },
-                            url_result = ws_trigger.get_url_from_runnable(path, url.starts_with("$flow:"), &db) => match url_result {
-                                Ok(url) => Cow::Owned(url),
-                                Err(err) => {
-                                    ws_trigger.disable_with_error(&db, format!(
-                                            "Error getting websocket URL from runnable after 5 tries: {:?}",
-                                            err
-                                        ),
-                                    )
-                                    .await;
-                                    return;
-                                }
-                            },
-                        }
-                    } else {
-                        ws_trigger
-                            .disable_with_error(
-                                &db,
-                                format!("Invalid websocket runnable path: {}", url),
+        let connect_url: Cow<str> = if url.starts_with("$") {
+            if url.starts_with("$flow:") || url.starts_with("$script:") {
+                let path = url.splitn(2, ':').nth(1).unwrap();
+                tokio::select! {
+                    biased;
+                    _ = killpill_rx.recv() => {
+                        return;
+                    },
+                    _ = loop_ping(&db, &ws, Some(
+                        "Waiting on runnable to return websocket URL..."
+                    )) => {
+                        return;
+                    },
+
+
+                    url_result = ws.get_url_from_runnable(path, url.starts_with("$flow:"), &db) => match url_result {
+                        Ok(url) => Cow::Owned(url),
+                        Err(err) => {
+                            ws.disable_with_error(&db, format!(
+                                    "Error getting websocket URL from runnable after 5 tries: {:?}",
+                                    err
+                                ),
                             )
                             .await;
-                        return;
-                    }
-                } else {
-                    Cow::Borrowed(url)
+                            return;
+                        }
+                    },
                 }
+            } else {
+                ws.disable_with_error(&db, format!("Invalid websocket runnable path: {}", url))
+                    .await;
+                return;
             }
-            WebsocketEnum::Capture(capture) => Cow::Borrowed(&capture.trigger_config.url),
+        } else {
+            Cow::Borrowed(url)
         };
 
         tokio::select! {

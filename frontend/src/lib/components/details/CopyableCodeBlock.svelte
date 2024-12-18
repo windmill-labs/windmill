@@ -6,13 +6,18 @@
 
 	export let code: string
 	export let language: LanguageType<string>
+	export let disabled = false
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class="flex flex-row flex-1 border p-2 rounded-md overflow-auto relative"
+	class:cursor-not-allowed={disabled}
 	on:click={(e) => {
+		if (disabled) {
+			return
+		}
 		e.preventDefault()
 		copyToClipboard(code)
 	}}

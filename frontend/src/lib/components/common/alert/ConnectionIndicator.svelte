@@ -1,18 +1,20 @@
+<script context="module" lang="ts">
+	export type ConnectionInfo = {
+		connected: boolean
+		message?: string
+	}
+</script>
+
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
 	import { Circle } from 'lucide-svelte'
 
-	export let connectionInfo:
-		| {
-				status: 'connected' | 'disconnected' | 'error'
-				message?: string
-		  }
-		| undefined = undefined
+	export let connectionInfo: ConnectionInfo | undefined = undefined
 </script>
 
 {#if connectionInfo}
 	<div class="center-center">
-		{#if connectionInfo.status === 'connected'}
+		{#if connectionInfo.connected}
 			<Popover notClickable>
 				<span class="h-4 w-4 center-center">
 					<Circle class="text-green-600 relative inline-flex fill-current" size={12} />

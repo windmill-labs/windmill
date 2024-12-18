@@ -101,16 +101,26 @@ struct HttpTriggerConfig {
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 #[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum KafkaTriggerConfigConnection {
+    Resource { kafka_resource_path: String },
+    Static { brokers: Vec<String>, security: KafkaResourceSecurity },
+}
+
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+#[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
-    pub brokers: Vec<String>,
-    pub security: KafkaResourceSecurity,
+    #[serde(flatten)]
+    pub connection: KafkaTriggerConfigConnection,
     pub topics: Vec<String>,
     pub group_id: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
+    // have to use Value because RawValue is not supported inside untagged
+    pub url_runnable_args: Option<serde_json::Value>, 
 }
 
 #[derive(Serialize, Deserialize)]
@@ -232,10 +242,16 @@ enum RunnableKind {
     Flow,
 }
 
+#[derive(Deserialize)]
+struct ListCapturesQuery {
+    trigger_kind: Option<TriggerKind>,
+}
+
 async fn list_captures(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+    Query(query): Query<ListCapturesQuery>,
 ) -> JsonResult<Vec<Capture>> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -245,10 +261,12 @@ async fn list_captures(
         FROM capture
         WHERE workspace_id = $1
             AND path = $2 AND is_flow = $3
+            AND ($4::trigger_kind IS NULL OR trigger_kind = $4)
         ORDER BY created_at DESC"#,
         &w_id,
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
+        query.trigger_kind as Option<TriggerKind>,
     )
     .fetch_all(&mut *tx)
     .await?;

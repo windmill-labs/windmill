@@ -17,33 +17,23 @@
 	import type { Capture } from '$lib/gen'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
 
 	export let path: string
 	export let hasPreprocessor = false
 	export let canHavePreprocessor = false
 	export let isFlow = false
-	export let captureType: CaptureTriggerKind = 'webhook'
+	export let captureType: CaptureTriggerKind | 'all' = 'webhook'
 	export let headless = false
 	export let addButton = false
 	export let hideCapturesWhenEmpty = false
 	export let canEdit = false
-	export let showAll = false
 	export let maxHeight: number | undefined = undefined
-	export let shouldRefreshCaptures = false
 
 	let captures: Capture[] = []
-	let selectedCaptures: any[] = []
 	let testKind: 'preprocessor' | 'main' = 'main'
 
 	$: hasPreprocessor && (testKind = 'preprocessor')
-
-	function filterCaptures(captures: Capture[], captureType: CaptureTriggerKind | 'all') {
-		if (showAll) {
-			return captures
-		}
-		return captures.filter((c) => c.trigger_kind === captureType)
-	}
-	$: selectedCaptures = filterCaptures(captures, captureType)
 
 	let deleteLoading: number | null = null
 	async function deleteCapture(id: number) {
@@ -75,22 +65,18 @@
 		}
 	}>()
 
-	async function refreshCaptures() {
+	export async function refreshCaptures() {
 		captures = await CaptureService.listCaptures({
 			workspace: $workspaceStore!,
 			runnableKind: isFlow ? 'flow' : 'script',
-			path
+			path,
+			triggerKind: captureType !== 'all' ? captureType : undefined
 		})
 	}
 	refreshCaptures()
-
-	$: if (shouldRefreshCaptures) {
-		refreshCaptures()
-		shouldRefreshCaptures = false
-	}
 </script>
 
-{#if selectedCaptures.length > 0 || !hideCapturesWhenEmpty}
+{#if captures.length > 0 || !hideCapturesWhenEmpty}
 	<Label
 		label="Captures"
 		{headless}
@@ -100,18 +86,21 @@
 		)}
 	>
 		<svelte:fragment slot="header">
-			{#if addButton && !showAll}
+			{#if addButton && captureType !== 'all'}
 				<Button
 					size="xs2"
 					color="light"
 					variant="contained"
 					iconOnly
 					startIcon={{ icon: Plus }}
-					on:click={() =>
-						dispatch('openTriggers', {
-							kind: captureTriggerKindToTriggerKind(captureType),
-							config: {}
-						})}
+					on:click={() => {
+						if (captureType !== 'all') {
+							dispatch('openTriggers', {
+								kind: captureTriggerKindToTriggerKind(captureType),
+								config: {}
+							})
+						}
+					}}
 				/>
 			{/if}
 		</svelte:fragment>
@@ -131,10 +120,12 @@
 			{/if}
 		</svelte:fragment>
 		<div class="flex flex-col gap-1 pt-2 grow overflow-y-auto">
-			{#if selectedCaptures.length === 0}
-				<div class="text-xs text-secondary">No {captureType} captures yet</div>
+			{#if captures.length === 0}
+				<div class="text-xs text-secondary">
+					{captureType === 'all' ? 'No captures yet' : `No ${captureType} captures yet`}
+				</div>
 			{:else}
-				{#each selectedCaptures as capture}
+				{#each captures as capture}
 					{@const payload = isObject(capture.payload) ? capture.payload : {}}
 					{@const triggerExtra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}}
 					{@const payloadData =
@@ -148,7 +139,7 @@
 						isFlow && testKind === 'main'
 							? { required: [], properties: {}, ...convert(payloadData) }
 							: {}}
-					<div class="flex flex-row gap-1">
+					<div class="flex flex-row gap-1" transition:slide>
 						<div class="text-xs border p-2 rounded-md overflow-auto grow whitespace-nowrap">
 							{JSON.stringify(payloadData)}
 						</div>

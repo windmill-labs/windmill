@@ -9007,6 +9007,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableKind"
         - $ref: "#/components/parameters/Path"
+        - name: trigger_kind
+          in: query
+          schema:
+            $ref: "#/components/schemas/CaptureTriggerKind"
       responses:
         "200":
           description: list of captures for a script or flow
@@ -12381,7 +12385,6 @@ components:
         - enabled
         - filters
         - initial_messages
-        - url_runnable_args
 
     NewWebsocketTrigger:
       type: object
@@ -12421,7 +12424,6 @@ components:
         - is_flow
         - filters
         - initial_messages
-        - url_runnable_args
 
     EditWebsocketTrigger:
       type: object
@@ -12459,7 +12461,6 @@ components:
         - is_flow
         - filters
         - initial_messages
-        - url_runnable_args
 
     WebsocketTriggerInitialMessage:
       anyOf:
