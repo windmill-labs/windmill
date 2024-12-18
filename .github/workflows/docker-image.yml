@@ -36,7 +36,7 @@ permissions: write-all
 
 jobs:
   build:
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-8
     if: (github.event_name != 'workflow_dispatch') || (inputs.ee == false)
     steps:
       - uses: actions/checkout@v4
@@ -99,7 +99,7 @@ jobs:
           cache-to: type=gha
 
   build_arm:
-    runs-on: ubicloud-standard-30-arm
+    runs-on: ubicloud-standard-8-arm
     if: (github.event_name != 'workflow_dispatch') || (inputs.ee == false)
     steps:
       - uses: actions/checkout@v4

@@ -7,11 +7,10 @@ use crate::scripts::ScriptLang;
 
 use std::future::Future;
 use std::hash::Hash;
+use std::panic::Location;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use futures::future::TryFutureExt;
-use quick_cache::Equivalent;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, JsonRawValue as RawValue};
 use sqlx::PgExecutor;
@@ -48,19 +47,23 @@ impl<Key: Eq + Hash + fs::Item, Val: Clone> FsBackedCache<Key, Val> {
     }
 
     /// Gets or inserts an item in the cache with key `key`.
-    pub async fn get_or_insert_async<'a, T: fs::Bundle, Q, F>(
+    pub async fn get_or_insert_async<'a, T: fs::Bundle, F>(
         &'a self,
-        key: &Q,
+        key: Key,
         map: impl Fn(T) -> Val,
         with: F,
     ) -> error::Result<Val>
     where
-        Q: Hash + Equivalent<Key> + ToOwned<Owned = Key>,
+        Key: Clone,
         F: Future<Output = error::Result<T>>,
     {
+        if cfg!(test) {
+            // Disable caching in tests: since `#[sqlx::test]` spawn a database per test, the cache
+            // could yield unexpected results.
+            return with.await.map(map);
+        }
         self.cache
-            .get_or_insert_async(key, async {
-                let key = key.to_owned();
+            .get_or_insert_async(&key, async {
                 fs::import_or_insert_with(self.path(&key), with)
                     .await
                     .map(map)
@@ -138,22 +141,22 @@ pub mod future {
         /// #[allow(unused)]
         /// async {
         ///     let result = std::future::ready(Ok(Json(42)))
-        ///         .cached(cache::anon!({ u64 => Json<u64> } in "test" <= 1), &42, |x| x)
+        ///         .cached(cache::anon!({ u64 => Json<u64> } in "test" <= 1), 42, |x| x)
         ///         .await;
         ///
         ///     assert_eq!(result.unwrap(), Json(42));
         /// };
         /// ```
-        fn cached<Key: Eq + Hash + fs::Item, Val: Clone, Q>(
+        fn cached<Key: Eq + Hash + fs::Item, Val: Clone>(
             self,
             cache: &FsBackedCache<Key, Val>,
-            key: &Q,
+            key: Key,
             map: impl Fn(T) -> Val,
         ) -> impl Future<Output = error::Result<Val>>
         where
-            Q: Hash + Equivalent<Key> + ToOwned<Owned = Key>,
+            Key: Clone,
         {
-            cache.get_or_insert_async(key, map, self)
+            cache.get_or_insert_async(key.to_owned(), map, self)
         }
     }
 
@@ -219,6 +222,17 @@ pub struct ScriptMetadata {
     pub language: Option<ScriptLang>,
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
+}
+
+fn unwrap_or_error<Key: std::fmt::Debug, Val>(
+    at: &'static Location,
+    entity: &'static str,
+    key: Key,
+) -> impl FnOnce(Option<Val>) -> error::Result<Val> {
+    move |optional| {
+        optional
+            .ok_or_else(|| error::Error::InternalErrAt(at, format!("{key:?}: {entity} not found")))
+    }
 }
 
 const _: () = {
@@ -302,110 +316,124 @@ pub mod flow {
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub async fn fetch_script(
-        e: impl PgExecutor<'_>,
+    #[track_caller]
+    pub fn fetch_script<'c>(
+        e: impl PgExecutor<'c>,
         node: FlowNodeId,
-    ) -> error::Result<Arc<ScriptData>> {
-        fetch_node(e, node).await.and_then(|data| match data {
-            RawData::Script(data) => Ok(data),
-            RawData::Flow(_) => Err(error::Error::InternalErr(format!(
-                "Flow node ({:x}) isn't a script node.",
-                node.0
-            ))),
-        })
+    ) -> impl Future<Output = error::Result<Arc<ScriptData>>> {
+        let fetch_node = fetch_node(e, node);
+        async move {
+            fetch_node.await.and_then(|data| match data {
+                RawData::Script(data) => Ok(data),
+                RawData::Flow(_) => Err(error::Error::InternalErr(format!(
+                    "Flow node ({:x}) isn't a script node.",
+                    node.0
+                ))),
+            })
+        }
     }
 
     /// Fetch the flow node flow value referenced by `node` from the cache.
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub async fn fetch_flow(
-        e: impl PgExecutor<'_>,
+    #[track_caller]
+    pub fn fetch_flow<'c>(
+        e: impl PgExecutor<'c>,
         node: FlowNodeId,
-    ) -> error::Result<Arc<FlowData>> {
-        fetch_node(e, node).await.and_then(|data| match data {
-            RawData::Flow(data) => Ok(data),
-            RawData::Script(_) => Err(error::Error::InternalErr(format!(
-                "Flow node ({:x}) isn't a flow node.",
-                node.0
-            ))),
-        })
+    ) -> impl Future<Output = error::Result<Arc<FlowData>>> {
+        let fetch_node = fetch_node(e, node);
+        async move {
+            fetch_node.await.and_then(|data| match data {
+                RawData::Flow(data) => Ok(data),
+                RawData::Script(_) => Err(error::Error::InternalErr(format!(
+                    "Flow node ({:x}) isn't a flow node.",
+                    node.0
+                ))),
+            })
+        }
     }
 
     /// Fetch the flow node referenced by `node` from the cache.
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub(super) async fn fetch_node(
-        e: impl PgExecutor<'_>,
+    #[track_caller]
+    pub(super) fn fetch_node<'c>(
+        e: impl PgExecutor<'c>,
         node: FlowNodeId,
-    ) -> error::Result<RawData> {
+    ) -> impl Future<Output = error::Result<RawData>> {
+        let loc = Location::caller();
         // If not present, `get_or_insert_async` will lock the key until the future completes,
         // so only one thread will be able to fetch the data from the database and write it to
         // the file system and cache, hence no race on the file system.
-        NODES
-            .get_or_insert_async(
-                &node,
-                |(script, flow)| match flow {
-                    Some(flow) => RawData::Flow(Arc::new(flow)),
-                    _ => RawData::Script(Arc::new(script)),
-                },
-                async {
-                    sqlx::query!(
-                        "SELECT \
-                            lock AS \"lock: String\", \
-                            code AS \"code: String\", \
-                            flow AS \"flow: Json<Box<RawValue>>\" \
-                        FROM flow_node WHERE id = $1 LIMIT 1",
-                        node.0,
+        NODES.get_or_insert_async(
+            node,
+            |(script, flow)| match flow {
+                Some(flow) => RawData::Flow(Arc::new(flow)),
+                _ => RawData::Script(Arc::new(script)),
+            },
+            async move {
+                sqlx::query!(
+                    "SELECT \
+                        lock AS \"lock: String\", \
+                        code AS \"code: String\", \
+                        flow AS \"flow: Json<Box<RawValue>>\" \
+                    FROM flow_node WHERE id = $1 LIMIT 1",
+                    node.0,
+                )
+                .fetch_optional(e)
+                .await
+                .map_err(Into::into)
+                .and_then(unwrap_or_error(&loc, "Flow node", node))
+                .map(|r| {
+                    (
+                        ScriptData::from_raw(r.lock, r.code),
+                        r.flow.map(|Json(raw_flow)| FlowData::from_raw(raw_flow)),
                     )
-                    .fetch_one(e)
-                    .await
-                    .map_err(Into::into)
-                    .map(|r| {
-                        (
-                            ScriptData::from_raw(r.lock, r.code),
-                            r.flow.map(|Json(raw_flow)| FlowData::from_raw(raw_flow)),
-                        )
-                    })
-                },
-            )
-            .await
+                })
+            },
+        )
     }
 
-    pub async fn fetch_version(e: impl PgExecutor<'_>, id: i64) -> error::Result<Arc<FlowData>> {
-        FLOWS
-            .get_or_insert_async(&id, Arc::new, async {
-                sqlx::query_scalar!(
-                    "SELECT value AS \"value!: Json<Box<RawValue>>\"
-                    FROM flow_version WHERE id = $1 LIMIT 1",
-                    id,
-                )
-                .fetch_one(e)
-                .await
-                .map_err(Into::into)
-                .map(|Json(raw_flow)| FlowData::from_raw(raw_flow))
-            })
-            .await
-    }
-
-    pub async fn fetch_version_lite(
-        e: impl PgExecutor<'_>,
+    #[track_caller]
+    pub fn fetch_version<'c>(
+        e: impl PgExecutor<'c>,
         id: i64,
-    ) -> error::Result<Arc<FlowData>> {
-        FLOWS_LITE
-            .get_or_insert_async(&id, Arc::new, async {
-                sqlx::query_scalar!(
-                    "SELECT value AS \"value!: Json<Box<RawValue>>\"
-                    FROM flow_version_lite WHERE id = $1 LIMIT 1",
-                    id,
-                )
-                .fetch_one(e)
-                .await
-                .map_err(Into::into)
-                .map(|Json(raw_flow)| FlowData::from_raw(raw_flow))
-            })
+    ) -> impl Future<Output = error::Result<Arc<FlowData>>> {
+        let loc = Location::caller();
+        FLOWS.get_or_insert_async(id, Arc::new, async move {
+            sqlx::query_scalar!(
+                "SELECT value AS \"value!: Json<Box<RawValue>>\"
+                FROM flow_version WHERE id = $1 LIMIT 1",
+                id,
+            )
+            .fetch_optional(e)
             .await
+            .map_err(Into::into)
+            .and_then(unwrap_or_error(&loc, "Flow version", id))
+            .map(|Json(raw_flow)| FlowData::from_raw(raw_flow))
+        })
+    }
+
+    #[track_caller]
+    pub fn fetch_version_lite<'c>(
+        e: impl PgExecutor<'c>,
+        id: i64,
+    ) -> impl Future<Output = error::Result<Arc<FlowData>>> {
+        let loc = Location::caller();
+        FLOWS_LITE.get_or_insert_async(id, Arc::new, async move {
+            sqlx::query_scalar!(
+                "SELECT value AS \"value!: Json<Box<RawValue>>\"
+                FROM flow_version_lite WHERE id = $1 LIMIT 1",
+                id,
+            )
+            .fetch_optional(e)
+            .await
+            .map_err(Into::into)
+            .and_then(unwrap_or_error(&loc, "Flow version \"lite\"", id))
+            .map(|Json(raw_flow)| FlowData::from_raw(raw_flow))
+        })
     }
 }
 
@@ -422,44 +450,41 @@ pub mod script {
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub async fn fetch(
-        e: impl PgExecutor<'_>,
+    #[track_caller]
+    pub fn fetch<'c>(
+        e: impl PgExecutor<'c>,
         hash: ScriptHash,
-    ) -> error::Result<(Arc<ScriptData>, Arc<ScriptMetadata>)> {
+    ) -> impl Future<Output = error::Result<(Arc<ScriptData>, Arc<ScriptMetadata>)>> {
         // If not present, `get_or_insert_async` will lock the key until the future completes,
         // so only one thread will be able to fetch the data from the database and write it to
         // the file system and cache, hence no race on the file system.
-        CACHE
-            .get_or_insert_async(
-                &hash,
-                |(data, metadata)| (Arc::new(data), Arc::new(metadata)),
-                async {
-                    sqlx::query!(
-                        "SELECT \
-                            lock AS \"lock: String\", \
-                            content AS \"code!: String\",
-                            language AS \"language: Option<ScriptLang>\", \
-                            envs AS \"envs: Vec<String>\", \
-                            codebase AS \"codebase: String\" \
-                        FROM script WHERE hash = $1 LIMIT 1",
-                        hash.0
+        let loc = Location::caller();
+        CACHE.get_or_insert_async(
+            hash,
+            |(data, metadata)| (Arc::new(data), Arc::new(metadata)),
+            async move {
+                sqlx::query!(
+                    "SELECT \
+                        lock AS \"lock: String\", \
+                        content AS \"code!: String\",
+                        language AS \"language: Option<ScriptLang>\", \
+                        envs AS \"envs: Vec<String>\", \
+                        codebase AS \"codebase: String\" \
+                    FROM script WHERE hash = $1 LIMIT 1",
+                    hash.0
+                )
+                .fetch_optional(e)
+                .await
+                .map_err(Into::into)
+                .and_then(unwrap_or_error(&loc, "Script", hash))
+                .map(|r| {
+                    (
+                        ScriptData::from_raw(r.lock, Some(r.code)),
+                        ScriptMetadata { language: r.language, envs: r.envs, codebase: r.codebase },
                     )
-                    .fetch_one(e)
-                    .await
-                    .map_err(Into::into)
-                    .map(|r| {
-                        (
-                            ScriptData::from_raw(r.lock, Some(r.code)),
-                            ScriptMetadata {
-                                language: r.language,
-                                envs: r.envs,
-                                codebase: r.codebase,
-                            },
-                        )
-                    })
-                },
-            )
-            .await
+                })
+            },
+        )
     }
 
     /// Invalidate the script cache for the given `hash`.
@@ -480,25 +505,26 @@ pub mod app {
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
     /// This should be preferred over fetching the database directly.
-    pub async fn fetch_script(
-        e: impl PgExecutor<'_>,
+    #[track_caller]
+    pub fn fetch_script<'c>(
+        e: impl PgExecutor<'c>,
         id: AppScriptId,
-    ) -> error::Result<Arc<ScriptData>> {
+    ) -> impl Future<Output = error::Result<Arc<ScriptData>>> {
         // If not present, `get_or_insert_async` will lock the key until the future completes,
         // so only one thread will be able to fetch the data from the database and write it to
         // the file system and cache, hence no race on the file system.
-        CACHE
-            .get_or_insert_async(&id, Arc::new, async {
-                sqlx::query!(
-                    "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
-                    id.0,
-                )
-                .fetch_one(e)
-                .await
-                .map_err(Into::into)
-                .map(|r| ScriptData::from_raw(r.lock, Some(r.code)))
-            })
+        let loc = Location::caller();
+        CACHE.get_or_insert_async(id, Arc::new, async move {
+            sqlx::query!(
+                "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
+                id.0,
+            )
+            .fetch_optional(e)
             .await
+            .map_err(Into::into)
+            .and_then(unwrap_or_error(&loc, "Application script", id))
+            .map(|r| ScriptData::from_raw(r.lock, Some(r.code)))
+        })
     }
 }
 
@@ -513,108 +539,129 @@ pub mod job {
         static ref PREVIEWS: Cache<Uuid, RawData> = Cache::new(50);
     }
 
-    pub async fn fetch_preview_flow(
-        e: impl PgExecutor<'_>,
-        job: &Uuid,
+    #[track_caller]
+    pub fn fetch_preview_flow<'a, 'c>(
+        e: impl PgExecutor<'c> + 'a,
+        job: &'a Uuid,
         // original raw values from `queue` or `completed_job` tables:
         // kept for backward compatibility.
         raw_flow: Option<Json<Box<RawValue>>>,
-    ) -> error::Result<Arc<FlowData>> {
-        fetch_preview(e, job, None, None, raw_flow)
-            .await
-            .and_then(|data| match data {
+    ) -> impl Future<Output = error::Result<Arc<FlowData>>> + 'a {
+        let fetch_preview = fetch_preview(e, job, None, None, raw_flow);
+        async move {
+            fetch_preview.await.and_then(|data| match data {
                 RawData::Flow(data) => Ok(data),
                 RawData::Script(_) => Err(error::Error::InternalErr(format!(
                     "Job ({job}) isn't a flow job."
                 ))),
             })
+        }
     }
 
-    pub async fn fetch_preview_script(
-        e: impl PgExecutor<'_>,
-        job: &Uuid,
+    #[track_caller]
+    pub fn fetch_preview_script<'a, 'c>(
+        e: impl PgExecutor<'c> + 'a,
+        job: &'a Uuid,
         // original raw values from `queue` or `completed_job` tables:
         // kept for backward compatibility.
         raw_lock: Option<String>,
         raw_code: Option<String>,
-    ) -> error::Result<Arc<ScriptData>> {
-        fetch_preview(e, job, raw_lock, raw_code, None)
-            .await
-            .and_then(|data| match data {
+    ) -> impl Future<Output = error::Result<Arc<ScriptData>>> + 'a {
+        let fetch_preview = fetch_preview(e, job, raw_lock, raw_code, None);
+        async move {
+            fetch_preview.await.and_then(|data| match data {
                 RawData::Script(data) => Ok(data),
                 RawData::Flow(_) => Err(error::Error::InternalErr(format!(
                     "Job ({job}) isn't a script job."
                 ))),
             })
+        }
     }
 
-    pub async fn fetch_preview(
-        e: impl PgExecutor<'_>,
-        job: &Uuid,
+    #[track_caller]
+    pub fn fetch_preview<'a, 'c>(
+        e: impl PgExecutor<'c> + 'a,
+        job: &'a Uuid,
         // original raw values from `queue` or `completed_job` tables:
         // kept for backward compatibility.
         raw_lock: Option<String>,
         raw_code: Option<String>,
         raw_flow: Option<Json<Box<RawValue>>>,
-    ) -> error::Result<RawData> {
-        PREVIEWS
-            .get_or_insert_async(job, async {
-                match (raw_lock, raw_code, raw_flow) {
-                    (None, None, None) => sqlx::query!(
-                        "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\" \
-                        FROM job WHERE id = $1 LIMIT 1",
-                        job
-                    )
-                    .fetch_one(e)
-                    .map_err(Into::into)
-                    .await
-                    .map(|r| (r.raw_lock, r.raw_code, r.raw_flow)),
-                    (lock, code, flow) => Ok((lock, code, flow)),
-                }
-                .map(|(lock, code, flow)| match flow {
-                    Some(Json(flow)) => RawData::Flow(Arc::new(FlowData::from_raw(flow))),
-                    _ => RawData::Script(Arc::new(ScriptData::from_raw(lock, code))),
-                })
+    ) -> impl Future<Output = error::Result<RawData>> + 'a {
+        let loc = Location::caller();
+        let fetch = async move {
+            match (raw_lock, raw_code, raw_flow) {
+                (None, None, None) => sqlx::query!(
+                    "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\" \
+                    FROM job WHERE id = $1 LIMIT 1",
+                    job
+                )
+                .fetch_optional(e)
+                .await
+                .map_err(Into::into)
+                .and_then(unwrap_or_error(&loc, "Preview", job))
+                .map(|r| (r.raw_lock, r.raw_code, r.raw_flow)),
+                (lock, code, flow) => Ok((lock, code, flow)),
+            }
+            .map(|(lock, code, flow)| match flow {
+                Some(Json(flow)) => RawData::Flow(Arc::new(FlowData::from_raw(flow))),
+                _ => RawData::Script(Arc::new(ScriptData::from_raw(lock, code))),
             })
-            .await
+        };
+        // Disable caching in tests: as `#[sqlx::test]` spawn a database per test, the cache
+        // could yield unexpected results.
+        #[cfg(test)]
+        return fetch;
+        #[cfg(not(test))]
+        PREVIEWS.get_or_insert_async(job, fetch)
     }
 
-    pub async fn fetch_script(
-        e: impl PgExecutor<'_>,
+    #[track_caller]
+    pub fn fetch_script<'c>(
+        e: impl PgExecutor<'c>,
         kind: JobKind,
         hash: Option<ScriptHash>,
-    ) -> error::Result<Arc<ScriptData>> {
+    ) -> impl Future<Output = error::Result<Arc<ScriptData>>> {
         use JobKind::*;
-        match (kind, hash.map(|ScriptHash(id)| id)) {
-            (FlowScript, Some(id)) => flow::fetch_script(e, FlowNodeId(id)).await,
-            (Script | Dependencies, Some(hash)) => script::fetch(e, ScriptHash(hash))
-                .await
-                .map(|(raw_script, _metadata)| raw_script),
-            (AppScript, Some(id)) => app::fetch_script(e, AppScriptId(id)).await,
-            _ => Err(error::Error::InternalErr(format!(
-                "Isn't a script job: {:?}",
-                kind
-            ))),
+        let loc = Location::caller();
+        async move {
+            match (kind, hash.map(|ScriptHash(id)| id)) {
+                (FlowScript, Some(id)) => flow::fetch_script(e, FlowNodeId(id)).await,
+                (Script | Dependencies, Some(hash)) => script::fetch(e, ScriptHash(hash))
+                    .await
+                    .map(|(raw_script, _metadata)| raw_script),
+                (AppScript, Some(id)) => app::fetch_script(e, AppScriptId(id)).await,
+                _ => Err(error::Error::InternalErr(format!(
+                    "Isn't a script job: {:?}",
+                    kind
+                ))),
+            }
+            .map_err(error::relocate_internal(loc))
         }
     }
 
-    pub async fn fetch_flow(
-        e: impl PgExecutor<'_> + Copy,
+    #[track_caller]
+    pub fn fetch_flow<'c>(
+        e: impl PgExecutor<'c> + Copy,
         kind: JobKind,
         hash: Option<ScriptHash>,
-    ) -> error::Result<Arc<FlowData>> {
+    ) -> impl Future<Output = error::Result<Arc<FlowData>>> {
         use JobKind::*;
-        match (kind, hash.map(|ScriptHash(id)| id)) {
-            (FlowDependencies, Some(id)) => flow::fetch_version(e, id).await,
-            (FlowNode, Some(id)) => flow::fetch_flow(e, FlowNodeId(id)).await,
-            (Flow, Some(id)) => match flow::fetch_version_lite(e, id).await {
-                Ok(raw_flow) => Ok(raw_flow),
-                Err(_) => flow::fetch_version(e, id).await,
-            },
-            _ => Err(error::Error::InternalErr(format!(
-                "Isn't a flow job {:?}",
-                kind
-            ))),
+        let loc = Location::caller();
+        async move {
+            match (kind, hash.map(|ScriptHash(id)| id)) {
+                (FlowDependencies, Some(id)) => flow::fetch_version(e, id).await,
+                (FlowNode, Some(id)) => flow::fetch_flow(e, FlowNodeId(id)).await,
+                (Flow, Some(id)) => match flow::fetch_version_lite(e, id).await {
+                    Ok(raw_flow) => Ok(raw_flow),
+                    Err(_) => flow::fetch_version(e, id).await,
+                },
+                _ => Err(error::Error::InternalErr(format!(
+                    "Isn't a flow job {:?}",
+                    kind
+                ))),
+            }
+            .map_err(error::relocate_internal(loc))
         }
     }
 }

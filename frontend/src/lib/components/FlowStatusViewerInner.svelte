@@ -627,7 +627,6 @@
 					j != state?.selectedForloopIndex ||
 					setManually != state?.selectedForLoopSetManually
 				if (selectedNotEqual) {
-					console.log('not equal')
 					globalState?.update((topLevelModuleStates) => {
 						topLevelModuleStates[modId] = {
 							type: 'WaitingForPriorSteps',
