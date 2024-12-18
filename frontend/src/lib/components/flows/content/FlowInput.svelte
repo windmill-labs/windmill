@@ -13,12 +13,15 @@
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 	import HistoricInpts from '$lib/components/HistoricInpts.svelte'
 	import SavedInputsPickerV2 from '$lib/components/SavedInputsPickerV2.svelte'
-	import { CornerDownLeft, Pen } from 'lucide-svelte'
+	import { CornerDownLeft, Pen, X, ChevronDown } from 'lucide-svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
+
 	export let noEditor: boolean
 	export let disabled: boolean
 
@@ -30,6 +33,7 @@
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
 	let previewArguments: any | undefined = undefined
+	let editOptionsOpen = false
 	//const yOffset = 191
 
 	const dropdownItems: Array<{
@@ -47,7 +51,7 @@
 			label: "First step's inputs",
 			onClick: () => {
 				copyFirstStepSchema($flowStateStore, flowStore)
-				editSchema = false
+				handleEditSchema(false)
 			}
 		},
 		{
@@ -113,8 +117,6 @@
 	$: runDisabled = editSchema
 
 	let selectedTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' = 'inputEditor'
-
-	$: console.log('dbg pendingJson', pendingJson)
 
 	function updatePreviewSchema(payloadData: any) {
 		if (!payloadData) {
@@ -185,137 +187,149 @@
 </Drawer>
 
 <FlowCard {noEditor} title="Flow Input">
-	<svelte:fragment slot="header">
-		<div class="py-1">
-			<Button
-				disabled={false}
-				loading={false}
-				size="xs2"
-				color="light"
-				variant="border"
-				on:click={() => {
-					selectedTab = 'inputEditor'
-					handleEditSchema()
-				}}
-				{dropdownItems}
-			>
-				<Pen size={14} />
-			</Button>
-		</div>
-	</svelte:fragment>
-
 	{#if !disabled}
-		<EditableSchemaForm
-			bind:schema={$flowStore.schema}
-			isFlowInput
-			on:edit={(e) => {
-				addProperty?.openDrawer(e.detail)
-			}}
-			on:delete={(e) => {
-				addProperty?.handleDeleteArgument([e.detail])
-			}}
-			offset={undefined}
-			displayWebhookWarning
-			{editSchema}
-			{previewSchema}
-			bind:args={$previewArgs}
-			extraTab={selectedTab !== 'inputEditor'}
-		>
-			<svelte:fragment slot="addProperty">
-				<div class="w-full flex justify-center">
-					<AddPropertyV2
-						bind:schema={$flowStore.schema}
-						bind:this={addProperty}
-						on:change={() => {
-							$flowStore = $flowStore
-						}}
-					/>
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="extraTab">
-				{#if selectedTab === 'history'}
-					<FlowInputEditor
-						name="From history"
-						disabled={!payloadData}
-						on:applySchemaAndArgs={applySchemaAndArgs}
-						on:applySchema={applySchema}
+		<div class="py-2 h-full">
+			<EditableSchemaForm
+				bind:schema={$flowStore.schema}
+				isFlowInput
+				on:edit={(e) => {
+					addProperty?.openDrawer(e.detail)
+				}}
+				on:delete={(e) => {
+					addProperty?.handleDeleteArgument([e.detail])
+				}}
+				offset={undefined}
+				displayWebhookWarning
+				{editSchema}
+				{previewSchema}
+				bind:args={$previewArgs}
+				extraTab={selectedTab !== 'inputEditor'}
+			>
+				<svelte:fragment slot="openEditTab">
+					<div
+						class={twMerge(
+							'flex flex-row divide-x border rounded-md bg-surface',
+							editSchema ? 'rounded-r-none border-r-0' : ''
+						)}
 					>
-						<HistoricInpts
-							scriptHash={null}
-							scriptPath={null}
-							flowPath={initialPath}
-							isFlow={true}
-							on:select={(e) => {
-								payloadData = e.detail
+						<button
+							on:click={() => {
+								selectedTab = 'inputEditor'
+								handleEditSchema()
+							}}
+							class="hover:bg-surface-hover"
+						>
+							<div class="p-2 center-center">
+								<svelte:component this={editSchema ? X : Pen} size={14} />
+							</div>
+						</button>
+						<ButtonDropDown
+							{dropdownItems}
+							closeOnClick={true}
+							bind:open={editOptionsOpen}
+							placement="bottom-end"
+						>
+							<div class="p-2 center-center hover:bg-surface-hover">
+								<ChevronDown size={16} />
+							</div>
+						</ButtonDropDown>
+					</div>
+				</svelte:fragment>
+				<svelte:fragment slot="addProperty">
+					<div class="w-full flex justify-center">
+						<AddPropertyV2
+							bind:schema={$flowStore.schema}
+							bind:this={addProperty}
+							on:change={() => {
+								$flowStore = $flowStore
 							}}
 						/>
-					</FlowInputEditor>
-				{:else if selectedTab === 'captures'}
-					<FlowInputEditor
-						name="From captures"
-						disabled={!payloadData}
-						on:applySchemaAndArgs={applySchemaAndArgs}
-						on:applySchema={applySchema}
-					>
-						<svelete:fragment slot="header">
-							<CaptureButton on:openTriggers dark={true} small={true} />
-						</svelete:fragment>
-						<CapturesInputs
-							on:select={(e) => {
-								payloadData = e.detail
-								console.log('dbg cap payloadData', payloadData)
+					</div>
+				</svelte:fragment>
+				<svelte:fragment slot="extraTab">
+					{#if selectedTab === 'history'}
+						<FlowInputEditor
+							name="From history"
+							disabled={!payloadData}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+						>
+							<HistoricInpts
+								scriptHash={null}
+								scriptPath={null}
+								flowPath={initialPath}
+								isFlow={true}
+								on:select={(e) => {
+									payloadData = e.detail
+								}}
+							/>
+						</FlowInputEditor>
+					{:else if selectedTab === 'captures'}
+						<FlowInputEditor
+							name="From captures"
+							disabled={!payloadData}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+						>
+							<svelete:fragment slot="header">
+								<CaptureButton on:openTriggers dark={true} small={true} />
+							</svelete:fragment>
+							<CapturesInputs
+								on:select={(e) => {
+									payloadData = e.detail
+								}}
+								scriptHash={null}
+								flowPath={initialPath}
+								isFlow={true}
+							/>
+						</FlowInputEditor>
+					{:else if selectedTab === 'savedInputs'}
+						<FlowInputEditor
+							name="Saved inputs"
+							disabled={!payloadData}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+						>
+							<svelete:fragment slot="header">
+								<Tooltip>Shared inputs are available to anyone with access to the script</Tooltip>
+							</svelete:fragment>
+							<SavedInputsPickerV2
+								flowPath={initialPath}
+								on:select={(e) => {
+									payloadData = e.detail
+								}}
+							/>
+						</FlowInputEditor>
+					{:else if selectedTab === 'json'}
+						<FlowInputEditor
+							name="From JSON"
+							disabled={!pendingJson?.length || !jsonValid}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+						>
+							<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
+						</FlowInputEditor>
+					{/if}
+				</svelte:fragment>
+				<svelte:fragment slot="runButton">
+					<div class="w-full flex justify-end pr-5">
+						<Button
+							loading={false}
+							color="dark"
+							btnClasses="w-fit"
+							disabled={runDisabled}
+							size="xs"
+							shortCut={{ Icon: CornerDownLeft, hide: false }}
+							on:click={() => {
+								runPreview()
 							}}
-							scriptHash={null}
-							flowPath={initialPath}
-							isFlow={true}
-						/>
-					</FlowInputEditor>
-				{:else if selectedTab === 'savedInputs'}
-					<FlowInputEditor
-						name="Saved inputs"
-						disabled={!payloadData}
-						on:applySchemaAndArgs={applySchemaAndArgs}
-						on:applySchema={applySchema}
-					>
-						<svelete:fragment slot="header">
-							<Tooltip>Shared inputs are available to anyone with access to the script</Tooltip>
-						</svelete:fragment>
-						<SavedInputsPickerV2
-							flowPath={initialPath}
-							on:select={(e) => {
-								payloadData = e.detail
-							}}
-						/>
-					</FlowInputEditor>
-				{:else if selectedTab === 'json'}
-					<FlowInputEditor
-						name="From JSON"
-						disabled={!pendingJson?.length || !jsonValid}
-						on:applySchemaAndArgs={applySchemaAndArgs}
-						on:applySchema={applySchema}
-					>
-						<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
-					</FlowInputEditor>
-				{/if}
-			</svelte:fragment>
-			<svelte:fragment slot="runButton">
-				<div class="w-full flex justify-end pr-5">
-					<Button
-						loading={false}
-						color="dark"
-						btnClasses="w-fit"
-						disabled={runDisabled}
-						size="xs"
-						shortCut={{ Icon: CornerDownLeft, hide: false }}
-						on:click={() => {
-							runPreview()
-						}}
-					>
-						Run
-					</Button>
-				</div>
-			</svelte:fragment>
-		</EditableSchemaForm>
+						>
+							Run
+						</Button>
+					</div>
+				</svelte:fragment>
+			</EditableSchemaForm>
+		</div>
 	{:else}
 		<div class="p-4 border-b">
 			<FlowInputViewer schema={$flowStore.schema} />

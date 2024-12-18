@@ -6,12 +6,16 @@
 	export let open = false
 	export let closeButton: boolean = true
 	export let displayArrow: boolean = false
+	export let placement: any = 'bottom'
 
 	const {
 		elements: { trigger, content, arrow, close },
 		states
 	} = createPopover({
-		forceVisible: true
+		forceVisible: true,
+		positioning: {
+			placement
+		}
 	})
 
 	const sync = createSync(states)

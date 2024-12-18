@@ -64,7 +64,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" size={100 - size} minSize={20}>
+		<Pane class="relative z-10" size={100 - size} minSize={40}>
 			{#if loading}
 				<div class="w-full h-full">
 					<div class="block m-auto mt-40 w-10">

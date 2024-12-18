@@ -23,6 +23,7 @@
 	import Popup from './common/popup/Popup.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { tweened } from 'svelte/motion'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -194,33 +195,55 @@
 	let editor: SimpleEditor | undefined = undefined
 
 	const editTabDefaultSize = noPreview ? 100 : 50
-	let editPanelSize: number = editTabDefaultSize
-	let inputPanelSize: number = 100 - editPanelSize
+	let editPanelSizeSmooth = tweened(0, { duration: 200 })
+	let inputPanelSizeSmooth = tweened(100, { duration: 200 })
+	let editPanelSize = 0
+	let inputPanelSize = 100
 
 	function openEditTab() {
-		editPanelSize = editTabDefaultSize
-		inputPanelSize = 100 - editPanelSize
+		editPanelSizeSmooth.set(editTabDefaultSize)
+		inputPanelSizeSmooth.set(100 - editTabDefaultSize)
 	}
 
 	function closeEditTab() {
-		editPanelSize = 0
-		inputPanelSize = 100
+		editPanelSizeSmooth.set(0)
+		inputPanelSizeSmooth.set(100)
 	}
 
+	function updatePanelSizes(editSize: number, inputSize: number) {
+		editPanelSize = editSize
+		inputPanelSize = inputSize
+	}
+	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
+
 	$: editSchema ? openEditTab() : closeEditTab()
-	$: console.log('dbg schema', schema)
+
+	let pannelButtonWidth: number = 0
 </script>
 
 <div style={offset ? `height: calc(100vh - ${offset}px);` : 'height: 100%;'} class="px-4">
+	<div class="relative z-[100000]">
+		<div
+			class="absolute"
+			style="right: calc({editPanelSize}% - 2px); top: 0px;"
+			bind:clientWidth={pannelButtonWidth}
+		>
+			<slot name="openEditTab" />
+		</div>
+	</div>
 	<Splitpanes class="splitter-hidden w-fit">
 		{#if !noPreview}
 			<Pane bind:size={inputPanelSize} minSize={20}>
 				<div class="flex flex-col">
-					<div class="w-full justify-left pr-5">
-						<div class="w-full center-center rounded-md border border-dashed">
+					<div class="w-full justify-left pr-2">
+						<div
+							class="center-center rounded-md border border-dashed"
+							style={`width: calc(100% - ${pannelButtonWidth}px);`}
+						>
 							<slot name="addProperty" />
 						</div>
 					</div>
+
 					<SchemaFormDnd
 						schema={previewSchema ? previewSchema : schema}
 						{dndType}
@@ -241,13 +264,18 @@
 						prettifyHeader={isAppInput}
 						disabled={!!previewSchema}
 					/>
+
+					<slot name="runButton" />
 				</div>
-				<slot name="runButton" />
 			</Pane>
 		{/if}
 
 		{#if editPanelSize > 0}
-			<Pane size={editPanelSize} minSize={noPreview ? 100 : 20} class="border rounded-md">
+			<Pane
+				bind:size={editPanelSize}
+				minSize={noPreview ? 100 : 20}
+				class="border rounded-md rounded-tl-none"
+			>
 				{#if extraTab}
 					<slot name="extraTab" />
 				{:else}
