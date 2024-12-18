@@ -2852,9 +2852,10 @@ pub async fn push<'c, 'd>(
             concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
+            path,
         } => (
             Some(id.0),
-            None,
+            Some(path),
             None,
             JobKind::FlowScript,
             None,
