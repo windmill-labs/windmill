@@ -35,7 +35,7 @@ permissions: write-all
 jobs:
   build:
     runs-on: depot-ubuntu-22.04
-    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee == false)
+    if: (github.event_name != 'workflow_dispatch') || (inputs.ee == false)
     steps:
       - uses: actions/checkout@v4
         with:
