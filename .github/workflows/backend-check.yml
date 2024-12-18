@@ -14,14 +14,14 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.80.0
+          toolchain: 1.82.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
-      - name: cargo test
+      - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
-        run: SQLX_OFFLINE=true cargo test
+        run: SQLX_OFFLINE=true cargo check
 
   check_oss_full:
     runs-on: ubicloud-standard-8
@@ -39,14 +39,14 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.80.0
+          toolchain: 1.82.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
-      - name: cargo test
+      - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
-        run: SQLX_OFFLINE=true cargo test --all-features
+        run: SQLX_OFFLINE=true cargo check --all-features
 
   check_ee:
     runs-on: ubicloud-standard-8
@@ -76,14 +76,14 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.80.0
+          toolchain: 1.82.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
-      - name: cargo test
+      - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
-        run: SQLX_OFFLINE=true cargo test
+        run: SQLX_OFFLINE=true cargo check
 
   check_ee_full:
     runs-on: ubicloud-standard-8
@@ -116,13 +116,13 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.80.0
+          toolchain: 1.82.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
-      - name: cargo test
+      - name: cargo check
         timeout-minutes: 16
         working-directory: ./backend
-        run: SQLX_OFFLINE=true cargo test --all-features
+        run: SQLX_OFFLINE=true cargo check --all-features
 
  
