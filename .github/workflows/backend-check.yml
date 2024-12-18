@@ -1,7 +1,9 @@
 name: Backend check
 on:
   push:
-
+    paths:
+        - "backend/**"
+        - ".github/workflows/backend-check.yml"
 
 jobs:
   check_oss:
