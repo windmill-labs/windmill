@@ -2,10 +2,6 @@ name: Backend check
 on:
   push:
 
-defaults:
-  run:
-    working-directory: ./backend
-
 
 jobs:
   check_oss:
@@ -23,6 +19,7 @@ jobs:
         with:
           workspaces: backend
       - name: cargo test
+        working-directory: ./backend
         timeout-minutes: 16
         run: SQLX_OFFLINE=true cargo test
 
@@ -33,6 +30,12 @@ jobs:
         with:
           fetch-depth: 0
 
+
+      - name: install xmlsec1
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y libxml2-dev libxmlsec1-dev 
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
@@ -41,6 +44,7 @@ jobs:
         with:
           workspaces: backend
       - name: cargo test
+        working-directory: ./backend
         timeout-minutes: 16
         run: SQLX_OFFLINE=true cargo test --all-features
 
@@ -68,6 +72,7 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
@@ -76,6 +81,7 @@ jobs:
         with:
           workspaces: backend
       - name: cargo test
+        working-directory: ./backend
         timeout-minutes: 16
         run: SQLX_OFFLINE=true cargo test
 
@@ -98,6 +104,11 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
+      - name: install xmlsec1
+        run: |
+            sudo apt-get update
+            sudo apt-get install -y libxml2-dev libxmlsec1-dev 
+
       - name: Substitute EE code (EE logic is behind feature flag)
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
@@ -111,6 +122,7 @@ jobs:
           workspaces: backend
       - name: cargo test
         timeout-minutes: 16
+        working-directory: ./backend
         run: SQLX_OFFLINE=true cargo test --all-features
 
  
