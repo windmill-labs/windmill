@@ -26,7 +26,7 @@ license = ["dep:rsa"]
 zip = ["dep:async_zip"]
 oauth2 = ["dep:async-oauth2"]
 http_trigger = ["dep:matchit"]
-static_frontend = ["dep:rust-embed", "dep:mime_guess"]
+static_frontend = ["dep:rust-embed"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -61,7 +61,7 @@ base64.workspace = true
 base32.workspace = true
 serde_urlencoded.workspace = true
 cron.workspace = true
-mime_guess = { workspace = true, optional = true }
+mime_guess.workspace = true
 rust-embed = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
 quick_cache.workspace = true
