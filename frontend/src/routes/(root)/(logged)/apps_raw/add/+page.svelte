@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { versionRangeToVersion } from '$lib/ata'
 	import Editor from '$lib/components/Editor.svelte'
+	import { extToLang } from '$lib/editorUtils'
 	import {
 		loadSandpackClient,
 		type BundlerState,
@@ -28,17 +29,17 @@ root.render(<App />);`
 		},
 		'/index.css': {
 			code: `
-body: {
+body {
 	background: blue;
 }`
 		},
 		'/package.json': {
 			code: `{
-			"dependencies": {
-				"react": "^18",
-				"react-dom": "^18"
-			}
-		}`
+	"dependencies": {
+		"react": "^18",
+		"react-dom": "^18"
+	}
+}`
 		}
 	}
 
@@ -117,8 +118,11 @@ body: {
 	}
 
 	function onActiveFileChange() {
-		editor?.setCode(files[activeFile].code)
-		editor?.focus()
+		editor?.switchToFile(
+			activeFile,
+			files[activeFile].code,
+			extToLang(activeFile.split('.').pop()!)
+		)
 	}
 
 	$: activeFile && onActiveFileChange()
@@ -143,9 +147,11 @@ body: {
 <div class="w-full grid grid-cols-2">
 	<Editor
 		lang={getLangOfExt(activeFile)}
+		path={activeFile}
 		scriptLang="tsx"
 		bind:this={editor}
 		bind:code={files[activeFile].code}
+		{files}
 		on:ataReady={() => {
 			onPackageJsonChange()
 		}}

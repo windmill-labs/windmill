@@ -138,7 +138,8 @@
 		createHash as randomHash,
 		editorConfig,
 		langToExt,
-		updateOptions
+		updateOptions,
+		extToLang
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
@@ -241,8 +242,8 @@
 
 	function computeUri(filePath: string, scriptLang: string | undefined) {
 		return !['deno', 'go', 'python3'].includes(scriptLang ?? '')
-			? `file:///${filePath}.${langToExt(lang)}`
-			: `file:///tmp/monaco/${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+			? `file:///${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+			: `file:///tmp/monaco/${filePath}.${langToExt(lang)}`
 	}
 
 	function computePath(path: string | undefined): string {
@@ -261,15 +262,19 @@
 	export function switchToFile(path: string, value: string, lang: string) {
 		if (editor) {
 			const uri = mUri.parse(path)
+			console.log('switching to file', path, lang)
 			if (models[path]) {
+				console.log('using existing model', path)
 				editor.setModel(models[path])
 			} else {
-				meditor.createModel(code, lang)
-				models[path] = editor.getModel()!
+				console.log('creating model', path)
+				const model = meditor.createModel(value, lang, uri)
+				models[path] = model
+				editor.setModel(model)
 			}
-			editor.setModel(meditor.createModel(code, lang, uri))
 		}
 	}
+
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
 	}
@@ -1147,6 +1152,7 @@
 
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
+			models[path ?? ''] = model
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1159,9 +1165,13 @@
 
 		if (files) {
 			for (const [path, { code }] of Object.entries(files)) {
-				const uri = mUri.parse(path)
-				const model = meditor.createModel(code, lang, uri)
-				models[path] = model
+				const luri = mUri.file(path)
+				if (luri.toString() != model.uri.toString()) {
+					if (!models[path] && meditor.getModel(luri) == undefined) {
+						const lmodel = meditor.createModel(code, extToLang(path?.split('.')?.pop()!), luri)
+						models[path] = lmodel
+					}
+				}
 			}
 		}
 
