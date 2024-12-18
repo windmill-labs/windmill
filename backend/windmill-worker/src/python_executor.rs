@@ -828,7 +828,7 @@ fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Resul
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
@@ -1404,7 +1404,7 @@ async fn replace_pip_secret(
 
 async fn handle_python_deps(
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     inner_content: &str,
     w_id: &str,
     script_path: &str,
@@ -1432,13 +1432,14 @@ async fn handle_python_deps(
     let mut is_deployed = true;
     let mut annotated_pyv = annotated_version.map(|v| v.to_numeric());
 
+    let mut requirements;
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
             is_deployed = false;
             let mut already_visited = vec![];
 
-            let requirements = windmill_parser_py_imports::parse_python_imports(
+            requirements = windmill_parser_py_imports::parse_python_imports(
                 inner_content,
                 w_id,
                 script_path,
@@ -1448,11 +1449,8 @@ async fn handle_python_deps(
             )
             .await?
             .join("\n");
-
-            if requirements.is_empty() {
-                "".to_owned()
-            } else {
-                uv_pip_compile(
+            if !requirements.is_empty() {
+                requirements = uv_pip_compile(
                     job_id,
                     &requirements,
                     mem_peak,
@@ -1469,8 +1467,9 @@ async fn handle_python_deps(
                 .await
                 .map_err(|e| {
                     Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
-                })?
+                })?;
             }
+            &requirements
         }
     };
 
@@ -2350,7 +2349,7 @@ use windmill_common::variables;
 
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     inner_content: &str,
     base_internal_url: &str,

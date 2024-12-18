@@ -1,7 +1,6 @@
 resource "aws_launch_template" "windmill_cluster_lt" {
   name          = "windmill-cluster-lt"
-  // Amazon Linux 2023 https://docs.aws.amazon.com/linux/al2023/ug/naming-and-versioning.html
-  image_id      = "ami-07bff6261f14c3a45"
+  image_id      = data.aws_ssm_parameter.amazon_linux_2023.value
   instance_type = "t3.medium"
   # vpc_security_group_ids = [aws_security_group.windmill_cluster_sg.id]
 

@@ -20,7 +20,7 @@ use crate::{
 #[cfg(feature = "parquet")]
 use crate::{
     job_helpers_ee::{
-        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_internal,
+        get_random_file_name, get_s3_resource, get_workspace_s3_resource, upload_file_from_req,
         UploadFileResponse,
     },
     users::fetch_api_authed_from_permissioned_as,
@@ -101,11 +101,6 @@ pub fn global_service() -> Router {
         .route("/hub/get/:id", get(get_hub_app_by_id))
 }
 
-#[cfg(not(feature = "enterprise"))]
-pub fn global_unauthed_service() -> Router {
-    Router::new()
-}
-
 #[derive(FromRow, Deserialize, Serialize)]
 pub struct ListableApp {
     pub id: i64,
@@ -145,6 +140,8 @@ pub struct AppWithLastVersion {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_path: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -174,8 +171,6 @@ pub struct AppWithLastVersionAndDraft {
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -378,7 +373,7 @@ async fn get_app(
 
     let app_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
-            "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+            "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred
             FROM app
@@ -398,7 +393,7 @@ async fn get_app(
         .await?
     } else {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
-            "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+            "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by, NULL as starred
             FROM app, app_version
@@ -424,7 +419,7 @@ async fn get_app_lite(
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
-        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+        "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
         app_version.created_at, app_version.created_by, NULL as starred
         FROM app, app_version
@@ -451,8 +446,8 @@ async fn get_app_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
-        r#"SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        app.extra_perms, app_version.value, app.custom_path,
+        r#"SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
+        app.extra_perms, app_version.value,
         app_version.created_at, app_version.created_by,
         app.draft_only, draft.value as "draft"
         from app
@@ -582,7 +577,7 @@ async fn get_app_by_id(
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
-        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+        "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
@@ -613,7 +608,7 @@ async fn get_public_app_by_secret(
     let id: i64 = bytes.parse().map_err(to_anyhow)?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
-        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+        "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
         app_version.created_at, app_version.created_by from app, app_version 
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
@@ -1328,8 +1323,8 @@ async fn execute_component(
             let policy = if let Some(id) = payload.version {
                 let cache = cache::anon!({ u64 => Arc<Policy> } in "policy" <= 1000);
                 arc_policy = policy_fut
-                    .map_ok(Arc::new)
-                    .cached(cache, &(id as u64))
+                    .map_ok(sqlx::types::Json) // cache as json.
+                    .cached(cache, id as u64, |sqlx::types::Json(x)| Arc::new(x))
                     .await?;
                 &*arc_policy
             } else {
@@ -1357,8 +1352,8 @@ async fn execute_component(
                     )
                     .fetch_one(&db)
                     .map_err(Into::<Error>::into)
-                    .map_ok(Arc::new)
-                    .cached(cache, &(*id as u64))
+                    .map_ok(sqlx::types::Json) // cache as json.
+                    .cached(cache, *id as u64, |sqlx::types::Json(x)| Arc::new(x))
                     .await?
                 }
                 _ => unreachable!(),
@@ -1681,7 +1676,7 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    upload_file_internal(s3_client, &file_key, request, options).await?;
+    upload_file_from_req(s3_client, &file_key, request, options).await?;
 
     return Ok(Json(UploadFileResponse { file_key }));
 }

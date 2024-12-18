@@ -9,7 +9,7 @@
 use anyhow::Context;
 use monitor::{
     load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_instance_python_version_setting, reload_timeout_wait_result_setting,
+    reload_nuget_config_setting, reload_timeout_wait_result_setting,
     send_current_log_file_to_object_store, send_logs_to_object_store,
 };
 use rand::Rng;
@@ -35,9 +35,9 @@ use windmill_common::{
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
         EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
@@ -67,16 +67,15 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR,
-    TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
-    TAR_PY313_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
+    BUN_DEPSTAR_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
+    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR,
+
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db, monitor_pool,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
     reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
@@ -143,7 +142,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
-        let res = get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
+        let res = get_hub_script_content_and_requirements(Some(path), None).await?;
         if res
             .language
             .as_ref()
@@ -190,7 +189,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 
                 if let Err(e) = windmill_worker::prebundle_bun_script(
                     &res.content,
-                    Some(lockfile),
+                    Some(&lockfile),
                     &path,
                     &job_id,
                     "admins",
@@ -284,9 +283,6 @@ async fn windmill_main() -> anyhow::Result<()> {
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     println!("jemalloc enabled");
 
-    #[cfg(feature = "flamegraph")]
-    let _guard = windmill_common::tracing_init::setup_flamegraph();
-
     let cli_arg = std::env::args().nth(1).unwrap_or_default();
 
     match cli_arg.as_str() {
@@ -363,7 +359,6 @@ async fn windmill_main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "local")
         .to_string();
 
-    #[cfg(not(feature = "flamegraph"))]
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
@@ -490,7 +485,8 @@ Windmill Community Edition {GIT_VERSION}
         )
         .await;
 
-        monitor_pool(&db).await;
+        #[cfg(feature = "prometheus")]
+        crate::monitor::monitor_pool(&db).await;
 
         send_logs_to_object_store(&db, &hostname, &mode);
 
@@ -613,6 +609,7 @@ Windmill Community Edition {GIT_VERSION}
                     server_killpill_rx,
                     base_internal_tx,
                     server_mode,
+                    #[cfg(feature = "smtp")]
                     base_internal_url.clone(),
                 )
                 .await?;
@@ -773,6 +770,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 BUNFIG_INSTALL_SCOPES_SETTING => {
                                                     reload_bunfig_install_scopes_setting(&db).await
+                                                },
+                                                NUGET_CONFIG_SETTING => {
+                                                    reload_nuget_config_setting(&db).await
                                                 },
                                                 KEEP_JOB_DIR_SETTING => {
                                                     load_keep_job_dir(&db).await;
@@ -1034,6 +1034,7 @@ pub async fn run_workers(
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         RUST_CACHE_DIR,
+        CSHARP_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
     ] {

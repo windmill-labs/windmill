@@ -28,6 +28,7 @@
 	import { base } from '$lib/base'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let setting: Setting
 	export let version: string
@@ -202,6 +203,14 @@
 						>
 					</div>
 				{/if}
+			{:else if setting.fieldType == 'codearea'}
+				<SimpleEditor
+					autoHeight
+					class="editor"
+					lang={setting.codeAreaLang ?? "txt"}
+					bind:code={$values[setting.key]}
+					fixedOverflowWidgets={false}
+				/>
 			{:else if setting.fieldType == 'license_key'}
 				{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 				<div class="flex gap-2">
@@ -223,7 +232,7 @@
 							sendUserToast('Valid key')
 						}}
 					>
-						Test Key
+						Test key
 					</Button>
 				</div>
 				<div class="mt-1 flex flex-col gap-1 items-start">
@@ -342,7 +351,7 @@
 								dispatch('closeDrawer')
 							}}
 						>
-							Show Critical Alerts
+							Show critical alerts
 						</Button>
 					</div>
 				</div>
@@ -443,7 +452,7 @@
 								}
 							}}
 						>
-							Test Channels
+							Test channels
 						</Button>
 					</div>
 				</div>

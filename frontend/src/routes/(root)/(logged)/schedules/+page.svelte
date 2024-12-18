@@ -384,10 +384,10 @@
 								<Button
 									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 									size="xs"
-									startIcon={{ icon: Pen }}
+									startIcon={{ icon: canWrite ? Pen : Eye }}
 									color="dark"
 								>
-									Edit
+									{canWrite ? 'Edit' : 'View'}
 								</Button>
 								<Dropdown
 									items={[
@@ -412,9 +412,8 @@
 											}
 										},
 										{
-											displayName: 'Edit',
-											icon: Pen,
-											disabled: !canWrite,
+											displayName: canWrite ? 'Edit' : 'View',
+											icon: canWrite ? Pen : Eye,
 											action: () => {
 												scheduleEditor?.openEdit(path, is_flow)
 											}

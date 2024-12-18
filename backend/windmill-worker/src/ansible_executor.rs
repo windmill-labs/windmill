@@ -2,7 +2,7 @@
 use std::{
     collections::HashMap,
     os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Stdio,
 };
 
@@ -29,8 +29,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     bash_executor::BIN_BASH,
     common::{
-        get_reserved_variables, read_and_check_result, start_child_process, transform_json,
-        OccupancyMetrics,
+        check_executor_binary_exists, get_reserved_variables, read_and_check_result, start_child_process, transform_json, OccupancyMetrics
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
@@ -50,7 +49,7 @@ const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansi
 
 async fn handle_ansible_python_deps(
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     ansible_reqs: Option<&AnsibleRequirements>,
     w_id: &str,
     job_id: &Uuid,
@@ -71,16 +70,15 @@ async fn handle_ansible_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
+    let mut requirements;
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let requirements = ansible_reqs
+            requirements = ansible_reqs
                 .map(|x| x.python_reqs.join("\n"))
                 .unwrap_or("".to_string());
-            if requirements.is_empty() {
-                "".to_string()
-            } else {
-                uv_pip_compile(
+            if !requirements.is_empty() {
+                requirements = uv_pip_compile(
                     job_id,
                     &requirements,
                     mem_peak,
@@ -97,8 +95,9 @@ async fn handle_ansible_python_deps(
                 .await
                 .map_err(|e| {
                     error::Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
-                })?
+                })?;
             }
+            &requirements
         }
     };
 
@@ -186,26 +185,8 @@ async fn install_galaxy_collections(
     Ok(())
 }
 
-#[cfg(not(feature = "enterprise"))]
-fn check_ansible_exists() -> Result<(), error::Error> {
-    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
-        return Err(error::Error::NotFound(msg));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-fn check_ansible_exists() -> Result<(), error::Error> {
-    if !Path::new(ANSIBLE_PLAYBOOK_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find ansible-playbook at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run Ansible jobs.", ANSIBLE_PLAYBOOK_PATH.as_str());
-        return Err(error::Error::NotFound(msg));
-    }
-    Ok(())
-}
-
 pub async fn handle_ansible_job(
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
@@ -220,7 +201,7 @@ pub async fn handle_ansible_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    check_ansible_exists()?;
+    check_executor_binary_exists("ansible-playbook", ANSIBLE_PLAYBOOK_PATH.as_str(), "ansible")?;
 
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, db).await;

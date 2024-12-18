@@ -14,21 +14,22 @@ export interface Setting {
 		value?: any,
 	}[],
 	fieldType:
-	| 'text'
-	| 'number'
-	| 'boolean'
-	| 'password'
-	| 'select'
-	| 'textarea'
-	| 'seconds'
-	| 'email'
-	| 'license_key'
-	| 'object_store_config'
-	| 'critical_error_channels'
-	| 'slack_connect'
-	| 'smtp_connect'
-	| 'indexer_rates'
-	| 'otel'
+		| 'text'
+		| 'number'
+		| 'boolean'
+		| 'password'
+		| 'select'
+		| 'textarea'
+		| 'codearea'
+		| 'seconds'
+		| 'email'
+		| 'license_key'
+		| 'object_store_config'
+		| 'critical_error_channels'
+		| 'slack_connect'
+		| 'smtp_connect'
+		| 'indexer_rates'
+		| 'otel'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -40,6 +41,7 @@ export interface Setting {
 	isValid?: (value: any) => boolean
 	error?: string
 	defaultValue?: () => any
+	codeAreaLang?: string,
 }
 
 export type SettingStorage = 'setting'
@@ -254,7 +256,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 		},
 		{
-			label: 'Pip Index Url',
+			label: 'Pip index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
 			fieldType: 'text',
@@ -263,7 +265,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Pip Extra Index Url',
+			label: 'Pip extra index url',
 			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
@@ -272,7 +274,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Npm Config Registry',
+			label: 'Npm config registry',
 			description: 'Add private npm registry',
 			key: 'npm_config_registry',
 			fieldType: 'text',
@@ -281,12 +283,22 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Bunfig Install Scopes',
+			label: 'Bunfig install scopes',
 			description:
 				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
 			key: 'bunfig_install_scopes',
 			fieldType: 'text',
 			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Nuget Config',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials',
+			key: 'nuget_config',
+			fieldType: 'codearea',
+			codeAreaLang: 'xml',
 			storage: 'setting',
 			ee_only: ''
 		}

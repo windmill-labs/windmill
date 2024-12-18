@@ -281,6 +281,7 @@
 			Array.isArray(json) &&
 			json.length > 0 &&
 			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
 			json[0].every((item) => typeof item === 'string') &&
 			json
 				.slice(1)
@@ -339,6 +340,7 @@
 			if (
 				input.length > 1 &&
 				Array.isArray(input[0]) &&
+				input[0].length > 0 &&
 				input[0].every((item) => typeof item === 'string')
 			) {
 				const headers = input[0]

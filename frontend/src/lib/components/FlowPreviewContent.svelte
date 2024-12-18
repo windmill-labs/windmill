@@ -36,8 +36,16 @@
 		runPreview($previewArgs, undefined)
 	}
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath, customUi } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		selectedId,
+		previewArgs,
+		flowStateStore,
+		flowStore,
+		pathStore,
+		initialPath,
+		customUi,
+		executionCount
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
@@ -283,7 +291,7 @@
 					variant="border"
 					on:click={() => {
 						inputLibraryDrawer?.openDrawer()
-					}}>Past Runs/Input library</Button
+					}}>Past runs/Input library</Button
 				>
 			{/if}
 
@@ -330,6 +338,10 @@
 					wideResults
 					{flowStateStore}
 					{jobId}
+					on:done={() => {
+						console.log('done')
+						$executionCount = $executionCount + 1
+					}}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}

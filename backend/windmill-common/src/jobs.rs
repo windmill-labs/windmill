@@ -45,6 +45,15 @@ pub enum JobKind {
     AppScript,
 }
 
+impl JobKind {
+    pub fn is_flow(&self) -> bool {
+        matches!(
+            self,
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
+        )
+    }
+}
+
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
 pub struct QueuedJob {
     pub workspace_id: String,
@@ -116,10 +125,7 @@ impl QueuedJob {
             .unwrap_or("tmp/main")
     }
     pub fn is_flow(&self) -> bool {
-        matches!(
-            self.job_kind,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
-        )
+        self.job_kind.is_flow()
     }
 
     pub fn full_path_with_workspace(&self) -> String {
@@ -275,10 +281,11 @@ pub enum JobPayload {
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
+        path: String,
     },
     FlowNode {
         id: FlowNodeId, // flow_node(id).
-        path: String, // flow node inner path (e.g. `outer/branchall-42`).
+        path: String,   // flow node inner path (e.g. `outer/branchall-42`).
     },
     AppScript {
         id: AppScriptId, // app_script(id).

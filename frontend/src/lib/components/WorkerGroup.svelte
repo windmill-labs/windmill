@@ -121,7 +121,8 @@
 		'bun',
 		'php',
 		'rust',
-		'ansible'
+		'ansible',
+		'csharp'
 	]
 	const nativeTags = [
 		'nativets',
@@ -593,7 +594,7 @@
 								dirty = true
 							}}
 						>
-							Add Additional Python Path
+							Add additional Python path
 						</Button>
 					</div>
 				{/if}
@@ -725,7 +726,7 @@
 								dirty = true
 							}}
 						>
-							Add Environment Variable
+							Add environment variable
 						</Button>
 					</div>
 				{/if}

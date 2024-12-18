@@ -13,40 +13,58 @@ on:
       - "backend/**"
       - ".github/workflows/backend-test.yml"
 
+defaults:
+  run:
+    working-directory: ./backend
+
 jobs:
   cargo_test:
     runs-on: ubicloud-standard-8
-    container:
-      image: ghcr.io/windmill-labs/backend-tests
     services:
       postgres:
         image: postgres
+        ports:
+          - 5432:5432
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
-
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-go@v2
+        with:
+          go-version: 1.21.5
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.11
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.1.38
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.4.18"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: 1.80.0
-      # - uses: Swatinem/rust-cache@v2
-      #   with:
-      #     workspaces: |
-      #       backend
-      #       backend -> target
+          cache-workspaces: backend
+          toolchain: 1.82.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
       - name: cargo test
-        timeout-minutes: 15
+        timeout-minutes: 16
         run:
-          /usr/bin/deno --version &&
-          /usr/bin/bun -v &&
-          go version &&
-          /usr/local/bin/python3 --version &&
-          mkdir frontend/build && cd backend && touch
-          windmill-api/openapi-deref.yaml &&
-          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info cargo test --features
-          enterprise,deno_core --all -- --nocapture
+          deno --version && bun -v && go version && python3 --version &&
+          SQLX_OFFLINE=true
+          DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
+          DISABLE_EMBEDDING=true RUST_LOG=info PYTHON_PATH=$(which python)
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
+          UV_PATH=$(which uv) cargo test --features
+          enterprise,deno_core,license,python,rust --all -- --nocapture

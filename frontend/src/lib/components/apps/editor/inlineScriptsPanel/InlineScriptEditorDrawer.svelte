@@ -40,7 +40,7 @@
 			/>
 		{/if}
 		<svelte:fragment slot="actions">
-			<Button size="xs" startIcon={{ icon: Save }} disabled>Automatically Synced</Button>
+			<Button size="xs" startIcon={{ icon: Save }} disabled>Automatically synced</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
