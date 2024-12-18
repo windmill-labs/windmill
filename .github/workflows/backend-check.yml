@@ -1,0 +1,116 @@
+name: Backend check
+on:
+  push:
+
+defaults:
+  run:
+    working-directory: ./backend
+
+
+jobs:
+  check_oss:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.80.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: cargo test
+        timeout-minutes: 16
+        run: SQLX_OFFLINE=true cargo test
+
+  check_oss_full:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.80.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: cargo test
+        timeout-minutes: 16
+        run: SQLX_OFFLINE=true cargo test --all-features
+
+  check_ee:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+
+      - name: Substitute EE code (EE logic is behind feature flag)
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.80.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: cargo test
+        timeout-minutes: 16
+        run: SQLX_OFFLINE=true cargo test
+
+  check_ee_full:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+      - name: Substitute EE code (EE logic is behind feature flag)
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.80.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: cargo test
+        timeout-minutes: 16
+        run: SQLX_OFFLINE=true cargo test --all-features
+
+ 
