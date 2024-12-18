@@ -171,7 +171,6 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> 
     return Ok(nimports);
 }
 
-#[async_recursion]
 pub async fn parse_python_imports(
     code: &str,
     w_id: &str,
@@ -179,6 +178,28 @@ pub async fn parse_python_imports(
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
     annotated_pyv: &mut Option<u32>,
+) -> error::Result<Vec<String>> {
+    parse_python_imports_inner(
+        code,
+        w_id,
+        path,
+        db,
+        already_visited,
+        annotated_pyv,
+        &mut annotated_pyv.and_then(|_| Some(path.to_owned())),
+    )
+    .await
+}
+
+#[async_recursion]
+async fn parse_python_imports_inner(
+    code: &str,
+    w_id: &str,
+    path: &str,
+    db: &Pool<Postgres>,
+    already_visited: &mut Vec<String>,
+    annotated_pyv: &mut Option<u32>,
+    path_where_annotated_pyv: &mut Option<String>,
 ) -> error::Result<Vec<String>> {
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
 
@@ -196,15 +217,20 @@ pub async fn parse_python_imports(
     // This way we make sure there is no multiple annotations for same script
     // and we get detailed span on conflicting versions
 
-    let mut check = |py_xyz, numeric| -> error::Result<()> {
-        if py_xyz {
+    let mut check = |is_py_xyz, numeric| -> error::Result<()> {
+        if is_py_xyz {
             if let Some(v) = annotated_pyv {
                 if *v != numeric {
-                    return Err(error::Error::from(anyhow::anyhow!("No-no")));
+                    return Err(error::Error::from(anyhow::anyhow!(
+                        "Annotated 2 or more different python versions: \n - py{v} at {}\n - py{numeric} at {path}\nIt is possible to use only one.",
+                        path_where_annotated_pyv.clone().unwrap_or("Unknown".to_owned())
+                    )));
                 }
             } else {
                 *annotated_pyv = Some(numeric);
             }
+
+            *path_where_annotated_pyv = Some(path.to_owned());
         }
         Ok(())
     };
@@ -265,8 +291,16 @@ pub async fn parse_python_imports(
                     vec![]
                 } else {
                     already_visited.push(rpath.clone());
-                    parse_python_imports(&code, w_id, &rpath, db, already_visited, annotated_pyv)
-                        .await?
+                    parse_python_imports_inner(
+                        &code,
+                        w_id,
+                        &rpath,
+                        db,
+                        already_visited,
+                        annotated_pyv,
+                        path_where_annotated_pyv,
+                    )
+                    .await?
                 }
             } else {
                 vec![replace_import(n.to_string())]

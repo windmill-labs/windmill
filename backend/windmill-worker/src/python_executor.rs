@@ -210,6 +210,13 @@ impl PyVersion {
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
         version: &str,
     ) -> error::Result<()> {
+        append_logs(
+            job_id,
+            w_id,
+            format!("\n\n--- INSTALLING PYTHON ({}) ---\n", version),
+            db,
+        )
+        .await;
         // Create dirs for newly installed python
         // If we dont do this, NSJAIL will not be able to mount cache
         // For the default version directory created during startup (main.rs)
@@ -857,6 +864,24 @@ pub async fn handle_python_job(
 
     let PythonAnnotations { no_uv, no_postinstall, .. } = PythonAnnotations::parse(inner_content);
     tracing::debug!("Finished handling python dependencies");
+    let python_path = if no_uv {
+        PYTHON_PATH.clone()
+    } else if let Some(python_path) = py_version
+        .get_python(
+            job_dir,
+            &job.id,
+            mem_peak,
+            db,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+        )
+        .await?
+    {
+        python_path
+    } else {
+        PYTHON_PATH.clone()
+    };
 
     if !no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, db).await {
@@ -1057,25 +1082,6 @@ mount {{
         "started python code execution {}",
         job.id
     );
-
-    let python_path = if no_uv {
-        PYTHON_PATH.clone()
-    } else if let Some(python_path) = py_version
-        .get_python(
-            job_dir,
-            &job.id,
-            mem_peak,
-            db,
-            worker_name,
-            &job.workspace_id,
-            &mut Some(occupancy_metrics),
-        )
-        .await?
-    {
-        python_path
-    } else {
-        PYTHON_PATH.clone()
-    };
 
     let child = if !*DISABLE_NSJAIL {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
