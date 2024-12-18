@@ -3089,9 +3089,19 @@ async fn compute_next_flow_transform(
             concurrency_time_window_s,
             ..
         } => {
+            let path = if status
+                .preprocessor_module
+                .as_ref()
+                .is_some_and(|x| x.id() == module.id)
+            {
+                format!("{}/preprocessor", flow_job.script_path())
+            } else {
+                format!("{}/step-{}", flow_job.script_path(), status.step)
+            };
             let payload = JobPayloadWithTag {
                 payload: JobPayload::FlowScript {
                     id,
+                    path: Some(path),
                     language,
                     custom_concurrency_key: custom_concurrency_key.clone(),
                     concurrent_limit,
@@ -3693,6 +3703,7 @@ async fn payload_from_simple_module(
         } => JobPayloadWithTag {
             payload: JobPayload::FlowScript {
                 id,
+                path: inner_path,
                 language,
                 custom_concurrency_key,
                 concurrent_limit,

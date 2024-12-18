@@ -2845,7 +2845,8 @@ pub async fn push<'c, 'd>(
             )
         }
         JobPayload::FlowScript {
-            id, // flow_node(id).
+            id,   // flow_node(id).
+            path, // flow step path.
             language,
             custom_concurrency_key,
             concurrent_limit,
@@ -2854,7 +2855,7 @@ pub async fn push<'c, 'd>(
             dedicated_worker,
         } => (
             Some(id.0),
-            None,
+            path,
             None,
             JobKind::FlowScript,
             None,

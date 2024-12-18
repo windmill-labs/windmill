@@ -274,7 +274,8 @@ pub enum JobPayload {
         apply_preprocessor: bool,
     },
     FlowScript {
-        id: FlowNodeId, // flow_node(id).
+        id: FlowNodeId,       // flow_node(id).
+        path: Option<String>, // flow step path.
         language: ScriptLang,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
