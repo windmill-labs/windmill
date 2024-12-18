@@ -1,9 +1,13 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { Plus } from 'lucide-svelte'
+	import { Clipboard, Info, Trash2, Plus } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import { copyToClipboard } from '$lib/utils'
 	import Button from '../common/button/Button.svelte'
+	import CustomPopover from '../CustomPopover.svelte'
+	import { convert } from '@redocly/json-to-json-schema'
+	import SchemaViewer from '../SchemaViewer.svelte'
 	import { isObject } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { type TriggerKind } from '../triggers'
@@ -13,7 +17,6 @@
 	import type { Capture } from '$lib/gen'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import { twMerge } from 'tailwind-merge'
-	import SchemaPicker from '../schema/SchemaPicker.svelte'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -79,7 +82,6 @@
 			path
 		})
 	}
-
 	refreshCaptures()
 
 	$: if (shouldRefreshCaptures) {
@@ -142,26 +144,109 @@
 									...triggerExtra
 							  }
 							: payload}
-					<SchemaPicker
-						date={capture.created_at}
-						{payloadData}
-						{testKind}
-						{isFlow}
-						{canEdit}
-						deleteLoading={deleteLoading === capture.id}
-						{hasPreprocessor}
-						on:updateSchema={(e) => {
-							dispatch('updateSchema', {
-								schema: payloadData,
-								redirect: true
-							})
-						}}
-						on:applyArgs
-						on:delete={() => {
-							deleteCapture(capture.id)
-						}}
-						on:addPreprocessor
-					/>
+					{@const schema =
+						isFlow && testKind === 'main'
+							? { required: [], properties: {}, ...convert(payloadData) }
+							: {}}
+					<div class="flex flex-row gap-1">
+						<div class="text-xs border p-2 rounded-md overflow-auto grow whitespace-nowrap">
+							{JSON.stringify(payloadData)}
+						</div>
+						<Button
+							size="xs2"
+							color="light"
+							variant="border"
+							on:click={() => {
+								copyToClipboard(JSON.stringify(payloadData))
+							}}
+							iconOnly
+							startIcon={{ icon: Clipboard }}
+						/>
+
+						{#if isFlow && testKind === 'main'}
+							<CustomPopover>
+								<Button
+									size="xs"
+									color="light"
+									variant="border"
+									on:click={() => {
+										dispatch('updateSchema', { schema, redirect: true })
+									}}
+									wrapperClasses="h-full"
+								>
+									Apply schema
+								</Button>
+
+								<svelte:fragment slot="overlay">
+									{#if schema}
+										<div class="min-w-[400px]">
+											<SchemaViewer {schema} />
+										</div>
+									{/if}
+								</svelte:fragment>
+							</CustomPopover>
+						{/if}
+
+						{#if testKind === 'preprocessor' && !hasPreprocessor}
+							<CustomPopover noPadding>
+								<Button
+									size="xs"
+									color="dark"
+									disabled
+									endIcon={{
+										icon: Info
+									}}
+									wrapperClasses="h-full"
+								>
+									Apply args
+								</Button>
+								<svelte:fragment slot="overlay">
+									<div class="text-sm p-2 flex flex-col gap-1 items-start">
+										<p> You need to add a preprocessor to use preprocessor captures as args </p>
+										<Button
+											size="xs"
+											color="dark"
+											on:click={() => {
+												dispatch('addPreprocessor')
+											}}
+										>
+											Add preprocessor
+										</Button>
+									</div>
+								</svelte:fragment>
+							</CustomPopover>
+						{:else}
+							<Button
+								size="xs"
+								color="dark"
+								on:click={() => {
+									if (isFlow && testKind === 'main') {
+										dispatch('updateSchema', { schema, redirect: false })
+									}
+									dispatch('applyArgs', {
+										kind: testKind,
+										args: payloadData
+									})
+								}}
+								disabled={testKind === 'preprocessor' && !hasPreprocessor}
+							>
+								{isFlow && testKind === 'main' ? 'Apply schema and args' : 'Apply args'}
+							</Button>
+						{/if}
+
+						{#if canEdit}
+							<Button
+								size="xs2"
+								color="red"
+								iconOnly
+								startIcon={{ icon: Trash2 }}
+								loading={deleteLoading === capture.id}
+								on:click={() => {
+									deleteCapture(capture.id)
+								}}
+							/>
+						{/if}
+					</div>
 				{/each}
 			{/if}
 		</div>
