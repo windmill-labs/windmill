@@ -305,6 +305,7 @@ pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
 const VACUUM_PERIOD: u32 = 50000;
 
+#[cfg(any(target_os = "linux"))]
 const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
@@ -855,7 +856,7 @@ pub async fn run_worker(
     };
 
     #[cfg(feature = "prometheus")]
-    let worker_save_completed_job_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
+    let _worker_save_completed_job_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
         && METRICS_ENABLED.load(Ordering::Relaxed)
     {
         Some(Arc::new(
@@ -1090,7 +1091,7 @@ pub async fn run_worker(
     }
 
     #[cfg(feature = "prometheus")]
-    let worker_dedicated_channel_queue_send_duration = {
+    let _worker_dedicated_channel_queue_send_duration = {
         if is_dedicated_worker
             && METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
             && METRICS_ENABLED.load(Ordering::Relaxed)
@@ -1897,7 +1898,7 @@ async fn handle_queued_job(
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
-    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
+    #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
 

@@ -34,8 +34,10 @@ use windmill_common::DB;
 #[cfg(feature = "enterprise")]
 use windmill_common::job_metrics;
 
+#[cfg(target_os = "linux")]
+use tokio::io::AsyncWriteExt;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
     process::Child,
     sync::{broadcast, watch},
     time::{interval, sleep, Instant, MissedTickBehavior},

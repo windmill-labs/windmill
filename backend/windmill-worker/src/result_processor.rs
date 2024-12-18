@@ -30,9 +30,6 @@ use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{append_logs, get_queued_job, CanceledBy, WrappedError};
 
-#[cfg(feature = "prometheus")]
-use windmill_queue::register_metric;
-
 use serde_json::{json, value::RawValue};
 
 use tokio::{

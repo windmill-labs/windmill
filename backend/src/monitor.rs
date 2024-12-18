@@ -344,6 +344,7 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 #[derive(Debug, Clone)]
 pub struct MallctlError {
+    #[allow(unused)]
     pub code: i32,
 }
 
