@@ -10,7 +10,6 @@
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
-	export let isFlow = false
 
 	const dispatch = createEventDispatcher()
 
@@ -113,7 +112,7 @@
 				<div class="text-left text-tertiary text-xs">Loading current runs...</div>
 			{:else if jobs?.length > 0}
 				{#each jobs as job (job.id)}
-					<JobSchemaPicker {job} {isFlow} on:updateSchema on:applyArgs />
+					<JobSchemaPicker {job} on:updateSchema on:applyArgs />
 				{/each}
 				{#if jobs?.length == 5}
 					<div class="text-left text-tertiary text-xs"
@@ -130,7 +129,6 @@
 				{#each previousInputs as job (job.id)}
 					<JobSchemaPicker
 						{job}
-						{isFlow}
 						selected={selected === job.id}
 						on:select={(e) => handleSelected(e.detail)}
 					/>

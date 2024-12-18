@@ -13,7 +13,7 @@
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 	import HistoricInpts from '$lib/components/HistoricInpts.svelte'
 	import SavedInputsPickerV2 from '$lib/components/SavedInputsPickerV2.svelte'
-	import { CornerDownLeft, Pen, X, ChevronDown } from 'lucide-svelte'
+	import { CornerDownLeft, Pen, X, ChevronDown, Plus } from 'lucide-svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
@@ -21,6 +21,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
+	import { tick } from 'svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -79,7 +80,7 @@
 
 	let editSchema = false
 	function handleEditSchema(edit?: boolean) {
-		if (edit) {
+		if (edit !== undefined) {
 			editSchema = edit
 		} else {
 			editSchema = !editSchema
@@ -114,7 +115,11 @@
 		}
 	}
 
-	$: runDisabled = editSchema
+	async function updateRunDisabled(editSchema: boolean) {
+		await tick()
+		runDisabled = editSchema
+	}
+	$: updateRunDisabled(editSchema)
 
 	let selectedTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' = 'inputEditor'
 
@@ -131,12 +136,14 @@
 	$: updatePreviewSchema(payloadData)
 
 	function applySchemaAndArgs() {
-		if (!payloadData) return
-		$flowStore.schema = schemaFromPayload(payloadData)
-		$previewArgs = payloadData
+		if (!payloadData) {
+			return
+		}
+		$flowStore.schema = previewSchema
+		$previewArgs = previewArguments
+		previousArgs = previewArguments
+		payloadData = undefined
 		editSchema = false
-		previewSchema = undefined
-		previewArguments = undefined
 	}
 
 	function applySchema() {
@@ -236,15 +243,32 @@
 					</div>
 				</svelte:fragment>
 				<svelte:fragment slot="addProperty">
-					<div class="w-full flex justify-center">
+					{#if previewSchema && previewArguments}
+						<div
+							class={twMerge(
+								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs py-2 w-full flex justify-center rounded-md',
+								'text-blue-700 dark:text-blue-100'
+							)}
+						>
+							<span> Preview only, apply to confirm</span>
+						</div>
+					{:else}
 						<AddPropertyV2
 							bind:schema={$flowStore.schema}
 							bind:this={addProperty}
 							on:change={() => {
 								$flowStore = $flowStore
 							}}
-						/>
-					</div>
+						>
+							<svelte:fragment slot="trigger">
+								<div
+									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+								>
+									<Plus size={14} />
+								</div>
+							</svelte:fragment>
+						</AddPropertyV2>
+					{/if}
 				</svelte:fragment>
 				<svelte:fragment slot="extraTab">
 					{#if selectedTab === 'history'}
@@ -258,7 +282,6 @@
 								scriptHash={null}
 								scriptPath={null}
 								flowPath={initialPath}
-								isFlow={true}
 								on:select={(e) => {
 									payloadData = e.detail
 								}}
@@ -314,7 +337,6 @@
 				<svelte:fragment slot="runButton">
 					<div class="w-full flex justify-end pr-5">
 						<Button
-							loading={false}
 							color="dark"
 							btnClasses="w-fit"
 							disabled={runDisabled}
@@ -336,26 +358,3 @@
 		</div>
 	{/if}
 </FlowCard>
-
-<!-- <Drawer bind:this={inputLibraryDrawer}>
-	<DrawerContent title="Input library {initialPath}" on:close={inputLibraryDrawer?.toggleDrawer}>
-		<SavedInputs
-			flowPath={initialPath}
-			isValid={true}
-			args={$previewArgs}
-			canSaveInputs={false}
-			on:selected_args={(e) => {
-				const parsed = JSON.parse(JSON.stringify(e.detail))
-
-				if (!parsed) {
-					sendUserToast('Invalid JSON', true)
-					return
-				}
-
-				$flowStore.schema = { required: [], properties: {}, ...convert(parsed) }
-				inputLibraryDrawer?.closeDrawer()
-			}}
-		/>
-	</DrawerContent>
-</Drawer>
- -->

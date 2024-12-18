@@ -6,12 +6,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Webhook, Route, Unplug, Mail } from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 
 	const dispatch = createEventDispatcher()
 
 	export let testKind: 'main' | 'preprocessor' = 'main'
-	export let hasPreprocessor = false
 	export let isFlow = false
 	export let flowPath: string | null = null
 	export let scriptHash: string | null = null
@@ -48,6 +47,11 @@
 			dispatch('select', capture.payload)
 		}
 	}
+
+	onDestroy(() => {
+		selected = undefined
+		dispatch('select', undefined)
+	})
 </script>
 
 <div class="flex flex-col gap-1 grow overflow-y-auto">
@@ -68,12 +72,6 @@
 			<SchemaPicker
 				date={capture.created_at}
 				{payloadData}
-				{testKind}
-				{isFlow}
-				canEdit={false}
-				deleteLoading={false}
-				{hasPreprocessor}
-				allowApplyArgs={false}
 				on:updateSchema
 				on:applyArgs
 				on:addPreprocessor

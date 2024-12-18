@@ -167,4 +167,8 @@
 			sendUserToast(`Could not add argument: ${err}`, true)
 		}
 	}}
-/>
+>
+	<svelte:fragment slot="trigger">
+		<slot name="trigger" />
+	</svelte:fragment>
+</AddPropertyFormV2>

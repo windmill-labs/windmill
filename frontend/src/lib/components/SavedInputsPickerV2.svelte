@@ -2,9 +2,8 @@
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
-
 	import { classNames, sendUserToast } from '$lib/utils.js'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { Edit, X } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
@@ -131,6 +130,12 @@
 			dispatch('select', selectedArgs)
 		}
 	}
+
+	onDestroy(() => {
+		selectedInput = null
+		selectedArgs = undefined
+		dispatch('select', undefined)
+	})
 </script>
 
 <div class="w-full flex flex-col gap-1 h-full overflow-y-auto p">

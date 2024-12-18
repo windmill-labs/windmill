@@ -8,7 +8,6 @@
 	import { base } from '$lib/base'
 
 	export let job: any
-	export let isFlow = false
 	export let selected = false
 	export let payloadData: any | undefined = undefined
 	const dispatch = createEventDispatcher()
@@ -39,17 +38,11 @@
 	{:else}
 		<SchemaPicker
 			{payloadData}
-			testKind={'main'}
-			{isFlow}
-			canEdit={false}
-			deleteLoading={false}
-			hasPreprocessor={false}
 			on:updateSchema
 			on:applyArgs={async () => {
 				dispatch('selected_args', payloadData)
 			}}
 			on:select={() => dispatch('select', { jobId: job.id, payloadData })}
-			allowApplyArgs={false}
 			date={job.created_at}
 			{selected}
 		>

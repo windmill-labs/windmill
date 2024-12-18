@@ -22,7 +22,7 @@
 	$: sync.open(open, (v) => (open = v))
 </script>
 
-<button type="button" use:melt={$trigger} aria-label="Popup button">
+<button class="w-full h-full" type="button" use:melt={$trigger} aria-label="Popup button">
 	<slot name="trigger" />
 </button>
 

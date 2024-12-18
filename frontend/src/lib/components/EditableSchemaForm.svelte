@@ -236,10 +236,7 @@
 			<Pane bind:size={inputPanelSize} minSize={20}>
 				<div class="flex flex-col">
 					<div class="w-full justify-left pr-2">
-						<div
-							class="center-center rounded-md border border-dashed"
-							style={`width: calc(100% - ${pannelButtonWidth}px);`}
-						>
+						<div style={`width: calc(100% - ${pannelButtonWidth}px);`}>
 							<slot name="addProperty" />
 						</div>
 					</div>
