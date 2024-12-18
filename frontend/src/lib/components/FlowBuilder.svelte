@@ -107,7 +107,7 @@
 	export let disabledFlowInputs = false
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let version: number | undefined = undefined
-	export let setSavedraftCb:  ((cb: () => void) => void) | undefined = undefined
+	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = undefined // Value to diff against
@@ -528,7 +528,8 @@
 		initialPath,
 		flowInputsStore: writable<FlowInput>({}),
 		customUi,
-		insertButtonOpen
+		insertButtonOpen,
+		executionCount: writable(0)
 	})
 
 	setContext<TriggerContext>('TriggerContext', {

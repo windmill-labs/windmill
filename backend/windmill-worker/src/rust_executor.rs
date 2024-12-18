@@ -279,7 +279,7 @@ pub async fn handle_rust_job(
     client: &AuthedClientBackgroundTask,
     inner_content: &str,
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
@@ -288,7 +288,7 @@ pub async fn handle_rust_job(
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let hash = compute_rust_hash(inner_content, requirements_o.as_ref());
+    let hash = compute_rust_hash(inner_content, requirements_o);
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 

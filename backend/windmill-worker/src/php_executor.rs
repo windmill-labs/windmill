@@ -132,7 +132,7 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_php_job(
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
