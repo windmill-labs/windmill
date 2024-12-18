@@ -869,7 +869,7 @@ export async function requestInteractiveSlackApproval({
 
   if (!flowJobId) {
     throw new Error(
-      "You can't use this function in a standalon script or flow step preview. Please us it in a flow or a flow preview."
+      "You can't use this function in a standalone script or flow step preview. Please us it in a flow or a flow preview."
     );
   }
 

@@ -99,6 +99,10 @@ pub async fn slack_app_callback_handler(
     tracing::debug!("Form data: {:#?}", form_data);
     let payload: Payload = serde_json::from_str(&form_data.payload)?;
 
+    if payload.actions.is_empty() {
+        return Err(Error::BadRequest("No actions found in payload.".to_string()));
+    }
+
     let action_value = payload.actions[0].value.clone();
     let response_url = payload.response_url.clone();
 
@@ -126,13 +130,21 @@ pub async fn slack_app_callback_handler(
     tracing::debug!("W ID: {}, Action: {}, Job ID: {}, Resume ID: {}, Secret: {}, Approver: {:?}, State JSON: {:?}", 
         w_id, action, job_id, resume_id, secret, approver.approver, state_json);
 
+    let job_uuid = Uuid::from_str(job_id).map_err(|_| {
+        Error::BadRequest("Invalid job ID format.".to_string())
+    })?;
+
+    let resume_id_parsed = resume_id.parse::<u32>().map_err(|_| {
+        Error::BadRequest("Invalid resume ID format.".to_string())
+    })?;
+
     let res = resume_suspended_job(
         authed,
         Extension(db),
         Path((
             w_id.to_string(),
-            Uuid::from_str(job_id).unwrap_or_default(),
-            resume_id.parse::<u32>().unwrap_or_default(),
+            job_uuid,
+            resume_id_parsed,
             secret.to_string(),
         )),
         Query(approver),
