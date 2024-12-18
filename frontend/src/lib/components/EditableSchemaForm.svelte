@@ -34,7 +34,7 @@
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
-	export let offset = undefined
+	export let offset: number | undefined = undefined
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
 	export let lightweightMode: boolean = false

@@ -17,7 +17,6 @@
 		isSaving?: boolean
 	}
 
-	let previousInputs: Input[] | undefined = undefined
 	let savedInputs: EditableInput[] | undefined = undefined
 	let selectedInput: EditableInput | null
 	const dispatch = createEventDispatcher()
@@ -32,23 +31,6 @@
 		: flowPath
 		? 'FlowPath'
 		: undefined
-
-	let hasAlreadyFailed = false
-	async function loadInputHistory() {
-		try {
-			previousInputs = await InputService.getInputHistory({
-				workspace: $workspaceStore!,
-				runnableId,
-				runnableType,
-				perPage: 10
-			})
-		} catch (e) {
-			console.error(e)
-			if (hasAlreadyFailed) return
-			hasAlreadyFailed = true
-			sendUserToast(`Failed to load input history: ${e}`, true)
-		}
-	}
 
 	async function loadSavedInputs() {
 		savedInputs = await InputService.listInputs({
@@ -97,7 +79,6 @@
 
 	$: {
 		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
-			loadInputHistory()
 			loadSavedInputs()
 		}
 	}

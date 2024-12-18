@@ -13,13 +13,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	interface EditableInput extends Input {
-		isEditing?: boolean
-		isSaving?: boolean
-	}
-
 	let previousInputs: Input[] | undefined = undefined
-	let savedInputs: EditableInput[] | undefined = undefined
 	let jobs: Job[] = []
 	let loading: boolean = false
 
@@ -51,19 +45,9 @@
 		}
 	}
 
-	async function loadSavedInputs() {
-		savedInputs = await InputService.listInputs({
-			workspace: $workspaceStore!,
-			runnableId,
-			runnableType,
-			perPage: 10
-		})
-	}
-
 	$: {
 		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
 			loadInputHistory()
-			loadSavedInputs()
 		}
 	}
 
