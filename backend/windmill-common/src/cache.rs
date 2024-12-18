@@ -57,6 +57,11 @@ impl<Key: Eq + Hash + fs::Item, Val: Clone> FsBackedCache<Key, Val> {
         Key: Clone,
         F: Future<Output = error::Result<T>>,
     {
+        if cfg!(test) {
+            // Disable caching in tests: since `#[sqlx::test]` spawn a database per test, the cache
+            // could yield unexpected results.
+            return with.await.map(map);
+        }
         self.cache
             .get_or_insert_async(&key, async {
                 fs::import_or_insert_with(self.path(&key), with)
@@ -584,7 +589,7 @@ pub mod job {
         raw_flow: Option<Json<Box<RawValue>>>,
     ) -> impl Future<Output = error::Result<RawData>> + 'a {
         let loc = Location::caller();
-        PREVIEWS.get_or_insert_async(job, async move {
+        let fetch = async move {
             match (raw_lock, raw_code, raw_flow) {
                 (None, None, None) => sqlx::query!(
                     "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\" \
@@ -602,7 +607,13 @@ pub mod job {
                 Some(Json(flow)) => RawData::Flow(Arc::new(FlowData::from_raw(flow))),
                 _ => RawData::Script(Arc::new(ScriptData::from_raw(lock, code))),
             })
-        })
+        };
+        // Disable caching in tests: as `#[sqlx::test]` spawn a database per test, the cache
+        // could yield unexpected results.
+        #[cfg(test)]
+        return fetch;
+        #[cfg(not(test))]
+        PREVIEWS.get_or_insert_async(job, fetch)
     }
 
     #[track_caller]
