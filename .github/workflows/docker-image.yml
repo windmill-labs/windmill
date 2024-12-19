@@ -8,7 +8,7 @@ env:
 name: Build windmill:main
 on:
   push:
-    branches: [main, multipython]
+    branches: [main]
     tags: ["*"]
   pull_request:
     types: [opened, synchronize, reopened]
