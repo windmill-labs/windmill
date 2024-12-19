@@ -324,6 +324,7 @@ pub async fn get_active_capture_owner_and_email(
     Ok((capture_config.owner, capture_config.email))
 }
 
+#[cfg(feature = "http_trigger")]
 async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
     w_id: &str,
