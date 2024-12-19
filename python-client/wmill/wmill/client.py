@@ -16,6 +16,7 @@ import httpx
 
 from .s3_reader import S3BufferedReader, bytes_generator
 from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings, S3Object
+from slack_sdk import WebClient
 
 _client: "Windmill | None" = None
 
@@ -623,6 +624,48 @@ class Windmill:
             params={"approver": approver},
         ).json()
 
+    def request_interactive_slack_approval(
+        self,
+        slack_token: str,
+        channel: str,
+        message: str = None,
+        approver: str = None,
+    ) -> None:
+        """
+        Request interactive Slack approval
+        :param slack_token: Slack token
+        :param channel: Slack channel
+        :param message: Message to send to Slack
+        :param approver: Approver name
+        """
+        web = WebClient(slack_token)
+        nonce = random.randint(0, 4294967295)
+        workspace = self.workspace
+        flow_job_id = os.environ.get("WM_FLOW_JOB_ID")
+
+        if not flow_job_id:
+            raise Exception(
+                "You can't use 'request_interactive_slack_approval' function in a standalone script or flow step preview. Please use it in a flow or a flow preview."
+            )
+
+        # Only include non-empty parameters
+        params = {}
+        if message:
+            params["message"] = message
+        if approver:
+            params["approver"] = approver
+
+        blocks = self.get(
+            f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}/{nonce}",
+            params=params,
+        ).json()
+
+        web.chat_postMessage(
+            channel=channel,
+            text=message,
+            blocks=blocks,
+        )
+
     def username_to_email(self, username: str) -> str:
         """
         Get email from workspace username
@@ -972,6 +1015,19 @@ def get_state_path() -> str:
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
 
+@init_global_client
+def request_interactive_slack_approval(
+    slack_token: str,
+    channel: str,
+    message: str = None,
+    approver: str = None,
+) -> dict:
+    return _client.request_interactive_slack_approval(
+        slack_token, 
+        channel,
+        message,
+        approver,
+    )
 
 @init_global_client
 def cancel_running() -> dict:

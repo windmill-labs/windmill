@@ -2373,11 +2373,11 @@ fn create_signature(
 }
 
 #[allow(non_snake_case)]
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ResumeUrls {
-    approvalPage: String,
-    cancel: String,
-    resume: String,
+    pub approvalPage: String,
+    pub cancel: String,
+    pub resume: String,
 }
 
 fn build_resume_url(
@@ -5561,3 +5561,4 @@ async fn delete_completed_job<'a>(
     let response = Json(cj).into_response();
     Ok(response)
 }
+
