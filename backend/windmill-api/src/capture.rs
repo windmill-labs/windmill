@@ -24,10 +24,12 @@ use std::collections::HashMap;
 use std::fmt;
 use windmill_common::{
     db::UserDB,
-    error::{Error, JsonResult, Result},
+    error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
+#[cfg(feature = "http_trigger")]
+use windmill_common::error::Error;
 use windmill_queue::{PushArgs, PushArgsOwned};
 
 #[cfg(feature = "http_trigger")]
