@@ -8,7 +8,7 @@ env:
 name: Build windmill:main
 on:
   push:
-    branches: [main]
+    branches: [main, multipython]
     tags: ["*"]
   pull_request:
     types: [opened, synchronize, reopened]
@@ -454,6 +454,7 @@ jobs:
     runs-on: ubicloud
     if:
       (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch')
+
     steps:
       - uses: actions/checkout@v4
         with:
