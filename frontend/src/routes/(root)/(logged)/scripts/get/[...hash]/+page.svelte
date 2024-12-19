@@ -18,7 +18,13 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		databaseTrigger,
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { onDestroy } from 'svelte'
@@ -490,6 +496,7 @@
 
 	let token = 'TOKEN_TO_CREATE'
 	let rightPaneSelected = 'saved_inputs'
+
 </script>
 
 <MoveDrawer
@@ -587,6 +594,11 @@
 								{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
 							</Badge>
 						</div>
+					{/if}
+					{#if $databaseTrigger?.databaseTrigger}
+						<Button href="/	database_triggers">
+							Finish Trigger Inititalization
+						</Button>
 					{/if}
 				</DetailPageHeader>
 			</svelte:fragment>

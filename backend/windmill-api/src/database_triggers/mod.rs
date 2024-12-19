@@ -27,6 +27,7 @@ mod mapper;
 mod relation;
 mod replication_message;
 mod trigger;
+mod client;
 
 pub type SqlxJson<T> = sqlx::types::Json<T>;
 pub use trigger::start_database;

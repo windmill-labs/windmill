@@ -10,8 +10,6 @@ CREATE TABLE database_trigger(
     edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     extra_perms JSONB NULL,
     database_resource_path VARCHAR(255) NOT NULL,
-    transaction_to_track transaction ARRAY NOT NULL,
-    table_to_track JSONB NULL DEFAULT NULL,
     error TEXT NULL,
     server_id VARCHAR(50) NULL,
     last_server_ping TIMESTAMPTZ NULL,

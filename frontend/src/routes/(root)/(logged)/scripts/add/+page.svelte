@@ -2,7 +2,7 @@
 	import { type NewScript, ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
+	import { databaseTrigger, defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString } from '$lib/utils'
@@ -10,6 +10,7 @@
 	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import { onDestroy } from 'svelte'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -101,6 +102,12 @@
 		}
 	}
 	let savedScript: Script | undefined = undefined
+	let destroyDatabaseTrigger = true
+	onDestroy(() => {
+		if (destroyDatabaseTrigger === true) {
+			databaseTrigger.set(undefined)
+		}
+	})
 </script>
 
 <ScriptBuilder
@@ -109,6 +116,10 @@
 	lockedLanguage={templatePath != null || hubPath != null}
 	on:deploy={(e) => {
 		let newHash = e.detail
+		destroyDatabaseTrigger = false
+		if ($databaseTrigger?.databaseTrigger) {
+			$databaseTrigger.databaseTrigger.script_path = script.path
+		}
 		goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 	}}
 	on:saveInitial={(e) => {
