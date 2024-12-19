@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO capture_config\n            (workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)\n        ON CONFLICT (workspace_id, path, is_flow, trigger_kind)\n            DO UPDATE SET trigger_config = $5, owner = $6, email = $7, server_id = NULL, last_server_ping = NULL, error = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ef299490c4674c4c76e18d84620a74407b78378d66d8a089407998074059e79b"
+}
