@@ -12384,7 +12384,6 @@ components:
         - workspace_id
         - enabled
         - filters
-        - initial_messages
 
     NewWebsocketTrigger:
       type: object
@@ -12423,7 +12422,6 @@ components:
         - url
         - is_flow
         - filters
-        - initial_messages
 
     EditWebsocketTrigger:
       type: object
@@ -12460,7 +12458,6 @@ components:
         - url
         - is_flow
         - filters
-        - initial_messages
 
     WebsocketTriggerInitialMessage:
       anyOf:

@@ -58,7 +58,7 @@ struct NewWebsocketTrigger {
     is_flow: bool,
     enabled: Option<bool>,
     filters: Vec<Box<RawValue>>,
-    initial_messages: Vec<Box<RawValue>>,
+    initial_messages: Option<Vec<Box<RawValue>>>,
     url_runnable_args: Option<Box<RawValue>>,
 }
 
@@ -98,7 +98,7 @@ pub struct WebsocketTrigger {
     error: Option<String>,
     enabled: bool,
     filters: Vec<SqlxJson<Box<RawValue>>>,
-    initial_messages: Vec<SqlxJson<Box<RawValue>>>,
+    initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
     url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
 }
 
@@ -109,7 +109,7 @@ struct EditWebsocketTrigger {
     script_path: String,
     is_flow: bool,
     filters: Vec<Box<RawValue>>,
-    initial_messages: Vec<Box<RawValue>>,
+    initial_messages: Option<Vec<Box<RawValue>>>,
     url_runnable_args: Option<Box<RawValue>>,
 }
 
@@ -195,7 +195,12 @@ async fn create_websocket_trigger(
     let mut tx = user_db.begin(&authed).await?;
 
     let filters = ct.filters.into_iter().map(SqlxJson).collect_vec();
-    let initial_messages = ct.initial_messages.into_iter().map(SqlxJson).collect_vec();
+    let initial_messages = ct
+        .initial_messages
+        .unwrap_or_default()
+        .into_iter()
+        .map(SqlxJson)
+        .collect_vec();
     sqlx::query_as::<_, WebsocketTrigger>(
       "INSERT INTO websocket_trigger (workspace_id, path, url, script_path, is_flow, enabled, filters, initial_messages, url_runnable_args, edited_by, email, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()) RETURNING *",
     )
@@ -238,7 +243,12 @@ async fn update_websocket_trigger(
     let mut tx = user_db.begin(&authed).await?;
 
     let filters = ct.filters.into_iter().map(SqlxJson).collect_vec();
-    let initial_messages = ct.initial_messages.into_iter().map(SqlxJson).collect_vec();
+    let initial_messages = ct
+        .initial_messages
+        .unwrap_or_default()
+        .into_iter()
+        .map(SqlxJson)
+        .collect_vec();
 
     // important to update server_id, last_server_ping and error to NULL to stop current websocket listener
     sqlx::query!(
@@ -720,6 +730,8 @@ impl WebsocketTrigger {
     ) -> error::Result<()> {
         let initial_messages: Vec<InitialMessage> = self
             .initial_messages
+            .as_deref()
+            .unwrap_or_default()
             .iter()
             .filter_map(|m| serde_json::from_str(m.get()).ok())
             .collect_vec();
