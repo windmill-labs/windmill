@@ -79,7 +79,6 @@ use tokio::fs::symlink;
 use tokio::fs::symlink_file as symlink;
 
 use tokio::{
-    spawn,
     sync::{
         mpsc::{self, Sender},
         RwLock,
@@ -778,6 +777,7 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
+    #[cfg(feature = "python")]
     {
         let (db, worker_name, hostname, worker_dir) = (
             db.clone(),
@@ -785,7 +785,7 @@ pub async fn run_worker(
             hostname.to_owned(),
             worker_dir.clone(),
         );
-        spawn(async move {
+        tokio::spawn(async move {
             if let Err(e) = PyVersion::from_instance_version()
                 .await
                 .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
