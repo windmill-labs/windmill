@@ -20,8 +20,6 @@ use reqwest::Client;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
-#[cfg(feature = "benchmark")]
-use std::time::Instant;
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -121,7 +119,7 @@ const SCHEDULE_RECOVERY_HANDLER_USERNAME: &str = "schedule_recovery_handler";
 const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
-#[cfg(feature = "enterprise")]
+#[cfg(any(feature = "enterprise", feature = "cloud"))]
 const SCHEDULE_RECOVERY_HANDLER_USER_EMAIL: &str = "schedule_recovery_handler@windmill.dev";
 
 #[derive(Clone, Debug)]
@@ -2852,9 +2850,10 @@ pub async fn push<'c, 'd>(
             concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
+            path,
         } => (
             Some(id.0),
-            None,
+            Some(path),
             None,
             JobKind::FlowScript,
             None,
@@ -3191,35 +3190,34 @@ pub async fn push<'c, 'd>(
             )
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
+            let mut ntx = tx.into_tx().await?;
             // Fetch the latest version of the flow.
-            // Note that this query is performed within an isolated transaction to secure the
-            // API surface.
-            let version = fetch_scalar_isolated!(
-                sqlx::query_scalar!(
-                    "SELECT flow.versions[array_upper(flow.versions, 1)] AS \"version!: i64\"
-                    FROM flow WHERE path = $1 AND workspace_id = $2",
-                    &path,
-                    &workspace_id
-                ),
-                tx
-            )?
+            let version = sqlx::query_scalar!(
+                "SELECT flow.versions[array_upper(flow.versions, 1)] AS \"version!: i64\"
+                FROM flow WHERE path = $1 AND workspace_id = $2",
+                &path,
+                &workspace_id
+            )
+            .fetch_optional(&mut *ntx)
+            .await?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
 
             // Do not use the lite version unless all workers are updated.
-            // This does not need to be performed within the isolated Tx as checks had been
-            // performed before when the version was fetched.
             let data = if *DISABLE_FLOW_SCRIPT
                 || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)
             {
-                cache::flow::fetch_version(_db, version).await
+                cache::flow::fetch_version(&mut *ntx, version).await
             } else {
                 // Fallback to the original version if the lite version is not found.
                 // This also prevent a race condition where the flow is run just after deploy and
                 // the lite version is still being created.
-                cache::flow::fetch_version_lite(_db, version)
-                    .or_else(|_| cache::flow::fetch_version(_db, version))
-                    .await
+                match cache::flow::fetch_version_lite(&mut *ntx, version).await {
+                    Ok(data) => Ok(data),
+                    Err(_) => cache::flow::fetch_version(&mut *ntx, version).await,
+                }
             }?;
+            tx = PushIsolationLevel::Transaction(ntx);
+
             let value = data.value()?.clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
