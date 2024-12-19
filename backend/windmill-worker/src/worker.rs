@@ -798,6 +798,17 @@ pub async fn run_worker(
                     "Cannot preinstall or find Instance Python version to worker: {e}"//
                 );
             }
+            if let Err(e) = PyVersion::Py311
+                .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
+                .await
+            {
+                tracing::error!(
+                    worker = %worker_name,
+                    hostname = %hostname,
+                    worker_dir = %worker_dir,
+                    "Cannot preinstall or find default 311 version to worker: {e}"//
+                );
+            }
         });
     }
 

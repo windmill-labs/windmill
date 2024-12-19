@@ -111,10 +111,9 @@ mount {
     is_bind: true
 }
 
-#TODO: Make dynamic
 mount {
-    src: "/tmp/windmill/cache/py_runtime"
-    dst: "/tmp/windmill/cache/py_runtime"
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
     is_bind: true
 }
 

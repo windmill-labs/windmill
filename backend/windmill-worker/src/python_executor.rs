@@ -129,13 +129,6 @@ impl PyVersion {
     pub fn to_cache_dir_top_level(&self) -> String {
         format!("python_{}", self.to_string_no_dot())
     }
-    /// e.g.: `(to_cache_dir(), to_cache_dir_top_level())`
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    pub fn to_cache_dir_tuple(&self) -> (String, String) {
-        use windmill_common::worker::ROOT_CACHE_DIR;
-        let top_level = self.to_cache_dir_top_level();
-        (format!("{ROOT_CACHE_DIR}python_{}", &top_level), top_level)
-    }
     /// e.g.: `3xy`
     pub fn to_string_no_dot(&self) -> String {
         self.to_string_with_dot().replace('.', "")
@@ -157,6 +150,7 @@ impl PyVersion {
             "3.11" => Some(Py311),
             "3.12" => Some(Py312),
             "3.13" => Some(Py313),
+            "default" => Some(PyVersion::default()),
             _ => {
                 tracing::warn!(
                     "Cannot convert string (\"{value}\") to PyVersion\nExpected format x.yz"
@@ -172,6 +166,7 @@ impl PyVersion {
             "311" => Some(Py311),
             "312" => Some(Py312),
             "313" => Some(Py313),
+            "default" => Some(PyVersion::default()),
             _ => {
                 tracing::warn!(
                     "Cannot convert string (\"{value}\") to PyVersion\nExpected format xyz"
@@ -244,7 +239,6 @@ impl PyVersion {
         }
         res
     }
-    #[async_recursion::async_recursion]
     async fn get_python_inner(
         self,
         job_id: &Uuid,
@@ -261,7 +255,7 @@ impl PyVersion {
         if py_path.is_err() {
             // Install it
             if let Err(err) = self
-                .get_python_inner(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+                .install_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
                 .await
             {
                 tracing::error!("Cannot install python: {err}");
@@ -568,7 +562,7 @@ pub async fn uv_pip_compile(
     } else {
         // Make sure we have python runtime installed
         py_version
-            .install_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+            .get_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
             .await?;
 
         let mut args = vec![
@@ -1055,7 +1049,7 @@ mount {{
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                // .replace("{PY_RUNTIME_DIR}", &python_path)
+                .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
