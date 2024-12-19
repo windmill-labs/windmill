@@ -47,7 +47,7 @@ jobs:
           python-version: 3.11
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.1.38
+          bun-version: 1.1.40
       - uses: astral-sh/setup-uv@v4
         with:
           version: "0.4.18"
