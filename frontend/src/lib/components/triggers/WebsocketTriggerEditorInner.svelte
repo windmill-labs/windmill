@@ -110,7 +110,7 @@
 		url = s.url
 		enabled = s.enabled
 		filters = s.filters
-		initial_messages = s.initial_messages
+		initial_messages = s.initial_messages ?? []
 		url_runnable_args = s.url_runnable_args
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
