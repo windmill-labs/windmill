@@ -67,4 +67,4 @@ jobs:
           DISABLE_EMBEDDING=true RUST_LOG=info PYTHON_PATH=$(which python)
           DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
           UV_PATH=$(which uv) cargo test --features
-          enterprise,deno_core,license,python,rust --all -- --nocapture
+          enterprise,deno_core,license,python,rust,threadlocal_cache --all -- --nocapture
