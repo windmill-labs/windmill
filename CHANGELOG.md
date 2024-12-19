@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.440.3](https://github.com/windmill-labs/windmill/compare/v1.440.2...v1.440.3) (2024-12-19)
+
+
+### Bug Fixes
+
+* update bun from 1.1.38 to 1.1.40 ([c4fdd22](https://github.com/windmill-labs/windmill/commit/c4fdd2297efc43ce557cc9791151301377126c29))
+
 ## [1.440.2](https://github.com/windmill-labs/windmill/compare/v1.440.1...v1.440.2) (2024-12-18)
 
 
