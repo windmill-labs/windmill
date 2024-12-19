@@ -22,14 +22,14 @@ use sqlx::types::Json as SqlxJson;
 #[cfg(feature = "http_trigger")]
 use std::collections::HashMap;
 use std::fmt;
+#[cfg(feature = "http_trigger")]
+use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-#[cfg(feature = "http_trigger")]
-use windmill_common::error::Error;
 use windmill_queue::{PushArgs, PushArgsOwned};
 
 #[cfg(feature = "http_trigger")]
@@ -39,6 +39,7 @@ use crate::kafka_triggers_ee::KafkaResourceSecurity;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
+    users::fetch_api_authed,
 };
 
 const KEEP_LAST: i64 = 20;
@@ -124,7 +125,7 @@ pub struct KafkaTriggerConfig {
 pub struct WebsocketTriggerConfig {
     pub url: String,
     // have to use Value because RawValue is not supported inside untagged
-    pub url_runnable_args: Option<serde_json::Value>, 
+    pub url_runnable_args: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -335,16 +336,17 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     path: &str,
     is_flow: bool,
     kind: &TriggerKind,
-) -> Result<(T, String)> {
+) -> Result<(T, String, String)> {
     #[derive(Deserialize)]
     struct CaptureTriggerConfigAndOwner {
         trigger_config: Option<SqlxJson<Box<RawValue>>>,
         owner: String,
+        email: String,
     }
 
     let capture_config = sqlx::query_as!(
         CaptureTriggerConfigAndOwner,
-        r#"SELECT trigger_config as "trigger_config: _", owner
+        r#"SELECT trigger_config as "trigger_config: _", owner, email
         FROM capture_config
         WHERE workspace_id = $1 AND path = $2 AND is_flow = $3 AND trigger_kind = $4 AND last_client_ping > NOW() - INTERVAL '10 seconds'"#,
         &w_id,
@@ -375,6 +377,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
             ))
         })?,
         capture_config.owner,
+        capture_config.email,
     ))
 }
 
@@ -439,8 +442,7 @@ async fn webhook_payload(
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
     args: WebhookArgs,
 ) -> Result<StatusCode> {
-    let args = args.args;
-    let (owner, _) = get_active_capture_owner_and_email(
+    let (owner, email) = get_active_capture_owner_and_email(
         &db,
         &w_id,
         &path.to_path(),
@@ -448,6 +450,9 @@ async fn webhook_payload(
         &TriggerKind::Webhook,
     )
     .await?;
+
+    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     insert_capture_payload(
         &db,
@@ -479,9 +484,8 @@ async fn http_payload(
 ) -> Result<StatusCode> {
     let route_path = route_path.to_path();
     let path = path.replace(".", "/");
-    let args = args.args;
 
-    let (http_trigger_config, owner): (HttpTriggerConfig, _) =
+    let (http_trigger_config, owner, email): (HttpTriggerConfig, _, _) =
         get_capture_trigger_config_and_owner(
             &db,
             &w_id,
@@ -490,6 +494,9 @@ async fn http_payload(
             &TriggerKind::Http,
         )
         .await?;
+
+    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     let mut router = matchit::Router::new();
     router.insert(&http_trigger_config.route_path, ()).ok();
