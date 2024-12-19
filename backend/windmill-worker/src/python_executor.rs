@@ -157,7 +157,12 @@ impl PyVersion {
             "3.11" => Some(Py311),
             "3.12" => Some(Py312),
             "3.13" => Some(Py313),
-            _ => None,
+            _ => {
+                tracing::warn!(
+                    "Cannot convert string (\"{value}\") to PyVersion\nExpected format x.yz"
+                );
+                None
+            }
         }
     }
     pub fn from_string_no_dots(value: &str) -> Option<Self> {
@@ -168,7 +173,9 @@ impl PyVersion {
             "312" => Some(Py312),
             "313" => Some(Py313),
             _ => {
-                tracing::warn!("Cannot convert string (\"{value}\") to PyVersion");
+                tracing::warn!(
+                    "Cannot convert string (\"{value}\") to PyVersion\nExpected format xyz"
+                );
                 None
             }
         }
@@ -212,7 +219,6 @@ impl PyVersion {
         }
     }
     pub async fn install_python(
-        job_dir: &str,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -225,7 +231,7 @@ impl PyVersion {
         append_logs(
             job_id,
             w_id,
-            format!("\n\n--- INSTALLING PYTHON ({}) ---\n", version),
+            format!("\n\nINSTALLING PYTHON ({})", version),
             db,
         )
         .await;
@@ -248,7 +254,6 @@ impl PyVersion {
         // let v_with_dot = self.to_string_with_dot();
         let mut child_cmd = Command::new(UV_PATH.as_str());
         child_cmd
-            .current_dir(job_dir)
             .args([
                 "python",
                 "install",
@@ -280,7 +285,6 @@ impl PyVersion {
         .await
     }
     async fn get_python_inner(
-        job_dir: &str,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -290,13 +294,12 @@ impl PyVersion {
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
         version: &str,
     ) -> error::Result<Option<String>> {
-        let py_path = Self::find_python(job_dir, version).await;
+        let py_path = Self::find_python(version).await;
 
-        // Python is not installed
+        // Runtime is not installed
         if py_path.is_err() {
             // Install it
             if let Err(err) = Self::install_python(
-                job_dir,
                 job_id,
                 mem_peak,
                 db,
@@ -311,7 +314,7 @@ impl PyVersion {
                 return Err(err);
             } else {
                 // Try to find one more time
-                let py_path = Self::find_python(job_dir, version).await;
+                let py_path = Self::find_python(version).await;
 
                 if let Err(err) = py_path {
                     tracing::error!("Cannot find python version {err}");
@@ -327,7 +330,6 @@ impl PyVersion {
     }
     pub async fn get_python(
         &self,
-        job_dir: &str,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -341,7 +343,6 @@ impl PyVersion {
         // }
 
         let res = Self::get_python_inner(
-            job_dir,
             job_id,
             mem_peak,
             db,
@@ -360,12 +361,12 @@ impl PyVersion {
         }
         res
     }
-    async fn find_python(job_dir: &str, version: &str) -> error::Result<Option<String>> {
+    async fn find_python(version: &str) -> error::Result<Option<String>> {
         // let mut logs = String::new();
         // let v_with_dot = self.to_string_with_dot();
         let mut child_cmd = Command::new(UV_PATH.as_str());
         let output = child_cmd
-            .current_dir(job_dir)
+            // .current_dir(job_dir)
             .args([
                 "python",
                 "find",
@@ -880,7 +881,6 @@ pub async fn handle_python_job(
         PYTHON_PATH.clone()
     } else if let Some(python_path) = py_version
         .get_python(
-            job_dir,
             &job.id,
             mem_peak,
             db,
@@ -2085,15 +2085,7 @@ pub async fn handle_python_reqs(
         None
     } else {
         py_version
-            .get_python(
-                &job_dir,
-                job_id,
-                mem_peak,
-                db,
-                _worker_name,
-                w_id,
-                _occupancy_metrics,
-            )
+            .get_python(job_id, mem_peak, db, _worker_name, w_id, _occupancy_metrics)
             .await?
     };
 
