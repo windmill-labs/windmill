@@ -1595,7 +1595,7 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    annotated_pyv: Option<u32>,
+    annotated_pyv_numeric: Option<u32>,
     annotations: PythonAnnotations,
     no_uv_compile: bool,
     no_uv_install: bool,
@@ -1610,18 +1610,12 @@ async fn python_dep(
 
             1. Annotation version
             2. Instance version
-            3. 311
-
-        Also it is worth noting, that if we receive annotated_pyv,
-        we just parse it instead.
+            3. Latest Stable
     */
 
-    let annotated_version = if let Some(pyv) = annotated_pyv {
-        PyVersion::from_numeric(pyv)
-    } else {
-        PyVersion::from_py_annotations(annotations)
-    };
-    let final_version = annotated_version.unwrap_or(PyVersion::from_instance_version().await);
+    let final_version = annotated_pyv_numeric
+        .and_then(|pyv| PyVersion::from_numeric(pyv))
+        .unwrap_or(PyVersion::from_instance_version().await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
@@ -1692,26 +1686,28 @@ async fn capture_dependency_job(
             ));
             #[cfg(feature = "python")]
             {
-              let annotations = PythonAnnotations::parse(job_raw_code);
-              let mut annotated_pyv =
-                  PyVersion::from_py_annotations(annotations).map(|v| v.to_numeric());
+                let anns = PythonAnnotations::parse(job_raw_code);
+                let mut annotated_pyv_numeric = None;
 
-              let reqs = if raw_deps {
-                  job_raw_code.to_string()
-              } else {
-                  let mut already_visited = vec![];
+                let reqs = if raw_deps {
+                    annotated_pyv_numeric =
+                        PyVersion::from_py_annotations(anns).map(|v| v.to_numeric());
+                    job_raw_code.to_string()
+                } else {
+                    let mut already_visited = vec![];
 
-                  windmill_parser_py_imports::parse_python_imports(
-                      job_raw_code,
-                      &w_id,
-                      script_path,
-                      &db,
-                      &mut already_visited,
-                      &mut annotated_pyv,
-                  )
-                  .await?
-                  .join("\n")
-              };
+                    windmill_parser_py_imports::parse_python_imports(
+                        job_raw_code,
+                        &w_id,
+                        script_path,
+                        &db,
+                        &mut already_visited,
+                        &mut annotated_pyv_numeric,
+                    )
+                    .await?
+                    .join("\n")
+                };
+                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } = anns;
                 if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
                     if let Err(e) = sqlx::query!(
                         r#"
@@ -1727,24 +1723,24 @@ async fn capture_dependency_job(
                     }
                 }
 
-            python_dep(
-                reqs,
-                job_id,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                worker_dir,
-                &mut Some(occupancy_metrics),
-                annotated_pyv,
-                annotations,
-                no_uv_compile | no_uv,
-                no_uv_install | no_uv,
-            )
-            .await
-          }
+                python_dep(
+                    reqs,
+                    job_id,
+                    mem_peak,
+                    canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    w_id,
+                    worker_dir,
+                    &mut Some(occupancy_metrics),
+                    annotated_pyv_numeric,
+                    anns,
+                    no_uv_compile | no_uv,
+                    no_uv_install | no_uv,
+                )
+                .await
+            }
         }
         ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
@@ -1788,6 +1784,8 @@ async fn capture_dependency_job(
                     w_id,
                     worker_dir,
                     &mut Some(occupancy_metrics),
+                    None,
+                    PythonAnnotations::default(),
                     false,
                     false,
                 )

@@ -157,13 +157,25 @@ impl PyVersion {
             "3.11" => Some(Py311),
             "3.12" => Some(Py312),
             "3.13" => Some(Py313),
-            "default" => Some(PyVersion::default()),
             _ => None,
         }
     }
-    /// e.g.: `# py-3.xy` -> `PyVersion::Py3XY`
+    pub fn from_string_no_dots(value: &str) -> Option<Self> {
+        use PyVersion::*;
+        match value {
+            "310" => Some(Py310),
+            "311" => Some(Py311),
+            "312" => Some(Py312),
+            "313" => Some(Py313),
+            _ => {
+                tracing::warn!("Cannot convert string (\"{value}\") to PyVersion");
+                None
+            }
+        }
+    }
+    /// e.g.: `# py3xy` -> `PyVersion::Py3XY`
     pub fn parse_version(line: &str) -> Option<Self> {
-        Self::from_string_with_dots(line.replace("# py-", "").as_str())
+        Self::from_string_no_dots(line.replace(" ", "").replace("#py", "").as_str())
     }
     pub fn from_py_annotations(a: PythonAnnotations) -> Option<Self> {
         let PythonAnnotations { py310, py311, py312, py313, .. } = a;
@@ -472,7 +484,7 @@ pub async fn uv_pip_compile(
     // Include python version to requirements.in
     // We need it because same hash based on requirements.in can get calculated even for different python versions
     // To prevent from overwriting same requirements.in but with different python versions, we include version to hash
-    let requirements = format!("# py-{}\n{}", py_version.to_string_with_dot(), requirements);
+    let requirements = format!("# py{}\n{}", py_version.to_string_no_dot(), requirements);
 
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
@@ -681,8 +693,8 @@ pub async fn uv_pip_compile(
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
     let lockfile = format!(
-        "# py-{}\n{}",
-        py_version.to_string_with_dot(),
+        "# py{}\n{}",
+        py_version.to_string_no_dot(),
         req_content
             .lines()
             .filter(|x| !x.trim_start().starts_with('#'))
@@ -1426,17 +1438,15 @@ async fn handle_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
-    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
-    let instance_version = PyVersion::from_instance_version().await;
-    let mut annotated_version = PyVersion::from_py_annotations(annotations);
-    let mut is_deployed = true;
-    let mut annotated_pyv = annotated_version.map(|v| v.to_numeric());
-
     let mut requirements;
+    let mut annotated_pyv = None;
+    let mut annotated_pyv_numeric = None;
+    let is_deployed = requirements_o.is_some();
+    let instance_pyv = PyVersion::from_instance_version().await;
+    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            is_deployed = false;
             let mut already_visited = vec![];
 
             requirements = windmill_parser_py_imports::parse_python_imports(
@@ -1445,10 +1455,13 @@ async fn handle_python_deps(
                 script_path,
                 db,
                 &mut already_visited,
-                &mut annotated_pyv,
+                &mut annotated_pyv_numeric,
             )
             .await?
             .join("\n");
+
+            annotated_pyv = annotated_pyv_numeric.and_then(|v| PyVersion::from_numeric(v));
+
             if !requirements.is_empty() {
                 requirements = uv_pip_compile(
                     job_id,
@@ -1460,7 +1473,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
-                    annotated_version.unwrap_or(instance_version),
+                    annotated_pyv.unwrap_or(instance_pyv),
                     annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
                 )
@@ -1473,22 +1486,6 @@ async fn handle_python_deps(
         }
     };
 
-    if let Some(pyv) = annotated_pyv {
-        annotated_version = annotated_version.or(PyVersion::from_numeric(pyv));
-    }
-
-    /*
-     For deployed scripts we want to find out version in following order:
-     1. Annotated version
-     2. Assigned version (written in lockfile)
-     3. 3.11
-
-     For Previews:
-     1. Annotated version
-     2. Instance version
-     3. 3.11
-    */
-
     let requirements_lines: Vec<&str> = if requirements.len() > 0 {
         requirements
             .split("\n")
@@ -1498,28 +1495,34 @@ async fn handle_python_deps(
         vec![]
     };
 
-    let final_version = annotated_version.unwrap_or_else(|| {
-        if is_deployed {
-            // If script is deployed we can try to parse first line to get assigned version
-            if let Some(v) = requirements_lines
-                .get(0)
-                .and_then(|line| PyVersion::parse_version(line))
-            {
-                // We have assigned version, we should use it
-                v
-            } else {
-                // If there is no assigned version in lockfile we automatically fallback to 3.11
-                // In this case we have dependencies, but no associated python version
-                // This is the case for old deployed scripts
-                PyVersion::Py311
-            }
-        } else {
-            // This is not deployed script, meaning we test run it (Preview)
-            // In this case we can say that desired version is `instance_version`
-            instance_version
-        }
-    });
+    /*
+     For deployed scripts we want to find out version in following order:
+     1. Assigned version (written in lockfile)
+     2. 3.11
 
+     For Previews:
+     1. Annotated version
+     2. Instance version
+     3. Latest Stable
+    */
+    let final_version = if is_deployed {
+        // If script is deployed we can try to parse first line to get assigned version
+        if let Some(v) = requirements_lines
+            .get(0)
+            .and_then(|line| PyVersion::parse_version(line))
+        {
+            // We have valid assigned version, we use it
+            v
+        } else {
+            // If there is no assigned version in lockfile we automatically fallback to 3.11
+            // In this case we have dependencies, but no associated python version
+            // This is the case for old deployed scripts
+            PyVersion::Py311
+        }
+    } else {
+        // This is not deployed script, meaning we test run it (Preview)
+        annotated_pyv.unwrap_or(instance_pyv)
+    };
     // If len > 0 it means there is atleast one dependency or assigned python version
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(

@@ -9,8 +9,9 @@
 use anyhow::Context;
 use monitor::{
     load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_nuget_config_setting, reload_timeout_wait_result_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store,
+    reload_instance_python_version_setting, reload_nuget_config_setting,
+    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
+    send_logs_to_object_store,
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
@@ -69,8 +70,9 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
     DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR,
-
+    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR,
+    TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{

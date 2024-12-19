@@ -105,8 +105,6 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
-    php_executor::handle_php_job,
-    python_executor::{handle_python_job, PyVersion},
     result_processor::{process_result, start_background_processor},
     worker_flow::{handle_flow, update_flow_status_in_progress},
     worker_lockfiles::{
@@ -121,7 +119,7 @@ use crate::rust_executor::handle_rust_job;
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::python_executor::handle_python_job;
+use crate::python_executor::{handle_python_job, PyVersion};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;

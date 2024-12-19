@@ -177,7 +177,7 @@ pub async fn parse_python_imports(
     path: &str,
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
-    annotated_pyv: &mut Option<u32>,
+    annotated_pyv_numeric: &mut Option<u32>,
 ) -> error::Result<Vec<String>> {
     parse_python_imports_inner(
         code,
@@ -185,8 +185,8 @@ pub async fn parse_python_imports(
         path,
         db,
         already_visited,
-        annotated_pyv,
-        &mut annotated_pyv.and_then(|_| Some(path.to_owned())),
+        annotated_pyv_numeric,
+        &mut annotated_pyv_numeric.and_then(|_| Some(path.to_owned())),
     )
     .await
 }
@@ -198,7 +198,7 @@ async fn parse_python_imports_inner(
     path: &str,
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
-    annotated_pyv: &mut Option<u32>,
+    annotated_pyv_numeric: &mut Option<u32>,
     path_where_annotated_pyv: &mut Option<String>,
 ) -> error::Result<Vec<String>> {
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
@@ -219,7 +219,7 @@ async fn parse_python_imports_inner(
 
     let mut check = |is_py_xyz, numeric| -> error::Result<()> {
         if is_py_xyz {
-            if let Some(v) = annotated_pyv {
+            if let Some(v) = annotated_pyv_numeric {
                 if *v != numeric {
                     return Err(error::Error::from(anyhow::anyhow!(
                         "Annotated 2 or more different python versions: \n - py{v} at {}\n - py{numeric} at {path}\nIt is possible to use only one.",
@@ -227,7 +227,7 @@ async fn parse_python_imports_inner(
                     )));
                 }
             } else {
-                *annotated_pyv = Some(numeric);
+                *annotated_pyv_numeric = Some(numeric);
             }
 
             *path_where_annotated_pyv = Some(path.to_owned());
@@ -297,7 +297,7 @@ async fn parse_python_imports_inner(
                         &rpath,
                         db,
                         already_visited,
-                        annotated_pyv,
+                        annotated_pyv_numeric,
                         path_where_annotated_pyv,
                     )
                     .await?
