@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.440.3](https://github.com/windmill-labs/windmill/compare/v1.440.2...v1.440.3) (2024-12-19)
+
+
+### Bug Fixes
+
+* update bun from 1.1.38 to 1.1.40 ([c4fdd22](https://github.com/windmill-labs/windmill/commit/c4fdd2297efc43ce557cc9791151301377126c29))
+
+## [1.440.2](https://github.com/windmill-labs/windmill/compare/v1.440.1...v1.440.2) (2024-12-18)
+
+
+### Bug Fixes
+
+* fix redeploying flows with attached schedules ([fb536df](https://github.com/windmill-labs/windmill/commit/fb536df0668d49d14f4aed98870caaad396d0389))
+
+## [1.440.1](https://github.com/windmill-labs/windmill/compare/v1.440.0...v1.440.1) (2024-12-18)
+
+
+### Bug Fixes
+
+* **internal:** updating rust to 1.82 ([02a8f1f](https://github.com/windmill-labs/windmill/commit/02a8f1f86453a5f8769364ba3798998b8830d086))
+
+## [1.440.0](https://github.com/windmill-labs/windmill/compare/v1.439.0...v1.440.0) (2024-12-18)
+
+
+### Features
+
+* **cache:** remove persistent raw values from queue ([#4866](https://github.com/windmill-labs/windmill/issues/4866)) ([977ac5c](https://github.com/windmill-labs/windmill/commit/977ac5c3f3c2e8224f4915e483ae60f28ce008fc))
+
+
+### Bug Fixes
+
+* add workspace selector and fix css for create webhook page ([#4939](https://github.com/windmill-labs/windmill/issues/4939)) ([d880655](https://github.com/windmill-labs/windmill/commit/d8806555f1d78a5fae7ae77acbcdad402e89951d))
+* fix relative imports in cached flow scripts ([13be0cd](https://github.com/windmill-labs/windmill/commit/13be0cd1c822d7a809dc96914dd1286510b9f9eb))
+
 ## [1.439.0](https://github.com/windmill-labs/windmill/compare/v1.438.0...v1.439.0) (2024-12-15)
 
 

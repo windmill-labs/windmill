@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.439.0"
+version = "1.440.3"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.439.0"
+version = "1.440.3"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -48,8 +48,8 @@ lto = "thin"
 [features]
 default = []
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
-enterprise_saml = ["windmill-api/enterprise_saml"]
-stripe = ["windmill-api/stripe"]
+enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
+stripe = ["windmill-api/stripe", "enterprise"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
 loki = ["windmill-common/loki"]
 embedding = ["windmill-api/embedding"]
@@ -59,7 +59,7 @@ flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
-tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet"]
+tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 kafka = ["windmill-api/kafka"]
