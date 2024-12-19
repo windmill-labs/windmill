@@ -58,8 +58,16 @@ body {
 					}
 				},
 				{
-					// bundlerURL: 'http://localhost:3001/',
-					showOpenInCodeSandbox: false
+					bundlerURL: 'http://localhost:3001/',
+					showOpenInCodeSandbox: false,
+					customNpmRegistries: [
+						{
+							limitToScopes: false,
+							registryUrl: 'http://localhost:4873/',
+							enabledScopes: ['*'],
+							proxyEnabled: false
+						}
+					]
 				}
 			)
 			client.listen((msg) => {
