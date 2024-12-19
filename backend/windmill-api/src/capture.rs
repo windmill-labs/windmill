@@ -14,7 +14,9 @@ use axum::{
 #[cfg(feature = "http_trigger")]
 use http::HeaderMap;
 use hyper::StatusCode;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(feature = "http_trigger")]
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
 #[cfg(feature = "http_trigger")]
