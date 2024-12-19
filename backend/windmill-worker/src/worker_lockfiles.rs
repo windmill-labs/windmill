@@ -1690,6 +1690,10 @@ async fn capture_dependency_job(
                 let mut annotated_pyv_numeric = None;
 
                 let reqs = if raw_deps {
+                    // `wmill script generate-metadata`
+                    // should also respect annotated pyversion
+                    // can be annotated in script itself
+                    // or in requirements.txt if present
                     annotated_pyv_numeric =
                         PyVersion::from_py_annotations(anns).map(|v| v.to_numeric());
                     job_raw_code.to_string()
