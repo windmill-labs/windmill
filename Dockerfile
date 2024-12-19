@@ -170,7 +170,8 @@ ENV GO_PATH=/usr/local/go/bin/go
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
 
-# Preinstall default python version
+# Preinstall python runtimes
+RUN uv python install 3.11.10
 RUN uv python install $LATEST_STABLE_PY
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
