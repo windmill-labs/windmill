@@ -182,9 +182,14 @@
 </script>
 
 <div
-	class="{dropdownItems && dropdownItems.length > 0 && variant === 'contained'
-		? colorVariants[color].divider
-		: ''} {wrapperClasses} flex flex-row"
+	class={twMerge(
+		dropdownItems && dropdownItems.length > 0 && variant === 'contained'
+			? colorVariants[color].divider
+			: '',
+		wrapperClasses,
+		'flex flex-row',
+		disabled ? 'divide-text-disabled' : ''
+	)}
 	style={wrapperStyle}
 >
 	{#if href}

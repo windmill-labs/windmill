@@ -28,6 +28,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import { slide } from 'svelte/transition'
+	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -49,6 +50,10 @@
 	export let saveToWorkspace = false
 	export let watchChanges = false
 	export let customUi: ScriptEditorWhitelabelCustomUi = {}
+	export let args: Record<string, any> = initialArgs
+	export let selectedTab: 'main' | 'preprocessor' = 'main'
+	export let hasPreprocessor = false
+	export let shouldRefreshCaptures = false
 
 	let jobProgressReset: () => void
 
@@ -69,9 +74,6 @@
 	let width = 1200
 
 	let testJobLoader: TestJobLoader
-
-	// Test args input
-	let args: Record<string, any> = initialArgs
 
 	let isValid: boolean = true
 	let scriptProgress = undefined
@@ -126,8 +128,6 @@
 		})
 	}
 
-	let hasPreprocessor = false
-
 	export async function inferSchema(code: string, nlang?: SupportedLanguage, resetArgs = false) {
 		let nschema = schema ?? emptySchema()
 
@@ -140,6 +140,10 @@
 			)
 			hasPreprocessor =
 				(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ?? false
+
+			if (!hasPreprocessor && selectedTab === 'preprocessor') {
+				selectedTab = 'main'
+			}
 
 			validCode = true
 			if (resetArgs) {
@@ -238,11 +242,12 @@
 		url.search = ''
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
-	let selectedTab: 'main' | 'preprocessor' = 'main'
+
 	$: showTabs = hasPreprocessor
 	$: !hasPreprocessor && (selectedTab = 'main')
-
 	$: selectedTab && inferSchema(code)
+
+	let argsRender = 0
 </script>
 
 <TestJobLoader
@@ -371,10 +376,15 @@
 					<div transition:slide={{ duration: 200 }}>
 						<Tabs bind:selected={selectedTab}>
 							<Tab value="main">Main</Tab>
-							<Tab value="preprocessor">Preprocessor</Tab>
+							{#if hasPreprocessor}
+								<div transition:slide={{ duration: 200, axis: 'x' }}>
+									<Tab value="preprocessor">Preprocessor</Tab>
+								</div>
+							{/if}
 						</Tabs>
 					</div>
 				{/if}
+
 				<div class="flex justify-center pt-1">
 					{#if testIsLoading}
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
@@ -413,23 +423,25 @@
 					<Pane size={33}>
 						<div class="px-2">
 							<div class="break-words relative font-sans">
-								<SchemaForm
-									helperScript={{
-										type: 'inline',
-										code,
-										//@ts-ignore
-										lang
-									}}
-									compact
-									{schema}
-									bind:args
-									bind:isValid
-									showSchemaExplorer
-								/>
+								{#key argsRender}
+									<SchemaForm
+										helperScript={{
+											type: 'inline',
+											code,
+											//@ts-ignore
+											lang
+										}}
+										compact
+										{schema}
+										bind:args
+										bind:isValid
+										showSchemaExplorer
+									/>
+								{/key}
 							</div>
 						</div>
 					</Pane>
-					<Pane size={67}>
+					<Pane size={67} class="relative">
 						<LogPanel
 							{lang}
 							previewJob={testJob}
@@ -438,6 +450,7 @@
 							{editor}
 							{diffEditor}
 							{args}
+							showCaptures={true}
 						>
 							{#if scriptProgress}
 								<!-- Put to the slot in logpanel -->
@@ -448,6 +461,23 @@
 									compact={true}
 								/>
 							{/if}
+							<svelte:fragment slot="capturesTab">
+								<div class="h-full p-2">
+									<CaptureTable
+										showAll={true}
+										{hasPreprocessor}
+										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
+										isFlow={false}
+										path={path ?? ''}
+										hideCapturesWhenEmpty={false}
+										canEdit={true}
+										on:applyArgs
+										on:updateSchema
+										on:addPreprocessor
+										bind:shouldRefreshCaptures
+									/>
+								</div>
+							</svelte:fragment>
 						</LogPanel>
 					</Pane>
 				</Splitpanes>
