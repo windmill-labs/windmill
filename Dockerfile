@@ -101,7 +101,7 @@ ARG WITH_GIT=true
 # 2. Change LATEST_STABLE_PY in dockerfile
 # 3. Change #[default] annotation for PyVersion in backend
 ARG LATEST_STABLE_PY=3.11.10
-ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_install
+ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 
 RUN pip install --upgrade pip==24.2

@@ -20,6 +20,7 @@ clone_newuser: {CLONE_NEWUSER}
 
 keep_caps: true
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -55,14 +56,6 @@ mount {
 mount {
 	src: "/dev/null"
 	dst: "/dev/null"
-	is_bind: true
-	rw: true
-}
-# We need it for uv
-# TODO: Dont expose /proc here, it is not safe
-mount {
-	src: "/proc"
-	dst: "/proc"
 	is_bind: true
 	rw: true
 }

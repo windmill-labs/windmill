@@ -16,6 +16,7 @@ clone_newuser: {CLONE_NEWUSER}
 
 keep_caps: false
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -107,6 +108,13 @@ mount {
 mount {
     src: "/dev/random"
     dst: "/dev/random"
+    is_bind: true
+}
+
+#TODO: Make dynamic
+mount {
+    src: "/tmp/windmill/cache/py_runtime"
+    dst: "/tmp/windmill/cache/py_runtime"
     is_bind: true
 }
 

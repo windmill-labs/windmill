@@ -218,7 +218,8 @@ impl PyVersion {
             Py313 => 313,
         }
     }
-    pub async fn install_python(
+    pub async fn get_python(
+        &self,
         job_id: &Uuid,
         mem_peak: &mut i32,
         // canceled_by: &mut Option<CanceledBy>,
@@ -226,27 +227,79 @@ impl PyVersion {
         worker_name: &str,
         w_id: &str,
         occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-        version: &str,
+    ) -> error::Result<Option<String>> {
+        // lazy_static::lazy_static! {
+        //     static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        // }
+
+        let res = self
+            .get_python_inner(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+            .await;
+
+        if let Err(ref e) = res {
+            tracing::error!(
+                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n 
+                Error while getting python from uv, falling back to system python: {e:?}"
+            );
+        }
+        res
+    }
+    #[async_recursion::async_recursion]
+    async fn get_python_inner(
+        self,
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    ) -> error::Result<Option<String>> {
+        let py_path = self.find_python().await;
+
+        // Runtime is not installed
+        if py_path.is_err() {
+            // Install it
+            if let Err(err) = self
+                .get_python_inner(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+                .await
+            {
+                tracing::error!("Cannot install python: {err}");
+                return Err(err);
+            } else {
+                // Try to find one more time
+                let py_path = self.find_python().await;
+
+                if let Err(err) = py_path {
+                    tracing::error!("Cannot find python version {err}");
+                    return Err(err);
+                }
+
+                // TODO: Cache the result
+                py_path
+            }
+        } else {
+            py_path
+        }
+    }
+    async fn install_python(
+        self,
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     ) -> error::Result<()> {
-        append_logs(
-            job_id,
-            w_id,
-            format!("\n\nINSTALLING PYTHON ({})", version),
-            db,
-        )
-        .await;
+        let v = self.to_string_with_dot();
+        append_logs(job_id, w_id, format!("\nINSTALLING PYTHON ({})", v), db).await;
         // Create dirs for newly installed python
         // If we dont do this, NSJAIL will not be able to mount cache
         // For the default version directory created during startup (main.rs)
         DirBuilder::new()
             .recursive(true)
-            .create(
-                PyVersion::from_string_with_dots(version)
-                    .ok_or(error::Error::BadRequest(
-                        "Invalid python version".to_owned(),
-                    ))?
-                    .to_cache_dir(),
-            )
+            .create(self.to_cache_dir())
             .await
             .expect("could not create initial worker dir");
 
@@ -254,12 +307,7 @@ impl PyVersion {
         // let v_with_dot = self.to_string_with_dot();
         let mut child_cmd = Command::new(UV_PATH.as_str());
         child_cmd
-            .args([
-                "python",
-                "install",
-                version,
-                "--python-preference=only-managed",
-            ])
+            .args(["python", "install", v, "--python-preference=only-managed"])
             // TODO: Do we need these?
             .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
             .stdout(Stdio::piped())
@@ -284,84 +332,7 @@ impl PyVersion {
         )
         .await
     }
-    async fn get_python_inner(
-        job_id: &Uuid,
-        mem_peak: &mut i32,
-        // canceled_by: &mut Option<CanceledBy>,
-        db: &Pool<Postgres>,
-        worker_name: &str,
-        w_id: &str,
-        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-        version: &str,
-    ) -> error::Result<Option<String>> {
-        let py_path = Self::find_python(version).await;
-
-        // Runtime is not installed
-        if py_path.is_err() {
-            // Install it
-            if let Err(err) = Self::install_python(
-                job_id,
-                mem_peak,
-                db,
-                worker_name,
-                w_id,
-                occupancy_metrics,
-                version,
-            )
-            .await
-            {
-                tracing::error!("Cannot install python: {err}");
-                return Err(err);
-            } else {
-                // Try to find one more time
-                let py_path = Self::find_python(version).await;
-
-                if let Err(err) = py_path {
-                    tracing::error!("Cannot find python version {err}");
-                    return Err(err);
-                }
-
-                // TODO: Cache the result
-                py_path
-            }
-        } else {
-            py_path
-        }
-    }
-    pub async fn get_python(
-        &self,
-        job_id: &Uuid,
-        mem_peak: &mut i32,
-        // canceled_by: &mut Option<CanceledBy>,
-        db: &Pool<Postgres>,
-        worker_name: &str,
-        w_id: &str,
-        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    ) -> error::Result<Option<String>> {
-        // lazy_static::lazy_static! {
-        //     static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
-        // }
-
-        let res = Self::get_python_inner(
-            job_id,
-            mem_peak,
-            db,
-            worker_name,
-            w_id,
-            occupancy_metrics,
-            self.to_string_with_dot(),
-        )
-        .await;
-
-        if let Err(ref e) = res {
-            tracing::error!(
-                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n 
-                Error while getting python from uv, falling back to system python: {e:?}"
-            );
-        }
-        res
-    }
-    async fn find_python(version: &str) -> error::Result<Option<String>> {
+    async fn find_python(self) -> error::Result<Option<String>> {
         // let mut logs = String::new();
         // let v_with_dot = self.to_string_with_dot();
         let mut child_cmd = Command::new(UV_PATH.as_str());
@@ -370,7 +341,7 @@ impl PyVersion {
             .args([
                 "python",
                 "find",
-                version,
+                self.to_string_with_dot(),
                 "--python-preference=only-managed",
             ])
             .envs([
@@ -595,6 +566,11 @@ pub async fn uv_pip_compile(
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     } else {
+        // Make sure we have python runtime installed
+        py_version
+            .install_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+            .await?;
+
         let mut args = vec![
             "pip",
             "compile",
@@ -613,12 +589,14 @@ pub async fn uv_pip_compile(
             "--cache-dir",
             UV_CACHE_DIR,
         ];
+
         args.extend([
             "-p",
-            py_version.to_string_with_dot(),
+            &py_version.to_string_with_dot(),
             "--python-preference",
             "only-managed",
         ]);
+
         if no_cache {
             args.extend(["--no-cache"]);
         }
@@ -660,6 +638,7 @@ pub async fn uv_pip_compile(
             .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1076,6 +1055,7 @@ mount {{
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
+                // .replace("{PY_RUNTIME_DIR}", &python_path)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
@@ -1474,8 +1454,8 @@ async fn handle_python_deps(
                     w_id,
                     occupancy_metrics,
                     annotated_pyv.unwrap_or(instance_pyv),
-                    annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
+                    annotations.no_uv || annotations.no_uv_compile,
                 )
                 .await
                 .map_err(|e| {
