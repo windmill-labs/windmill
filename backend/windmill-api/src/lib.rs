@@ -28,7 +28,7 @@ use crate::{
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
-use axum::{middleware::from_extractor, routing::get, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
 use db::DB;
 use http::HeaderValue;
 use reqwest::Client;
@@ -109,6 +109,7 @@ mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
+mod slack_approvals;
 mod workspaces_export;
 mod workspaces_extra;
 
@@ -415,6 +416,8 @@ pub async fn run_server(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
+                .route("/slack", post(slack_approvals::slack_app_callback_handler))
+                .route("/w/:workspace_id/jobs/slack_approval/:job_id", get(slack_approvals::request_slack_approval))
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),
