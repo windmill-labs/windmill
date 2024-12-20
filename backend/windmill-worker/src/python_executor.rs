@@ -298,8 +298,14 @@ impl PyVersion {
             .expect("could not create initial worker dir");
 
         let logs = String::new();
-        // let v_with_dot = self.to_string_with_dot();
-        let mut child_cmd = Command::new(UV_PATH.as_str());
+
+        #[cfg(windows)]
+        let uv_cmd = "uv";
+
+        #[cfg(unix)]
+        let uv_cmd = UV_PATH.as_str();
+
+        let mut child_cmd = Command::new(uv_cmd);
         child_cmd
             .args(["python", "install", v, "--python-preference=only-managed"])
             // TODO: Do we need these?
@@ -327,9 +333,13 @@ impl PyVersion {
         .await
     }
     async fn find_python(self) -> error::Result<Option<String>> {
-        // let mut logs = String::new();
-        // let v_with_dot = self.to_string_with_dot();
-        let mut child_cmd = Command::new(UV_PATH.as_str());
+        #[cfg(windows)]
+        let uv_cmd = "uv";
+
+        #[cfg(unix)]
+        let uv_cmd = UV_PATH.as_str();
+
+        let mut child_cmd = Command::new(uv_cmd);
         let output = child_cmd
             // .current_dir(job_dir)
             .args([
@@ -1517,7 +1527,6 @@ async fn handle_python_deps(
         additional_python_paths.append(&mut venv_path);
     }
 
-    // TODO: Annotated version should always be equal to final_version
     Ok((final_version, additional_python_paths))
 }
 
