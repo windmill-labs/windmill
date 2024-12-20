@@ -623,6 +623,46 @@ class Windmill:
             params={"approver": approver},
         ).json()
 
+    def request_interactive_slack_approval(
+        self,
+        slack_resource_path: str,
+        channel_id: str,
+        message: str = None,
+        approver: str = None,
+    ) -> None:
+        """
+        Request interactive Slack approval
+        :param slack_resource_path: Slack resource path
+        :param channel_id: Slack channel
+        :param message: Message to send to Slack
+        :param approver: Approver name
+        """
+        workspace = self.workspace
+        flow_job_id = os.environ.get("WM_FLOW_JOB_ID")
+
+        if not flow_job_id:
+            raise Exception(
+                "You can't use 'request_interactive_slack_approval' function in a standalone script or flow step preview. Please use it in a flow or a flow preview."
+            )
+
+        # Only include non-empty parameters
+        params = {}
+        if message:
+            params["message"] = message
+        if approver:
+            params["approver"] = approver
+        if slack_resource_path:
+            params["slack_resource_path"] = slack_resource_path
+        if channel_id:
+            params["channel_id"] = channel_id
+        if os.environ.get("WM_FLOW_STEP_ID"):
+            params["flow_step_id"] = os.environ.get("WM_FLOW_STEP_ID")
+
+        self.get(
+            f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}",
+            params=params,
+        )
+
     def username_to_email(self, username: str) -> str:
         """
         Get email from workspace username
@@ -972,6 +1012,19 @@ def get_state_path() -> str:
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
 
+@init_global_client
+def request_interactive_slack_approval(
+    slack_resource_path: str,
+    channel_id: str,
+    message: str = None,
+    approver: str = None,
+) -> None:
+    return _client.request_interactive_slack_approval(
+        slack_resource_path=slack_resource_path,
+        channel_id=channel_id,
+        message=message,
+        approver=approver,
+    )
 
 @init_global_client
 def cancel_running() -> dict:

@@ -1,8 +1,7 @@
 # Generate windmill-client bundle
 
 ```bash
-./node_modules/.bin/esbuild  src/index.ts --b
-undle --outfile=windmill.js  --format=esm
+./node_modules/.bin/esbuild  src/index.ts --bundle --outfile=windmill.js  --format=esm --platform=node
 ```
 
 # Generate d.ts bundle
