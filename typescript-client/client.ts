@@ -10,7 +10,6 @@ import {
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
 import { DenoS3LightClientSettings, type S3Object } from "./s3Types";
-import { WebClient, Block, KnownBlock } from "@slack/web-api";
 
 export {
   AdminService,
@@ -849,21 +848,18 @@ export async function usernameToEmail(username: string): Promise<string> {
 }
 
 interface SlackApprovalOptions {
-  slackToken: string;
-  channel: string;
+  slackResourcePath: string;
+  channelId: string;
   message?: string;
   approver?: string;
-  slackBlocks?: (Block | KnownBlock)[];
 }
 
 export async function requestInteractiveSlackApproval({
-  slackToken,
-  channel,
+  slackResourcePath,
+  channelId,
   message,
   approver,
 }: SlackApprovalOptions): Promise<void> {
-  const web = new WebClient(slackToken);
-  const nonce = Math.floor(Math.random() * 4294967295);
   const workspace = getWorkspace();
   const flowJobId = getEnv("WM_FLOW_JOB_ID");
 
@@ -874,24 +870,32 @@ export async function requestInteractiveSlackApproval({
   }
 
   // Only include non-empty parameters
-  const params: { approver?: string; message?: string } = {};
+  const params: {
+    approver?: string;
+    message?: string;
+    slackResourcePath?: string;
+    channelId?: string;
+    flowStepId?: string;
+  } = {};
   if (message) {
     params.message = message;
   }
   if (approver) {
     params.approver = approver;
   }
+  if (slackResourcePath) {
+    params.slackResourcePath = slackResourcePath;
+  }
+  if (channelId) {
+    params.channelId = channelId;
+  }
+  if (getEnv("WM_FLOW_STEP_ID")) {
+    params.flowStepId = getEnv("WM_FLOW_STEP_ID");
+  }
 
-  const blocks = await JobService.getSlackApprovalPayload({
+  await JobService.getSlackApprovalPayload({
     workspace,
-    resumeId: nonce,
     ...params,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
-  });
-
-  await web.chat.postMessage({
-    channel,
-    text: message,
-    blocks: blocks as unknown as (Block | KnownBlock)[],
   });
 }

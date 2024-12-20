@@ -2160,7 +2160,7 @@ pub struct SuspendedJobFlow {
     pub approvers: Vec<Approval>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct QueryApprover {
     pub approver: Option<String>,
 }
@@ -2394,6 +2394,14 @@ fn build_resume_url(
 
 pub async fn get_resume_urls(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::JsonResult<ResumeUrls> {
+    get_resume_urls_internal(Extension(db), Path((w_id, job_id, resume_id)), Query(approver)).await
+}
+
+pub async fn get_resume_urls_internal(
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,

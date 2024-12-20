@@ -16,7 +16,6 @@ import httpx
 
 from .s3_reader import S3BufferedReader, bytes_generator
 from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings, S3Object
-from slack_sdk import WebClient
 
 _client: "Windmill | None" = None
 
@@ -626,20 +625,18 @@ class Windmill:
 
     def request_interactive_slack_approval(
         self,
-        slack_token: str,
-        channel: str,
+        slack_resource_path: str,
+        channel_id: str,
         message: str = None,
         approver: str = None,
     ) -> None:
         """
         Request interactive Slack approval
-        :param slack_token: Slack token
-        :param channel: Slack channel
+        :param slack_resource_path: Slack resource path
+        :param channel_id: Slack channel
         :param message: Message to send to Slack
         :param approver: Approver name
         """
-        web = WebClient(slack_token)
-        nonce = random.randint(0, 4294967295)
         workspace = self.workspace
         flow_job_id = os.environ.get("WM_FLOW_JOB_ID")
 
@@ -654,17 +651,17 @@ class Windmill:
             params["message"] = message
         if approver:
             params["approver"] = approver
+        if slack_resource_path:
+            params["slack_resource_path"] = slack_resource_path
+        if channel_id:
+            params["channel_id"] = channel_id
+        if os.environ.get("WM_FLOW_STEP_ID"):
+            params["flow_step_id"] = os.environ.get("WM_FLOW_STEP_ID")
 
-        blocks = self.get(
-            f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}/{nonce}",
+        return self.get(
+            f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}",
             params=params,
         ).json()
-
-        web.chat_postMessage(
-            channel=channel,
-            text=message,
-            blocks=blocks,
-        )
 
     def username_to_email(self, username: str) -> str:
         """
