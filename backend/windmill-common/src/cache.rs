@@ -496,33 +496,32 @@ pub mod script {
         // so only one thread will be able to fetch the data from the database and write it to
         // the file system and cache, hence no race on the file system.
         let loc = Location::caller();
-        CACHE
-            .get_or_insert_async(hash, async move {
-                sqlx::query!(
-                    "SELECT \
-                        content AS \"content!: String\",
-                        lock AS \"lock: String\", \
-                        language AS \"language: Option<ScriptLang>\", \
-                        envs AS \"envs: Vec<String>\", \
-                        codebase AS \"codebase: String\" \
-                    FROM script WHERE hash = $1 LIMIT 1",
-                    hash.0
-                )
-                .fetch_optional(e)
-                .await
-                .map_err(Into::into)
-                .and_then(unwrap_or_error(&loc, "Script", hash))
-                .map(|r| RawScript {
-                    content: r.content,
-                    lock: r.lock,
-                    meta: Some(ScriptMetadata {
-                        language: r.language,
-                        envs: r.envs,
-                        codebase: r.codebase,
-                    }),
-                })
+        let fut = CACHE.get_or_insert_async(hash, async move {
+            sqlx::query!(
+                "SELECT \
+                    content AS \"content!: String\",
+                    lock AS \"lock: String\", \
+                    language AS \"language: Option<ScriptLang>\", \
+                    envs AS \"envs: Vec<String>\", \
+                    codebase AS \"codebase: String\" \
+                FROM script WHERE hash = $1 LIMIT 1",
+                hash.0
+            )
+            .fetch_optional(e)
+            .await
+            .map_err(Into::into)
+            .and_then(unwrap_or_error(&loc, "Script", hash))
+            .map(|r| RawScript {
+                content: r.content,
+                lock: r.lock,
+                meta: Some(ScriptMetadata {
+                    language: r.language,
+                    envs: r.envs,
+                    codebase: r.codebase,
+                }),
             })
-            .map_ok(|ScriptFull { data, meta }| (data, meta))
+        });
+        fut.map_ok(|ScriptFull { data, meta }| (data, meta))
     }
 
     /// Invalidate the script cache for the given `hash`.
