@@ -1,7 +1,7 @@
 {
   "name": "windmill-client",
   "description": "Windmill SDK client for browsers and Node.js",
-  "version": "1.439.0",
+  "version": "1.440.3",
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
   "devDependencies": {
@@ -18,8 +18,5 @@
     "LICENSE",
     "README.md",
     "package.json"
-  ],
-  "dependencies": {
-    "@slack/web-api": "^7.8.0"
-  }
+  ]
 }
