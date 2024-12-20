@@ -15,7 +15,8 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables, read_result, start_child_process, OccupancyMetrics
+        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -31,7 +32,7 @@ lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
-    static ref CARGO_PATH: String = format!("{}/bin/cargo", CARGO_HOME.as_str());
+    static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
 }
 
 #[cfg(windows)]
@@ -42,8 +43,8 @@ lazy_static::lazy_static! {
 
 #[cfg(unix)]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = "/usr/local/cargo".to_string();
-    static ref RUSTUP_HOME_DEFAULT: String = "/usr/local/rustup".to_string();
+    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";

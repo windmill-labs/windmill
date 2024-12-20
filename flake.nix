@@ -12,11 +12,17 @@
         inherit system;
         overlays = [ (import rust-overlay) ];
       };
+      rust = pkgs.rust-bin.stable.latest.default.override {
+        extensions = [
+          "rust-src" # for rust-analyzer
+          "rust-analyzer"
+        ];
+      };
       buildInputs = with pkgs; [
         openssl openssl.dev libxml2.dev xmlsec.dev libxslt.dev
-        rust-bin.stable.latest.default nodejs cmake
+        rust nodejs
         postgresql
-        pkg-config
+        pkg-config cmake
       ];
       PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig" (with pkgs; [
         openssl.dev
@@ -27,7 +33,7 @@
     in {
       devShell = pkgs.mkShell {
         buildInputs = buildInputs ++ (with pkgs; [
-          git xcaddy sqlx-cli flock rust-analyzer
+          git xcaddy sqlx-cli flock sccache
           deno python3 python3Packages.pip go bun uv
         ]);
         packages = [
@@ -74,12 +80,14 @@
         DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
         REMOTE = "http://127.0.0.1:8000";
         REMOTE_LSP = "http://127.0.0.1:3001";
+        RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
         DENO_PATH = "${pkgs.deno}/bin/deno";
         PYTHON_PATH = "${pkgs.python3}/bin/python3";
         GO_PATH = "${pkgs.go}/bin/go";
         BUN_PATH = "${pkgs.bun}/bin/bun";
         UV_PATH = "${pkgs.uv}/bin/uv";
         FLOCK_PATH = "${pkgs.flock}/bin/flock";
+        CARGO_PATH = "${rust}/bin/cargo";
       };
       packages.default = self.packages.${system}.windmill;
       packages.windmill-client = pkgs.stdenv.mkDerivation {
@@ -107,32 +115,26 @@
         pname = "windmill";
         version = (pkgs.lib.strings.trim (builtins.readFile ./version.txt));
 
-        src = ./.;
-        nativeBuildInputs = buildInputs ++ [ self.packages.${system}.windmill-client ];
+        src = ./backend;
+        nativeBuildInputs = buildInputs;
 
-        cargoRoot = "backend";
         cargoLock = {
           lockFile = ./backend/Cargo.lock;
           outputHashes = {
             "php-parser-rs-0.1.3" = "sha256-ZeI3KgUPmtjlRfq6eAYveqt8Ay35gwj6B9iOQRjQa9A=";
             "progenitor-0.3.0" = "sha256-F6XRZFVIN6/HfcM8yI/PyNke45FL7jbcznIiqj22eIQ=";
-            "rustpython-ast-0.3.1" = "sha256-q9N+z3F6YICQuUMp3a10OS792tCq0GiSSlkcaLxi3Gs=";
-            "tiberius-0.12.2" = "sha256-s/S0K3hE+JNCrNVxoSCSs4myLHvukBYTwk2A5vZ7Ae8=";
             "tinyvector-0.1.0" = "sha256-NYGhofU4rh+2IAM+zwe04YQdXY8Aa4gTmn2V2HtzRfI=";
           };
         };
 
-        buildFeatures = [ ];
+        buildFeatures = [
+          "embedding" "parquet" "openidconnect" "jemalloc" "deno_core" "license" "http_trigger" "zip" "oauth2" "dind"
+          "php" "mysql" "mssql" "bigquery" "websocket" "python" "smtp" "csharp" "rust"
+        ];
         doCheck = false;
-        preBuild = ''
-          export HOME=$(pwd)
-          npm config set strict-ssl false
-          cd backend
-        '';
 
         inherit PKG_CONFIG_PATH;
         SQLX_OFFLINE = true;
-        FRONTEND_BUILD_DIR = "${self.packages.${system}.windmill-client}/build";
         RUSTY_V8_ARCHIVE =
           let
             version = "130.0.1";
