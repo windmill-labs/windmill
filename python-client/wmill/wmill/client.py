@@ -1014,14 +1014,14 @@ def get_resume_urls(approver: str = None) -> dict:
 
 @init_global_client
 def request_interactive_slack_approval(
-    slack_token: str,
-    channel: str,
+    slack_resource_path: str,
+    channel_id: str,
     message: str = None,
     approver: str = None,
-) -> dict:
+) -> None:
     return _client.request_interactive_slack_approval(
-        slack_token, 
-        channel,
+        slack_resource_path, 
+        channel_id,
         message,
         approver,
     )
