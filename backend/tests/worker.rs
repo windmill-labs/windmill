@@ -145,7 +145,10 @@ impl ApiServer {
 
         _port_rx.await.unwrap();
 
-        return Self { addr, tx, task };
+        // clear the cache between tests
+        windmill_common::cache::clear();
+
+        Self { addr, tx, task }
     }
 
     async fn close(self) -> anyhow::Result<()> {
