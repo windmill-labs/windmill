@@ -16,7 +16,7 @@
 
 	let testJobLoader: TestJobLoader
 
-	$: $runnableJobEditorPanel.focused &&
+	$: ($runnableJobEditorPanel.focused || !float) &&
 		$selectedComponentInEditor &&
 		$runnableJobEditorPanel.jobs &&
 		updateSelectedJob()

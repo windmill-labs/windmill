@@ -12,11 +12,10 @@
 	<div class="relative h-full w-full overflow-x-visible" on:mouseenter on:mouseleave>
 		<InlineScriptsPanel on:hidePanel />
 		<RunnableJobPanel hidden={runnablePanelSize === 0} />
-		<slot />
 	</div>
 {:else}
 	<div class="flex flex-row relative w-full h-full">
 		<InlineScriptsPanel width={centerPanelWidth - 400} on:hidePanel />
-		<slot />
+		<RunnableJobPanel float={false} hidden={runnablePanelSize === 0} />
 	</div>
 {/if}

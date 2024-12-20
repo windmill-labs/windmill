@@ -30,7 +30,7 @@
 
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Job, type Policy } from '$lib/gen'
+	import { VariableService, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
@@ -49,7 +49,6 @@
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import RunnableJobPanel from './RunnableJobPanel.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
@@ -684,9 +683,6 @@
 
 	$: $connectingInput.opened, updatePannelInConnecting()
 
-	let testJob: Job | undefined = undefined
-	let jobToWatch: { componentId: string; job: string } | undefined = undefined
-
 	$: updateCursorStyle(!!$connectingInput.opened && !$panzoomActive)
 
 	function updateCursorStyle(disabled: boolean) {
@@ -1104,14 +1100,7 @@
 										{rightPanelSize}
 										{centerPanelWidth}
 										{runnablePanelSize}
-									>
-										<RunnableJobPanel
-											float={rightPanelSize !== 0}
-											hidden={runnablePanelSize === 0}
-											bind:testJob
-											bind:jobToWatch
-										/>
-									</AppEditorBottomPanel>
+									/>
 								</Pane>
 							{/if}
 						</Splitpanes>
