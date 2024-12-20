@@ -66,6 +66,7 @@
 	<FlowInput
 		{noEditor}
 		disabled={disabledFlowInputs}
+		{newFlow}
 		on:openTriggers={(ev) => {
 			$selectedId = 'triggers'
 			selectedTrigger.set(ev.detail.kind)

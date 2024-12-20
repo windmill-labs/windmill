@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, created_at, trigger_kind as \"trigger_kind: _\", payload as \"payload: _\", trigger_extra as \"trigger_extra: _\"\n        FROM capture\n        WHERE workspace_id = $1\n            AND path = $2 AND is_flow = $3\n            AND ($4::trigger_kind IS NULL OR trigger_kind = $4)\n        ORDER BY created_at DESC\n        OFFSET $5\n        LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_kind: _",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "payload: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "trigger_extra: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e08dddf6af2656b561c453460ff928e7a158bd29d9035bee136f9952fb96bad4"
+}

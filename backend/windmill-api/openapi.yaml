@@ -9011,6 +9011,8 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/CaptureTriggerKind"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: list of captures for a script or flow

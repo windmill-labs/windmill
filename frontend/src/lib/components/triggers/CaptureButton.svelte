@@ -8,6 +8,9 @@
 	import { createEventDispatcher } from 'svelte'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
+	import RoundIconButton from '../common/button/RoundIconButton.svelte'
+
+	export let small = false
 
 	let isOpen = false
 
@@ -24,9 +27,15 @@
 
 <Popover closeButton={false} bind:open={isOpen}>
 	<svelte:fragment slot="trigger">
-		<Button color="dark" btnClasses="rounded-l-none" wrapperClasses="h-full" nonCaptureEvent>
-			<CaptureIcon />
-		</Button>
+		{#if small}
+			<RoundIconButton>
+				<Plus size={14} />
+			</RoundIconButton>
+		{:else}
+			<Button color="dark" btnClasses="rounded-l-none" wrapperClasses="h-full" nonCaptureEvent>
+				<CaptureIcon />
+			</Button>
+		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		<div class="flex flex-col bg-surface">

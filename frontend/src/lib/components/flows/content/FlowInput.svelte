@@ -21,11 +21,13 @@
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import { tick } from 'svelte'
+	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
+	export let newFlow = false
 
-	const { flowStore, flowStateStore, previewArgs, initialPath } =
+	const { flowStore, flowStateStore, previewArgs, pathStore, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let payloadData: any | undefined = undefined
@@ -39,6 +41,7 @@
 	const dropdownItems: Array<{
 		label: string
 		onClick: () => void
+		disabled?: boolean
 	}> = [
 		{
 			label: 'Json',
@@ -66,7 +69,8 @@
 			onClick: () => {
 				selectedTab = 'savedInputs'
 				handleEditSchema(true)
-			}
+			},
+			disabled: newFlow
 		},
 		{
 			label: 'Captures',
@@ -75,7 +79,7 @@
 				handleEditSchema(true)
 			}
 		}
-	]
+	].filter((item) => !item.disabled)
 
 	let editSchema = false
 	function handleEditSchema(edit?: boolean) {
@@ -280,7 +284,7 @@
 							<HistoricInpts
 								scriptHash={null}
 								scriptPath={null}
-								flowPath={initialPath}
+								flowPath={$pathStore}
 								on:select={(e) => {
 									payloadData = e.detail
 								}}
@@ -293,12 +297,15 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 						>
+							<svelete:fragment slot="header">
+								<CaptureButton on:openTriggers small={true} />
+							</svelete:fragment>
 							<CapturesInputs
 								on:select={(e) => {
 									payloadData = e.detail
 								}}
 								scriptHash={null}
-								flowPath={initialPath}
+								flowPath={$pathStore}
 								isFlow={true}
 							/>
 						</FlowInputEditor>
