@@ -24,6 +24,11 @@
 	export let newResource: boolean = false
 	export let hidePath: boolean = false
 	export let watchChanges: boolean = false
+	export let defaultValues: Record<string, any> | undefined = undefined
+
+	$: if (defaultValues && Object.keys(defaultValues).length > 0) {
+		args = defaultValues
+	}
 
 	let isValid = true
 	let jsonError = ''

@@ -45,6 +45,7 @@
 		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
+	export let lightHeader = false
 
 	const dispatch = createEventDispatcher()
 
@@ -262,6 +263,7 @@
 										orderEditable={dndConfig != undefined}
 										otherArgs={args}
 										{helperScript}
+										{lightHeader}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />
