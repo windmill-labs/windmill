@@ -1,5 +1,1 @@
 windmill-api/
-wmill/dist/*.whl
-wmill/dist/*.tar.gz
-wmill_pg/dist/*.whl
-wmill_pg/dist/*.tar.gz

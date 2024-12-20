@@ -913,16 +913,11 @@ async fn get_modal_blocks(
         }
     };
 
-    let flow_value = flow_data.value()?;
-
+    let flow_value = &flow_data.flow;
     let flow_step_id = flow_step_id.unwrap_or("");
     let module = flow_value.modules.iter().find(|m| m.id == flow_step_id);
 
-    tracing::debug!("Job kind: {:?}", job_kind.clone());
-    tracing::debug!("Script hash: {:?}", script_hash);
-    tracing::debug!("Flow value: {:#?}", flow_value);
     tracing::debug!("Module: {:#?}", module);
-
     let schema = module.and_then(|module| {
         module.suspend.as_ref().map(|suspend| ResumeFormRow {
             resume_form: suspend.resume_form.clone(),

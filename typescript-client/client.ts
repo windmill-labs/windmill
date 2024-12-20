@@ -869,28 +869,29 @@ export async function requestInteractiveSlackApproval({
     );
   }
 
+  const flowStepId = getEnv("WM_FLOW_STEP_ID");
+  if (!flowStepId) {
+    throw new Error("This function can only be called as a flow step");
+  }
+
   // Only include non-empty parameters
   const params: {
     approver?: string;
     message?: string;
-    slackResourcePath?: string;
-    channelId?: string;
-    flowStepId?: string;
-  } = {};
+    slackResourcePath: string;
+    channelId: string;
+    flowStepId: string;
+  } = {
+    slackResourcePath,
+    channelId,
+    flowStepId,
+  };
+
   if (message) {
     params.message = message;
   }
   if (approver) {
     params.approver = approver;
-  }
-  if (slackResourcePath) {
-    params.slackResourcePath = slackResourcePath;
-  }
-  if (channelId) {
-    params.channelId = channelId;
-  }
-  if (getEnv("WM_FLOW_STEP_ID")) {
-    params.flowStepId = getEnv("WM_FLOW_STEP_ID");
   }
 
   await JobService.getSlackApprovalPayload({

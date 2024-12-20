@@ -6962,14 +6962,17 @@ paths:
             type: string
         - name: slack_resource_path
           in: query
+          required: true
           schema:
             type: string
         - name: channel_id
           in: query
+          required: true
           schema:
             type: string
         - name: flow_step_id
           in: query
+          required: true
           schema:
             type: string
       responses:

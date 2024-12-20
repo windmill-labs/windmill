@@ -658,10 +658,10 @@ class Windmill:
         if os.environ.get("WM_FLOW_STEP_ID"):
             params["flow_step_id"] = os.environ.get("WM_FLOW_STEP_ID")
 
-        return self.get(
+        self.get(
             f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}",
             params=params,
-        ).json()
+        )
 
     def username_to_email(self, username: str) -> str:
         """
@@ -1020,10 +1020,10 @@ def request_interactive_slack_approval(
     approver: str = None,
 ) -> None:
     return _client.request_interactive_slack_approval(
-        slack_resource_path, 
-        channel_id,
-        message,
-        approver,
+        slack_resource_path=slack_resource_path,
+        channel_id=channel_id,
+        message=message,
+        approver=approver,
     )
 
 @init_global_client
