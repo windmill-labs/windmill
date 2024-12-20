@@ -79,6 +79,7 @@ oauth2 = ["windmill-api/oauth2"]
 http_trigger = ["windmill-api/http_trigger"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
+scoped_cache = ["windmill-common/scoped_cache"]
 
 
 [dependencies]

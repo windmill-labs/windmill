@@ -658,11 +658,11 @@
 					<div class="flex flex-col gap-2 w-full">
 						{#if oneOf && oneOf.length >= 2}
 							<ToggleButtonGroup
+								bind:selected={oneOfSelected}
 								on:selected={() => {
-									value = {}
+									value = { label: oneOfSelected }
 									redraw += 1
 								}}
-								bind:selected={oneOfSelected}
 							>
 								{#each oneOf as obj}
 									<ToggleButton value={obj.title} label={obj.title} />
@@ -680,10 +680,8 @@
 													{disablePortal}
 													{disabled}
 													schema={{
-														properties: Object.fromEntries(
-															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-														),
-														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														properties: obj.properties,
+														order: obj.order,
 														$schema: '',
 														required: obj.required ?? [],
 														type: 'object'
@@ -703,11 +701,10 @@
 													{onlyMaskPassword}
 													{disablePortal}
 													{disabled}
+													schemaSkippedValues={['label']}
 													schema={{
-														properties: Object.fromEntries(
-															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-														),
-														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														properties: obj.properties,
+														order: obj.order,
 														$schema: '',
 														required: obj.required ?? [],
 														type: 'object'
