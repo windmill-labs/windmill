@@ -603,7 +603,7 @@ pub async fn handle_flow_dependency_job(
             _ => return Err(Error::InternalErr("expected script hash".into())),
         },
     }
-    .value()?
+    .value()
     .clone();
 
     let mut tx = db.begin().await?;

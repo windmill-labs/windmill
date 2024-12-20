@@ -250,7 +250,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         let flow_data = cache::job::fetch_flow(db, job_kind, script_hash)
             .or_else(|_| cache::job::fetch_preview_flow(db, &flow, raw_flow))
             .await?;
-        let flow_value = flow_data.value()?;
+        let flow_value = flow_data.value();
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
         let current_module = match module_step {
@@ -1499,7 +1499,7 @@ pub async fn handle_flow(
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
 ) -> anyhow::Result<()> {
-    let flow = flow_data.value()?;
+    let flow = flow_data.value();
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;

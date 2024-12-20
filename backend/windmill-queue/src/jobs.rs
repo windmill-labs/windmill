@@ -2868,7 +2868,7 @@ pub async fn push<'c, 'd>(
         ),
         JobPayload::FlowNode { id, path } => {
             let data = cache::flow::fetch_flow(_db, id).await?;
-            let value = data.value()?;
+            let value = data.value();
             let status = Some(FlowStatus::new(value));
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the flow node id.
@@ -3020,7 +3020,7 @@ pub async fn push<'c, 'd>(
                 // The version has been inserted only within the transaction.
                 let data = cache::flow::fetch_version(&mut *ntx, version).await?;
                 tx = PushIsolationLevel::Transaction(ntx);
-                Some(data.value()?.clone())
+                Some(data.value().clone())
             } else {
                 // `raw_flow` is fetched on pull.
                 None
@@ -3218,7 +3218,7 @@ pub async fn push<'c, 'd>(
             }?;
             tx = PushIsolationLevel::Transaction(ntx);
 
-            let value = data.value()?.clone();
+            let value = data.value().clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let custom_concurrency_key = value.concurrency_key.clone();
@@ -3311,7 +3311,7 @@ pub async fn push<'c, 'd>(
                 user_states,
                 preprocessor_module: None,
             };
-            let value = flow_data.value()?;
+            let value = flow_data.value();
             let priority = value.priority;
             let concurrency_key = value.concurrency_key.clone();
             let concurrent_limit = value.concurrent_limit;
@@ -3781,7 +3781,7 @@ async fn restarted_flows_resolution(
     let flow_data = cache::job::fetch_flow(db, row.job_kind, row.script_hash)
         .or_else(|_| cache::job::fetch_preview_flow(db, &completed_flow_id, row.raw_flow))
         .await?;
-    let flow_value = flow_data.value()?;
+    let flow_value = flow_data.value();
     let flow_status = row
         .flow_status
         .as_ref()
