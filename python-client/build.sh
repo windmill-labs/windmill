@@ -49,7 +49,12 @@ user friendly experience. We use \
 
 echo "" >> windmill-api/README.md.tmp
 
-tail -r windmill-api/README.md | tail -n +14 | tail -r >> windmill-api/README.md.tmp
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    tail -r windmill-api/README.md | tail -n +14 | tail -r >> windmill-api/README.md.tmp
+else
+    head -n -13 windmill-api/README.md >> windmill-api/README.md.tmp
+fi
+
 mv windmill-api/README.md.tmp windmill-api/README.md
 
 cd windmill-api && poetry build
