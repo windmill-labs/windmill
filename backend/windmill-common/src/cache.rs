@@ -131,6 +131,12 @@ impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCach
         key.path(&self.root)
     }
 
+    /// Clear the cache.
+    pub fn clear(&self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+        self.cache.clear();
+    }
+
     /// Remove the item with the given `key` from the cache.
     pub fn remove(&self, key: &Key) -> Option<(Key, Val)> {
         let _ = std::fs::remove_dir_all(self.path(key));
@@ -342,6 +348,14 @@ fn unwrap_or_error<Key: std::fmt::Debug, Val>(
     }
 }
 
+/// Clear all caches.
+pub fn clear() {
+    flow::clear();
+    script::clear();
+    app::clear();
+    job::clear();
+}
+
 pub mod flow {
     use super::*;
 
@@ -353,6 +367,13 @@ pub mod flow {
         static ref FLOWS: { i64 => Entry<FlowData> } in "flows" <= 1000;
         /// Flow version lite value cache (version id => value).
         static ref FLOWS_LITE: { i64 => Entry<FlowData> } in "flowslite" <= 1000;
+    }
+
+    /// Clear the flow cache.
+    pub fn clear() {
+        NODES.clear();
+        FLOWS.clear();
+        FLOWS_LITE.clear();
     }
 
     /// Fetch the flow node script referenced by `node` from the cache.
@@ -483,6 +504,11 @@ pub mod script {
         static ref CACHE: { ScriptHash => ScriptFull } in "script" <= 1000;
     }
 
+    /// Clear the script cache.
+    pub fn clear() {
+        CACHE.clear();
+    }
+
     /// Fetch the script referenced by `hash` from the cache.
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
@@ -538,6 +564,11 @@ pub mod app {
         static ref CACHE: { AppScriptId => Entry<ScriptData> } in "app" <= 1000;
     }
 
+    /// Clear the app scripts cache.
+    pub fn clear() {
+        CACHE.clear();
+    }
+
     /// Fetch the app script referenced by `id` from the cache.
     /// If not present, import from the file-system cache or fetch it from the database and write
     /// it to the file system and cache.
@@ -569,6 +600,23 @@ pub mod app {
 pub mod job {
     use super::*;
     use crate::jobs::JobKind;
+
+    #[cfg(not(feature = "scoped_cache"))]
+    lazy_static! {
+        /// Very small in-memory cache for "preview" jobs raw data.
+        static ref PREVIEWS: Cache<Uuid, RawData> = Cache::new(50);
+    }
+
+    #[cfg(feature = "scoped_cache")]
+    lazy_static! {
+        /// Very small in-memory cache for "preview" jobs raw data.
+        static ref PREVIEWS: Cache<(ThreadId, Uuid), RawData> = Cache::new(50);
+    }
+
+    /// Clear the job cache.
+    pub fn clear() {
+        PREVIEWS.clear();
+    }
 
     #[track_caller]
     pub fn fetch_preview_flow<'a, 'c>(
@@ -619,18 +667,6 @@ pub mod job {
         raw_code: Option<String>,
         raw_flow: Option<Json<Box<RawValue>>>,
     ) -> impl Future<Output = error::Result<RawData>> + 'a {
-        #[cfg(not(feature = "scoped_cache"))]
-        lazy_static! {
-            /// Very small in-memory cache for "preview" jobs raw data.
-            static ref PREVIEWS: Cache<Uuid, RawData> = Cache::new(50);
-        }
-
-        #[cfg(feature = "scoped_cache")]
-        lazy_static! {
-            /// Very small in-memory cache for "preview" jobs raw data.
-            static ref PREVIEWS: Cache<(ThreadId, Uuid), RawData> = Cache::new(50);
-        }
-
         let loc = Location::caller();
         let fetch = async move {
             match (raw_lock, raw_code, raw_flow) {
