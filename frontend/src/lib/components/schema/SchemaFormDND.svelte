@@ -14,6 +14,7 @@
 	export let onlyMaskPassword: boolean = false
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
+	export let schemaSkippedValues: string[] = []
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
@@ -65,6 +66,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <SchemaForm
+	{schemaSkippedValues}
 	on:click
 	on:change
 	on:reorder

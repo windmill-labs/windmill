@@ -48,7 +48,9 @@ jobs:
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
-        run: SQLX_OFFLINE=true cargo check --all-features
+        run: |
+          mkdir -p fake_frontend_build
+          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --all-features
 
   check_ee:
     runs-on: ubicloud-standard-8
@@ -125,6 +127,8 @@ jobs:
       - name: cargo check
         timeout-minutes: 16
         working-directory: ./backend
-        run: SQLX_OFFLINE=true cargo check --all-features
+        run: |
+          mkdir -p fake_frontend_build
+          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --all-features
 
  

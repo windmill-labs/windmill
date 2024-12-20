@@ -250,7 +250,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         let flow_data = cache::job::fetch_flow(db, job_kind, script_hash)
             .or_else(|_| cache::job::fetch_preview_flow(db, &flow, raw_flow))
             .await?;
-        let flow_value = flow_data.value()?;
+        let flow_value = flow_data.value();
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
         let current_module = match module_step {
@@ -1499,7 +1499,7 @@ pub async fn handle_flow(
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
 ) -> anyhow::Result<()> {
-    let flow = flow_data.value()?;
+    let flow = flow_data.value();
     let status = flow_job
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
@@ -2978,6 +2978,18 @@ fn payload_from_modules<'a>(
     })
 }
 
+fn get_path(flow_job: &QueuedJob, status: &FlowStatus, module: &FlowModule) -> String {
+    if status
+        .preprocessor_module
+        .as_ref()
+        .is_some_and(|x| x.id() == module.id)
+    {
+        format!("{}/preprocessor", flow_job.script_path())
+    } else {
+        format!("{}/step-{}", flow_job.script_path(), status.step)
+    }
+}
+
 async fn compute_next_flow_transform(
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
@@ -3023,6 +3035,7 @@ async fn compute_next_flow_transform(
     if is_skipped {
         return trivial_next_job(JobPayload::Identity);
     }
+
     match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
@@ -3052,17 +3065,8 @@ async fn compute_next_flow_transform(
             concurrency_time_window_s,
             ..
         } => {
-            let path = path.clone().or_else(|| {
-                if status
-                    .preprocessor_module
-                    .as_ref()
-                    .is_some_and(|x| x.id() == module.id)
-                {
-                    Some(format!("{}/preprocessor", flow_job.script_path()))
-                } else {
-                    Some(format!("{}/step-{}", flow_job.script_path(), status.step))
-                }
-            });
+            let path = path.unwrap_or_else(|| get_path(flow_job, status, module));
+
             let payload = raw_script_to_payload(
                 path,
                 content,
@@ -3089,6 +3093,8 @@ async fn compute_next_flow_transform(
             concurrency_time_window_s,
             ..
         } => {
+            let path = get_path(flow_job, status, module);
+
             let payload = JobPayloadWithTag {
                 payload: JobPayload::FlowScript {
                     id,
@@ -3098,6 +3104,7 @@ async fn compute_next_flow_transform(
                     concurrency_time_window_s,
                     cache_ttl: module.cache_ttl.map(|x| x as i32),
                     dedicated_worker: None,
+                    path,
                 },
                 tag: tag.clone(),
                 delete_after_use,
@@ -3461,7 +3468,7 @@ async fn next_loop_iteration(
         };
         return Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(
-                payload_from_simple_module(value, db, flow_job, module, Some(inner_path())).await?,
+                payload_from_simple_module(value, db, flow_job, module, inner_path()).await?,
             ),
             NextStatus::NextLoopIteration { next: ns, simple_input_transforms },
         ));
@@ -3652,7 +3659,7 @@ async fn payload_from_simple_module(
     db: &sqlx::Pool<sqlx::Postgres>,
     flow_job: &QueuedJob,
     module: &FlowModule,
-    inner_path: Option<String>,
+    inner_path: String,
 ) -> Result<JobPayloadWithTag, Error> {
     let delete_after_use = module.delete_after_use.unwrap_or(false);
     Ok(match value {
@@ -3671,7 +3678,7 @@ async fn payload_from_simple_module(
             concurrency_time_window_s,
             ..
         } => raw_script_to_payload(
-            path.or(inner_path),
+            path.unwrap_or_else(|| inner_path),
             content,
             language,
             lock,
@@ -3699,6 +3706,7 @@ async fn payload_from_simple_module(
                 concurrency_time_window_s,
                 cache_ttl: module.cache_ttl.map(|x| x as i32),
                 dedicated_worker: None,
+                path: inner_path,
             },
             tag,
             delete_after_use,
@@ -3709,7 +3717,7 @@ async fn payload_from_simple_module(
 }
 
 fn raw_script_to_payload(
-    path: Option<String>,
+    path: String,
     content: String,
     language: windmill_common::scripts::ScriptLang,
     lock: Option<String>,
@@ -3723,7 +3731,7 @@ fn raw_script_to_payload(
     JobPayloadWithTag {
         payload: JobPayload::Code(RawCode {
             hash: None,
-            path,
+            path: Some(path),
             content,
             language,
             lock,
