@@ -15,7 +15,7 @@
 	</div>
 {:else}
 	<div class="flex flex-row relative w-full h-full">
-		<InlineScriptsPanel width={centerPanelWidth - 400} on:hidePanel />
+		<InlineScriptsPanel width={centerPanelWidth * 0.66} on:hidePanel />
 		<RunnableJobPanel float={false} hidden={runnablePanelSize === 0} />
 	</div>
 {/if}

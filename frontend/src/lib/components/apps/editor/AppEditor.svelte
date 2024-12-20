@@ -561,13 +561,11 @@
 		} else {
 			leftPanelSize = storedLeftPanelSize
 		}
-		storedLeftPanelSize = 0
 	}
 
 	function showRightPanel() {
 		rightPanelSize = storedRightPanelSize
 		centerPanelSize = centerPanelSize - storedRightPanelSize
-		storedRightPanelSize = 0
 	}
 
 	function showBottomPanel(animate: boolean = false) {
@@ -589,7 +587,6 @@
 			runnablePanelSize = storedBottomPanelSize
 			gridPanelSize = gridPanelSize - storedBottomPanelSize
 		}
-		storedBottomPanelSize = 0
 	}
 
 	function keydown(event: KeyboardEvent) {

@@ -156,9 +156,7 @@
 						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
 						id={BG_PREFIX + hiddenInlineScript}
 						bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
-					/>
-				{/if}
-			{/key}
+					/>{/if}{/key}
 		{:else}
 			<div class="text-sm text-tertiary text-center py-8 px-2">
 				No script found at id {$selectedComponentInEditor}

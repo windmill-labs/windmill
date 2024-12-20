@@ -9,6 +9,7 @@
 	export let hidden: boolean = false
 	export let testJob: Job | undefined = undefined
 	export let jobToWatch: { componentId: string; job: string } | undefined = undefined
+	export let width: number | undefined = undefined
 
 	const { runnableJobEditorPanel, selectedComponentInEditor } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -59,7 +60,10 @@
 			<RunnableJobPanelInner {testIsLoading} {frontendJob} {testJob} />
 		</div>
 	{:else}
-		<div class="flex flex-col w-full h-full">
+		<div
+			class="flex flex-col min-w-0 grow h-full"
+			style={width !== undefined ? `width:${width}px;` : ''}
+		>
 			{#if $selectedComponentInEditor}
 				<RunnableJobPanelInner {testIsLoading} {frontendJob} {testJob} />
 			{:else if !hidden}
