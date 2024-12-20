@@ -1,13 +1,18 @@
-/// # Features
-/// - `threadlocal_cache`: Use thread-local cache instead of global cache.
-///   This shall only be used for testing, e.g. [`sqlx::test`] spawn a database per test,
-///   and there is only one test per thread, so using thread-local cache avoid unexpected results.
+//! Windmill cache system.
+//!
+//! # Features
+//! - `scoped_cache`: Use scoped cache instead of global cache.
+//!   1. The cache is made thread-local, so each thread has its own entries.
+//!   2. The cache is made temporary, so it is deleted when the program exits.
+//!   This shall only be used for testing, e.g. [`sqlx::test`] spawn a database per test,
+//!   and there is only one test per thread, so using thread-local cache avoid unexpected results.
+
 use crate::{
     apps::AppScriptId, error, flows::FlowNodeId, flows::FlowValue, scripts::ScriptHash,
     scripts::ScriptLang,
 };
 
-#[cfg(feature = "threadlocal_cache")]
+#[cfg(feature = "scoped_cache")]
 use std::thread::ThreadId;
 use std::{
     future::Future,
@@ -29,8 +34,31 @@ pub use const_format::concatcp;
 pub use lazy_static::lazy_static;
 pub use quick_cache::sync::Cache;
 
-/// Cache directory for windmill server/worker(s).
-pub const CACHE_DIR: &str = "/tmp/windmill/cache/";
+#[cfg(not(feature = "scoped_cache"))]
+lazy_static! {
+    /// Cache directory for windmill server/worker(s).
+    /// 1. If `XDG_CACHE_HOME` is set, use `"${XDG_CACHE_HOME}/windmill"`.
+    /// 2. If `HOME` is set, use `"${HOME}/.cache/windmill"`.
+    /// 3. Otherwise, use `"{std::env::temp_dir()}/windmill/cache"`.
+    pub static ref CACHE_PATH: PathBuf = {
+        std::env::var("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".cache")))
+            .map(|cache| cache.join("windmill"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("windmill/cache"))
+    };
+}
+
+#[cfg(feature = "scoped_cache")]
+lazy_static! {
+    /// Temporary directory for thread-local cache.
+    pub static ref CACHE_PATH_TMP: mktemp::Temp = {
+        mktemp::Temp::new_dir().expect("Failed to create temporary directory")
+    };
+
+    /// Cache directory for windmill server/worker(s).
+    pub static ref CACHE_PATH: PathBuf = CACHE_PATH_TMP.as_ref().to_path_buf();
+}
 
 /// An item that can be imported/exported from/into the file-system.
 pub trait Item: Sized {
@@ -82,9 +110,9 @@ pub trait Export: Clone {
 
 /// A file-system backed concurrent cache.
 pub struct FsBackedCache<Key, Val, Root> {
-    #[cfg(not(feature = "threadlocal_cache"))]
+    #[cfg(not(feature = "scoped_cache"))]
     cache: Cache<Key, Val>,
-    #[cfg(feature = "threadlocal_cache")]
+    #[cfg(feature = "scoped_cache")]
     cache: Cache<(ThreadId, Key), Val>,
     root: Root,
 }
@@ -98,7 +126,7 @@ impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCach
 
     /// Build a path for the given `key`.
     pub fn path(&self, key: &Key) -> PathBuf {
-        #[cfg(feature = "threadlocal_cache")]
+        #[cfg(feature = "scoped_cache")]
         let key = &(std::thread::current().id(), key.clone());
         key.path(&self.root)
     }
@@ -106,10 +134,10 @@ impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCach
     /// Remove the item with the given `key` from the cache.
     pub fn remove(&self, key: &Key) -> Option<(Key, Val)> {
         let _ = std::fs::remove_dir_all(self.path(key));
-        #[cfg(feature = "threadlocal_cache")]
+        #[cfg(feature = "scoped_cache")]
         let key = &(std::thread::current().id(), key.clone());
         let res = self.cache.remove(key);
-        #[cfg(feature = "threadlocal_cache")]
+        #[cfg(feature = "scoped_cache")]
         let res = res.map(|(k, v)| (k.1, v));
         res
     }
@@ -144,7 +172,7 @@ impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCach
             }
             Ok(data)
         };
-        #[cfg(feature = "threadlocal_cache")]
+        #[cfg(feature = "scoped_cache")]
         let key = (std::thread::current().id(), key.clone());
         self.cache.get_or_insert_async(&key, import_or_fetch).await
     }
@@ -170,9 +198,9 @@ macro_rules! make_static {
         $crate::cache::lazy_static! {
             $(
                 $(#[$attr])*
-                static ref $name: $crate::cache::FsBackedCache<$Key, $Val, &'static str> =
+                static ref $name: $crate::cache::FsBackedCache<$Key, $Val, ::std::path::PathBuf> =
                     $crate::cache::FsBackedCache::new(
-                        $crate::cache::concatcp!($crate::cache::CACHE_DIR, $root),
+                        $crate::cache::CACHE_PATH.join($root),
                         $cap
                     );
             )+
@@ -595,13 +623,13 @@ pub mod job {
         raw_code: Option<String>,
         raw_flow: Option<Json<Box<RawValue>>>,
     ) -> impl Future<Output = error::Result<RawData>> + 'a {
-        #[cfg(not(feature = "threadlocal_cache"))]
+        #[cfg(not(feature = "scoped_cache"))]
         lazy_static! {
             /// Very small in-memory cache for "preview" jobs raw data.
             static ref PREVIEWS: Cache<Uuid, RawData> = Cache::new(50);
         }
 
-        #[cfg(feature = "threadlocal_cache")]
+        #[cfg(feature = "scoped_cache")]
         lazy_static! {
             /// Very small in-memory cache for "preview" jobs raw data.
             static ref PREVIEWS: Cache<(ThreadId, Uuid), RawData> = Cache::new(50);
@@ -630,9 +658,9 @@ pub mod job {
                 })),
             })
         };
-        #[cfg(not(feature = "threadlocal_cache"))]
+        #[cfg(not(feature = "scoped_cache"))]
         return PREVIEWS.get_or_insert_async(job, fetch);
-        #[cfg(feature = "threadlocal_cache")]
+        #[cfg(feature = "scoped_cache")]
         async move {
             let job = &(std::thread::current().id(), job.clone());
             PREVIEWS.get_or_insert_async(job, fetch).await
@@ -868,7 +896,7 @@ const _: () = {
         (AppScriptId, |x| format!("{:016x}", x.0))
     }
 
-    #[cfg(feature = "threadlocal_cache")]
+    #[cfg(feature = "scoped_cache")]
     impl<T: Item> Item for (ThreadId, T) {
         fn path(&self, root: impl AsRef<Path>) -> PathBuf {
             let (id, item) = self;

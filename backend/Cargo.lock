@@ -5251,6 +5251,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mktemp"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "975de676448231fcde04b9149d2543077e166b78fc29eae5aa219e7928410da2"
+dependencies = [
+ "uuid 0.8.2",
+]
+
+[[package]]
 name = "monostate"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10854,6 +10863,7 @@ dependencies = [
  "lazy_static",
  "magic-crypt",
  "mail-send",
+ "mktemp",
  "object_store",
  "opentelemetry",
  "opentelemetry-appender-tracing",
