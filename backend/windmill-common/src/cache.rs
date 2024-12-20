@@ -52,8 +52,8 @@ lazy_static! {
 #[cfg(feature = "scoped_cache")]
 lazy_static! {
     /// Temporary directory for thread-local cache.
-    pub static ref CACHE_PATH_TMP: mktemp::Temp = {
-        mktemp::Temp::new_dir().expect("Failed to create temporary directory")
+    pub static ref CACHE_PATH_TMP: tempfile::TempDir = {
+        tempfile::tempdir().expect("Failed to create temporary directory")
     };
 
     /// Cache directory for windmill server/worker(s).
