@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { twMerge } from 'tailwind-merge'
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
 
@@ -10,7 +9,7 @@
 
 {#if rightPanelSize !== 0}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class={twMerge('relative h-full w-full overflow-x-visible')} on:mouseenter on:mouseleave>
+	<div class="relative h-full w-full overflow-x-visible" on:mouseenter on:mouseleave>
 		<InlineScriptsPanel on:hidePanel />
 		<RunnableJobPanel hidden={runnablePanelSize === 0} />
 		<slot />
@@ -18,7 +17,6 @@
 {:else}
 	<div class="flex flex-row relative w-full h-full">
 		<InlineScriptsPanel width={centerPanelWidth - 400} on:hidePanel />
-
 		<slot />
 	</div>
 {/if}

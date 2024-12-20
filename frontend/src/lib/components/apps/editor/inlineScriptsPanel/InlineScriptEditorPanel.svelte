@@ -13,6 +13,7 @@
 	export let componentType: string
 	export let id: string
 	export let transformer: boolean
+	export let rawApps: boolean = false
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 

@@ -33,7 +33,7 @@
 	import { VariableService, type Job, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
-	import { findGridItem, findGridItemParentGrid } from './appUtils'
+	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
@@ -384,27 +384,6 @@
 			tmpRunnablePanelSize = -1
 			tmpGridPanelSize = -1
 		}
-	}
-
-	function animateTo(start: number, end: number, onUpdate: (newValue: number) => void) {
-		const duration = 400
-		const startTime = performance.now()
-
-		function animate(time: number) {
-			const elapsed = time - startTime
-			const progress = Math.min(elapsed / duration, 1)
-			const currentValue = start + (end - start) * easeInOut(progress)
-			onUpdate(currentValue)
-			if (progress < 1) {
-				requestAnimationFrame(animate)
-			}
-		}
-
-		requestAnimationFrame(animate)
-	}
-
-	function easeInOut(t: number) {
-		return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
 	}
 
 	$: $cssEditorOpen && selectCss()

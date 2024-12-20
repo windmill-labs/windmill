@@ -16,6 +16,8 @@
 	import { findNextAvailablePath } from '$lib/path'
 	import { twMerge } from 'tailwind-merge'
 
+	export let rawApps: boolean = false
+
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -28,7 +30,7 @@
 			$app.hiddenInlineScripts[index] = {
 				hidden: true,
 				inlineScript: undefined,
-				name: `Background Runnable ${index}`,
+				name: `${rawApps ? 'Backend' : 'Background'} Runnable ${index}`,
 				fields: {},
 				type: 'runnableByName',
 				recomputeIds: undefined
@@ -37,8 +39,10 @@
 		}
 
 		$selectedComponentInEditor = undefined
-		delete $runnableComponents[BG_PREFIX + index]
-		$runnableComponents = $runnableComponents
+		if (runnableComponents) {
+			delete $runnableComponents[BG_PREFIX + index]
+			$runnableComponents = $runnableComponents
+		}
 	}
 
 	$: gridItem =
@@ -108,15 +112,15 @@
 <SplitPanesWrapper>
 	<Splitpanes
 		class={twMerge('!overflow-visible')}
-		style={width !== undefined ? `width:${width}px;` : ''}
+		style={width !== undefined ? `width:${width}px;` : 'width: 100%;'}
 	>
 		<Pane size={25}>
-			<InlineScriptsPanelList on:hidePanel />
+			<InlineScriptsPanelList {rawApps} on:hidePanel />
 		</Pane>
 		<Pane size={75}>
 			{#if !$selectedComponentInEditor}
 				<div class="text-sm text-secondary text-center py-8 px-2">
-					Select a script on the left panel
+					Select a runnable on the left panel
 				</div>
 			{:else if gridItem}
 				{#key gridItem?.id}
@@ -146,6 +150,7 @@
 				{#key hiddenInlineScript}
 					{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
 						<InlineScriptHiddenRunnable
+							{rawApps}
 							on:createScriptFromInlineScript={(e) => {
 								createScriptFromInlineScript(BG_PREFIX + hiddenInlineScript, e.detail)
 							}}
@@ -153,7 +158,9 @@
 							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
 							id={BG_PREFIX + hiddenInlineScript}
 							bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
-						/>{/if}{/key}
+						/>
+					{/if}
+				{/key}
 			{:else}
 				<div class="text-sm text-tertiary text-center py-8 px-2">
 					No script found at id {$selectedComponentInEditor}

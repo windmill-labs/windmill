@@ -165,7 +165,9 @@
 
 			if (!deepEqual(newFields, fields)) {
 				fields = newFields
-				$stateId++
+				if (stateId) {
+					$stateId++
+				}
 			}
 		}
 	}
@@ -197,7 +199,9 @@
 					]
 				}
 			}
-			$stateId++
+			if (stateId) {
+				$stateId++
+			}
 		}
 	}
 </script>
@@ -227,7 +231,9 @@
 							class="!text-xs !rounded-sm !shadow-none"
 							on:keyup={() => {
 								$app = $app
-								$stateId++
+								if (stateId) {
+									$stateId++
+								}
 							}}
 						/>
 						<div

@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { versionRangeToVersion } from '$lib/ata'
+	import { animateTo } from '$lib/components/apps/editor/appUtils'
+	import InlineScriptsPanel from '$lib/components/apps/editor/inlineScriptsPanel/InlineScriptsPanel.svelte'
+	import type { Runnable } from '$lib/components/apps/inputType'
+	import { Button } from '$lib/components/common'
+	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import { extToLang } from '$lib/editorUtils'
 	import {
@@ -7,7 +12,9 @@
 		type BundlerState,
 		type SandpackClient
 	} from '@codesandbox/sandpack-client'
-	import { onMount } from 'svelte'
+	import { onMount, setContext } from 'svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { writable } from 'svelte/store'
 	let editor: Editor | undefined = undefined
 
 	let iframe: HTMLIFrameElement | undefined = undefined
@@ -36,10 +43,13 @@ body {
 		'/package.json': {
 			code: `{
 	"dependencies": {
-		"react": "^18",
-		"react-dom": "^18"
+		"react": "18.3.1",
+		"react-dom": "18.3.1"
 	}
 }`
+		},
+		'/policy.json': {
+			code: 'foo'
 		}
 	}
 
@@ -53,8 +63,8 @@ body {
 					files,
 					entry: '/index.tsx',
 					dependencies: {
-						react: '^18',
-						'react-dom': '^18'
+						react: '18.3.1',
+						'react-dom': '18.3.1'
 					}
 				},
 				{
@@ -133,41 +143,102 @@ body {
 		)
 	}
 
+	let timeout: NodeJS.Timeout | undefined = undefined
+	let nameInput
+	let name = ''
+
 	$: activeFile && onActiveFileChange()
+
+	function createNewFile(newFileName: string) {
+		newFileName = '/' + newFileName
+		console.log('bar', newFileName)
+		files = { ...files, [newFileName]: { code: '' } }
+		activeFile = newFileName
+	}
+
+	let appPanelSize = 70
+
+	function hideBottomPanel(animate: boolean = false) {
+		appPanelSize = 100
+	}
+
+	setContext('AppEditorContext', {
+		selectedComponentInEditor: writable(undefined)
+	})
+
+	setContext('AppViewerContext', {
+		app: writable({
+			hiddenInlineScripts: [] as Runnable[]
+		})
+	})
 </script>
 
-<button
-	on:click={() => {
-		activeFile = '/index.css'
-	}}>CSS</button
->
-<button
-	on:click={() => {
-		activeFile = '/index.tsx'
-	}}>TSX</button
->
-<button
-	on:click={() => {
-		activeFile = '/package.json'
-	}}>PACKAGE</button
->
+<div class="h-screen">
+	<Splitpanes id="o2" horizontal class="!overflow-visible">
+		<Pane bind:size={appPanelSize} class="ovisible">
+			<div class="flex">
+				<div class="flex text-xs max-w-32 flex-col gap-2 py-0.5 text-secondary">
+					<CustomPopover class="text-left ml-1" appearTimeout={0} focusEl={nameInput}>
+						<button class="text-left hover:text-primary">+new</button>
+						<svelte:fragment slot="overlay">
+							<div class="flex flex-row gap-2 min-w-72">
+								<input
+									type="text"
+									placeholder="New file name"
+									bind:value={name}
+									bind:this={nameInput}
+									on:keydown={(e) => {
+										if (e.key === 'Enter') {
+											createNewFile(name)
+										}
+									}}
+								/>
+								<Button size="xs" on:click={() => createNewFile(name)}>New</Button>
+							</div>
+						</svelte:fragment>
+					</CustomPopover>
+					{#each Object.keys(files) as file}
+						<button
+							class="hover:text-primary text-left truncate {activeFile == file
+								? 'font-bold text-primary'
+								: ''} hover:underline rounded px-1"
+							on:click={() => {
+								activeFile = file
+							}}>{file.substring(1)}</button
+						>
+					{/each}
+				</div>
 
-<div class="w-full grid grid-cols-2">
-	<Editor
-		lang={getLangOfExt(activeFile)}
-		path={activeFile}
-		scriptLang="tsx"
-		bind:this={editor}
-		bind:code={files[activeFile].code}
-		{files}
-		on:ataReady={() => {
-			onPackageJsonChange()
-		}}
-		on:change={() => {
-			onContentChange()
-		}}
-	/>
-	<iframe class="min-h-screen w-full" bind:this={iframe} />
+				<div class="w-full grid grid-cols-2">
+					<Editor
+						lang={getLangOfExt(activeFile)}
+						path={activeFile}
+						scriptLang="tsx"
+						bind:this={editor}
+						bind:code={files[activeFile].code}
+						{files}
+						on:ataReady={() => {
+							onPackageJsonChange()
+						}}
+						on:change={() => {
+							timeout && clearTimeout(timeout)
+							timeout = setTimeout(() => {
+								onContentChange()
+							}, 500)
+						}}
+					/>
+					<iframe class="min-h-screen w-full" bind:this={iframe} />
+				</div>
+			</div>
+		</Pane>
+		<Pane>
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="flex h-full w-full overflow-x-visible">
+				<InlineScriptsPanel on:hidePanel={() => hideBottomPanel(true)} rawApps on:hidePanel />
+			</div>
+			<!-- <div class="bg-red-400 h-full w-full" /> -->
+		</Pane>
+	</Splitpanes>
 </div>
 
 <style>

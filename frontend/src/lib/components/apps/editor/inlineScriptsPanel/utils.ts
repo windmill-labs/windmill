@@ -111,7 +111,7 @@ export function getAppScripts(
 	grid: GridItem[],
 	subgrids: Record<string, GridItem[]> | undefined
 ): AppScriptsList {
-	const scriptsList = grid.reduce(
+	const scriptsList = (grid ?? []).reduce(
 		(acc, gridComponent) => processGridItemRunnable(gridComponent, acc),
 		{ inline: [], imported: [], transformer: false } as AppScriptsList
 	)

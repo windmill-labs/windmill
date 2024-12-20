@@ -59,7 +59,7 @@
 			<RunnableJobPanelInner {testIsLoading} {frontendJob} {testJob} />
 		</div>
 	{:else}
-		<div class="flex flex-col w-full">
+		<div class="flex flex-col w-full h-full">
 			{#if $selectedComponentInEditor}
 				<RunnableJobPanelInner {testIsLoading} {frontendJob} {testJob} />
 			{:else if !hidden}
