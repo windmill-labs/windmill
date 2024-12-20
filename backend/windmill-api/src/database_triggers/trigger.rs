@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, pin::Pin};
 
 use crate::{
     database_triggers::{
-        client::{Error, PostgresSimpleClient},
+        handler::get_database_resource,
         relation::RelationConverter,
         replication_message::{
             LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
@@ -12,13 +12,18 @@ use crate::{
     },
     db::DB,
 };
-use futures::{pin_mut, StreamExt};
+use bytes::{BufMut, Bytes, BytesMut};
+use chrono::TimeZone;
+use futures::{pin_mut, SinkExt, StreamExt};
+use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
-use windmill_common::{
-    resource::get_resource, variables::get_variable_or_self, worker::to_raw_value, INSTANCE_NAME,
-};
+use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
+use windmill_common::{worker::to_raw_value, INSTANCE_NAME};
 
-use super::handler::{Database, DatabaseTrigger};
+use super::{
+    handler::{Database, DatabaseTrigger},
+    replication_message::PrimaryKeepAliveBody,
+};
 
 pub struct LogicalReplicationSettings {
     pub streaming: bool,
@@ -28,6 +33,120 @@ pub struct LogicalReplicationSettings {
 impl LogicalReplicationSettings {
     pub fn new(binary: bool, streaming: bool) -> Self {
         Self { binary, streaming }
+    }
+}
+
+trait RowExist {
+    fn row_exist(&self) -> bool;
+}
+
+impl RowExist for Vec<SimpleQueryMessage> {
+    fn row_exist(&self) -> bool {
+        self.iter()
+            .find_map(|element| {
+                if let SimpleQueryMessage::CommandComplete(value) = element {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .is_some_and(|value| value > 0)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum Error {
+    #[error("Error from database: {0}")]
+    Postgres(rust_postgres::Error),
+    #[error("Error : {0}")]
+    Common(windmill_common::error::Error),
+}
+
+pub struct PostgresSimpleClient(Client);
+
+impl PostgresSimpleClient {
+    async fn new(database: &Database) -> Result<Self, Error> {
+        let mut config = Config::new();
+
+        config
+            .dbname(&database.db_name)
+            .host(&database.host)
+            .port(database.port)
+            .user(&database.username)
+            .replication_mode(rust_postgres::config::ReplicationMode::Logical);
+
+        if let Some(password) = &database.password {
+            config.password(password);
+        }
+
+        let (client, connection) = config.connect(NoTls).await.map_err(Error::Postgres)?;
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                println!("{:#?}", e);
+            };
+            tracing::info!("Successfully Connected into database");
+        });
+
+        Ok(PostgresSimpleClient(client))
+    }
+
+    async fn get_logical_replication_stream(
+        &self,
+        publication_name: &str,
+        logical_replication_slot_name: &str,
+    ) -> Result<(CopyBothDuplex<Bytes>, LogicalReplicationSettings), Error> {
+        let binary_format = true;
+        let options = match binary_format {
+            true => format!(
+                r#"("proto_version" '2', "publication_names" {})"#,
+                //r#"("proto_version" '2', "publication_names" {}, "binary")"#,
+                quote_literal(publication_name),
+            ),
+            false => format!(
+                r#"("proto_version" '2', "publication_names" {})"#,
+                quote_literal(publication_name),
+            ),
+        };
+
+        let query = format!(
+            r#"START_REPLICATION SLOT {} LOGICAL 0/0 {}"#,
+            quote_identifier(logical_replication_slot_name),
+            options
+        );
+
+        Ok((
+            self.0
+                .copy_both_simple::<bytes::Bytes>(query.as_str())
+                .await
+                .map_err(Error::Postgres)?,
+            LogicalReplicationSettings::new(binary_format, false),
+        ))
+    }
+
+    async fn send_status_update(
+        primary_keep_alive: PrimaryKeepAliveBody,
+        copy_both_stream: &mut Pin<&mut CopyBothDuplex<Bytes>>,
+    ) {
+        let mut buf = BytesMut::new();
+        let ts = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
+        let ts = chrono::Utc::now()
+            .signed_duration_since(ts)
+            .num_microseconds()
+            .unwrap_or(0);
+
+        buf.put_u8(b'r');
+        buf.put_u64(primary_keep_alive.wal_end);
+        buf.put_u64(primary_keep_alive.wal_end);
+        buf.put_u64(primary_keep_alive.wal_end);
+        buf.put_i64(ts);
+        buf.put_u8(0);
+        copy_both_stream.send(buf.freeze()).await.unwrap();
+        tracing::info!("Send update status message");
+    }
+
+    async fn check_if_row_exists(&self, query: &str) -> Result<bool, Error> {
+        let rows = self.0.simple_query(query).await.map_err(Error::Postgres)?;
+        Ok(rows.row_exist())
     }
 }
 
@@ -95,26 +214,15 @@ async fn listen_to_transactions(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<(), Error> {
-    let mut resource = get_resource::<Database>(
+    let resource = get_database_resource(
         &db,
         &database_trigger.database_resource_path,
         &database_trigger.workspace_id,
     )
     .await
-    .map_err(Error::Sqlx)?;
+    .map_err(Error::Common)?;
 
-    if resource.value.password.is_some() {
-        let password = get_variable_or_self(
-            resource.value.password.unwrap(),
-            &db,
-            &database_trigger.workspace_id,
-        )
-        .await
-        .map_err(Error::CommonError)?;
-        resource.value.password = Some(password)
-    }
-
-    let client = PostgresSimpleClient::new(&resource.value).await?;
+    let client = PostgresSimpleClient::new(&resource).await?;
 
     let (logical_replication_stream, logicail_replication_settings) = client
         .get_logical_replication_stream(
@@ -380,7 +488,7 @@ pub async fn start_database(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    tokio::spawn(async move {
+    /*tokio::spawn(async move {
         listen_to_unlistened_database_events(&db, &rsmq, &killpill_rx).await;
         loop {
             tokio::select! {
@@ -393,5 +501,5 @@ pub async fn start_database(
                 }
             }
         }
-    });
+    });*/
 }
