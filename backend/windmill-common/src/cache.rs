@@ -270,20 +270,17 @@ pub mod future {
 #[derive(Debug, Clone)]
 pub struct FlowData {
     pub raw_flow: Box<RawValue>,
-    pub flow: Result<FlowValue, String>,
+    pub flow: FlowValue,
 }
 
 impl FlowData {
-    pub fn from_raw(raw_flow: Box<RawValue>) -> Self {
-        let flow = serde_json::from_str(raw_flow.get())
-            .map_err(|e| format!("Invalid flow value: {:?}", e));
-        Self { raw_flow, flow }
+    pub fn from_raw(raw_flow: Box<RawValue>) -> error::Result<Self> {
+        let flow = serde_json::from_str(raw_flow.get())?;
+        Ok(Self { raw_flow, flow })
     }
 
-    pub fn value(&self) -> error::Result<&FlowValue> {
-        self.flow
-            .as_ref()
-            .map_err(|err| error::Error::InternalErr(err.clone()))
+    pub fn value(&self) -> &FlowValue {
+        &self.flow
     }
 }
 
@@ -650,12 +647,12 @@ pub mod job {
                 .map(|r| (r.raw_lock, r.raw_code, r.raw_flow)),
                 (lock, code, flow) => Ok((lock, code, flow)),
             }
-            .map(|(lock, code, flow)| match flow {
-                Some(Json(flow)) => RawData::Flow(Arc::new(FlowData::from_raw(flow))),
-                _ => RawData::Script(Arc::new(ScriptData {
+            .and_then(|(lock, code, flow)| match flow {
+                Some(Json(flow)) => FlowData::from_raw(flow).map(Arc::new).map(RawData::Flow),
+                _ => Ok(RawData::Script(Arc::new(ScriptData {
                     code: code.unwrap_or_default(),
                     lock,
-                })),
+                }))),
             })
         };
         #[cfg(not(feature = "scoped_cache"))]
@@ -728,7 +725,7 @@ const _: () = {
         type Untrusted = RawFlow;
 
         fn resolve(src: Self::Untrusted) -> error::Result<Self> {
-            Ok(FlowData::from_raw(src.raw_flow))
+            FlowData::from_raw(src.raw_flow)
         }
 
         fn export(&self, dst: &impl Storage) -> error::Result<()> {
@@ -796,7 +793,7 @@ const _: () = {
         fn resolve(src: Self::Untrusted) -> error::Result<Self> {
             match src {
                 RawNode { raw_flow: Some(flow), .. } => {
-                    Ok(Self::Flow(Arc::new(FlowData::from_raw(flow))))
+                    FlowData::from_raw(flow).map(Arc::new).map(Self::Flow)
                 }
                 RawNode { raw_code: Some(code), raw_lock: lock, .. } => {
                     Ok(Self::Script(Arc::new(ScriptData { code, lock })))
