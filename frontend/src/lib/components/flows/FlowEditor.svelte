@@ -72,7 +72,7 @@
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel {disabledFlowInputs} {newFlow} enableAi={!disableAi} />
+				<FlowEditorPanel {disabledFlowInputs} {newFlow} enableAi={!disableAi} on:applyArgs />
 			{/if}
 		</Pane>
 	</Splitpanes>
