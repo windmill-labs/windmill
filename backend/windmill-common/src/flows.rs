@@ -840,7 +840,7 @@ pub async fn resolve_modules(
     if let Some(id) = modules_node {
         *modules = cache::flow::fetch_flow(e, id)
             .await
-            .and_then(|data| Ok(data.value()?.modules.clone()))?;
+            .map(|data| data.value().modules.clone())?;
     }
     for module in modules.iter_mut() {
         Box::pin(resolve_module(
