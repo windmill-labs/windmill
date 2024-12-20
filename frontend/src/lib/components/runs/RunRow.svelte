@@ -2,7 +2,15 @@
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToReadableTime, truncateHash, truncateRev, isJobCancelable } from '$lib/utils'
+	import {
+		displayDate,
+		msToReadableTime,
+		truncateHash,
+		truncateRev,
+		isJobCancelable,
+		isFlowPreview,
+		isScriptPreview
+	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -38,7 +46,6 @@
 	let scheduleEditor: ScheduleEditor
 
 	$: isExternal = job && job.id === '-'
-
 </script>
 
 <Portal name="run-row">
@@ -110,7 +117,7 @@
 					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 						(Ran in {msToReadableTime(
 							job.duration_ms
-						)}{#if job.job_kind == 'flow' || job.job_kind == 'flowpreview'}&nbsp;total{/if})
+						)}{#if job.job_kind == 'flow' || isFlowPreview(job.job_kind)}&nbsp;total{/if})
 					{/if}
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
@@ -123,7 +130,6 @@
 					Scheduled for {displayDate(job.scheduled_for)}
 				{:else if job.canceled}
 					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
-
 				{:else}
 					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}
@@ -176,7 +182,7 @@
 									</Button>
 								{/if}
 							</div>
-						{:else if 'job_kind' in job && job.job_kind == 'preview'}
+						{:else if 'job_kind' in job && isScriptPreview(job.job_kind)}
 							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
 						{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
 							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">

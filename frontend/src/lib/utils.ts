@@ -1089,3 +1089,13 @@ export function validateFileExtension(ext: string) {
 	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
 	return validExtensionRegex.test(ext)
 }
+
+export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
+	return !!job_kind && (job_kind === 'flowpreview' || job_kind === 'flownode')
+}
+
+export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
+	return (
+		!!job_kind && (job_kind === 'preview' || job_kind === 'flowscript' || job_kind === 'appscript')
+	)
+}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
+	import { isScriptPreview } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 
 	export let job: Job | undefined = undefined
@@ -23,7 +24,7 @@
 		!busy &&
 		job &&
 		'running' in job &&
-		(job.job_kind == 'script' || job?.job_kind == 'preview')
+		(job.job_kind == 'script' || isScriptPreview(job?.job_kind))
 	)
 		start(job)
 

@@ -14,7 +14,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Popover from '../Popover.svelte'
-	import { truncateRev } from '$lib/utils'
+	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
 
@@ -154,7 +154,7 @@
 		{/if}
 
 		<div class=" w-full rounded-md min-h-full">
-			{#if job?.is_flow_step == false && job?.flow_status && (job?.job_kind == 'preview' || job?.job_kind == 'script') && !(typeof job.flow_status == 'object' && '_metadata' in job.flow_status)}
+			{#if job?.is_flow_step == false && job?.flow_status && (isScriptPreview(job?.job_kind) || job?.job_kind == 'script') && !(typeof job.flow_status == 'object' && '_metadata' in job.flow_status)}
 				<WorkflowTimeline
 					flow_status={asWorkflowStatus(job.flow_status)}
 					flowDone={job.type == 'CompletedJob'}
@@ -165,14 +165,14 @@
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>
 					<Tab size="xs" value="logs">Logs</Tab>
-					{#if job?.job_kind == 'preview'}
+					{#if isScriptPreview(job?.job_kind)}
 						<Tab size="xs" value="code">Code</Tab>
 					{/if}
 				</Tabs>
 
 				<Skeleton loading={!job} layout={[[5]]} />
 				{#if job}
-					{#if viewTab == 'result' && (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview')}
+					{#if viewTab == 'result' && (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind))}
 						<div class="flex flex-col gap-2">
 							<div class="w-full mt-10 mb-20">
 								<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
@@ -215,7 +215,7 @@
 					{/if}
 				{/if}
 			{:else if job && `running` in job ? job.running : false}
-				{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+				{#if job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 					<div class="flex flex-col gap-2 w-full">
 						<FlowProgressBar {job} class="py-4" />
 						<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
