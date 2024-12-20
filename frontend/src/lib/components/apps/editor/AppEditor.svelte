@@ -30,10 +30,10 @@
 
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Job, type Policy } from '$lib/gen'
+	import { VariableService, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
-	import { findGridItem, findGridItemParentGrid } from './appUtils'
+	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
@@ -49,7 +49,6 @@
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import RunnableJobPanel from './RunnableJobPanel.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
@@ -386,27 +385,6 @@
 		}
 	}
 
-	function animateTo(start: number, end: number, onUpdate: (newValue: number) => void) {
-		const duration = 400
-		const startTime = performance.now()
-
-		function animate(time: number) {
-			const elapsed = time - startTime
-			const progress = Math.min(elapsed / duration, 1)
-			const currentValue = start + (end - start) * easeInOut(progress)
-			onUpdate(currentValue)
-			if (progress < 1) {
-				requestAnimationFrame(animate)
-			}
-		}
-
-		requestAnimationFrame(animate)
-	}
-
-	function easeInOut(t: number) {
-		return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
-	}
-
 	$: $cssEditorOpen && selectCss()
 
 	function selectCss() {
@@ -583,13 +561,11 @@
 		} else {
 			leftPanelSize = storedLeftPanelSize
 		}
-		storedLeftPanelSize = 0
 	}
 
 	function showRightPanel() {
 		rightPanelSize = storedRightPanelSize
 		centerPanelSize = centerPanelSize - storedRightPanelSize
-		storedRightPanelSize = 0
 	}
 
 	function showBottomPanel(animate: boolean = false) {
@@ -611,7 +587,6 @@
 			runnablePanelSize = storedBottomPanelSize
 			gridPanelSize = gridPanelSize - storedBottomPanelSize
 		}
-		storedBottomPanelSize = 0
 	}
 
 	function keydown(event: KeyboardEvent) {
@@ -704,9 +679,6 @@
 	}
 
 	$: $connectingInput.opened, updatePannelInConnecting()
-
-	let testJob: Job | undefined = undefined
-	let jobToWatch: { componentId: string; job: string } | undefined = undefined
 
 	$: updateCursorStyle(!!$connectingInput.opened && !$panzoomActive)
 
@@ -1125,14 +1097,7 @@
 										{rightPanelSize}
 										{centerPanelWidth}
 										{runnablePanelSize}
-									>
-										<RunnableJobPanel
-											float={rightPanelSize !== 0}
-											hidden={runnablePanelSize === 0}
-											bind:testJob
-											bind:jobToWatch
-										/>
-									</AppEditorBottomPanel>
+									/>
 								</Pane>
 							{/if}
 						</Splitpanes>

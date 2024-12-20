@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, HiddenRunnable } from '../../types'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
@@ -105,60 +104,58 @@
 	export let width: number | undefined = undefined
 </script>
 
-<SplitPanesWrapper>
-	<Splitpanes
-		class={twMerge('!overflow-visible')}
-		style={width !== undefined ? `width:${width}px;` : ''}
-	>
-		<Pane size={25}>
-			<InlineScriptsPanelList on:hidePanel />
-		</Pane>
-		<Pane size={75}>
-			{#if !$selectedComponentInEditor}
-				<div class="text-sm text-secondary text-center py-8 px-2">
-					Select a script on the left panel
-				</div>
-			{:else if gridItem}
-				{#key gridItem?.id}
-					<InlineScriptsPanelWithTable
+<Splitpanes
+	class={twMerge('!overflow-visible')}
+	style={width !== undefined ? `width:${width}px;` : 'width: 100%;'}
+>
+	<Pane size={25}>
+		<InlineScriptsPanelList on:hidePanel />
+	</Pane>
+	<Pane size={75}>
+		{#if !$selectedComponentInEditor}
+			<div class="text-sm text-secondary text-center py-8 px-2">
+				Select a script on the left panel
+			</div>
+		{:else if gridItem}
+			{#key gridItem?.id}
+				<InlineScriptsPanelWithTable
+					on:createScriptFromInlineScript={(e) => {
+						createScriptFromInlineScript(gridItem?.id ?? 'unknown', e.detail)
+					}}
+					bind:gridItem
+				/>
+			{/key}
+		{:else if unusedInlineScript > -1 && $app.unusedInlineScripts?.[unusedInlineScript]}
+			{#key unusedInlineScript}
+				<InlineScriptEditor
+					on:createScriptFromInlineScript={() =>
+						sendUserToast('Cannot save to workspace unused scripts', true)}
+					id={`unused-${unusedInlineScript}`}
+					bind:name={$app.unusedInlineScripts[unusedInlineScript].name}
+					bind:inlineScript={$app.unusedInlineScripts[unusedInlineScript].inlineScript}
+					on:delete={() => {
+						// remove the script from the array at the index
+						$app.unusedInlineScripts.splice(unusedInlineScript, 1)
+						$app.unusedInlineScripts = [...$app.unusedInlineScripts]
+					}}
+				/>
+			{/key}
+		{:else if hiddenInlineScript > -1}
+			{#key hiddenInlineScript}
+				{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
+					<InlineScriptHiddenRunnable
 						on:createScriptFromInlineScript={(e) => {
-							createScriptFromInlineScript(gridItem?.id ?? 'unknown', e.detail)
+							createScriptFromInlineScript(BG_PREFIX + hiddenInlineScript, e.detail)
 						}}
-						bind:gridItem
-					/>
-				{/key}
-			{:else if unusedInlineScript > -1 && $app.unusedInlineScripts?.[unusedInlineScript]}
-				{#key unusedInlineScript}
-					<InlineScriptEditor
-						on:createScriptFromInlineScript={() =>
-							sendUserToast('Cannot save to workspace unused scripts', true)}
-						id={`unused-${unusedInlineScript}`}
-						bind:name={$app.unusedInlineScripts[unusedInlineScript].name}
-						bind:inlineScript={$app.unusedInlineScripts[unusedInlineScript].inlineScript}
-						on:delete={() => {
-							// remove the script from the array at the index
-							$app.unusedInlineScripts.splice(unusedInlineScript, 1)
-							$app.unusedInlineScripts = [...$app.unusedInlineScripts]
-						}}
-					/>
-				{/key}
-			{:else if hiddenInlineScript > -1}
-				{#key hiddenInlineScript}
-					{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
-						<InlineScriptHiddenRunnable
-							on:createScriptFromInlineScript={(e) => {
-								createScriptFromInlineScript(BG_PREFIX + hiddenInlineScript, e.detail)
-							}}
-							transformer={$selectedComponentInEditor?.endsWith('_transformer')}
-							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
-							id={BG_PREFIX + hiddenInlineScript}
-							bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
-						/>{/if}{/key}
-			{:else}
-				<div class="text-sm text-tertiary text-center py-8 px-2">
-					No script found at id {$selectedComponentInEditor}
-				</div>
-			{/if}
-		</Pane>
-	</Splitpanes>
-</SplitPanesWrapper>
+						transformer={$selectedComponentInEditor?.endsWith('_transformer')}
+						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
+						id={BG_PREFIX + hiddenInlineScript}
+						bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
+					/>{/if}{/key}
+		{:else}
+			<div class="text-sm text-tertiary text-center py-8 px-2">
+				No script found at id {$selectedComponentInEditor}
+			</div>
+		{/if}
+	</Pane>
+</Splitpanes>
