@@ -18,12 +18,17 @@
 	export let defaultUserInput = false
 	export let hideCreateScript = false
 	export let onlyFlow = false
-
-	let tab: Tab = onlyFlow ? 'workspaceflows' : 'inlinescripts'
-	let filter: string = ''
-	let picker: Drawer
+	export let rawApps = false
 
 	const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
+
+	let tab: Tab = onlyFlow
+		? 'workspaceflows'
+		: $app?.unusedInlineScripts?.length > 0
+		? 'inlinescripts'
+		: 'workspacescripts'
+	let filter: string = ''
+	let picker: Drawer
 
 	const dispatch = createEventDispatcher<{
 		pick: {
@@ -138,15 +143,17 @@
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
 					{#if !onlyFlow}
-						<Tab size="sm" value="inlinescripts">
-							<div class="flex gap-2 items-center my-1">
-								<Building size={18} strokeWidth={1.5} />
-								Detached Inline Scripts
-							</div>
-						</Tab>
+						{#if !rawApps}
+							<Tab size="sm" value="inlinescripts">
+								<div class="flex gap-2 items-center my-1">
+									<Building size={18} strokeWidth={1.5} />
+									Detached Inline Scripts
+								</div>
+							</Tab>
+						{/if}
 						<Tab size="sm" value="workspacescripts">
 							<div class="flex gap-2 items-center my-1">
-								<Building size={18} strokeWidth={1.5}/>
+								<Building size={18} strokeWidth={1.5} />
 								Workspace Scripts
 							</div>
 						</Tab>

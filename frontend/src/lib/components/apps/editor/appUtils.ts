@@ -1281,3 +1281,24 @@ export function areShadowsTheSame(
 		shadow1.h === shadow2.h
 	)
 }
+
+export function animateTo(start: number, end: number, onUpdate: (newValue: number) => void) {
+	const duration = 400
+	const startTime = performance.now()
+
+	function animate(time: number) {
+		const elapsed = time - startTime
+		const progress = Math.min(elapsed / duration, 1)
+		const currentValue = start + (end - start) * easeInOut(progress)
+		onUpdate(currentValue)
+		if (progress < 1) {
+			requestAnimationFrame(animate)
+		}
+	}
+
+	requestAnimationFrame(animate)
+}
+
+function easeInOut(t: number) {
+	return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+}
