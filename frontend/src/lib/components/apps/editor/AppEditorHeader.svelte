@@ -41,7 +41,8 @@
 		truncateRev,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined
+		replaceFalseWithUndefined,
+		isFlowPreview
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -1404,7 +1405,7 @@
 											</div>
 										{/if}
 
-										{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+										{#if job?.job_kind !== 'flow' && !isFlowPreview(job?.job_kind)}
 											{@const jobResult = $jobsById[selectedJobId]}
 											<Splitpanes horizontal class="grow border w-full">
 												<Pane size={50} minSize={10}>
