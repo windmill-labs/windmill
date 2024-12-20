@@ -528,7 +528,8 @@
 		initialPath,
 		flowInputsStore: writable<FlowInput>({}),
 		customUi,
-		insertButtonOpen
+		insertButtonOpen,
+		executionCount: writable(0)
 	})
 
 	setContext<TriggerContext>('TriggerContext', {

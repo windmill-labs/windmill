@@ -11,6 +11,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import TriggersEditorSection from './TriggersEditorSection.svelte'
 	import Section from '$lib/components/Section.svelte'
+	import Description from '../Description.svelte'
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
@@ -68,13 +69,16 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
+		<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">
+			Websocket triggers allow real-time bidirectional communication between your scripts/flows and
+			external systems. Each trigger creates a unique websocket endpoint.
+		</Description>
 		<TriggersEditorSection
 			on:applyArgs
 			on:saveTrigger={(e) => {
-				wsTriggerEditor?.openNew(isFlow, path)
+				wsTriggerEditor?.openNew(isFlow, path, e.detail.config)
 			}}
 			on:addPreprocessor
-			on:refreshCaptures
 			cloudDisabled={false}
 			triggerType="websocket"
 			{isFlow}
@@ -82,45 +86,44 @@
 			{isEditor}
 			{canHavePreprocessor}
 			{hasPreprocessor}
+			{newItem}
 		/>
 
-		<Section label="Websockets">
-			<div class="flex flex-col gap-4">
-				{#if newItem}
-					<Alert title="Triggers disabled" type="warning" size="xs">
-						Deploy the {isFlow ? 'flow' : 'script'} to add WS triggers.
-					</Alert>
-				{:else if wsTriggers}
-					{#if wsTriggers.length == 0}
-						<div class="text-xs text-secondary text-center"> No WS triggers </div>
+		{#if !newItem}
+			<Section label="Websockets">
+				<div class="flex flex-col gap-4">
+					{#if wsTriggers}
+						{#if wsTriggers.length == 0}
+							<div class="text-xs text-secondary text-center"> No WS triggers </div>
+						{:else}
+							<div class="flex flex-col divide-y pt-2">
+								{#each wsTriggers as wsTriggers (wsTriggers.path)}
+									<div class="grid grid-cols-5 text-2xs items-center py-2">
+										<div class="col-span-2 truncate">{wsTriggers.path}</div>
+										<div class="col-span-2 truncate">
+											{wsTriggers.url}
+										</div>
+										<div class="flex justify-end">
+											<button
+												on:click={() => wsTriggerEditor?.openEdit(wsTriggers.path, isFlow)}
+												class="px-2"
+											>
+												{#if wsTriggers.canWrite}
+													Edit
+												{:else}
+													View
+												{/if}
+											</button>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
 					{:else}
-						<div class="flex flex-col divide-y pt-2">
-							{#each wsTriggers as wsTriggers (wsTriggers.path)}
-								<div class="grid grid-cols-5 text-2xs items-center py-2">
-									<div class="col-span-2 truncate">{wsTriggers.path}</div>
-									<div class="col-span-2 truncate">
-										{wsTriggers.url}
-									</div>
-									<div class="flex justify-end">
-										<button
-											on:click={() => wsTriggerEditor?.openEdit(wsTriggers.path, isFlow)}
-											class="px-2"
-										>
-											{#if wsTriggers.canWrite}
-												Edit
-											{:else}
-												View
-											{/if}
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
+						<Skeleton layout={[[8]]} />
 					{/if}
-				{:else}
-					<Skeleton layout={[[8]]} />
-				{/if}
-			</div>
-		</Section>
+				</div>
+			</Section>
+		{/if}
 	</div>
 {/if}

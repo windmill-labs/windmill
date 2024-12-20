@@ -14,15 +14,19 @@ use axum::{
 #[cfg(feature = "http_trigger")]
 use http::HeaderMap;
 use hyper::StatusCode;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(feature = "http_trigger")]
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
 #[cfg(feature = "http_trigger")]
 use std::collections::HashMap;
 use std::fmt;
+#[cfg(feature = "http_trigger")]
+use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
-    error::{Error, JsonResult, Result},
+    error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
@@ -35,6 +39,7 @@ use crate::kafka_triggers_ee::KafkaResourceSecurity;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
+    users::fetch_api_authed,
 };
 
 const KEEP_LAST: i64 = 20;
@@ -101,16 +106,26 @@ struct HttpTriggerConfig {
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 #[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum KafkaTriggerConfigConnection {
+    Resource { kafka_resource_path: String },
+    Static { brokers: Vec<String>, security: KafkaResourceSecurity },
+}
+
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+#[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
-    pub brokers: Vec<String>,
-    pub security: KafkaResourceSecurity,
+    #[serde(flatten)]
+    pub connection: KafkaTriggerConfigConnection,
     pub topics: Vec<String>,
     pub group_id: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
+    // have to use Value because RawValue is not supported inside untagged
+    pub url_runnable_args: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -232,10 +247,16 @@ enum RunnableKind {
     Flow,
 }
 
+#[derive(Deserialize)]
+struct ListCapturesQuery {
+    trigger_kind: Option<TriggerKind>,
+}
+
 async fn list_captures(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+    Query(query): Query<ListCapturesQuery>,
 ) -> JsonResult<Vec<Capture>> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -245,10 +266,12 @@ async fn list_captures(
         FROM capture
         WHERE workspace_id = $1
             AND path = $2 AND is_flow = $3
+            AND ($4::trigger_kind IS NULL OR trigger_kind = $4)
         ORDER BY created_at DESC"#,
         &w_id,
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
+        query.trigger_kind as Option<TriggerKind>,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -306,22 +329,24 @@ pub async fn get_active_capture_owner_and_email(
     Ok((capture_config.owner, capture_config.email))
 }
 
+#[cfg(feature = "http_trigger")]
 async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
     w_id: &str,
     path: &str,
     is_flow: bool,
     kind: &TriggerKind,
-) -> Result<(T, String)> {
+) -> Result<(T, String, String)> {
     #[derive(Deserialize)]
     struct CaptureTriggerConfigAndOwner {
         trigger_config: Option<SqlxJson<Box<RawValue>>>,
         owner: String,
+        email: String,
     }
 
     let capture_config = sqlx::query_as!(
         CaptureTriggerConfigAndOwner,
-        r#"SELECT trigger_config as "trigger_config: _", owner
+        r#"SELECT trigger_config as "trigger_config: _", owner, email
         FROM capture_config
         WHERE workspace_id = $1 AND path = $2 AND is_flow = $3 AND trigger_kind = $4 AND last_client_ping > NOW() - INTERVAL '10 seconds'"#,
         &w_id,
@@ -352,6 +377,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
             ))
         })?,
         capture_config.owner,
+        capture_config.email,
     ))
 }
 
@@ -416,8 +442,7 @@ async fn webhook_payload(
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
     args: WebhookArgs,
 ) -> Result<StatusCode> {
-    let args = args.args;
-    let (owner, _) = get_active_capture_owner_and_email(
+    let (owner, email) = get_active_capture_owner_and_email(
         &db,
         &w_id,
         &path.to_path(),
@@ -425,6 +450,9 @@ async fn webhook_payload(
         &TriggerKind::Webhook,
     )
     .await?;
+
+    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     insert_capture_payload(
         &db,
@@ -456,9 +484,8 @@ async fn http_payload(
 ) -> Result<StatusCode> {
     let route_path = route_path.to_path();
     let path = path.replace(".", "/");
-    let args = args.args;
 
-    let (http_trigger_config, owner): (HttpTriggerConfig, _) =
+    let (http_trigger_config, owner, email): (HttpTriggerConfig, _, _) =
         get_capture_trigger_config_and_owner(
             &db,
             &w_id,
@@ -467,6 +494,9 @@ async fn http_payload(
             &TriggerKind::Http,
         )
         .await?;
+
+    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
+    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
 
     let mut router = matchit::Router::new();
     router.insert(&http_trigger_config.route_path, ()).ok();

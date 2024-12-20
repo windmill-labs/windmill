@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { CircleStop, Play, Save } from 'lucide-svelte'
+	import { ChevronDown, Save } from 'lucide-svelte'
 	import CaptureWrapper from './CaptureWrapper.svelte'
 	import { capitalize } from '$lib/utils'
 	import Popover from '../Popover.svelte'
@@ -8,11 +8,9 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import type { FlowEditorContext } from '../flows/types'
-	import ConnectionIndicator from '$lib/components/common/alert/ConnectionIndicator.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { onDestroy } from 'svelte'
-	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import TriggersWrapper from './TriggersWrapper.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let cloudDisabled: boolean
 	export let triggerType: CaptureTriggerKind
@@ -23,65 +21,43 @@
 	export let path: string = ''
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
+	export let newItem: boolean
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
-		http: 'Route',
-		websocket: 'Websocket',
+		http: 'New custom HTTP route',
+		websocket: 'New websocket trigger',
 		webhook: 'Webhook',
-		kafka: 'Kafka',
-		email: 'Email'
+		kafka: 'New kafka trigger',
+		email: 'Email trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')
 
 	let args: Record<string, any> = {}
 
-	let captureActive = false
-	let connectionInfo:
-		| {
-				status: 'connected' | 'disconnected' | 'error'
-				message?: string
-		  }
-		| undefined = undefined
-
 	const dispatch = createEventDispatcher()
 
-	const { flowStore, initialPath, selectedId } =
-		getContext<FlowEditorContext>('FlowEditorContext') || {}
-
-	let newItem = false
-	$: initialPath && (newItem = initialPath === '')
-
-	let handleCapture: (() => Promise<void>) | undefined
-
-	onDestroy(() => {
-		$captureOn = false
-	})
-
-	$: $captureOn && handleCapture?.()
+	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext') || {}
 </script>
 
-<Section label={`New ${captureTypeLabels[triggerType]} Trigger`}>
+<Section label={captureTypeLabels[triggerType]}>
 	<svelte:fragment slot="action">
-		<div class="flex flex-row grow w-min-0 gap-2 px-2 items-center justify-end">
+		<div class="flex flex-row grow w-min-0 gap-2 items-center justify-end">
 			{#if isEditor}
-				<ConnectionIndicator {connectionInfo} />
-
-				<AnimatedButton animate={captureActive} baseRadius="6px">
-					<Button
-						size="xs2"
-						on:click={() => {
-							handleCapture?.()
-						}}
-						variant="border"
-						disabled={false}
-						color="light"
-						startIcon={{ icon: captureActive ? CircleStop : Play }}
-						btnClasses={captureActive ? 'text-blue-500 hover:text-blue-500' : ''}
-					>
-						Live test
-					</Button>
-				</AnimatedButton>
+				<Button
+					size="xs2"
+					on:click={() => {
+						$captureOn = !$captureOn
+					}}
+					variant="border"
+					color="light"
+					endIcon={{
+						icon: ChevronDown,
+						classes: twMerge('transition', $captureOn ? 'rotate-180' : '')
+					}}
+				>
+					Capture
+				</Button>
 			{/if}
 
 			{#if !noSave}
@@ -92,6 +68,7 @@
 						{disabled}
 						startIcon={{ icon: Save }}
 						on:click={() => {
+							console.log('saveTrigger', args)
 							dispatch('saveTrigger', {
 								config: args
 							})
@@ -107,7 +84,7 @@
 								{capitalize(triggerType)} triggers are disabled in the multi-tenant cloud
 							{/if}
 						{:else}
-							Create new {captureTypeLabels[triggerType]} trigger from prototype
+							Create new {captureTypeLabels[triggerType].toLowerCase()}
 						{/if}
 					</svelte:fragment>
 				</Popover>
@@ -132,12 +109,9 @@
 				}
 			}}
 			on:saveTrigger
-			on:refreshCaptures
 			bind:args
-			bind:handleCapture
-			bind:captureActive
 			{data}
-			bind:connectionInfo
+			showCapture={$captureOn}
 		/>
 	{:else}
 		<TriggersWrapper {path} {isFlow} {triggerType} {cloudDisabled} {args} {data} />

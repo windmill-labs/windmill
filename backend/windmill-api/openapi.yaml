@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.438.0
+  version: 1.440.3
   title: Windmill API
 
   contact:
@@ -9007,6 +9007,10 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/RunnableKind"
         - $ref: "#/components/parameters/Path"
+        - name: trigger_kind
+          in: query
+          schema:
+            $ref: "#/components/schemas/CaptureTriggerKind"
       responses:
         "200":
           description: list of captures for a script or flow
@@ -12380,8 +12384,6 @@ components:
         - workspace_id
         - enabled
         - filters
-        - initial_messages
-        - url_runnable_args
 
     NewWebsocketTrigger:
       type: object
@@ -12420,8 +12422,6 @@ components:
         - url
         - is_flow
         - filters
-        - initial_messages
-        - url_runnable_args
 
     EditWebsocketTrigger:
       type: object
@@ -12458,8 +12458,6 @@ components:
         - url
         - is_flow
         - filters
-        - initial_messages
-        - url_runnable_args
 
     WebsocketTriggerInitialMessage:
       anyOf:

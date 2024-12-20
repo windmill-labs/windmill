@@ -10,6 +10,7 @@
 	import TriggersEditorSection from './TriggersEditorSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	import Description from '../Description.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -81,13 +82,15 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
+		<Description link="https://www.windmill.dev/docs/core_concepts/kafka_triggers">
+			Kafka triggers execute scripts and flows in response to messages published to Kafka topics.
+		</Description>
 		<TriggersEditorSection
 			on:saveTrigger={(e) => {
 				saveTrigger(path, e.detail.config)
 			}}
 			on:applyArgs
 			on:addPreprocessor
-			on:refreshCaptures
 			cloudDisabled={false}
 			triggerType="kafka"
 			{isFlow}
@@ -96,43 +99,42 @@
 			{isEditor}
 			{canHavePreprocessor}
 			{hasPreprocessor}
+			{newItem}
 		/>
 
-		{#if newItem}
-			<Alert title="Triggers disabled" type="warning" size="xs">
-				Deploy the {isFlow ? 'flow' : 'script'} to add kafka triggers.
-			</Alert>
-		{:else if kafkaTriggers}
-			<Section label="Kafka Triggers">
-				{#if kafkaTriggers.length == 0}
-					<div class="text-xs text-secondary text-center"> No kafka triggers </div>
-				{:else}
-					<div class="flex flex-col divide-y pt-2">
-						{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
-							<div class="grid grid-cols-5 text-2xs items-center py-2">
-								<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
-								<div class="col-span-2 truncate">
-									{kafkaTrigger.kafka_resource_path}
+		{#if !newItem}
+			{#if kafkaTriggers}
+				<Section label="Kafka Triggers">
+					{#if kafkaTriggers.length == 0}
+						<div class="text-xs text-secondary text-center"> No kafka triggers </div>
+					{:else}
+						<div class="flex flex-col divide-y pt-2">
+							{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
+								<div class="grid grid-cols-5 text-2xs items-center py-2">
+									<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
+									<div class="col-span-2 truncate">
+										{kafkaTrigger.kafka_resource_path}
+									</div>
+									<div class="flex justify-end">
+										<button
+											on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
+											class="px-2"
+										>
+											{#if kafkaTrigger.canWrite}
+												Edit
+											{:else}
+												View
+											{/if}
+										</button>
+									</div>
 								</div>
-								<div class="flex justify-end">
-									<button
-										on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
-										class="px-2"
-									>
-										{#if kafkaTrigger.canWrite}
-											Edit
-										{:else}
-											View
-										{/if}
-									</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</Section>
-		{:else}
-			<Skeleton layout={[[8]]} />
+							{/each}
+						</div>
+					{/if}
+				</Section>
+			{:else}
+				<Skeleton layout={[[8]]} />
+			{/if}
 		{/if}
 	</div>
 {/if}

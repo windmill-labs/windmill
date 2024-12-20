@@ -17,7 +17,6 @@
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
-	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
@@ -294,9 +293,6 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 						>
-							<svelete:fragment slot="header">
-								<CaptureButton on:openTriggers dark={true} small={true} />
-							</svelete:fragment>
 							<CapturesInputs
 								on:select={(e) => {
 									payloadData = e.detail

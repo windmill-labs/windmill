@@ -8,7 +8,7 @@
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
 	import ScheduledPollPanel from './ScheduledPollPanel.svelte'
@@ -17,6 +17,7 @@
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
+	export let hash: string | undefined = undefined
 	export let initialPath: string
 	export let schema: any
 	export let isFlow: boolean
@@ -24,6 +25,12 @@
 	export let hasPreprocessor: boolean = false
 
 	const { selectedTrigger, simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
+
+	const dispatch = createEventDispatcher()
+
+	onDestroy(() => {
+		dispatch('exitTriggers')
+	})
 </script>
 
 <FlowCard {noEditor} title="Triggers">
@@ -31,7 +38,7 @@
 		<Tabs bind:selected={$selectedTrigger}>
 			<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
 			<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
-			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
+			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 			<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
 			<Tab value="kafka" selectedClass="text-primary text-sm font-semibold">Kafka</Tab>
 			<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
@@ -47,9 +54,9 @@
 						<WebhooksPanel
 							on:applyArgs
 							on:addPreprocessor
-							on:refreshCaptures
 							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 							path={currentPath}
+							{hash}
 							{isFlow}
 							args={{}}
 							token=""
@@ -59,14 +66,11 @@
 							{hasPreprocessor}
 						/>
 					</div>
-				{/if}
-
-				{#if $selectedTrigger === 'emails'}
+				{:else if $selectedTrigger === 'emails'}
 					<div class="p-4">
 						<EmailTriggerPanel
 							on:applyArgs
 							on:addPreprocessor
-							on:refreshCaptures
 							token=""
 							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 							path={currentPath}
@@ -74,15 +78,13 @@
 							isEditor={true}
 							{canHavePreprocessor}
 							{hasPreprocessor}
+							{newItem}
 						/>
 					</div>
-				{/if}
-
-				{#if $selectedTrigger === 'routes'}
+				{:else if $selectedTrigger === 'routes'}
 					<div class="p-4">
 						<RoutesPanel
 							on:applyArgs
-							on:refreshCaptures
 							on:addPreprocessor
 							{newItem}
 							path={currentPath}
@@ -90,14 +92,11 @@
 							isEditor={true}
 						/>
 					</div>
-				{/if}
-
-				{#if $selectedTrigger === 'websockets'}
+				{:else if $selectedTrigger === 'websockets'}
 					<div class="p-4">
 						<WebsocketTriggersPanel
 							on:applyArgs
 							on:addPreprocessor
-							on:refreshCaptures
 							{newItem}
 							path={currentPath}
 							{isFlow}
@@ -106,14 +105,11 @@
 							{hasPreprocessor}
 						/>
 					</div>
-				{/if}
-
-				{#if $selectedTrigger === 'kafka'}
+				{:else if $selectedTrigger === 'kafka'}
 					<div class="p-4">
 						<KafkaTriggersPanel
 							on:applyArgs
 							on:addPreprocessor
-							on:refreshCaptures
 							{newItem}
 							path={currentPath}
 							{isFlow}
@@ -122,9 +118,7 @@
 							{hasPreprocessor}
 						/>
 					</div>
-				{/if}
-
-				{#if $selectedTrigger === 'schedules'}
+				{:else if $selectedTrigger === 'schedules'}
 					<div class="p-4">
 						<RunPageSchedules
 							{schema}
@@ -134,9 +128,7 @@
 							can_write={canWrite(currentPath, {}, $userStore)}
 						/>
 					</div>
-				{/if}
-
-				{#if $selectedTrigger === 'scheduledPoll'}
+				{:else if $selectedTrigger === 'scheduledPoll'}
 					<div class="p-4">
 						<ScheduledPollPanel />
 					</div>

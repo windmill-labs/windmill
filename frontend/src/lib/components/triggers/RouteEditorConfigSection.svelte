@@ -12,9 +12,12 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
+	import type { CaptureInfo } from './CaptureSection.svelte'
+	import CaptureSection from './CaptureSection.svelte'
+	import CaptureTable from './CaptureTable.svelte'
+	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 
 	export let args: Record<string, any> = { route_path: '', http_method: 'get' }
-	export let routeError: string = ''
 	export let dirtyRoutePath: boolean = false
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	export let can_write: boolean = false
@@ -25,11 +28,13 @@
 	export let isFlow = false
 	export let path: string = ''
 	export let headless: boolean = false
-
+	export let captureInfo: CaptureInfo | undefined = undefined
+	export let captureTable: CaptureTable | undefined = undefined
+	export let isValid = false
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
+	let routeError: string = ''
 	async function validateRoute(path: string, method: typeof http_method): Promise<void> {
-		routeError = ''
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
 		}
@@ -69,6 +74,8 @@
 
 	$: validateRoute(route_path, http_method)
 
+	$: isValid = routeError === ''
+
 	$: fullRoute = getHttpRoute(route_path, showCapture)
 
 	$: showCapture && (http_method = 'post')
@@ -82,78 +89,25 @@
 	$: updateArgs(route_path, http_method)
 </script>
 
-<Section label="HTTP" {headless}>
-	{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
-		<Alert type="info" title="Admin only" collapsible>
-			Route endpoints can only be edited by workspace admins
-		</Alert>
-		<div class="my-2" />
-	{/if}
-	<div class="flex flex-col w-full gap-4">
-		<label class="block grow w-full">
-			<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-				<div>
-					Path
-					<Required required={true} />
-				</div>
-				<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
-			</div>
-			<!-- svelte-ignore a11y-autofocus -->
-			<input
-				type="text"
-				autocomplete="off"
-				bind:value={route_path}
-				disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-				class={routeError === ''
-					? ''
-					: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-				on:input={() => {
-					dirtyRoutePath = true
-				}}
-			/>
-		</label>
-
-		<ToggleButtonGroup
-			class="w-auto"
-			bind:selected={http_method}
-			disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
-				!can_write ||
-				!!static_asset_config ||
-				showCapture}
+<div>
+	{#if showCapture && captureInfo}
+		<CaptureSection
+			captureType="http"
+			disabled={!isValid}
+			{captureInfo}
+			on:captureToggle
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			bind:captureTable
 		>
-			<ToggleButton label="GET" value="get" />
-			<ToggleButton label="POST" value="post" />
-			<ToggleButton label="PUT" value="put" />
-			<ToggleButton label="PATCH" value="patch" />
-			<ToggleButton label="DELETE" value="delete" />
-		</ToggleButtonGroup>
-		<div class="flex flex-col w-full mt-2">
-			<div class="flex justify-start w-full">
-				<Badge
-					color="gray"
-					class="center-center !bg-surface-secondary !text-tertiary !w-[90px] !h-[24px] rounded-r-none border"
-				>
-					Full endpoint
-				</Badge>
-				<input
-					type="text"
-					readonly
-					value={fullRoute}
-					size={fullRoute.length || 50}
-					class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-					on:focus={({ currentTarget }) => {
-						currentTarget.select()
-					}}
-				/>
-			</div>
+			<Label label="URL">
+				<ClipboardPanel content={fullRoute} disabled={!captureInfo.active} />
+			</Label>
 
-			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-				>{dirtyRoutePath ? routeError : ''}</div
-			>
-		</div>
-		{#if showCapture}
-			<Label label="cUrl">
+			<Label label="Example cUrl">
 				<CopyableCodeBlock
+					disabled={!captureInfo.active}
 					code={`curl \\
 -X POST ${fullRoute} \\
 -H 'Content-Type: application/json' \\
@@ -161,6 +115,76 @@
 					language={bash}
 				/>
 			</Label>
+		</CaptureSection>
+	{/if}
+	<Section label="HTTP" {headless}>
+		{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+			<Alert type="info" title="Admin only" collapsible>
+				Route endpoints can only be edited by workspace admins
+			</Alert>
+			<div class="my-2" />
 		{/if}
-	</div>
-</Section>
+		<div class="flex flex-col w-full gap-4">
+			<label class="block grow w-full">
+				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+					<div>
+						Path
+						<Required required={true} />
+					</div>
+					<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
+				</div>
+				<!-- svelte-ignore a11y-autofocus -->
+				<input
+					type="text"
+					autocomplete="off"
+					bind:value={route_path}
+					disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+					class={routeError === ''
+						? ''
+						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+					on:input={() => {
+						dirtyRoutePath = true
+					}}
+				/>
+			</label>
+
+			<ToggleButtonGroup
+				class="w-auto"
+				bind:selected={http_method}
+				disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
+					!can_write ||
+					!!static_asset_config}
+			>
+				<ToggleButton label="GET" value="get" />
+				<ToggleButton label="POST" value="post" />
+				<ToggleButton label="PUT" value="put" />
+				<ToggleButton label="PATCH" value="patch" />
+				<ToggleButton label="DELETE" value="delete" />
+			</ToggleButtonGroup>
+			<div class="flex flex-col w-full mt-2">
+				<div class="flex justify-start w-full">
+					<Badge
+						color="gray"
+						class="center-center !bg-surface-secondary !text-tertiary !w-[90px] !h-[24px] rounded-r-none border"
+					>
+						Full endpoint
+					</Badge>
+					<input
+						type="text"
+						readonly
+						value={fullRoute}
+						size={fullRoute.length || 50}
+						class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+						on:focus={({ currentTarget }) => {
+							currentTarget.select()
+						}}
+					/>
+				</div>
+
+				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
+					>{dirtyRoutePath ? routeError : ''}</div
+				>
+			</div>
+		</div>
+	</Section>
+</div>

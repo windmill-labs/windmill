@@ -281,6 +281,7 @@ pub enum JobPayload {
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
+        path: String,
     },
     FlowNode {
         id: FlowNodeId, // flow_node(id).

@@ -6,15 +6,16 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
-	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-
-	let isValid: boolean = false
-
+	import CaptureSection, { type CaptureInfo } from './CaptureSection.svelte'
+	import CaptureTable from './CaptureTable.svelte'
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}
 	export let staticInputDisabled: boolean = true
+	export let showCapture: boolean = false
+	export let captureInfo: CaptureInfo | undefined = undefined
+	export let captureTable: CaptureTable | undefined = undefined
+	export let isValid: boolean = false
 
 	let selected: 'resource' | 'static' = staticInputDisabled ? 'resource' : 'static'
 
@@ -120,93 +121,102 @@
 				nullable: false,
 				title: 'Topics'
 			},
-			group_id: { type: 'string', title: 'Group ID' }
+			group_id: {
+				type: 'string',
+				title: 'Group ID',
+				pattern: '^[a-zA-Z0-9-_.]+$',
+				customErrorMessage: 'Invalid group ID'
+			}
 		},
 		required: ['topics', 'group_id']
 	}
 
-	$: connectionArgs = {
-		get brokers() {
-			return args.brokers
-		},
-		set brokers(value) {
-			args.brokers = value
-		},
-		get security() {
-			return args.security
-		},
-		set security(value) {
-			args.security = value
-		}
-	}
+	let connectionValid = false
+	let otherArgsValid = false
 
-	function restOnSelected(selected: 'resource' | 'static') {
-		if (selected === 'static') {
-			args.kafka_resource_path = undefined
-		}
-	}
-	$: restOnSelected(selected)
+	$: isValid =
+		(selected === 'resource'
+			? !!args.kafka_resource_path
+			: connectionValid &&
+			  args.brokers &&
+			  args.brokers.length > 0 &&
+			  args.brokers.every((b) => b.length > 0)) &&
+		otherArgsValid &&
+		args.topics &&
+		args.topics.length > 0 &&
+		args.topics.every((b) => /^[a-zA-Z0-9-_.]+$/.test(b))
 
-	async function updateArgsFromResource(resourcePath: string) {
-		if (!resourcePath) return
-		try {
-			const res = await ResourceService.getResourceValueInterpolated({
-				workspace: $workspaceStore!,
-				path: resourcePath
-			})
-
-			if (!res) {
-				return
-			}
-
-			if (typeof res === 'object' && 'brokers' in res && 'security' in res) {
-				args.brokers = res.brokers
-				args.security = res.security
-			}
-		} catch (error) {
-			console.error('Failed to fetch resource:', error)
-			// Optionally reset the values
-			args.brokers = undefined
-			args.security = undefined
-		}
-	}
-	$: updateArgsFromResource(args.kafka_resource_path)
+	$: args.kafka_resource_path && (selected = 'resource')
 </script>
 
-<Section label="Kafka" {headless}>
-	<div class="flex flex-col w-full gap-4">
-		<div class="block grow w-full">
-			<Subsection label="Connection">
-				<svelte:fragment slot="header">
-					{#if !staticInputDisabled}
-						<ToggleButtonGroup bind:selected class="h-full">
-							<ToggleButton value="static" label="Static" small={true} />
-							<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} />
-						</ToggleButtonGroup>
-					{/if}
-				</svelte:fragment>
+<div>
+	{#if showCapture && captureInfo}
+		<CaptureSection
+			captureType="kafka"
+			disabled={!isValid}
+			{captureInfo}
+			on:captureToggle
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			bind:captureTable
+		/>
+	{/if}
+	<Section label="Kafka" {headless}>
+		<div class="flex flex-col w-full gap-4">
+			<div class="block grow w-full">
+				<Subsection label="Connection">
+					<svelte:fragment slot="header">
+						{#if !staticInputDisabled}
+							<ToggleButtonGroup
+								bind:selected
+								class="h-full"
+								on:selected={(ev) => {
+									if (ev.detail === 'static') {
+										delete args.kafka_resource_path
+										args.brokers = ['']
+										args.security = {
+											label: 'PLAINTEXT'
+										}
+									} else {
+										delete args.brokers
+										delete args.security
+									}
+								}}
+							>
+								<ToggleButton value="static" label="Static" small={true} />
+								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} />
+							</ToggleButtonGroup>
+						{/if}
+					</svelte:fragment>
 
-				{#if selected === 'resource'}
-					<ResourcePicker
-						resourceType="kafka"
-						bind:value={args.kafka_resource_path}
-						{defaultValues}
-					/>
-				{:else}
+					{#if selected === 'resource'}
+						<ResourcePicker
+							resourceType="kafka"
+							bind:value={args.kafka_resource_path}
+							{defaultValues}
+						/>
+					{:else}
+						<SchemaForm
+							schema={connnectionSchema}
+							bind:args
+							bind:isValid={connectionValid}
+							lightHeader={true}
+						/>
+					{/if}
+				</Subsection>
+			</div>
+
+			<div class="block grow w-full">
+				<Subsection headless={true}>
 					<SchemaForm
-						schema={connnectionSchema}
-						bind:args={connectionArgs}
-						bind:isValid
+						schema={argsSchema}
+						bind:args
+						bind:isValid={otherArgsValid}
 						lightHeader={true}
 					/>
-				{/if}
-			</Subsection>
+				</Subsection>
+			</div>
 		</div>
-
-		<div class="block grow w-full">
-			<Subsection headless={true}>
-				<SchemaForm schema={argsSchema} bind:args bind:isValid lightHeader={true} />
-			</Subsection>
-		</div>
-	</div>
-</Section>
+	</Section>
+</div>

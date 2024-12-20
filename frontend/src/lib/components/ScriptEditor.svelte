@@ -29,6 +29,7 @@
 	import Tab from './common/tabs/Tab.svelte'
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
+	import CaptureButton from './triggers/CaptureButton.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -53,7 +54,7 @@
 	export let args: Record<string, any> = initialArgs
 	export let selectedTab: 'main' | 'preprocessor' = 'main'
 	export let hasPreprocessor = false
-	export let shouldRefreshCaptures = false
+	export let captureTable: CaptureTable | undefined = undefined
 
 	let jobProgressReset: () => void
 
@@ -398,25 +399,28 @@
 							Cancel
 						</Button>
 					{:else}
-						<Button
-							color="dark"
-							on:click={() => {
-								runTest()
-							}}
-							btnClasses="w-full"
-							size="xs"
-							startIcon={{
-								icon: Play,
-								classes: 'animate-none'
-							}}
-							shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-						>
-							{#if testIsLoading}
-								Running
-							{:else}
-								Test
-							{/if}
-						</Button>
+						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
+							<Button
+								color="dark"
+								on:click={() => {
+									runTest()
+								}}
+								btnClasses="w-full rounded-r-none"
+								size="xs"
+								startIcon={{
+									icon: Play,
+									classes: 'animate-none'
+								}}
+								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+							>
+								{#if testIsLoading}
+									Running
+								{:else}
+									Test
+								{/if}
+							</Button>
+							<CaptureButton on:openTriggers />
+						</div>
 					{/if}
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
@@ -464,7 +468,8 @@
 							<svelte:fragment slot="capturesTab">
 								<div class="h-full p-2">
 									<CaptureTable
-										showAll={true}
+										bind:this={captureTable}
+										captureType="all"
 										{hasPreprocessor}
 										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
 										isFlow={false}
@@ -474,7 +479,6 @@
 										on:applyArgs
 										on:updateSchema
 										on:addPreprocessor
-										bind:shouldRefreshCaptures
 									/>
 								</div>
 							</svelte:fragment>

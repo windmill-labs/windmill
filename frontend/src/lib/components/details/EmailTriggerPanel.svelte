@@ -8,6 +8,7 @@
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import TriggerTokens from '../triggers/TriggerTokens.svelte'
 	import TriggersEditorSection from '../triggers/TriggersEditorSection.svelte'
+	import Description from '../Description.svelte'
 
 	let userSettings: UserSettings
 
@@ -19,6 +20,7 @@
 	export let isEditor: boolean = false
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
+	export let newItem: boolean = false
 
 	let emailDomain: string | null = null
 	let triggerTokens: TriggerTokens | undefined = undefined
@@ -48,7 +50,11 @@
 	{scopes}
 />
 
-<div class="flex flex-col w-full gap-8">
+<div class="flex flex-col w-full gap-4">
+	<Description link="https://www.windmill.dev/docs/advanced/email_triggers">
+		Email triggers execute scripts and flows when emails are sent to specific addresses. Each
+		trigger has its own unique email address that can be used to invoke the script or flow.
+	</Description>
 	{#if loading}
 		<Skeleton layout={[[18]]} />
 	{:else}
@@ -65,7 +71,7 @@
 				{hasPreprocessor}
 				on:applyArgs
 				on:addPreprocessor
-				on:refreshCaptures
+				{newItem}
 			/>
 		{:else}
 			<div>

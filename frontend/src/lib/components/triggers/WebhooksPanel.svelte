@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
+	import Description from '../Description.svelte'
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import TriggersEditorSection from './TriggersEditorSection.svelte'
 
@@ -25,8 +26,11 @@
 <HighlightTheme />
 
 <div class="flex flex-col w-full gap-4">
+	<Description link="https://www.windmill.dev/docs/core_concepts/webhooks">
+		Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
+		synchronously or asynchronously. You can secure webhooks using tokens with specific permissions.
+	</Description>
 	{#if newItem}
-		<div class="mt-10" />
 		<Alert type="warning" title="Attached to a deployed path">
 			The webhooks are only valid for a given path and will only trigger the deployed version of the
 			{isFlow ? 'flow' : 'script'}.
@@ -46,5 +50,6 @@
 		{isEditor}
 		{canHavePreprocessor}
 		{hasPreprocessor}
+		{newItem}
 	/>
 </div>

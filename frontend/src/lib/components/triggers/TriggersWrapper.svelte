@@ -23,10 +23,10 @@
 		</Alert>
 	{:else if triggerType === 'websocket'}
 		<WebsocketEditorConfigSection
-			url={''}
 			can_write={true}
 			headless={true}
-			bind:args
+			bind:url={args.url}
+			bind:url_runnable_args={args.url_runnable_args}
 			showCapture={false}
 		/>
 	{:else if triggerType === 'webhook'}

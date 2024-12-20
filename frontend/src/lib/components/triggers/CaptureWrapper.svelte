@@ -1,32 +1,29 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
-	import { onDestroy, createEventDispatcher } from 'svelte'
+	import { onDestroy } from 'svelte'
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
-	import CaptureTable from './CaptureTable.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
+	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
+	import type { CaptureInfo } from './CaptureSection.svelte'
+	import CaptureTable from './CaptureTable.svelte'
 
 	export let isFlow: boolean
 	export let path: string
 	export let hasPreprocessor: boolean
 	export let canHavePreprocessor: boolean
 	export let captureType: CaptureTriggerKind = 'webhook'
-	export let captureActive = false
+	export let showCapture = false
 	export let data: any = {}
-	export let connectionInfo:
-		| {
-				status: 'connected' | 'disconnected' | 'error'
-				message?: string
-		  }
-		| undefined = undefined
+	export let connectionInfo: ConnectionInfo | undefined = undefined
 	export let args: Record<string, any> = {}
-	export let shouldRefreshCaptures = false
+	export let captureTable: CaptureTable | undefined = undefined
 
 	export async function setConfig() {
 		await CaptureService.setCaptureConfig({
@@ -40,7 +37,7 @@
 		})
 	}
 
-	const dispatch = createEventDispatcher()
+	let captureActive = false
 
 	let captureConfigs: {
 		[key: string]: CaptureConfig
@@ -67,8 +64,9 @@
 				}
 			}
 		}
+		return captureConfigs
 	}
-	getCaptureConfigs()
+	getCaptureConfigs().then((captureConfigs) => setDefaultArgs(captureConfigs))
 
 	async function capture() {
 		let i = 0
@@ -83,21 +81,19 @@
 				})
 				await getCaptureConfigs()
 			}
-			shouldRefreshCaptures = true
+			captureTable?.refreshCaptures()
 			i++
 			await sleep(1000)
 		}
 	}
 
-	function stopAndSetDefaultArgs() {
-		captureActive = false
+	function setDefaultArgs(captureConfigs: { [key: string]: CaptureConfig }) {
 		if (captureType in captureConfigs) {
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
 		} else if (captureType === 'kafka') {
 			args = {
 				...args,
-				kafka_resource_path: '',
 				brokers: [''],
 				topics: [''],
 				group_id: `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
@@ -106,12 +102,9 @@
 			args = {}
 		}
 	}
-	$: captureType && stopAndSetDefaultArgs()
 
 	onDestroy(() => {
 		captureActive = false
-		dispatch('refreshCaptures')
-		shouldRefreshCaptures = true
 	})
 
 	function getServerEnabled(config: CaptureConfig) {
@@ -133,27 +126,36 @@
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
 
-	$: cloudDisabled = (captureType === 'websocket' || captureType === 'kafka') && isCloudHosted()
+	let cloudDisabled = (captureType === 'websocket' || captureType === 'kafka') && isCloudHosted()
 
-	function updateConnectionInfo(
-		captureType: CaptureTriggerKind,
-		config: CaptureConfig | undefined,
-		captureActive: boolean
-	) {
+	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
 		if ((captureType === 'websocket' || captureType === 'kafka') && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
-			const message = serverEnabled
+			const connected = serverEnabled && !config.error
+			const message = connected
 				? `${capitalize(captureType)} is connected`
 				: `${capitalize(captureType)} is not connected${config.error ? ': ' + config.error : ''}`
 			connectionInfo = {
-				status: serverEnabled ? 'connected' : 'disconnected',
+				connected,
 				message
 			}
 		} else {
 			connectionInfo = undefined
 		}
 	}
-	$: updateConnectionInfo(captureType, config, captureActive)
+	$: updateConnectionInfo(config, captureActive)
+
+	let captureInfo: CaptureInfo
+	$: captureInfo = {
+		active: captureActive,
+		hasPreprocessor,
+		canHavePreprocessor,
+		isFlow,
+		path,
+		connectionInfo
+	}
+
+	$: args && (captureActive = false)
 </script>
 
 <div class="flex flex-col gap-4 w-full">
@@ -161,61 +163,89 @@
 		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
 			{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.
 		</Alert>
-	{:else}
-		{#if captureType === 'websocket'}
-			<WebsocketEditorConfigSection
-				url={''}
-				can_write={true}
-				headless={true}
-				bind:args
-				showCapture={captureActive}
-			/>
-		{:else if captureType === 'webhook'}
-			<WebhooksConfigSection
-				{isFlow}
-				{path}
-				hash={data?.hash}
-				token={data?.token}
-				{args}
-				scopes={data?.scopes}
-				showCapture={captureActive}
-			/>
-		{:else if captureType === 'http'}
-			<RouteEditorConfigSection
-				{path}
-				{isFlow}
-				showCapture={captureActive}
-				can_write={true}
-				bind:args
-				headless
-			/>
-		{:else if captureType === 'email'}
-			<EmailTriggerConfigSection
-				hash={data?.hash}
-				token={data?.token}
-				{path}
-				{isFlow}
-				userSettings={data?.userSettings}
-				emailDomain={data?.emailDomain}
-				{captureActive}
-			/>
-		{:else if captureType === 'kafka'}
-			<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
-		{/if}
-
-		<CaptureTable
-			{captureType}
-			{hasPreprocessor}
-			{canHavePreprocessor}
-			{isFlow}
-			{path}
-			bind:shouldRefreshCaptures
-			hideCapturesWhenEmpty={true}
-			canEdit={true}
+	{:else if captureType === 'websocket'}
+		<WebsocketEditorConfigSection
+			can_write={true}
+			headless={true}
+			bind:url={args.url}
+			bind:url_runnable_args={args.url_runnable_args}
+			{showCapture}
+			{captureInfo}
+			bind:captureTable
 			on:applyArgs
 			on:updateSchema
 			on:addPreprocessor
-			maxHeight={300}
+			on:captureToggle={() => {
+				handleCapture()
+			}}
+		/>
+	{:else if captureType === 'webhook'}
+		<WebhooksConfigSection
+			{isFlow}
+			{path}
+			hash={data?.hash}
+			token={data?.token}
+			{args}
+			scopes={data?.scopes}
+			{showCapture}
+			{captureInfo}
+			bind:captureTable
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			on:captureToggle={() => {
+				handleCapture()
+			}}
+		/>
+	{:else if captureType === 'http'}
+		<RouteEditorConfigSection
+			{path}
+			{isFlow}
+			{showCapture}
+			can_write={true}
+			bind:args
+			headless
+			{captureInfo}
+			bind:captureTable
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			on:captureToggle={() => {
+				handleCapture()
+			}}
+		/>
+	{:else if captureType === 'email'}
+		<EmailTriggerConfigSection
+			hash={data?.hash}
+			token={data?.token}
+			{path}
+			{isFlow}
+			userSettings={data?.userSettings}
+			emailDomain={data?.emailDomain}
+			{showCapture}
+			{captureInfo}
+			bind:captureTable
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			on:captureToggle={() => {
+				handleCapture()
+			}}
+		/>
+	{:else if captureType === 'kafka'}
+		<KafkaTriggersConfigSection
+			headless={true}
+			bind:args
+			staticInputDisabled={false}
+			{showCapture}
+			{captureInfo}
+			bind:captureTable
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			on:captureToggle={() => {
+				handleCapture()
+			}}
 		/>
 	{/if}
 </div>

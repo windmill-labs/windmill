@@ -37,7 +37,6 @@
 	let path: string = ''
 	let pathError = ''
 	let url = ''
-	let urlError = ''
 	let dirtyUrl = false
 	let enabled = false
 	let filters: {
@@ -45,7 +44,7 @@
 		value: any
 	}[] = []
 	let initial_messages: WebsocketTriggerInitialMessage[] = []
-	let url_runnable_args: Record<string, any> = {}
+	let url_runnable_args: Record<string, any> | undefined = {}
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
@@ -91,7 +90,7 @@
 			initialPath = ''
 			filters = []
 			initial_messages = []
-			url_runnable_args = {}
+			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 		} finally {
 			drawerLoading = false
@@ -111,7 +110,7 @@
 		url = s.url
 		enabled = s.enabled
 		filters = s.filters
-		initial_messages = s.initial_messages
+		initial_messages = s.initial_messages ?? []
 		url_runnable_args = s.url_runnable_args
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
@@ -149,35 +148,6 @@
 		.map((v) => ('runnable_result' in v ? v.runnable_result : undefined))
 		.filter((v): v is { path: string; is_flow: boolean; args: ScriptArgs } => !!v)
 	$: loadInitialMessageRunnableSchemas(initialMessageRunnables)
-
-	let urlRunnableSchema: Schema | undefined = emptySchema()
-	async function loadUrlRunnableSchema(url: string) {
-		if (url.startsWith('$')) {
-			const path = url.split(':')[1]
-			if (path && path.length > 0) {
-				try {
-					let scriptOrFlow: Script | Flow = url.startsWith('$flow:')
-						? await FlowService.getFlowByPath({
-								workspace: $workspaceStore!,
-								path: url.split(':')[1]
-						  })
-						: await ScriptService.getScriptByPath({
-								workspace: $workspaceStore!,
-								path: url.split(':')[1]
-						  })
-					urlRunnableSchema = scriptOrFlow.schema as Schema
-				} catch (err) {
-					sendUserToast(
-						`Could not query runnable schema for ${url.startsWith('$flow:') ? 'flow' : 'script'} ${
-							url.split(':')[1]
-						}: ${err}`,
-						true
-					)
-				}
-			}
-		}
-	}
-	$: loadUrlRunnableSchema(url)
 
 	$: invalidInitialMessages = initial_messages.some((v) => {
 		if ('runnable_result' in v) {
@@ -225,25 +195,7 @@
 		drawer.closeDrawer()
 	}
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
-	function validateUrl(url: string) {
-		urlError = ''
-		if (validateTimeout) {
-			clearTimeout(validateTimeout)
-		}
-		validateTimeout = setTimeout(() => {
-			console.log('validating ' + url)
-			if (url.startsWith('$')) {
-				if (/^(\$script|\$flow):[^\s]+$/.test(url) === false) {
-					urlError = 'Invalid runnable path'
-				}
-			} else if (/^(ws:|wss:)\/\/[^\s]+$/.test(url) === false) {
-				urlError = 'Invalid websocket URL'
-			}
-			validateTimeout = undefined
-		}, 500)
-	}
-	$: validateUrl(url)
+	let isValid = false
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -280,7 +232,7 @@
 					<Button
 						startIcon={{ icon: Save }}
 						disabled={pathError != '' ||
-							urlError != '' ||
+							!isValid ||
 							invalidInitialMessages ||
 							emptyString(script_path) ||
 							!can_write}
@@ -318,12 +270,11 @@
 				</div>
 
 				<WebsocketEditorConfigSection
-					{url}
-					{url_runnable_args}
+					bind:url
+					bind:url_runnable_args
 					{dirtyUrl}
-					{urlError}
-					{urlRunnableSchema}
 					{can_write}
+					bind:isValid
 				/>
 
 				<Section label="Runnable">
