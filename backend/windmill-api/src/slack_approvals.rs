@@ -8,7 +8,6 @@ use serde_json::value::{RawValue, Value};
 
 use sqlx::types::Uuid;
 use std::{collections::HashMap, str::FromStr};
-use windmill_common::error::{self, Error};
 
 use regex::Regex;
 use reqwest::Client;
@@ -20,6 +19,8 @@ use crate::jobs::{
 };
 
 use windmill_common::{
+    cache,
+    error::{self, Error},
     jobs::JobKind,
     scripts::ScriptHash,
     variables::{build_crypt, decrypt_value_with_mc},
@@ -30,20 +31,28 @@ pub struct SlackFormData {
     payload: String,
 }
 
-#[derive(Deserialize, Debug, Serialize)]
-struct Container {
-    message_ts: String,
-    channel_id: String,
-}
-
 #[derive(Deserialize, Debug)]
 struct Payload {
     actions: Option<Vec<Action>>,
     view: Option<View>,
     trigger_id: Option<String>,
-    #[serde(rename = "type")]
-    r#type: String,
+    r#type: PayloadType,
     container: Option<Container>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+enum PayloadType {
+    ViewSubmission,
+    ViewClosed,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+struct Container {
+    message_ts: String,
+    channel_id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -53,9 +62,12 @@ struct View {
 }
 
 #[derive(Deserialize, Debug)]
-struct Action {
-    value: Option<String>,
-    action_id: String,
+#[serde(tag = "action_id")]
+enum Action {
+    #[serde(rename = "open_modal")]
+    OpenModal { value: String },
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Deserialize, Debug)]
@@ -98,14 +110,22 @@ struct Schema {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+enum FieldType {
+    Boolean,
+    String,
+    Number,
+    Integer,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 struct ResumeFormField {
-    #[serde(rename = "type")]
-    r#type: String,
+    r#type: FieldType,
     format: Option<String>,
     default: Option<serde_json::Value>,
     description: Option<String>,
     title: Option<String>,
-    #[serde(rename = "enum")]
     r#enum: Option<Vec<String>>,
     #[serde(rename = "enumLabels")]
     enum_labels: Option<HashMap<String, String>>,
@@ -119,17 +139,17 @@ pub struct QueryMessage {
 
 #[derive(Deserialize)]
 pub struct QueryResourcePath {
-    slack_resource_path: Option<String>,
+    slack_resource_path: String,
 }
 
 #[derive(Deserialize)]
 pub struct QueryChannelId {
-    channel_id: Option<String>,
+    channel_id: String,
 }
 
 #[derive(Deserialize)]
 pub struct QueryFlowStepId {
-    flow_step_id: Option<String>,
+    flow_step_id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -158,27 +178,20 @@ pub async fn slack_app_callback_handler(
     let payload: Payload = serde_json::from_str(&form_data.payload)?;
     tracing::debug!("Payload: {:#?}", payload);
 
-    match payload.r#type.as_str() {
-        "view_submission" => {
-            //print the container
-            handle_submission(authed, db, &payload, "resume").await?
-        }
-        "view_closed" => handle_submission(authed, db, &payload, "cancel").await?,
+    match payload.r#type {
+        PayloadType::ViewSubmission => handle_submission(authed, db, &payload, "resume").await?,
+        PayloadType::ViewClosed => handle_submission(authed, db, &payload, "cancel").await?,
         _ => {
-            if let Some(actions) = payload.actions.as_ref() {
+            if let Some(actions) = &payload.actions {
                 if let Some(action) = actions.first() {
-                    match action.action_id.as_str() {
-                        "open_modal" => {
+                    match action {
+                        Action::OpenModal { value } => {
                             let trigger_id = payload.trigger_id.as_deref().ok_or_else(|| {
-                                Error::BadRequest("No trigger_id found in payload.".to_string())
+                                Error::BadRequest("Missing trigger_id".to_string())
                             })?;
 
-                            let value_str = action.value.as_ref().ok_or_else(|| {
-                                Error::BadRequest("No action value found".to_string())
-                            })?;
-
-                            let parsed_value: ModalActionValue = serde_json::from_str(value_str)
-                                .map_err(|_| {
+                            let parsed_value: ModalActionValue =
+                                serde_json::from_str(value.as_str()).map_err(|_| {
                                     Error::BadRequest("Invalid JSON in action value".to_string())
                                 })?;
 
@@ -209,15 +222,15 @@ pub async fn slack_app_callback_handler(
                                 container,
                             )
                             .await
-                            .map_err(|e| {
-                                windmill_common::error::Error::BadRequest(e.to_string())
-                            })?;
+                            .map_err(|e| Error::BadRequest(e.to_string()))?;
                         }
-                        _ => println!("Unknown action_id: {}", action.action_id),
+                        Action::Unknown => println!("Unknown action_id"),
                     }
+                } else {
+                    tracing::debug!("Unknown Slack Action!");
                 }
             } else {
-                tracing::debug!("Unkown Slack Action!");
+                tracing::debug!("Unknown Slack Action!");
             }
         }
     }
@@ -235,47 +248,19 @@ pub async fn request_slack_approval(
     Query(channel_id): Query<QueryChannelId>,
     Query(flow_step_id): Query<QueryFlowStepId>,
 ) -> Result<StatusCode, Error> {
-    let slack_resource_path = match slack_resource_path.slack_resource_path {
-        Some(path) => path,
-        None => {
-            return Err(windmill_common::error::Error::BadRequest(
-                "slack_resource_path is required".to_string(),
-            ))
-        }
-    };
-
-    let channel_id = match channel_id.channel_id {
-        Some(id) => id,
-        None => {
-            return Err(windmill_common::error::Error::BadRequest(
-                "Slack channel_id is required".to_string(),
-            ))
-        }
-    };
-
-    let flow_step_id = match flow_step_id.flow_step_id {
-        Some(id) => id,
-        None => {
-            return Err(windmill_common::error::Error::BadRequest(
-                "Slack flow_step_id is required".to_string(),
-            ))
-        }
-    };
+    let slack_resource_path = slack_resource_path.slack_resource_path;
+    let channel_id = channel_id.channel_id;
+    let flow_step_id = flow_step_id.flow_step_id;
 
     let slack_token = get_slack_token(&db, slack_resource_path.as_str(), &w_id).await?;
     let client = Client::new();
 
-    // Optional fields
-    let approver_str = approver.approver.as_deref();
-    let message_str = message.message.as_deref();
-
-    tracing::debug!("Approver: {:?}", approver_str);
-    tracing::debug!("Message: {:?}", message_str);
+    tracing::debug!("Approver: {:?}", approver.approver);
+    tracing::debug!("Message: {:?}", message.message);
     tracing::debug!("W ID: {:?}", w_id);
     tracing::debug!("Slack Resource Path: {:?}", slack_resource_path);
     tracing::debug!("Channel ID: {:?}", channel_id);
 
-    // Use approver_str and message_str in the function call
     send_slack_message(
         &client,
         slack_token.as_str(),
@@ -283,12 +268,12 @@ pub async fn request_slack_approval(
         &w_id,
         job_id,
         &slack_resource_path,
-        approver_str,
-        message_str,
+        approver.approver.as_deref(),
+        message.message.as_deref(),
         flow_step_id.as_str(),
     )
     .await
-    .map_err(|e| windmill_common::error::Error::BadRequest(e.to_string()))?;
+    .map_err(|e| Error::BadRequest(e.to_string()))?;
 
     Ok(StatusCode::OK)
 }
@@ -435,7 +420,7 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
     };
 
     // Handle boolean type
-    if schema.r#type == "boolean" {
+    if let FieldType::Boolean = schema.r#type {
         let initial_value = schema
             .default
             .as_ref()
@@ -481,65 +466,68 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
     }
 
     // Handle date-time format
-    if schema.r#type == "string" && schema.format.as_deref() == Some("date-time") {
-        let now = chrono::Local::now();
-        let current_date = now.format("%Y-%m-%d").to_string();
-        let current_time = now.format("%H:%M").to_string();
+    if let FieldType::String = schema.r#type {
+        if schema.format.as_deref() == Some("date-time") {
+            let now = chrono::Local::now();
+            let current_date = now.format("%Y-%m-%d").to_string();
+            let current_time = now.format("%H:%M").to_string();
 
-        let (default_date, default_time) = if let Some(default) = &schema.default {
-            if let Ok(parsed_date) = chrono::DateTime::parse_from_rfc3339(default.as_str().unwrap())
-            {
-                (
-                    parsed_date.format("%Y-%m-%d").to_string(),
-                    parsed_date.format("%H:%M").to_string(),
-                )
+            let (default_date, default_time) = if let Some(default) = &schema.default {
+                if let Ok(parsed_date) =
+                    chrono::DateTime::parse_from_rfc3339(default.as_str().unwrap())
+                {
+                    (
+                        parsed_date.format("%Y-%m-%d").to_string(),
+                        parsed_date.format("%H:%M").to_string(),
+                    )
+                } else {
+                    (current_date.clone(), current_time.clone())
+                }
             } else {
                 (current_date.clone(), current_time.clone())
-            }
-        } else {
-            (current_date.clone(), current_time.clone())
-        };
+            };
 
-        return serde_json::json!([
-            {
-                "type": "input",
-                "optional": !required,
-                "element": {
-                    "type": "datepicker",
-                    "initial_date": &default_date,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "Select a date",
-                        "emoji": true
+            return serde_json::json!([
+                {
+                    "type": "input",
+                    "optional": !required,
+                    "element": {
+                        "type": "datepicker",
+                        "initial_date": &default_date,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select a date",
+                            "emoji": true
+                        },
+                        "action_id": format!("{}_date", key)
                     },
-                    "action_id": format!("{}_date", key)
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": title_with_required,
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "optional": !required,
-                "element": {
-                    "type": "timepicker",
-                    "initial_time": &default_time,
-                    "placeholder": {
+                    "label": {
                         "type": "plain_text",
-                        "text": "Select time",
+                        "text": title_with_required,
                         "emoji": true
-                    },
-                    "action_id": format!("{}_time", key)
+                    }
                 },
-                "label": {
-                    "type": "plain_text",
-                    "text": " ",
-                    "emoji": true
+                {
+                    "type": "input",
+                    "optional": !required,
+                    "element": {
+                        "type": "timepicker",
+                        "initial_time": &default_time,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select time",
+                            "emoji": true
+                        },
+                        "action_id": format!("{}_time", key)
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": " ",
+                        "emoji": true
+                    }
                 }
-            }
-        ]);
+            ]);
+        }
     }
 
     // Handle enum type
@@ -598,7 +586,7 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
                 "emoji": true
             }
         })
-    } else if schema.r#type == "number" || schema.r#type == "integer" {
+    } else if let FieldType::Number | FieldType::Integer = schema.r#type {
         // Handle number and integer types
         let initial_value = schema
             .default
@@ -606,7 +594,7 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
             .and_then(|default| default.as_f64())
             .unwrap_or(0.0);
 
-        let action_id_suffix = if schema.r#type == "number" {
+        let action_id_suffix = if let FieldType::Number = schema.r#type {
             "_type_number"
         } else {
             "_type_integer"
@@ -867,7 +855,7 @@ async fn get_modal_blocks(
     flow_step_id: Option<&str>,
     resource_path: &str,
     container: Container,
-) -> Result<axum::Json<serde_json::Value>, windmill_common::error::Error> {
+) -> Result<axum::Json<serde_json::Value>, Error> {
     let res = get_resume_urls_internal(
         axum::Extension(db.clone()),
         Path((w_id.to_string(), job_id, resume_id)),
@@ -879,12 +867,11 @@ async fn get_modal_blocks(
 
     tracing::debug!("Job ID: {:?}", job_id);
 
-    let (job_kind, script_hash, raw_flow, parent_job_id) = sqlx::query!(
+    let (job_kind, script_hash, raw_flow) = sqlx::query!(
         "SELECT
             queue.job_kind AS \"job_kind: JobKind\",
             queue.script_hash AS \"script_hash: ScriptHash\",
-            queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-            completed_job.parent_job AS \"parent_job: Uuid\"
+            queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\"
         FROM queue
         JOIN completed_job ON completed_job.parent_job = queue.id
         WHERE completed_job.id = $1 AND completed_job.workspace_id = $2
@@ -896,21 +883,11 @@ async fn get_modal_blocks(
     .await
     .map_err(|e| error::Error::BadRequest(e.to_string()))?
     .ok_or_else(|| error::Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
-    .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job))?;
+    .map(|r| (r.job_kind, r.script_hash, r.raw_flow))?;
 
-    let flow_data = match windmill_common::cache::job::fetch_flow(&db, job_kind, script_hash).await
-    {
+    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await {
         Ok(data) => data,
-        Err(_) => {
-            if let Some(parent_job_id) = parent_job_id.as_ref() {
-                windmill_common::cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow)
-                    .await?
-            } else {
-                return Err(error::Error::BadRequest(
-                    "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
-                ));
-            }
-        }
+        _ => cache::job::fetch_preview_flow(&db, &job_id, raw_flow).await?,
     };
 
     let flow_value = &flow_data.flow;
@@ -918,6 +895,7 @@ async fn get_modal_blocks(
     let module = flow_value.modules.iter().find(|m| m.id == flow_step_id);
 
     tracing::debug!("Module: {:#?}", module);
+
     let schema = module.and_then(|module| {
         module.suspend.as_ref().map(|suspend| ResumeFormRow {
             resume_form: suspend.resume_form.clone(),
