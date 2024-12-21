@@ -155,7 +155,7 @@
 						transformer={$selectedComponentInEditor?.endsWith('_transformer')}
 						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
 						id={BG_PREFIX + hiddenInlineScript}
-						bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
+						bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}c
 					/>{/if}{/key}
 		{:else}
 			<div class="text-sm text-tertiary text-center py-8 px-2">
