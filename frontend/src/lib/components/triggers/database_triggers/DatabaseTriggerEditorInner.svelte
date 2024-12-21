@@ -78,7 +78,6 @@
 				itemKind = is_flow ? 'flow' : 'script'
 				script_path = trigger.script_path
 				path = trigger.path
-				relations = trigger.table_to_track
 				replication_slot_name = trigger.replication_slot_name
 				publication_name = trigger.publication_name
 				databaseTrigger.set(undefined)
@@ -132,10 +131,8 @@
 					is_flow,
 					database_resource_path,
 					enabled,
-					table_to_track: relations,
 					replication_slot_name,
 					publication_name,
-					transaction_to_track: transactionToTrack
 				}
 			})
 			sendUserToast(`Database ${path} updated`)
@@ -143,7 +140,6 @@
 			await DatabaseTriggerService.createDatabaseTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
-					transaction_to_track: transactionToTrack,
 					path,
 					script_path,
 					is_flow,
@@ -151,7 +147,6 @@
 					database_resource_path,
 					replication_slot_name,
 					publication_name,
-					table_to_track: relations
 				}
 			})
 			sendUserToast(`Database ${path} created`)
@@ -187,7 +182,6 @@
 			databaseTrigger.set({
 				codeTemplate: template,
 				databaseTrigger: {
-					transaction_to_track: transactionToTrack,
 					path,
 					script_path,
 					is_flow,
@@ -195,7 +189,6 @@
 					database_resource_path,
 					replication_slot_name,
 					publication_name,
-					table_to_track: relations
 				}
 			})
 			await goto(`${base}/scripts/add`)

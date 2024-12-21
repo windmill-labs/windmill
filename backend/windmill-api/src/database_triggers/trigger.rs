@@ -488,7 +488,7 @@ pub async fn start_database(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    /*tokio::spawn(async move {
+    tokio::spawn(async move {
         listen_to_unlistened_database_events(&db, &rsmq, &killpill_rx).await;
         loop {
             tokio::select! {
@@ -501,5 +501,5 @@ pub async fn start_database(
                 }
             }
         }
-    });*/
+    });
 }

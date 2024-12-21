@@ -12,9 +12,10 @@ use axum::{
     Router,
 };
 use handler::{
-    create_database_trigger, delete_database_trigger, exists_database_trigger,
-    get_database_trigger, get_template_script, list_database_triggers, set_enabled,
-    update_database_trigger, DatabaseTrigger,
+    alter_publication, create_database_trigger, create_publication, delete_database_trigger,
+    delete_publication, exists_database_trigger, get_database_trigger, get_publication_info,
+    get_template_script, list_database_triggers, set_enabled, update_database_trigger,
+    DatabaseTrigger,
 };
 use windmill_common::{db::UserDB, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -30,6 +31,26 @@ mod trigger;
 
 pub use trigger::start_database;
 
+fn publication_service() -> Router {
+    Router::new()
+        .route(
+            "/get/:database_resource_path/:publication_name",
+            get(get_publication_info),
+        )
+        .route(
+            "/create/:database_resource_path/:publication_name",
+            post(create_publication),
+        )
+        .route(
+            "/update/:database_resource_path/:publication_name",
+            post(alter_publication),
+        )
+        .route(
+            "/delete/:database_resource_path/:publication_name",
+            delete(delete_publication),
+        )
+}
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_database_trigger))
@@ -40,6 +61,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_database_trigger))
         .route("/setenabled/*path", post(set_enabled))
         .route("/get-template-script", post(get_template_script))
+        .nest("/publication", publication_service())
 }
 
 async fn run_job(

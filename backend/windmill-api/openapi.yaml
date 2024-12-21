@@ -7694,7 +7694,94 @@ paths:
             text/plain:
               schema:
                 type: string
-        
+  
+  /w/{workspace}/database_triggers/publication/get/{databaseResourcePath}/{publicationName}:
+    get:
+      summary: get database publication
+      operationId: getDatabasePublication
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/PublicationName"
+      responses:
+        "200":
+          description: database publication get
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationData"
+
+  /w/{workspace}/database_triggers/publication/create/{databaseResourcePath}/{publicationName}:
+    post:
+      summary: create publication for database
+      operationId: createDatabasePublication
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/PublicationName"
+      requestBody:
+        description: new publication for database
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationData"
+      responses:
+        "201":
+          description: publication created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/database_triggers/publication/update/{databaseResourcePath}/{publicationName}:
+    post:
+      summary: update publication for database
+      operationId: updateDatabasePublication
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/PublicationName"
+      requestBody:
+        description: update publication for database
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationData"
+      responses:
+        "201":
+          description: publication updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
+  /w/{workspace}/database_triggers/publication/delete/{databaseResourcePath}/{publicationName}:
+    delete:
+      summary: delete database trigger
+      operationId: deleteDatabasePublication
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/PublicationName"
+      responses:
+        "200":
+          description: database publication deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/database_triggers/create:
     post:
       summary: create database trigger
@@ -10153,6 +10240,18 @@ components:
       required: true
       schema:
         type: string
+    PublicationName:
+      name: publication_name
+      in: path
+      required: true
+      schema:
+        type: string
+    DatabaseResourcePath:
+      name: database_resource_path
+      in: path
+      required: true
+      schema:
+        type: string
     VersionId:
       name: version
       in: path
@@ -12202,7 +12301,20 @@ components:
                 - is_flow
           required:
             - runnable_result
-
+    
+    PublicationData:
+      type: object
+      properties:
+        table_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/Relations"
+        transaction_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransactionType"
+      required:
+        - transaction_to_track
 
     TableToTrack:
       type: array
@@ -12314,24 +12426,14 @@ components:
           type: boolean
         database_resource_path:
           type: string
-        table_to_track:
-          type: array
-          items:
-            $ref: "#/components/schemas/Relations"
-        transaction_to_track:
-          type: array
-          items:
-            $ref: "#/components/schemas/TransactionType"
       required:
         - path
         - script_path
         - is_flow
         - enabled
         - database_resource_path
-        - transaction_to_track
         - replication_slot_name
         - publication_name
-        - table_to_track
   
     EditDatabaseTrigger:
       type: object
@@ -12350,22 +12452,12 @@ components:
           type: boolean
         database_resource_path:
           type: string
-        table_to_track:
-          type: array
-          items:
-            $ref: "#/components/schemas/Relations"
-        transaction_to_track:
-          type: array
-          items:
-            $ref: "#/components/schemas/TransactionType"
       required:
         - path
         - script_path
         - is_flow
         - enabled
         - database_resource_path
-        - table_to_track
-        - transaction_to_track
         - replication_slot_name
         - publication_name
 

@@ -15,7 +15,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{
     postgres::{types::Oid, PgConnectOptions},
-    query_as, Connection, Execute, FromRow, PgConnection, QueryBuilder,
+    Connection, Execute, FromRow, PgConnection, QueryBuilder, Value,
 };
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::Error;
@@ -32,14 +32,6 @@ use crate::{
     database_triggers::mapper::{Mapper, MappingInfo},
     db::{ApiAuthed, DB},
 };
-
-#[derive(Clone, Debug, sqlx::Type, Deserialize, Serialize)]
-#[sqlx(type_name = "transaction")]
-pub enum TransactionType {
-    Insert,
-    Update,
-    Delete,
-}
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct Database {
@@ -91,24 +83,16 @@ pub struct EditDatabaseTrigger {
     script_path: String,
     is_flow: bool,
     database_resource_path: String,
-    #[serde(deserialize_with = "check_if_not_duplication_relation")]
-    table_to_track: Option<Vec<Relations>>,
-    #[serde(deserialize_with = "check_if_valid_transaction_type")]
-    transaction_to_track: Vec<TransactionType>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 
 pub struct NewDatabaseTrigger {
     path: String,
-    #[serde(deserialize_with = "check_if_valid_transaction_type")]
-    transaction_to_track: Vec<TransactionType>,
     script_path: String,
     is_flow: bool,
     enabled: bool,
     database_resource_path: String,
-    #[serde(deserialize_with = "check_if_not_duplication_relation")]
-    table_to_track: Option<Vec<Relations>>,
     replication_slot_name: String,
     publication_name: String,
 }
@@ -207,41 +191,6 @@ where
     }
 }
 
-fn check_if_valid_transaction_type<'de, D>(
-    transaction_type: D,
-) -> std::result::Result<Vec<TransactionType>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let mut transaction_type: Vec<String> = Vec::deserialize(transaction_type)?;
-    if transaction_type.len() > 3 {
-        return Err(serde::de::Error::custom(
-            "More than 3 transaction type which is not authorized, you are only allowed to those 3 transaction types: Insert, Update and Delete"
-                .to_string(),
-        ));
-    }
-    transaction_type.sort_unstable();
-    transaction_type.dedup();
-
-    let mut result = Vec::with_capacity(transaction_type.len());
-
-    for transaction in transaction_type {
-        match transaction.to_lowercase().as_str() {
-            "insert" => result.push(TransactionType::Insert),
-            "update" => result.push(TransactionType::Update),
-            "delete" => result.push(TransactionType::Delete),
-            _ => {
-                return Err(serde::de::Error::custom(
-                    "Only the following transaction types are allowed: Insert, Update and Delete (case insensitive)"
-                        .to_string(),
-                ))
-            }
-        }
-    }
-
-    Ok(result)
-}
-
 #[derive(FromRow, Deserialize, Serialize, Debug)]
 pub struct DatabaseTrigger {
     pub path: String,
@@ -337,17 +286,14 @@ pub async fn create_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Extension(db): Extension<DB>,
     Json(new_database_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
     let NewDatabaseTrigger {
         database_resource_path,
-        table_to_track,
         path,
         script_path,
         enabled,
         is_flow,
-        transaction_to_track,
         publication_name,
         replication_slot_name,
     } = new_database_trigger;
@@ -356,82 +302,6 @@ pub async fn create_database_trigger(
             "Database triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
         ));
     }
-
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
-
-    let mut query = QueryBuilder::new("");
-
-    query.push("CREATE PUBLICATION ");
-    query.push(quote_identifier(&publication_name));
-
-    match table_to_track.as_ref() {
-        Some(database_component) if !database_component.is_empty() => {
-            query.push(" FOR");
-            for (i, schema) in database_component.iter().enumerate() {
-                if schema.table_to_track.is_empty() {
-                    query.push(" TABLES IN SCHEMA ");
-                    query.push(quote_identifier(&schema.schema_name));
-                } else {
-                    query.push(" TABLE ONLY ");
-                    for (j, table) in schema.table_to_track.iter().enumerate() {
-                        query.push(quote_identifier(&table.table_name));
-                        if !table.columns_name.is_empty() {
-                            query.push(" (");
-                            let columns = table
-                                .columns_name
-                                .iter()
-                                .map(|column| quote_identifier(column))
-                                .join(", ");
-                            query.push(&columns);
-                            query.push(")");
-                        }
-
-                        if j + 1 != schema.table_to_track.len() {
-                            query.push(", ");
-                        }
-                    }
-                }
-                if i < database_component.len() - 1 {
-                    query.push(", ");
-                }
-            }
-        }
-        _ => {
-            query.push(" FOR ALL TABLES ");
-        }
-    };
-
-    if !transaction_to_track.is_empty() {
-        let transactions = || {
-            transaction_to_track
-                .iter()
-                .map(|transaction| match transaction {
-                    TransactionType::Insert => "insert",
-                    TransactionType::Update => "update",
-                    TransactionType::Delete => "delete",
-                })
-                .join(",")
-        };
-        query.push(" WITH (publish = '");
-        query.push(transactions());
-        query.push("');");
-    }
-
-    let query = query.build();
-
-    println!("{}", query.sql());
-
-    query.execute(&mut connection).await?;
-
-    sqlx::query!(
-        "SELECT
-            pg_create_logical_replication_slot($1, 'pgoutput')",
-        &replication_slot_name
-    )
-    .fetch_optional(&mut connection)
-    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -551,6 +421,293 @@ pub async fn list_database_triggers(
     Ok(Json(rows))
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct PublicationData {
+    #[serde(deserialize_with = "check_if_not_duplication_relation")]
+    table_to_track: Option<Vec<Relations>>,
+    #[serde(deserialize_with = "check_if_valid_transaction_type")]
+    transaction_to_track: Vec<String>,
+}
+
+fn check_if_valid_transaction_type<'de, D>(
+    transaction_type: D,
+) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut transaction_type: Vec<String> = Vec::deserialize(transaction_type)?;
+    if transaction_type.len() > 3 {
+        return Err(serde::de::Error::custom(
+            "More than 3 transaction type which is not authorized, you are only allowed to those 3 transaction types: Insert, Update and Delete"
+                .to_string(),
+        ));
+    }
+    transaction_type.sort_unstable();
+    transaction_type.dedup();
+
+    for transaction in transaction_type.iter() {
+        match transaction.to_lowercase().as_ref() {
+            "insert" => {},
+            "update" => {},
+            "delete" => {},
+            _ => {
+                return Err(serde::de::Error::custom(
+                    "Only the following transaction types are allowed: Insert, Update and Delete (case insensitive)"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+
+    Ok(transaction_type)
+}
+
+impl PublicationData {
+    fn new(
+        table_to_track: Option<Vec<Relations>>,
+        transaction_to_track: Vec<String>,
+    ) -> PublicationData {
+        PublicationData { table_to_track, transaction_to_track }
+    }
+}
+
+pub async fn get_publication_info(
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+) -> error::Result<Json<PublicationData>> {
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    let (all_table, transaction_to_track) =
+        get_publication_scope_and_transaction(&publication_name, &mut connection).await?;
+
+    let table_to_track = if !all_table {
+        Some(get_tracked_relations(&mut connection, &publication_name).await?)
+    } else {
+        None
+    };
+    Ok(Json(PublicationData::new(
+        table_to_track,
+        transaction_to_track,
+    )))
+}
+
+async fn new_publication(
+    connection: &mut PgConnection,
+    publication_name: &str,
+    table_to_track: Option<&[Relations]>,
+    transaction_to_track: &[&str],
+) -> Result<(), Error> {
+    let mut query = QueryBuilder::new("CREATE PUBLICATION ");
+
+    query.push(quote_identifier(publication_name));
+
+    match table_to_track {
+        Some(database_component) if !database_component.is_empty() => {
+            query.push(" FOR");
+            for (i, schema) in database_component.iter().enumerate() {
+                if schema.table_to_track.is_empty() {
+                    query.push(" TABLES IN SCHEMA ");
+                    query.push(quote_identifier(&schema.schema_name));
+                } else {
+                    query.push(" TABLE ONLY ");
+                    for (j, table) in schema.table_to_track.iter().enumerate() {
+                        query.push(quote_identifier(&table.table_name));
+                        if !table.columns_name.is_empty() {
+                            query.push(" (");
+                            let columns = table
+                                .columns_name
+                                .iter()
+                                .map(|column| quote_identifier(column))
+                                .join(", ");
+                            query.push(&columns);
+                            query.push(")");
+                        }
+
+                        if j + 1 != schema.table_to_track.len() {
+                            query.push(", ");
+                        }
+                    }
+                }
+                if i < database_component.len() - 1 {
+                    query.push(", ");
+                }
+            }
+        }
+        _ => {
+            query.push(" FOR ALL TABLES ");
+        }
+    };
+
+    if !transaction_to_track.is_empty() {
+        let transactions = || transaction_to_track.iter().join(", ");
+        query.push(" WITH (publish = '");
+        query.push(transactions());
+        query.push("');");
+    }
+
+    let query = query.build();
+
+    println!("{}", query.sql());
+
+    query.execute(&mut *connection).await?;
+
+    Ok(())
+}
+
+pub async fn create_publication(
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+    Json(publication_data): Json<PublicationData>,
+) -> error::Result<String> {
+    let PublicationData { table_to_track, transaction_to_track } = publication_data;
+
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    new_publication(
+        &mut connection,
+        &publication_name,
+        table_to_track.as_deref(),
+        &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
+    )
+    .await?;
+
+    Ok(format!(
+        "Publication {} successfully created!",
+        publication_name
+    ))
+}
+
+async fn drop_publication(
+    publication_name: &str,
+    connection: &mut PgConnection,
+) -> Result<(), Error> {
+    let mut query = QueryBuilder::new("DROP PUBLICATION IF EXISTS ");
+    let quoted_publication_name = quote_identifier(publication_name);
+    query.push(quoted_publication_name);
+    query.push(";");
+    query.build().execute(&mut *connection).await?;
+    Ok(())
+}
+
+pub async fn delete_publication(
+    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+    Extension(db): Extension<DB>,
+) -> error::Result<String> {
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    drop_publication(&publication_name, &mut connection).await?;
+
+    Ok(format!(
+        "Publication {} successfully deleted!",
+        publication_name
+    ))
+}
+
+pub async fn alter_publication(
+    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+    Extension(db): Extension<DB>,
+    Json(publication_data): Json<PublicationData>,
+) -> error::Result<String> {
+    let PublicationData { table_to_track, transaction_to_track } = publication_data;
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    let (all_table, _) =
+        get_publication_scope_and_transaction(&publication_name, &mut connection).await?;
+
+    let mut query = QueryBuilder::new("");
+    let quoted_publication_name = quote_identifier(&publication_name);
+
+    match table_to_track {
+        Some(ref relations) if !relations.is_empty() => {
+            if all_table {
+                drop_publication(&publication_name, &mut connection).await?;
+                new_publication(
+                    &mut connection,
+                    &publication_name,
+                    table_to_track.as_deref(),
+                    &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
+                )
+                .await?;
+            } else {
+                query.push("ALTER PUBLICATION ");
+                query.push(&quoted_publication_name);
+                query.push(" SET");
+                for (i, relation) in relations.iter().enumerate() {
+                    if relation.table_to_track.is_empty() {
+                        query.push(" TABLES IN SCHEMA ");
+                        let quoted_schema = quote_identifier(&relation.schema_name);
+                        query.push(&quoted_schema);
+                    } else {
+                        query.push(" TABLE ONLY ");
+                        for (j, table) in relation.table_to_track.iter().enumerate() {
+                            let quoted_table = quote_identifier(&table.table_name);
+                            query.push(&quoted_table);
+                            if !table.columns_name.is_empty() {
+                                query.push(" (");
+                                let columns = table
+                                    .columns_name
+                                    .iter()
+                                    .map(|column| quote_identifier(column))
+                                    .join(", ");
+                                query.push(&columns);
+                                query.push(") ");
+                            }
+
+                            if let Some(where_clause) = &table.where_clause {
+                                //query.push_str("WHERE ");
+                            }
+
+                            if j + 1 != relation.table_to_track.len() {
+                                query.push(", ");
+                            }
+                        }
+                    }
+                    if i < relations.len() - 1 {
+                        query.push(',');
+                    }
+                }
+            }
+        }
+        _ => {
+            drop_publication(&publication_name, &mut connection).await?;
+            let to_execute = format!(
+                r#"
+                CREATE
+                    PUBLICATION {} FOR ALL TABLES
+                "#,
+                quoted_publication_name
+            );
+            query.push(&to_execute);
+        }
+    };
+
+    query.push(";");
+    query.build().execute(&mut connection).await?;
+    query.reset();
+    query.push("ALTER PUBLICATION ");
+    query.push(&quoted_publication_name);
+    if !transaction_to_track.is_empty() {
+        let transactions = || transaction_to_track.iter().join(",");
+        let with_parameter = format!(" SET (publish = '{}'); ", transactions());
+        query.push(&with_parameter);
+    } else {
+        query.push(" SET (publish = 'insert,update,delete')");
+    }
+    query.build().execute(&mut connection).await?;
+
+    Ok(format!(
+        "Publication {} successfully updated!",
+        publication_name
+    ))
+}
+
 async fn get_publication_scope_and_transaction(
     publication_name: &str,
     connection: &mut PgConnection,
@@ -598,6 +755,58 @@ async fn get_publication_scope_and_transaction(
     Ok((transaction.all_table, transaction_to_track))
 }
 
+async fn get_tracked_relations(
+    connection: &mut PgConnection,
+    publication_name: &str,
+) -> error::Result<Vec<Relations>> {
+    #[derive(Debug, Deserialize, FromRow)]
+    struct PublicationData {
+        schema_name: Option<String>,
+        table_name: Option<String>,
+        columns: Option<Vec<String>>,
+        where_clause: Option<String>,
+    }
+
+    let publications = sqlx::query_as!(
+        PublicationData,
+        r#"
+            SELECT
+                schemaname AS schema_name,
+                tablename AS table_name,
+                attnames AS columns,
+                rowfilter AS where_clause
+            FROM
+                pg_publication_tables
+            WHERE
+                pubname = $1
+            "#,
+        publication_name
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+
+    let mut table_to_track: HashMap<String, Relations> = HashMap::new();
+
+    for publication in publications {
+        let schema_name = publication.schema_name.unwrap();
+        let entry = table_to_track.entry(schema_name.clone());
+        let table_to_track = TableToTrack::new(
+            publication.table_name.unwrap(),
+            publication.where_clause,
+            publication.columns.unwrap(),
+        );
+        match entry {
+            Occupied(mut occuped) => {
+                occuped.get_mut().add_new_table(table_to_track);
+            }
+            Vacant(vacant) => {
+                vacant.insert(Relations::new(schema_name, vec![table_to_track]));
+            }
+        }
+    }
+    Ok(table_to_track.into_values().collect_vec())
+}
+
 pub async fn get_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -606,7 +815,6 @@ pub async fn get_database_trigger(
 ) -> JsonResult<DatabaseTriggerResponse> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
-    tracing::info!("inside");
     let trigger = sqlx::query_as!(
         DatabaseTrigger,
         r#"
@@ -648,53 +856,8 @@ pub async fn get_database_trigger(
     let (all_table, transaction_to_track) =
         get_publication_scope_and_transaction(&trigger.publication_name, &mut connection).await?;
 
-    #[derive(Debug, Deserialize, FromRow)]
-    struct PublicationData {
-        schema_name: Option<String>,
-        table_name: Option<String>,
-        columns: Option<Vec<String>>,
-        where_clause: Option<String>,
-    }
-
     let table_to_track = if !all_table {
-        let publications = sqlx::query_as!(
-            PublicationData,
-            r#"
-            SELECT
-                schemaname AS schema_name,
-                tablename AS table_name,
-                attnames AS columns,
-                rowfilter AS where_clause
-            FROM
-                pg_publication_tables
-            WHERE
-                pubname = $1
-            "#,
-            &trigger.publication_name
-        )
-        .fetch_all(&mut connection)
-        .await?;
-
-        let mut table_to_track: HashMap<String, Relations> = HashMap::new();
-
-        for publication in publications {
-            let schema_name = publication.schema_name.unwrap();
-            let entry = table_to_track.entry(schema_name.clone());
-            let table_to_track = TableToTrack::new(
-                publication.table_name.unwrap(),
-                publication.where_clause,
-                publication.columns.unwrap(),
-            );
-            match entry {
-                Occupied(mut occuped) => {
-                    occuped.get_mut().add_new_table(table_to_track);
-                }
-                Vacant(vacant) => {
-                    vacant.insert(Relations::new(schema_name, vec![table_to_track]));
-                }
-            }
-        }
-        Some(table_to_track.into_values().collect_vec())
+        Some(get_tracked_relations(&mut connection, &trigger.publication_name).await?)
     } else {
         None
     };
@@ -709,7 +872,6 @@ pub async fn get_database_trigger(
 pub async fn update_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(database_trigger): Json<EditDatabaseTrigger>,
 ) -> error::Result<String> {
@@ -721,112 +883,7 @@ pub async fn update_database_trigger(
         path,
         is_flow,
         database_resource_path,
-        table_to_track,
-        transaction_to_track,
     } = database_trigger;
-
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
-
-    let (all_table, _) =
-        get_publication_scope_and_transaction(&publication_name, &mut connection).await?;
-
-    let mut query = QueryBuilder::new("");
-    let quoted_publication_name = quote_identifier(&publication_name);
-
-    async fn drop_publication(
-        query: &mut QueryBuilder<'_, sqlx::Postgres>,
-        quoted_publication_name: &str,
-        connection: &mut PgConnection,
-    ) -> Result<(), Error> {
-        query.push("DROP PUBLICATION ");
-        query.push(" IF EXISTS ");
-        query.push(quoted_publication_name);
-        query.push(";");
-        query.build().execute(&mut *connection).await?;
-        query.reset();
-        Ok(())
-    }
-
-    match table_to_track {
-        Some(relations) if !relations.is_empty() => {
-            if all_table {
-                return Err(Error::ExecutionErr("Publication that once track all table must be deleted manually if the tracking is now specific table/schema".to_string()));
-            }
-            query.push("ALTER PUBLICATION ");
-            query.push(&quoted_publication_name);
-            query.push(" SET");
-            for (i, relation) in relations.iter().enumerate() {
-                if relation.table_to_track.is_empty() {
-                    query.push(" TABLES IN SCHEMA ");
-                    let quoted_schema = quote_identifier(&relation.schema_name);
-                    query.push(&quoted_schema);
-                } else {
-                    query.push(" TABLE ONLY ");
-                    for (j, table) in relation.table_to_track.iter().enumerate() {
-                        let quoted_table = quote_identifier(&table.table_name);
-                        query.push(&quoted_table);
-                        if !table.columns_name.is_empty() {
-                            query.push(" (");
-                            let columns = table
-                                .columns_name
-                                .iter()
-                                .map(|column| quote_identifier(column))
-                                .join(", ");
-                            query.push(&columns);
-                            query.push(") ");
-                        }
-
-                        if let Some(where_clause) = &table.where_clause {
-                            //query.push_str("WHERE ");
-                        }
-
-                        if j + 1 != relation.table_to_track.len() {
-                            query.push(", ");
-                        }
-                    }
-                }
-                if i < relations.len() - 1 {
-                    query.push(',');
-                }
-            }
-        }
-        _ => {
-            drop_publication(&mut query, &quoted_publication_name, &mut connection).await?;
-            let to_execute = format!(
-                r#"
-                CREATE
-                    PUBLICATION {} FOR ALL TABLES
-                "#,
-                quoted_publication_name
-            );
-            query.push(&to_execute);
-        }
-    };
-
-    query.push(";");
-    query.build().execute(&mut connection).await?;
-    query.reset();
-    query.push("ALTER PUBLICATION ");
-    query.push(&quoted_publication_name);
-    if !transaction_to_track.is_empty() {
-        let transactions = || {
-            transaction_to_track
-                .iter()
-                .map(|transaction| match transaction {
-                    TransactionType::Insert => "insert",
-                    TransactionType::Update => "update",
-                    TransactionType::Delete => "delete",
-                })
-                .join(",")
-        };
-        let with_parameter = format!(" SET (publish = '{}'); ", transactions());
-        query.push(&with_parameter);
-    } else {
-        query.push(" SET (publish = 'insert,update,delete')");
-    }
-    query.build().execute(&mut connection).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
