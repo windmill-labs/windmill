@@ -471,9 +471,41 @@ impl PublicationData {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct PublicationName {
+    publication_name: String,
+}
+
+pub async fn list_database_publication(
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path)): Path<(String, String)>,
+) -> error::Result<Json<Vec<String>>> {
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+
+    tracing::info!("Database :{:#?} {}", &database, &database_resource_path);
+
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    let publication_names = sqlx::query_as!(
+        PublicationName,
+        "SELECT pubname AS publication_name FROM pg_publication;"
+    )
+    .fetch_all(&mut connection)
+    .await?;
+
+    tracing::info!("{:#?}", &publication_names);
+
+    let publications = publication_names
+        .iter()
+        .map(|publication| publication.publication_name.to_owned())
+        .collect_vec();
+
+    Ok(Json(publications))
+}
+
 pub async fn get_publication_info(
     Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
 ) -> error::Result<Json<PublicationData>> {
     let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
 
@@ -558,7 +590,7 @@ async fn new_publication(
 
 pub async fn create_publication(
     Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> error::Result<String> {
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
@@ -594,7 +626,7 @@ async fn drop_publication(
 }
 
 pub async fn delete_publication(
-    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
     Extension(db): Extension<DB>,
 ) -> error::Result<String> {
     let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
@@ -609,7 +641,7 @@ pub async fn delete_publication(
 }
 
 pub async fn alter_publication(
-    Path((w_id, database_resource_path, publication_name)): Path<(String, String, String)>,
+    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
     Extension(db): Extension<DB>,
     Json(publication_data): Json<PublicationData>,
 ) -> error::Result<String> {

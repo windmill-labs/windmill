@@ -14,8 +14,8 @@ use axum::{
 use handler::{
     alter_publication, create_database_trigger, create_publication, delete_database_trigger,
     delete_publication, exists_database_trigger, get_database_trigger, get_publication_info,
-    get_template_script, list_database_triggers, set_enabled, update_database_trigger,
-    DatabaseTrigger,
+    get_template_script, list_database_publication, list_database_triggers, set_enabled,
+    update_database_trigger, DatabaseTrigger,
 };
 use windmill_common::{db::UserDB, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -34,20 +34,24 @@ pub use trigger::start_database;
 fn publication_service() -> Router {
     Router::new()
         .route(
-            "/get/:database_resource_path/:publication_name",
+            "/get/:publication_name/*path",
             get(get_publication_info),
         )
         .route(
-            "/create/:database_resource_path/:publication_name",
+            "/create/:publication_name/*path",
             post(create_publication),
         )
         .route(
-            "/update/:database_resource_path/:publication_name",
+            "/update/:publication_name/*path",
             post(alter_publication),
         )
         .route(
-            "/delete/:database_resource_path/:publication_name",
+            "/delete/:publication_name/*path",
             delete(delete_publication),
+        )
+        .route(
+            "/list/*path",
+            get(list_database_publication),
         )
 }
 

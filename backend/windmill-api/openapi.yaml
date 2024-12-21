@@ -7694,8 +7694,27 @@ paths:
             text/plain:
               schema:
                 type: string
-  
-  /w/{workspace}/database_triggers/publication/get/{databaseResourcePath}/{publicationName}:
+
+  /w/{workspace}/database_triggers/publication/list/{path}:
+    get:
+      summary: list database publication
+      operationId: listDatabasePublication
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: database publication list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/database_triggers/publication/get/{publication}/{path}:
     get:
       summary: get database publication
       operationId: getDatabasePublication
@@ -7703,7 +7722,7 @@ paths:
         - database_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/PublicationName"
       responses:
         "200":
@@ -7713,7 +7732,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicationData"
 
-  /w/{workspace}/database_triggers/publication/create/{databaseResourcePath}/{publicationName}:
+  /w/{workspace}/database_triggers/publication/create/{publication}/{path}:
     post:
       summary: create publication for database
       operationId: createDatabasePublication
@@ -7721,7 +7740,7 @@ paths:
         - database_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/PublicationName"
       requestBody:
         description: new publication for database
@@ -7738,7 +7757,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/publication/update/{databaseResourcePath}/{publicationName}:
+  /w/{workspace}/database_triggers/publication/update/{publication}/{path}:
     post:
       summary: update publication for database
       operationId: updateDatabasePublication
@@ -7746,7 +7765,7 @@ paths:
         - database_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/PublicationName"
       requestBody:
         description: update publication for database
@@ -7764,7 +7783,7 @@ paths:
                 type: string
 
 
-  /w/{workspace}/database_triggers/publication/delete/{databaseResourcePath}/{publicationName}:
+  /w/{workspace}/database_triggers/publication/delete/{publication}/{path}:
     delete:
       summary: delete database trigger
       operationId: deleteDatabasePublication
@@ -7772,7 +7791,7 @@ paths:
         - database_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/DatabaseResourcePath"
+        - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/PublicationName"
       responses:
         "200":
@@ -10241,13 +10260,7 @@ components:
       schema:
         type: string
     PublicationName:
-      name: publication_name
-      in: path
-      required: true
-      schema:
-        type: string
-    DatabaseResourcePath:
-      name: database_resource_path
+      name: publication
       in: path
       required: true
       schema:

@@ -15,14 +15,14 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Plus, Save, X } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import MultiSelect from 'svelte-multiselect'
-	import { fade } from 'svelte/transition'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
+	import ConfigurationEditor from './ConfigurationEditor.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -42,11 +42,11 @@
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
 	let relations: Relations[] = []
-	let transactionType: TransactionType[] = ['Insert', 'Update', 'Delete']
-	let transactionToTrack: TransactionType[] = []
+	let transaction_to_track: TransactionType[] = []
 	let languages = 'bun,deno'
 	let language: Language = 'Typescript'
 	let loading = false
+	let configurationEditor: ConfigurationEditor
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -114,7 +114,7 @@
 		enabled = s.enabled
 		database_resource_path = s.database_resource_path
 		relations = s.table_to_track as Relations[]
-		transactionToTrack = s.transaction_to_track
+		transaction_to_track = s.transaction_to_track
 		publication_name = s.publication_name
 		replication_slot_name = s.replication_slot_name
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
@@ -132,7 +132,7 @@
 					database_resource_path,
 					enabled,
 					replication_slot_name,
-					publication_name,
+					publication_name
 				}
 			})
 			sendUserToast(`Database ${path} updated`)
@@ -146,7 +146,7 @@
 					enabled: true,
 					database_resource_path,
 					replication_slot_name,
-					publication_name,
+					publication_name
 				}
 			})
 			sendUserToast(`Database ${path} created`)
@@ -188,7 +188,7 @@
 					enabled: true,
 					database_resource_path,
 					replication_slot_name,
-					publication_name,
+					publication_name
 				}
 			})
 			await goto(`${base}/scripts/add`)
@@ -197,7 +197,17 @@
 			console.log({ error })
 		}
 	}
+
 </script>
+
+<ConfigurationEditor
+	{database_resource_path}
+	{relations}
+	{transaction_to_track}
+	bind:publication_name
+	bind:replication_slot_name
+	bind:this={configurationEditor}
+/>
 
 <Drawer size="800px" bind:this={drawer}>
 	<DrawerContent
@@ -278,20 +288,21 @@
 					</div>
 				</Section>
 
-				<Section label="Transactions">
-					<p class="text-xs mb-1 text-tertiary">
-						Choose what kind of database transaction you want to track allowed operations are
-						<strong>Inser</strong>t, <strong>Update</strong>, <strong>Delete</strong><Required
-							required={true}
-						/>
+				<Section label="Configuration">
+					<p class="text-xs mb-3 text-tertiary">
+						Choose which table of your database to track as well as what kind of transaction should
+						fire the script.<br />
+						You must pick a database resource first to make the configuration of your trigger
+						<Required required={true} />
 					</p>
-
-					<MultiSelect
-						options={transactionType}
-						bind:selected={transactionToTrack}
-						duplicates={false}
-						liOptionClass={'box'}
-					/>
+					<Button
+						size="md"
+						on:click={() => configurationEditor.openNew(false)}
+						color="dark"
+						disabled={emptyString(database_resource_path)}
+					>
+						Configuration</Button
+					>
 				</Section>
 
 				<Section label="Runnable">
@@ -311,148 +322,25 @@
 						/>
 
 						{#if script_path === undefined && is_flow === false}
-							<Button
-								btnClasses="ml-4 mt-2"
-								color="dark"
-								size="xs"
-								on:click={getTemplateScript}
-								target="_blank"
-								{loading}
-								>Create from template
-							</Button>
+							<div class="flex">
+								<Button
+									btnClasses="ml-4 mt-2"
+									color="dark"
+									size="xs"
+									on:click={getTemplateScript}
+									target="_blank"
+									{loading}
+									disabled={emptyString(database_resource_path)}
+									>Create from template
+								</Button>
+								<Tooltip
+									>To enable that features,Select a database resource, and inside database config
+									create or get a publication from your database</Tooltip
+								>
+							</div>
 						{/if}
 					</div>
 				</Section>
-
-				<Section label="Settings">
-					<div class="flex flex-col gap-2">
-						<div>
-							<p class="text-xs mb-1 text-tertiary">
-								Choose a publication name<Required required={true} />
-							</p>
-							<input type="text" bind:value={publication_name} placeholder={'Publication Name'} />
-						</div>
-						<div>
-							<p class="text-xs mb-1 text-tertiary">
-								Choose a slot name<Required required={true} />
-							</p>
-							<input
-								type="text"
-								bind:value={replication_slot_name}
-								placeholder={'Replication Slot Name'}
-							/>
-						</div>
-					</div>
-				</Section>
-
-				<Section label="Relations">
-					<p class="text-xs mb-3 text-tertiary">
-						Relations will limit the execution of the trigger to only the specified tables.<br />
-						If no tables are selected, this will trigger for all tables.<br />
-					</p>
-
-					<div class="flex flex-col gap-4 mt-1">
-						{#if relations && relations.length > 0}
-							{#each relations as v, i}
-								<div class="flex w-full gap-2 items-center">
-									<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
-										<label class="flex flex-col w-full">
-											<div class="text-secondary text-sm mb-2">Schema Name</div>
-											<input type="text" bind:value={v.schema_name} />
-										</label>
-										{#each v.table_to_track as table_to_track, j}
-											<div class="flex w-full gap-2 items-center p-5">
-												<div class="rounded shadow-inner p-2 flex w-full flex-col gap-4 mt-1">
-													<label class="flex flex-col w-full">
-														<div class="text-secondary text-sm mb-2">Table Name</div>
-														<input type="text" bind:value={table_to_track.table_name} />
-													</label>
-													<!-- svelte-ignore a11y-label-has-associated-control -->
-													<label class="flex flex-col w-full">
-														<div class="text-secondary text-sm mb-2">Columns</div>
-														<MultiSelect
-															options={table_to_track.columns_name ?? []}
-															allowUserOptions="append"
-															bind:selected={table_to_track.columns_name}
-															noMatchingOptionsMsg=""
-															createOptionMsg={null}
-															duplicates={false}
-														/>
-													</label>
-													<label class="flex flex-col w-full">
-														<div class="text-secondary text-sm mb-2">Where Clause</div>
-														<input type="text" bind:value={table_to_track.where_clause} />
-													</label>
-													<button
-														transition:fade|local={{ duration: 100 }}
-														class="rounded items-center p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-														aria-label="Clear"
-														on:click={() => {
-															v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
-														}}
-													>
-														Remove
-													</button>
-												</div>
-											</div>
-										{/each}
-										<Button
-											variant="border"
-											color="light"
-											size="xs"
-											btnClasses="mt-1"
-											on:click={() => {
-												if (
-													relations[i].table_to_track == undefined ||
-													!Array.isArray(relations[i].table_to_track)
-												) {
-													relations[i].table_to_track = []
-												}
-												relations[i].table_to_track = relations[i].table_to_track.concat({
-													table_name: '',
-													columns_name: []
-												})
-											}}
-											startIcon={{ icon: Plus }}
-										>
-											Add Table
-										</Button>
-									</div>
-									<button
-										transition:fade|local={{ duration: 100 }}
-										class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-										aria-label="Clear"
-										on:click={() => {
-											relations = relations.filter((_, index) => index !== i)
-										}}
-									>
-										<X size={14} />
-									</button>
-								</div>
-							{/each}
-						{/if}
-						<div class="flex items-baseline">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									if (relations == undefined || !Array.isArray(relations)) {
-										relations = []
-									}
-									relations = relations.concat({
-										schema_name: '',
-										table_to_track: []
-									})
-								}}
-								startIcon={{ icon: Plus }}
-							>
-								Add Schema
-							</Button>
-						</div>
-					</div></Section
-				>
 			</div>
 		{/if}
 	</DrawerContent>

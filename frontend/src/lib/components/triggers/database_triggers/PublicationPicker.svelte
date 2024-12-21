@@ -1,0 +1,116 @@
+<script lang="ts">
+	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
+	import { Button } from '$lib/components/common'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import type { Relations, TransactionType } from '$lib/gen'
+	import { DatabaseTriggerService } from '$lib/gen/services.gen'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { emptyString } from '$lib/utils'
+
+	export let items: string[] = []
+	export let publication_name: string = ''
+	export let database_resource_path: string = ''
+	export let table_to_track: Relations[] = []
+	export let transaction_to_track: TransactionType[] = []
+	export let selectedTable;
+	async function listDatabasePublication() {
+		try {
+			const publications = await DatabaseTriggerService.listDatabasePublication({
+				path: database_resource_path,
+				workspace: $workspaceStore!
+			})
+
+			items = publications
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	async function updatePublication() {
+		try {
+			const message = await DatabaseTriggerService.updateDatabasePublication({
+				path: database_resource_path,
+				workspace: $workspaceStore!,
+				publication: publication_name,
+				requestBody: {
+					table_to_track,
+					transaction_to_track
+				}
+			})
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	async function deletePublication() {
+		try {
+			const message = await DatabaseTriggerService.deleteDatabasePublication({
+				path: database_resource_path,
+				workspace: $workspaceStore!,
+				publication: publication_name
+			})
+			items = items.filter((item) => item != publication_name)
+			table_to_track = []
+			publication_name = ''
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	async function getAllRelations() {
+		try {
+			const publication_data = await DatabaseTriggerService.getDatabasePublication({
+				path: database_resource_path,
+				workspace: $workspaceStore!,
+				publication: publication_name
+			})
+			selectedTable = 'specific'
+			transaction_to_track = publication_data.transaction_to_track
+			table_to_track = publication_data.table_to_track ?? []
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	listDatabasePublication()
+
+	let darkMode = false
+</script>
+
+<DarkModeObserver bind:darkMode />
+
+<div class="flex gap-1">
+	<Select
+		class="grow shrink max-w-full"
+		bind:justValue={publication_name}
+		{items}
+		placeholder="Choose a publication"
+		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+		containerStyles={darkMode
+			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+		portal={false}
+		on:select={() => {
+			getAllRelations()
+		}}
+	/>
+
+	<Button
+		color="light"
+		size="xs"
+		variant="border"
+		disabled={emptyString(publication_name)}
+		on:click={() => updatePublication()}>Update</Button
+	>
+	<Button
+		color="light"
+		size="xs"
+		variant="border"
+		disabled={emptyString(publication_name)}
+		on:click={() => deletePublication()}>Delete</Button
+	>
+</div>
