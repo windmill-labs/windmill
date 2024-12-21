@@ -42,9 +42,9 @@ export function allItems(
 	subgrids: Record<string, GridItem[]> | undefined
 ): GridItem[] {
 	if (subgrids == undefined) {
-		return grid
+		return grid ?? []
 	}
-	return [...grid, ...Object.values(subgrids).flat()]
+	return [...(grid ?? []), ...Object.values(subgrids).flat()]
 }
 
 export function schemaToInputsSpec(
@@ -329,7 +329,7 @@ declare const result: any;
 }
 
 export function getAllScriptNames(app: App): string[] {
-	const names = allItems(app.grid, app?.subgrids).reduce((acc, gridItem: GridItem) => {
+	const names = (allItems(app.grid, app?.subgrids) ?? []).reduce((acc, gridItem: GridItem) => {
 		const { componentInput } = gridItem.data
 
 		if (
@@ -378,7 +378,7 @@ export function getAllScriptNames(app: App): string[] {
 		return acc
 	}, [] as string[])
 
-	const unusedNames = app.unusedInlineScripts.map((x) => x.name)
+	const unusedNames = app.unusedInlineScripts?.map((x) => x.name) ?? []
 	const backgroundNames = app.hiddenInlineScripts?.map((x) => x.name) ?? []
 
 	return [...names, ...unusedNames, ...backgroundNames]

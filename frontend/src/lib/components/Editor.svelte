@@ -52,6 +52,7 @@
 	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
 		noSemanticValidation: false,
 		noSyntaxValidation: false,
+
 		noSuggestionDiagnostics: false,
 		diagnosticCodesToIgnore: [1108]
 	})
@@ -80,7 +81,9 @@
 		strict: true,
 		noLib: false,
 		allowImportingTsExtensions: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		allowSyntheticDefaultImports: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
+		jsx: languages.typescript.JsxEmit.React
 	})
 
 	// languages.typescript.javascriptDefaults.setCompilerOptions({
@@ -135,7 +138,8 @@
 		createHash as randomHash,
 		editorConfig,
 		langToExt,
-		updateOptions
+		updateOptions,
+		extToLang
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
@@ -166,32 +170,19 @@
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
-	import { setupTypeAcquisition } from '$lib/ata/index'
+	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 	import type { AiProviderTypes } from './copilot/lib'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor | null = null
 
-	export let lang:
-		| 'typescript'
-		| 'python'
-		| 'go'
-		| 'shell'
-		| 'sql'
-		| 'graphql'
-		| 'powershell'
-		| 'php'
-		| 'css'
-		| 'javascript'
-		| 'rust'
-		| 'yaml'
-		| 'csharp'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -212,20 +203,18 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
 	export let small = false
-	export let scriptLang: Preview['language'] | 'bunnative'
+	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'json'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
+	export let files: Record<string, { code: string }> | undefined = {}
 
-	const rHash = randomHash()
+	let lang = scriptLangToEditorLang(scriptLang)
+	$: lang = scriptLangToEditorLang(scriptLang)
+
+	let filePath = computePath(path)
 	$: filePath = computePath(path)
 
-	function computePath(path: string | undefined): string {
-		if (path == '' || path == undefined || path.startsWith('/')) {
-			return rHash
-		} else {
-			return path as string
-		}
-	}
+	let models: Record<string, meditor.ITextModel> = {}
 
 	let initialPath: string | undefined = path
 
@@ -245,14 +234,46 @@
 	let dbSchema: DBSchema | undefined = undefined
 
 	let destroyed = false
-	const uri =
-		lang != 'go' && lang != 'typescript' && lang != 'python'
-			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
-			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
+	const uri = computeUri(filePath, scriptLang)
 
 	console.log('uri', uri)
 
 	buildWorkerDefinition()
+
+	function computeUri(filePath: string, scriptLang: string | undefined) {
+		return !['deno', 'go', 'python3'].includes(scriptLang ?? '')
+			? `file:///${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+			: `file:///tmp/monaco/${filePath}.${langToExt(lang)}`
+	}
+
+	function computePath(path: string | undefined): string {
+		if (
+			['deno', 'go', 'python3'].includes(scriptLang ?? '') ||
+			path == '' ||
+			path == undefined ||
+			path.startsWith('/')
+		) {
+			return randomHash()
+		} else {
+			return path as string
+		}
+	}
+
+	export function switchToFile(path: string, value: string, lang: string) {
+		if (editor) {
+			const uri = mUri.parse(path)
+			console.log('switching to file', path, lang)
+			if (models[path]) {
+				console.log('using existing model', path)
+				editor.setModel(models[path])
+			} else {
+				console.log('creating model', path)
+				const model = meditor.createModel(value, lang, uri)
+				models[path] = model
+				editor.setModel(model)
+			}
+		}
+	}
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -688,8 +709,20 @@
 	}
 
 	export async function reloadWebsocket() {
-		console.log('reloadWebsocket')
 		await closeWebsockets()
+
+		if (
+			!useWebsockets ||
+			!(
+				(lang == 'typescript' && scriptLang === 'deno') ||
+				lang == 'python' ||
+				lang == 'go' ||
+				lang == 'shell'
+			)
+		) {
+			return
+		}
+		console.log('reloadWebsocket')
 
 		function createLanguageClient(
 			transports: MessageTransports,
@@ -840,11 +873,6 @@
 		const hostname = getHostname()
 
 		let encodedImportMap = ''
-		// if (lang == 'typescript') {
-
-		// 	let worker = await languages.typescript.getTypeScriptWorker()
-		// 	console.log(worker)
-		// }
 
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
@@ -1009,7 +1037,8 @@
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
-							scriptLang != 'bun'
+							scriptLang != 'bun' &&
+							scriptLang != 'tsx'
 						) {
 							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
@@ -1084,7 +1113,7 @@
 	}
 
 	let initialized = false
-	let ata: ((s: string) => void) | undefined = undefined
+	let ata: ((s: string | DepsToGet) => void) | undefined = undefined
 
 	let statusDiv: Element | null = null
 
@@ -1123,6 +1152,7 @@
 
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
+			models[path ?? ''] = model
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1132,6 +1162,18 @@
 			model = nmodel
 		}
 		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
+
+		if (files) {
+			for (const [path, { code }] of Object.entries(files)) {
+				const luri = mUri.file(path)
+				if (luri.toString() != model.uri.toString()) {
+					if (!models[path] && meditor.getModel(luri) == undefined) {
+						const lmodel = meditor.createModel(code, extToLang(path?.split('.')?.pop()!), luri)
+						models[path] = lmodel
+					}
+				}
+			}
+		}
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
@@ -1157,7 +1199,9 @@
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
-				ata?.(getCode())
+				if (scriptLang == 'bun') {
+					ata?.(getCode())
+				}
 			}, 1000)
 		})
 
@@ -1189,8 +1233,7 @@
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
-				!websocketInterval &&
-				scriptLang != 'bun'
+				!websocketInterval
 			) {
 				console.log('reconnecting to language servers on focus')
 				reloadWebsocket()
@@ -1199,7 +1242,7 @@
 
 		reloadWebsocket()
 
-		setTypescriptExtraLibs()
+		setTypescriptExtraLibsATA()
 		return () => {
 			console.log('disposing editor')
 			ata = undefined
@@ -1215,74 +1258,79 @@
 		}
 	}
 
-	async function setTypescriptExtraLibs() {
-		if (lang === 'typescript' && scriptLang != 'deno') {
+	export async function fetchPackageDeps(deps: DepsToGet) {
+		ata?.(deps)
+	}
+
+	async function setTypescriptExtraLibsATA() {
+		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
 			const hostname = getHostname()
 
-			if (scriptLang == 'bun' && ata == undefined) {
-				const addLibraryToRuntime = async (code: string, _path: string) => {
-					const path = 'file://' + _path
-					let uri = mUri.parse(path)
-					console.log('adding library to runtime', path)
-					languages.typescript.typescriptDefaults.addExtraLib(code, path)
-					try {
-						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
-					} catch (e) {
-						console.log('error writing file', e)
-					}
+			const addLibraryToRuntime = async (code: string, _path: string) => {
+				const path = 'file://' + _path
+				let uri = mUri.parse(path)
+				console.log('adding library to runtime', path)
+				languages.typescript.typescriptDefaults.addExtraLib(code, path)
+				try {
+					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+				} catch (e) {
+					console.log('error writing file', e)
 				}
+			}
 
-				const addLocalFile = async (code: string, _path: string) => {
-					let p = new URL(_path, uri).href
-					// if (_path?.startsWith('/')) {
-					// 	p = 'file://' + p
-					// }
-					let nuri = mUri.parse(p)
-					console.log('adding local file', _path, nuri.toString())
-					if (editor) {
-						let localModel = meditor.getModel(nuri)
-						if (localModel) {
-							localModel.setValue(code)
-						} else {
-							meditor.createModel(code, 'typescript', nuri)
+			const addLocalFile = async (code: string, _path: string) => {
+				let p = new URL(_path, uri).href
+				// if (_path?.startsWith('/')) {
+				// 	p = 'file://' + p
+				// }
+				let nuri = mUri.parse(p)
+				console.log('adding local file', _path, nuri.toString())
+				if (editor) {
+					let localModel = meditor.getModel(nuri)
+					if (localModel) {
+						localModel.setValue(code)
+					} else {
+						meditor.createModel(code, 'typescript', nuri)
+					}
+					try {
+						if (model) {
+							model?.setValue(model.getValue())
 						}
-						try {
-							if (model) {
-								model?.setValue(model.getValue())
-							}
-						} catch (e) {
-							console.log('error resetting model', e)
-						}
+					} catch (e) {
+						console.log('error resetting model', e)
 					}
 				}
-				await initWasmTs()
-				const root = await genRoot(hostname)
-				console.log('SETUP TYPE ACQUISITION', { root, path })
-				ata = setupTypeAcquisition({
-					projectName: 'Windmill',
-					depsParser: (c) => {
-						return parseTypescriptDeps(c)
+			}
+			await initWasmTs()
+			const root = await genRoot(hostname)
+			console.log('SETUP TYPE ACQUISITION', { root, path })
+			ata = setupTypeAcquisition({
+				projectName: 'Windmill',
+				depsParser: (c) => {
+					return parseTypescriptDeps(c)
+				},
+				root,
+				scriptPath: path,
+				logger: console,
+				delegate: {
+					receivedFile: addLibraryToRuntime,
+					localFile: addLocalFile,
+					progress: (downloaded: number, total: number) => {
+						// console.log({ dl, ttl })
 					},
-					root,
-					scriptPath: path,
-					logger: console,
-					delegate: {
-						receivedFile: addLibraryToRuntime,
-						localFile: addLocalFile,
-						progress: (downloaded: number, total: number) => {
-							// console.log({ dl, ttl })
-						},
-						started: () => {
-							console.log('ATA start')
-						},
-						finished: (f) => {
-							console.log('ATA done')
-						}
+					started: () => {
+						console.log('ATA start')
+					},
+					finished: (f) => {
+						console.log('ATA done')
 					}
-				})
+				}
+			})
+			if (scriptLang == 'bun') {
 				ata?.('import "bun-types"')
 				ata?.(code)
 			}
+			dispatch('ataReady')
 		}
 	}
 

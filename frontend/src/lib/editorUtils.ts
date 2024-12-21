@@ -46,6 +46,8 @@ export function createHash() {
 
 export function langToExt(lang: string): string {
 	switch (lang) {
+		case 'tsx':
+			return 'tsx'
 		case 'javascript':
 			return 'ts'
 		case 'bunnative':
@@ -82,6 +84,43 @@ export function langToExt(lang: string): string {
 			return 'yml'
 		case 'csharp':
 			return 'cs'
+		default:
+			return 'unknown'
+	}
+}
+
+export function extToLang(ext: string) {
+	switch (ext) {
+		case 'tsx':
+			return 'tsx'
+		case 'ts':
+			return 'typescript'
+		case 'json':
+			return 'json'
+		case 'sql':
+			return 'sql'
+		case 'yaml':
+			return 'yaml'
+		case 'py':
+			return 'python'
+		case 'go':
+			return 'go'
+		case 'sh':
+			return 'bash'
+		case 'ps1':
+			return 'powershell'
+		case 'php':
+			return 'php'
+		case 'rs':
+			return 'rust'
+		case 'gql':
+			return 'graphql'
+		case 'css':
+			return 'css'
+		case 'yml':
+			return 'ansible'
+		case 'cs':
+			return 'csharp'
 		default:
 			return 'unknown'
 	}
