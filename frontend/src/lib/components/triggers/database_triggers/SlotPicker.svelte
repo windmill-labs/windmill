@@ -1,0 +1,79 @@
+<script lang="ts">
+	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
+	import { Button } from '$lib/components/common'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import { DatabaseTriggerService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { emptyString } from '$lib/utils'
+	import { RefreshCw } from 'lucide-svelte'
+
+	export let replication_slot_name: string = ''
+	export let database_resource_path: string = ''
+	let items: string[] = []
+	async function listDatabaseSlot() {
+		try {
+			const result = await DatabaseTriggerService.listDatabaseSlot({
+				path: database_resource_path,
+				workspace: $workspaceStore!
+			})
+
+			items = result
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	async function deleteSlot() {
+		try {
+			const message = await DatabaseTriggerService.deleteDatabaseSlot({
+				path: database_resource_path,
+				workspace: $workspaceStore!,
+				requestBody: {
+					name: replication_slot_name
+				}
+			})
+			items = items.filter((item) => item != replication_slot_name)
+			replication_slot_name = ''
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	listDatabaseSlot()
+
+	let darkMode = false
+</script>
+
+<DarkModeObserver bind:darkMode />
+
+<div class="flex gap-1">
+	<Select
+		class="grow shrink max-w-full"
+		bind:justValue={replication_slot_name}
+		{items}
+		placeholder="Choose a slot name"
+		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+		containerStyles={darkMode
+			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+		portal={false}
+	/>
+	<Button
+		variant="border"
+		color="light"
+		wrapperClasses="self-stretch"
+		on:click={listDatabaseSlot}
+		startIcon={{ icon: RefreshCw }}
+		iconOnly
+	/>
+	<Button
+		color="light"
+		size="xs"
+		variant="border"
+		disabled={emptyString(replication_slot_name)}
+		on:click={deleteSlot}>Delete</Button
+	>
+</div>

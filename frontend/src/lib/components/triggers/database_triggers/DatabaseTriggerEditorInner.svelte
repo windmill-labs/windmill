@@ -197,13 +197,12 @@
 			console.log({ error })
 		}
 	}
-
 </script>
 
 <ConfigurationEditor
 	{database_resource_path}
-	{relations}
 	{transaction_to_track}
+	bind:relations
 	bind:publication_name
 	bind:replication_slot_name
 	bind:this={configurationEditor}
@@ -281,7 +280,7 @@
 
 				<Section label="Database">
 					<p class="text-xs mb-1 text-tertiary">
-						Pick a database to connect to<Required required={true} />
+						Pick a database to connect to <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
 						<ResourcePicker bind:value={database_resource_path} resourceType={'database'} />
@@ -307,7 +306,7 @@
 
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered<Required required={true} />
+						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
@@ -330,7 +329,7 @@
 									on:click={getTemplateScript}
 									target="_blank"
 									{loading}
-									disabled={emptyString(database_resource_path)}
+									disabled={emptyString(database_resource_path) || relations.length === 0}
 									>Create from template
 								</Button>
 								<Tooltip

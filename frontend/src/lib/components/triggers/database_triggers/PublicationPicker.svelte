@@ -8,13 +8,14 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
+	import { RefreshCw } from 'lucide-svelte'
 
 	export let items: string[] = []
 	export let publication_name: string = ''
 	export let database_resource_path: string = ''
 	export let table_to_track: Relations[] = []
 	export let transaction_to_track: TransactionType[] = []
-	export let selectedTable;
+	export let selectedTable
 	async function listDatabasePublication() {
 		try {
 			const publications = await DatabaseTriggerService.listDatabasePublication({
@@ -94,23 +95,28 @@
 			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 		portal={false}
-		on:select={() => {
-			getAllRelations()
-		}}
+		on:select={getAllRelations}
 	/>
-
+	<Button
+		variant="border"
+		color="light"
+		wrapperClasses="self-stretch"
+		on:click={listDatabasePublication}
+		startIcon={{ icon: RefreshCw }}
+		iconOnly
+	/>
 	<Button
 		color="light"
 		size="xs"
 		variant="border"
 		disabled={emptyString(publication_name)}
-		on:click={() => updatePublication()}>Update</Button
+		on:click={updatePublication}>Update</Button
 	>
 	<Button
 		color="light"
 		size="xs"
 		variant="border"
 		disabled={emptyString(publication_name)}
-		on:click={() => deletePublication()}>Delete</Button
+		on:click={deletePublication}>Delete</Button
 	>
 </div>

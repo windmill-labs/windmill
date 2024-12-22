@@ -14,15 +14,18 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import PublicationPicker from './PublicationPicker.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import SlotPicker from './SlotPicker.svelte'
 
 	export let database_resource_path: string = ''
 	export let publication_name: string = ''
 	export let replication_slot_name: string = ''
 	export let relations: Relations[] = []
+	type actions = 'create' | 'get'
 	let drawer: Drawer
 	let drawerLoading = true
 	let open = false
-	let selected: 'create' | 'get' = 'create'
+	let selected: actions = 'create'
+	let selectedSlotAction: actions = 'create'
 	let items: string[] = []
 	let transactionType: TransactionType[] = ['Insert', 'Update', 'Delete']
 	let selectedTable: 'all' | 'specific' = 'specific'
@@ -32,7 +35,7 @@
 		open = true
 		selected = 'create'
 		items = []
-		selectedTable = 'all'
+		selectedTable = 'specific'
 		await tick()
 		if (edit) {
 			selected = 'get'
@@ -57,6 +60,21 @@
 				}
 			})
 
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	async function createSlot() {
+		try {
+			const message = await DatabaseTriggerService.createDatabaseSlot({
+				path: database_resource_path,
+				workspace: $workspaceStore!,
+				requestBody: {
+					name: replication_slot_name
+				}
+			})
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
@@ -89,9 +107,8 @@
 					<Section label="Transactions">
 						<p class="text-xs mb-1 text-tertiary">
 							Choose what kind of database transaction you want to track allowed operations are
-							<strong>Inser</strong>t, <strong>Update</strong>, <strong>Delete</strong><Required
-								required={true}
-							/>
+							<strong>Insert</strong>, <strong>Update</strong>, <strong>Delete</strong>
+							<Required required={true} />
 						</p>
 
 						<MultiSelect
@@ -103,17 +120,29 @@
 					</Section>
 
 					<Section label="Slot name">
-						<div class="flex flex-col gap-2">
-							<div>
-								<p class="text-xs mb-1 text-tertiary">
-									Choose a slot name<Required required={true} />
-								</p>
-								<input
-									type="text"
-									bind:value={replication_slot_name}
-									placeholder={'Replication Slot Name'}
-								/>
-							</div>
+						<div class="flex flex-col gap-3">
+							<ToggleButtonGroup bind:selected={selectedSlotAction}>
+								<ToggleButton value="create" label="Create Slot" />
+								<ToggleButton value="get" label="Get Slot" />
+							</ToggleButtonGroup>
+							{#if selectedSlotAction === 'create'}
+								<div class="flex gap-3">
+									<input
+										type="text"
+										bind:value={replication_slot_name}
+										placeholder={'Choose a slot name'}
+									/>
+									<Button
+										color="light"
+										size="xs"
+										variant="border"
+										disabled={emptyString(replication_slot_name)}
+										on:click={createSlot}>Create</Button
+									>
+								</div>
+							{:else}
+								<SlotPicker {database_resource_path} bind:replication_slot_name />
+							{/if}
 						</div>
 					</Section>
 
@@ -124,10 +153,11 @@
 								on:selected={() => {
 									publication_name = ''
 									relations = []
+									transaction_to_track = []
 								}}
 							>
-								<ToggleButton value="create" label="Create" />
-								<ToggleButton value="get" label="Get" />
+								<ToggleButton value="create" label="Create Publication" />
+								<ToggleButton value="get" label="Get Publication" />
 							</ToggleButtonGroup>
 
 							{#if selected === 'create'}
@@ -142,7 +172,7 @@
 										size="xs"
 										variant="border"
 										disabled={emptyString(publication_name)}
-										on:click={() => createPublication()}>Create</Button
+										on:click={createPublication}>Create</Button
 									>
 								</div>
 							{:else}
@@ -156,16 +186,9 @@
 								/>
 							{/if}
 
-							<ToggleButtonGroup
-								bind:selected={selectedTable}
-								on:selected={() => {
-									if (selectedTable === 'all') {
-										relations = []
-									}
-								}}
-							>
-								<ToggleButton value="all" label="All Table" />
-								<ToggleButton value="specific" label="Specific table" />
+							<ToggleButtonGroup bind:selected={selectedTable}>
+								<ToggleButton value="all" label="All Tables" />
+								<ToggleButton value="specific" label="Specific Tables" />
 							</ToggleButtonGroup>
 
 							{#if selectedTable != 'all' && (selected === 'create' || (items.length > 0 && !emptyString(publication_name)))}

@@ -17,6 +17,7 @@ use sqlx::{
     postgres::{types::Oid, PgConnectOptions},
     Connection, Execute, FromRow, PgConnection, QueryBuilder, Value,
 };
+use tracing_subscriber::fmt::format;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::Error;
 use windmill_common::{
@@ -471,6 +472,82 @@ impl PublicationData {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct SlotList {
+    slot_name: Option<String>,
+}
+
+pub async fn list_slot_name(
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path)): Path<(String, String)>,
+) -> error::Result<Json<Vec<String>>> {
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    let slot_name = sqlx::query_as!(
+        SlotList,
+        r#"
+        SELECT 
+            slot_name 
+        FROM pg_replication_slots 
+        WHERE 
+            plugin = 'pgoutput' AND 
+            active = 'f';"#
+    )
+    .fetch_all(&mut connection)
+    .await?;
+
+    let slots = slot_name
+        .into_iter()
+        .filter_map(|slot| slot.slot_name)
+        .collect_vec();
+
+    Ok(Json(slots))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Slot {
+    name: String,
+}
+
+pub async fn create_slot(
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Json(Slot { name }): Json<Slot>,
+) -> error::Result<String> {
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    let query = format!(
+        r#"
+        SELECT 
+                *
+        FROM
+            pg_create_logical_replication_slot({}, 'pgoutput');"#,
+        quote_literal(&name)
+    );
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    Ok(format!("Slot {} created!", name))
+}
+
+pub async fn drop_slot_name(
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Json(Slot { name }): Json<Slot>,
+) -> error::Result<String> {
+    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+
+    let mut connection = get_raw_postgres_connection(&database).await?;
+
+    let query = format!("SELECT pg_drop_replication_slot({});", quote_literal(&name));
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    Ok(format!("Slot name {} deleted!", name))
+}
 #[derive(Debug, Serialize)]
 struct PublicationName {
     publication_name: String,

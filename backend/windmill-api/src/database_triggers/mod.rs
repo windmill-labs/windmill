@@ -12,10 +12,10 @@ use axum::{
     Router,
 };
 use handler::{
-    alter_publication, create_database_trigger, create_publication, delete_database_trigger,
-    delete_publication, exists_database_trigger, get_database_trigger, get_publication_info,
-    get_template_script, list_database_publication, list_database_triggers, set_enabled,
-    update_database_trigger, DatabaseTrigger,
+    alter_publication, create_database_trigger, create_publication, create_slot,
+    delete_database_trigger, delete_publication, drop_slot_name, exists_database_trigger,
+    get_database_trigger, get_publication_info, get_template_script, list_database_publication,
+    list_database_triggers, list_slot_name, set_enabled, update_database_trigger, DatabaseTrigger,
 };
 use windmill_common::{db::UserDB, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -33,26 +33,21 @@ pub use trigger::start_database;
 
 fn publication_service() -> Router {
     Router::new()
-        .route(
-            "/get/:publication_name/*path",
-            get(get_publication_info),
-        )
-        .route(
-            "/create/:publication_name/*path",
-            post(create_publication),
-        )
-        .route(
-            "/update/:publication_name/*path",
-            post(alter_publication),
-        )
+        .route("/get/:publication_name/*path", get(get_publication_info))
+        .route("/create/:publication_name/*path", post(create_publication))
+        .route("/update/:publication_name/*path", post(alter_publication))
         .route(
             "/delete/:publication_name/*path",
             delete(delete_publication),
         )
-        .route(
-            "/list/*path",
-            get(list_database_publication),
-        )
+        .route("/list/*path", get(list_database_publication))
+}
+
+fn slot_service() -> Router {
+    Router::new()
+        .route("/list/*path", get(list_slot_name))
+        .route("/create/*path", post(create_slot))
+        .route("/delete/*path", delete(drop_slot_name))
 }
 
 pub fn workspaced_service() -> Router {
@@ -66,6 +61,7 @@ pub fn workspaced_service() -> Router {
         .route("/setenabled/*path", post(set_enabled))
         .route("/get-template-script", post(get_template_script))
         .nest("/publication", publication_service())
+        .nest("/slot", slot_service())
 }
 
 async fn run_job(

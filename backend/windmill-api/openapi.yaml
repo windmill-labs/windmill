@@ -7695,6 +7695,73 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/database_triggers/slot/list/{path}:
+    get:
+      summary: list database slot
+      operationId: listDatabaseSlot
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: database slot list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/database_triggers/slot/create/{path}:
+    post:
+      summary: create slot for database
+      operationId: createDatabaseSlot
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: new slot for database
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Slot"
+      responses:
+        "201":
+          description: slot created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/database_triggers/slot/delete/{path}:
+    delete:
+      summary: delete database slot
+      operationId: deleteDatabaseSlot
+      tags:
+        - database_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: delete slot of database
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Slot"
+      responses:
+        "200":
+          description: database slot deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/database_triggers/publication/list/{path}:
     get:
       summary: list database publication
@@ -7785,7 +7852,7 @@ paths:
 
   /w/{workspace}/database_triggers/publication/delete/{publication}/{path}:
     delete:
-      summary: delete database trigger
+      summary: delete database publication
       operationId: deleteDatabasePublication
       tags:
         - database_trigger
@@ -12315,6 +12382,12 @@ components:
           required:
             - runnable_result
     
+    Slot:
+      type: object
+      properties:
+        name:
+          type: string
+
     PublicationData:
       type: object
       properties:
