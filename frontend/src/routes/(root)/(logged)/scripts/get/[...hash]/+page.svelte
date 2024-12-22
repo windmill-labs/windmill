@@ -19,7 +19,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import {
-		databaseTrigger,
 		enterpriseLicense,
 		hubBaseUrlStore,
 		userStore,
@@ -593,11 +592,6 @@
 								{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
 							</Badge>
 						</div>
-					{/if}
-					{#if $databaseTrigger?.databaseTrigger}
-						<Button size="md" color="light" href="/	database_triggers"
-							>Finish Trigger Inititalization</Button
-						>
 					{/if}
 				</DetailPageHeader>
 			</svelte:fragment>

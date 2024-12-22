@@ -66,29 +66,18 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
-			if ($databaseTrigger?.databaseTrigger) {
-				let trigger = $databaseTrigger.databaseTrigger
-				database_resource_path = trigger.database_resource_path
-				is_flow = trigger.is_flow
-				itemKind = is_flow ? 'flow' : 'script'
-				script_path = trigger.script_path
-				path = trigger.path
-				replication_slot_name = trigger.replication_slot_name
-				publication_name = trigger.publication_name
-				databaseTrigger.set(undefined)
-			} else {
-				is_flow = nis_flow
-				itemKind = nis_flow ? 'flow' : 'script'
-				initialScriptPath = ''
-				fixedScriptPath = fixedScriptPath_ ?? ''
-				script_path = fixedScriptPath
-				path = ''
-				initialPath = ''
-				relations = []
-				replication_slot_name = ''
-				publication_name = ''
-				database_resource_path = ''
-			}
+
+			is_flow = nis_flow
+			itemKind = nis_flow ? 'flow' : 'script'
+			initialScriptPath = ''
+			fixedScriptPath = fixedScriptPath_ ?? ''
+			script_path = fixedScriptPath
+			path = ''
+			initialPath = ''
+			relations = []
+			replication_slot_name = ''
+			publication_name = ''
+			database_resource_path = ''
 			edit = false
 			dirtyPath = false
 		} finally {

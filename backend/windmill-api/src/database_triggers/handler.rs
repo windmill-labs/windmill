@@ -601,14 +601,14 @@ async fn new_publication(
                             query.push(")");
                         }
 
-                        if j + 1 != schema.table_to_track.len() {
-                            query.push(", ");
-                        }
-
                         if let Some(where_clause) = &table.where_clause {
                             query.push(" WHERE (");
                             query.push(where_clause);
-                            query.push(") ");
+                            query.push(')');
+                        }
+
+                        if j + 1 != schema.table_to_track.len() {
+                            query.push(", ");
                         }
                     }
                 }
@@ -697,7 +697,6 @@ pub async fn alter_publication(
 ) -> error::Result<String> {
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
     let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
-
     let mut connection = get_raw_postgres_connection(&database).await?;
 
     let (all_table, _) =
@@ -705,7 +704,6 @@ pub async fn alter_publication(
 
     let mut query = QueryBuilder::new("");
     let quoted_publication_name = quote_identifier(&publication_name);
-
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
             if all_table {
@@ -742,16 +740,14 @@ pub async fn alter_publication(
                                 query.push(") ");
                             }
 
-                            if j + 1 != relation.table_to_track.len()
-                                || table.where_clause.is_some()
-                            {
-                                query.push(", ");
-                            }
-
                             if let Some(where_clause) = &table.where_clause {
                                 query.push(" WHERE (");
                                 query.push(where_clause);
-                                query.push(") ");
+                                query.push(')');
+                            }
+
+                            if j + 1 != relation.table_to_track.len() {
+                                query.push(", ");
                             }
                         }
                     }
@@ -773,6 +769,7 @@ pub async fn alter_publication(
             query.push(&to_execute);
         }
     };
+    println!("Query: {}", query.sql());
 
     query.push(";");
     query.build().execute(&mut connection).await?;
@@ -786,6 +783,8 @@ pub async fn alter_publication(
     } else {
         query.push(" SET (publish = 'insert,update,delete')");
     }
+    println!("{}", query.sql());
+
     query.build().execute(&mut connection).await?;
 
     Ok(format!(
