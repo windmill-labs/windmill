@@ -9,6 +9,7 @@
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 
+	export let edit: boolean
 	export let replication_slot_name: string = ''
 	export let database_resource_path: string = ''
 	let items: string[] = []
@@ -19,7 +20,24 @@
 				workspace: $workspaceStore!
 			})
 
+			let exist = false
+
 			items = result
+				.map((slot) => {
+					if (replication_slot_name && replication_slot_name === slot.slot_name) {
+						exist = true
+					}
+					if (!emptyString(slot.slot_name) && !slot.active) {
+						return slot.slot_name
+					}
+				})
+				.filter((slot) => slot != undefined)
+
+			if (edit && replication_slot_name) {
+				if (!exist) {
+					sendUserToast(`Replication ${replication_slot_name} does not exist`, true)
+				}
+			}
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
@@ -53,6 +71,7 @@
 	<Select
 		class="grow shrink max-w-full"
 		bind:justValue={replication_slot_name}
+		value={replication_slot_name}
 		{items}
 		placeholder="Choose a slot name"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}

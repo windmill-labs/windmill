@@ -496,7 +496,6 @@
 
 	let token = 'TOKEN_TO_CREATE'
 	let rightPaneSelected = 'saved_inputs'
-
 </script>
 
 <MoveDrawer
@@ -596,9 +595,9 @@
 						</div>
 					{/if}
 					{#if $databaseTrigger?.databaseTrigger}
-						<Button href="/	database_triggers">
-							Finish Trigger Inititalization
-						</Button>
+						<Button size="md" color="light" href="/	database_triggers"
+							>Finish Trigger Inititalization</Button
+						>
 					{/if}
 				</DetailPageHeader>
 			</svelte:fragment>

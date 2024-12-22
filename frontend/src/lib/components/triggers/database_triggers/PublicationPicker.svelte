@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/common'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
-	import type { Relations, TransactionType } from '$lib/gen'
+	import type { Relations } from '$lib/gen'
 	import { DatabaseTriggerService } from '$lib/gen/services.gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -14,8 +14,9 @@
 	export let publication_name: string = ''
 	export let database_resource_path: string = ''
 	export let table_to_track: Relations[] = []
-	export let transaction_to_track: TransactionType[] = []
-	export let selectedTable
+	export let transaction_to_track: string[] = []
+	export let selectedTable: 'all' | 'specific'
+
 	async function listDatabasePublication() {
 		try {
 			const publications = await DatabaseTriggerService.listDatabasePublication({
@@ -37,7 +38,7 @@
 				publication: publication_name,
 				requestBody: {
 					table_to_track,
-					transaction_to_track
+					transaction_to_track: transaction_to_track
 				}
 			})
 			sendUserToast(message)
@@ -69,9 +70,14 @@
 				workspace: $workspaceStore!,
 				publication: publication_name
 			})
-			selectedTable = 'specific'
-			transaction_to_track = publication_data.transaction_to_track
+			transaction_to_track = [...publication_data.transaction_to_track]
 			table_to_track = publication_data.table_to_track ?? []
+			if (table_to_track.length === 0) {
+				selectedTable = 'all'
+			} else {
+				selectedTable = 'specific'
+			}
+			selectedTable = selectedTable
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
@@ -80,6 +86,8 @@
 	listDatabasePublication()
 
 	let darkMode = false
+
+	$: publication_name && getAllRelations()
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -88,6 +96,7 @@
 	<Select
 		class="grow shrink max-w-full"
 		bind:justValue={publication_name}
+		value={publication_name}
 		{items}
 		placeholder="Choose a publication"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}

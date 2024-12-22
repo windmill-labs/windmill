@@ -95,36 +95,25 @@ impl Mapper {
         Self { to_template, language }
     }
 
-    fn into_typescript_template(self) -> (String, Vec<String>) {
-        let mut template = String::new();
+    fn into_typescript_template(self) -> Vec<String> {
         let mut struct_definitions = Vec::new();
-        for (table_schema, mapping_info) in self.to_template {
-            let namespace = to_capitalize(&table_schema);
-            let namespace_declaration = format!("namespace {} {{\r\n\r\n", namespace);
-            template.push_str(&namespace_declaration);
-
-            for (table_name, mapped_info) in mapping_info {
-                let interface_declaration = format!("\texport interface {} ", to_capitalize(&table_name));
-                template.push_str(&interface_declaration);
+        for (_, mapping_info) in self.to_template {
+            for (_, mapped_info) in mapping_info {
                 let struct_body = into_body_struct(Language::Typescript, mapped_info);
-                template.push_str(&struct_body);
                 struct_definitions.push(struct_body);
             }
-
-            template.push_str("}\r\n\r\n");
         }
-        (template, struct_definitions)
+        struct_definitions
     }
 
     pub fn get_template(self) -> String {
-        let (mut template, struct_definition) = match self.language {
+        let struct_definition = match self.language {
             Language::Typescript => self.into_typescript_template(),
         };
-
-        let struct_definition = struct_definition.join("|");
-
-        template.push_str(&format!(
+        format!(
             r#"
+
+
 export async function main(database: {{
     transaction_type: "insert" | "update" | "delete";
     schema_name: string;
@@ -133,9 +122,7 @@ export async function main(database: {{
 }}) {{
 }}
     "#,
-            struct_definition,
-        ));
-
-        template
+            struct_definition.join("|"),
+        )
     }
 }

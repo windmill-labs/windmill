@@ -5,12 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import {
-		DatabaseTriggerService,
-		type Language,
-		type Relations,
-		type TransactionType
-	} from '$lib/gen'
+	import { DatabaseTriggerService, type Language, type Relations } from '$lib/gen'
 	import { databaseTrigger, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -42,7 +37,7 @@
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
 	let relations: Relations[] = []
-	let transaction_to_track: TransactionType[] = []
+	let transaction_to_track: string[] = []
 	let languages = 'bun,deno'
 	let language: Language = 'Typescript'
 	let loading = false
@@ -113,8 +108,6 @@
 		path = s.path
 		enabled = s.enabled
 		database_resource_path = s.database_resource_path
-		relations = s.table_to_track as Relations[]
-		transaction_to_track = s.transaction_to_track
 		publication_name = s.publication_name
 		replication_slot_name = s.replication_slot_name
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
@@ -200,10 +193,11 @@
 </script>
 
 <ConfigurationEditor
+	{edit}
 	{database_resource_path}
-	{transaction_to_track}
 	bind:relations
 	bind:publication_name
+	bind:transaction_to_track
 	bind:replication_slot_name
 	bind:this={configurationEditor}
 />
@@ -296,7 +290,7 @@
 					</p>
 					<Button
 						size="md"
-						on:click={() => configurationEditor.openNew(false)}
+						on:click={() => configurationEditor.openNew()}
 						color="dark"
 						disabled={emptyString(database_resource_path)}
 					>

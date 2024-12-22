@@ -211,47 +211,6 @@ pub struct DatabaseTrigger {
     pub enabled: bool,
 }
 
-#[derive(Debug, Serialize)]
-pub struct DatabaseTriggerResponse {
-    pub path: String,
-    pub script_path: String,
-    pub is_flow: bool,
-    pub workspace_id: String,
-    pub edited_by: String,
-    pub edited_at: chrono::DateTime<chrono::Utc>,
-    pub database_resource_path: String,
-    pub error: Option<String>,
-    pub replication_slot_name: String,
-    pub publication_name: String,
-    pub enabled: bool,
-    pub table_to_track: Option<Vec<Relations>>,
-    pub transaction_to_track: Vec<String>,
-}
-
-impl DatabaseTriggerResponse {
-    pub fn new(
-        database_trigger: DatabaseTrigger,
-        table_to_track: Option<Vec<Relations>>,
-        transaction_to_track: Vec<String>,
-    ) -> DatabaseTriggerResponse {
-        DatabaseTriggerResponse {
-            path: database_trigger.path,
-            script_path: database_trigger.script_path,
-            is_flow: database_trigger.is_flow,
-            workspace_id: database_trigger.workspace_id,
-            edited_by: database_trigger.edited_by,
-            edited_at: database_trigger.edited_at,
-            database_resource_path: database_trigger.database_resource_path,
-            error: database_trigger.error,
-            replication_slot_name: database_trigger.replication_slot_name,
-            publication_name: database_trigger.publication_name,
-            enabled: database_trigger.enabled,
-            table_to_track,
-            transaction_to_track,
-        }
-    }
-}
-
 pub async fn get_database_resource(
     db: &DB,
     database_resource_path: &str,
@@ -473,35 +432,33 @@ impl PublicationData {
 }
 
 #[derive(Debug, Serialize)]
-struct SlotList {
+pub struct SlotList {
     slot_name: Option<String>,
+    active: Option<bool>,
 }
 
 pub async fn list_slot_name(
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
-) -> error::Result<Json<Vec<String>>> {
+) -> error::Result<Json<Vec<SlotList>>> {
     let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
-    let slot_name = sqlx::query_as!(
+    let slots = sqlx::query_as!(
         SlotList,
         r#"
         SELECT 
-            slot_name 
-        FROM pg_replication_slots 
+            slot_name,
+            active
+        FROM
+            pg_replication_slots 
         WHERE 
-            plugin = 'pgoutput' AND 
-            active = 'f';"#
+            plugin = 'pgoutput';
+        "#
     )
     .fetch_all(&mut connection)
     .await?;
-
-    let slots = slot_name
-        .into_iter()
-        .filter_map(|slot| slot.slot_name)
-        .collect_vec();
 
     Ok(Json(slots))
 }
@@ -588,8 +545,18 @@ pub async fn get_publication_info(
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
-    let (all_table, transaction_to_track) =
-        get_publication_scope_and_transaction(&publication_name, &mut connection).await?;
+    let publication_data =
+        get_publication_scope_and_transaction(&publication_name, &mut connection).await;
+
+    let (all_table, transaction_to_track) = match publication_data {
+        Ok(pub_data) => pub_data,
+        Err(Error::SqlErr(sqlx::Error::RowNotFound)) => {
+            return Err(Error::NotFound(
+                "Publication was not found, please create a new publication".to_string(),
+            ))
+        }
+        Err(e) => return Err(e),
+    };
 
     let table_to_track = if !all_table {
         Some(get_tracked_relations(&mut connection, &publication_name).await?)
@@ -636,6 +603,12 @@ async fn new_publication(
 
                         if j + 1 != schema.table_to_track.len() {
                             query.push(", ");
+                        }
+
+                        if let Some(where_clause) = &table.where_clause {
+                            query.push(" WHERE (");
+                            query.push(where_clause);
+                            query.push(") ");
                         }
                     }
                 }
@@ -769,12 +742,16 @@ pub async fn alter_publication(
                                 query.push(") ");
                             }
 
-                            if let Some(where_clause) = &table.where_clause {
-                                //query.push_str("WHERE ");
+                            if j + 1 != relation.table_to_track.len()
+                                || table.where_clause.is_some()
+                            {
+                                query.push(", ");
                             }
 
-                            if j + 1 != relation.table_to_track.len() {
-                                query.push(", ");
+                            if let Some(where_clause) = &table.where_clause {
+                                query.push(" WHERE (");
+                                query.push(where_clause);
+                                query.push(") ");
                             }
                         }
                     }
@@ -919,9 +896,8 @@ async fn get_tracked_relations(
 pub async fn get_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<DatabaseTriggerResponse> {
+) -> JsonResult<DatabaseTrigger> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     let trigger = sqlx::query_as!(
@@ -958,24 +934,7 @@ pub async fn get_database_trigger(
 
     let trigger = not_found_if_none(trigger, "Trigger", path)?;
 
-    let database = get_database_resource(&db, &trigger.database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
-
-    let (all_table, transaction_to_track) =
-        get_publication_scope_and_transaction(&trigger.publication_name, &mut connection).await?;
-
-    let table_to_track = if !all_table {
-        Some(get_tracked_relations(&mut connection, &trigger.publication_name).await?)
-    } else {
-        None
-    };
-
-    tracing::info!("{:#?}", &table_to_track);
-
-    let response = DatabaseTriggerResponse::new(trigger, table_to_track, transaction_to_track);
-
-    Ok(Json(response))
+    Ok(Json(trigger))
 }
 
 pub async fn update_database_trigger(

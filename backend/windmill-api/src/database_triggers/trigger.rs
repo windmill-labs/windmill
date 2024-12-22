@@ -143,11 +143,6 @@ impl PostgresSimpleClient {
         copy_both_stream.send(buf.freeze()).await.unwrap();
         tracing::info!("Send update status message");
     }
-
-    async fn check_if_row_exists(&self, query: &str) -> Result<bool, Error> {
-        let rows = self.0.simple_query(query).await.map_err(Error::Postgres)?;
-        Ok(rows.row_exist())
-    }
 }
 
 async fn update_ping(

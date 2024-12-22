@@ -76,7 +76,6 @@
 			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
 		)
 	]
-		console.log($usedTriggerKinds);
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
 		sendUserToast('You left the workspace')

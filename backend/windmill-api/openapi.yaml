@@ -7706,13 +7706,13 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: database slot list
+          description: list database slot
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  type: string
+                  $ref: "#/components/schemas/SlotList"
 
   /w/{workspace}/database_triggers/slot/create/{path}:
     post:
@@ -12388,6 +12388,14 @@ components:
         name:
           type: string
 
+    SlotList:
+      type: object
+      properties:
+        slot_name:
+          type: string
+        active:
+          type: boolean
+
     PublicationData:
       type: object
       properties:
@@ -12398,7 +12406,7 @@ components:
         transaction_to_track:
           type: array
           items:
-            $ref: "#/components/schemas/TransactionType"
+            type: string
       required:
         - transaction_to_track
 
@@ -12465,14 +12473,6 @@ components:
           type: boolean
         database_resource_path:
           type: string
-        table_to_track:
-          type: array
-          items:
-            $ref: "#/components/schemas/Relations"
-        transaction_to_track:
-          type: array
-          items:
-            $ref: "#/components/schemas/TransactionType"
         publication_name:
           type: string
         replication_slot_name:
@@ -12485,15 +12485,8 @@ components:
         - is_flow
         - enabled
         - database_resource_path
-        - transaction_to_track
         - replication_slot_name
         - publication_name
-    TransactionType:
-      type: string
-      enum:
-        - Insert
-        - Update
-        - Delete
 
     NewDatabaseTrigger:
       type: object
