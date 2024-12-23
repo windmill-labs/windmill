@@ -45,12 +45,18 @@ use crate::SYSTEM_ROOT;
 #[cfg(feature = "csharp")]
 const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.csharp.config.proto");
 
+
 #[cfg(feature = "csharp")]
 lazy_static::lazy_static! {
-    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
-    static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").expect("Could not find the DOTNET_ROOT environment variable");
+    static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").unwrap_or_else(|_| DOTNET_ROOT_DEFAULT.to_string());
 
 }
+
+#[cfg(windows)]
+const DOTNET_ROOT_DEFAULT: &str = "C:\\Program Files\\dotnet";
+
+#[cfg(unix)]
+const DOTNET_ROOT_DEFAULT: &str =  "/usr/share/dotnet";
 
 #[cfg(feature = "csharp")]
 const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
@@ -83,6 +89,9 @@ pub async fn generate_nuget_lockfile(
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
     let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
     handle_child(
         job_id,
@@ -147,6 +156,12 @@ fn gen_cs_proj(
         })
         .join("\n");
 
+    let item_group = if pkgs.is_empty() {"".to_string()} else {format!(
+r#"  <ItemGroup>
+{pkgs}
+  </ItemGroup>
+"#)};
+
     write_file(
         job_dir,
         "Main.csproj",
@@ -159,10 +174,7 @@ fn gen_cs_proj(
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
-  <ItemGroup>
-{pkgs}
-  </ItemGroup>
-
+{item_group}
 </Project>
 "#
         ),
@@ -497,6 +509,10 @@ pub async fn handle_csharp_job(
             .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let compiled_executable_name = "./Main";
@@ -515,6 +531,9 @@ pub async fn handle_csharp_job(
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        run_csharp.env("SystemRoot", SYSTEM_ROOT.as_str());
 
         start_child_process(run_csharp, compiled_executable_name).await?
     };
