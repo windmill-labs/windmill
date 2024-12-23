@@ -100,7 +100,7 @@ pub async fn generate_nuget_lockfile(
         .env(
             "APPDATA",
             std::env::var("APPDATA")
-                .unwrap_or_else(|| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+                .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
         )
         .env(
             "ProgramFiles",
@@ -344,7 +344,7 @@ async fn build_cs_proj(
         .env(
             "APPDATA",
             std::env::var("APPDATA")
-                .unwrap_or_else(|| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+                .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
         )
         .env(
             "ProgramFiles",
@@ -579,27 +579,28 @@ pub async fn handle_csharp_job(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(windows)]
-            run_csharp.env("SystemRoot", SYSTEM_ROOT.as_str())
-        .env("SystemRoot", SYSTEM_ROOT.as_str())
-        .env(
-            "TMP",
-            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-        )
-        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-        .env(
-            "APPDATA",
-            std::env::var("APPDATA")
-                .unwrap_or_else(|| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
-        )
-        .env(
-            "ProgramFiles",
-            std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
-        )
-        .env(
-            "LOCALAPPDATA",
-            std::env::var("LOCALAPPDATA")
-                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
-        );
+        run_csharp
+            .env("SystemRoot", SYSTEM_ROOT.as_str())
+            .env("SystemRoot", SYSTEM_ROOT.as_str())
+            .env(
+                "TMP",
+                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+            )
+            .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+            .env(
+                "APPDATA",
+                std::env::var("APPDATA")
+                    .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+            )
+            .env(
+                "ProgramFiles",
+                std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+            )
+            .env(
+                "LOCALAPPDATA",
+                std::env::var("LOCALAPPDATA")
+                    .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+            );
 
         start_child_process(run_csharp, &compiled_executable_name).await?
     };
