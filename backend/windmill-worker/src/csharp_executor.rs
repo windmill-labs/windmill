@@ -45,7 +45,6 @@ use crate::SYSTEM_ROOT;
 #[cfg(feature = "csharp")]
 const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.csharp.config.proto");
 
-
 #[cfg(feature = "csharp")]
 lazy_static::lazy_static! {
     static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").unwrap_or_else(|_| DOTNET_ROOT_DEFAULT.to_string());
@@ -56,7 +55,7 @@ lazy_static::lazy_static! {
 const DOTNET_ROOT_DEFAULT: &str = "C:\\Program Files\\dotnet";
 
 #[cfg(unix)]
-const DOTNET_ROOT_DEFAULT: &str =  "/usr/share/dotnet";
+const DOTNET_ROOT_DEFAULT: &str = "/usr/share/dotnet";
 
 #[cfg(feature = "csharp")]
 const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
@@ -156,11 +155,16 @@ fn gen_cs_proj(
         })
         .join("\n");
 
-    let item_group = if pkgs.is_empty() {"".to_string()} else {format!(
-r#"  <ItemGroup>
+    let item_group = if pkgs.is_empty() {
+        "".to_string()
+    } else {
+        format!(
+            r#"  <ItemGroup>
 {pkgs}
   </ItemGroup>
-"#)};
+"#
+        )
+    };
 
     write_file(
         job_dir,
@@ -316,6 +320,8 @@ async fn build_cs_proj(
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
         );
         build_cs_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        build_cs_cmd.env("APPDATA", std::env::var("APPDATA").unwrap());
+        build_cs_cmd.env("ProgramFiles", std::env::var("ProgramFiles").unwrap());
     }
 
     let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
@@ -425,20 +431,15 @@ pub async fn handle_csharp_job(
 
     let cache_logs = if cache {
         #[cfg(unix)]
-        let target = format!("{job_dir}/Main");
-        #[cfg(windows)]
-        let target = format!("{job_dir}/Main.exe");
-
-        #[cfg(unix)]
-        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
-        #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
-
-        symlink.map_err(|e| {
-            Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
-            ))
-        })?;
+        {
+            let target = format!("{job_dir}/Main");
+            let symlink = std::os::unix::fs::symlink(&bin_path, &target);
+            symlink.map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "could not copy cached binary from {bin_path} to {job_dir}/Main: {e:?}"
+                ))
+            })?;
+        }
 
         cache_logs
     } else {
@@ -523,10 +524,14 @@ pub async fn handle_csharp_job(
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         #[cfg(unix)]
-        let compiled_executable_name = "./Main";
+        let compiled_executable_name = "./Main".to_string();
         #[cfg(windows)]
-        let compiled_executable_name = "./Main.exe";
-        let mut run_csharp = Command::new(compiled_executable_name);
+        let compiled_executable_name = if cache {
+            bin_path.to_string()
+        } else {
+            format!("{job_dir}/Main.exe")
+        };
+        let mut run_csharp = Command::new(&compiled_executable_name);
         run_csharp
             .current_dir(job_dir)
             .env_clear()
@@ -541,11 +546,16 @@ pub async fn handle_csharp_job(
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-
         #[cfg(windows)]
-        run_csharp.env("SystemRoot", SYSTEM_ROOT.as_str());
+        {
+            run_csharp.env("SystemRoot", SYSTEM_ROOT.as_str());
+            run_csharp.env(
+                "TMP",
+                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+            );
+        }
 
-        start_child_process(run_csharp, compiled_executable_name).await?
+        start_child_process(run_csharp, &compiled_executable_name).await?
     };
 
     handle_child(
