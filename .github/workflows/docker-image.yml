@@ -3,8 +3,7 @@ env:
   IMAGE_NAME:
     ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
   DEV_SHA:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || github.event.inputs.tag }}
-
+    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || github.event.inputs.tag || github.sha }}
 name: Build windmill:main
 on:
   push:
