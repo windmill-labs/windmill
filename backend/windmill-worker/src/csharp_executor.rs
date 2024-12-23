@@ -89,7 +89,28 @@ pub async fn generate_nuget_lockfile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
-    gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+    gen_lockfile_cmd
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        )
+        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+        .env(
+            "APPDATA",
+            std::env::var("APPDATA")
+                .unwrap_or_else(|| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+        )
+        .env(
+            "ProgramFiles",
+            std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+        )
+        .env(
+            "LOCALAPPDATA",
+            std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+        );
 
     let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
     handle_child(
@@ -313,16 +334,27 @@ async fn build_cs_proj(
         .stderr(Stdio::piped());
 
     #[cfg(windows)]
-    {
-        build_cs_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-        build_cs_cmd.env(
+    build_cs_cmd
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        )
+        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+        .env(
+            "APPDATA",
+            std::env::var("APPDATA")
+                .unwrap_or_else(|| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+        )
+        .env(
+            "ProgramFiles",
+            std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+        )
+        .env(
+            "LOCALAPPDATA",
+            std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
-        build_cs_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
-        build_cs_cmd.env("APPDATA", std::env::var("APPDATA").unwrap());
-        build_cs_cmd.env("ProgramFiles", std::env::var("ProgramFiles").unwrap());
-    }
 
     let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
     handle_child(
@@ -547,13 +579,27 @@ pub async fn handle_csharp_job(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(windows)]
-        {
-            run_csharp.env("SystemRoot", SYSTEM_ROOT.as_str());
-            run_csharp.env(
-                "TMP",
-                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-            );
-        }
+            run_csharp.env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        )
+        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+        .env(
+            "APPDATA",
+            std::env::var("APPDATA")
+                .unwrap_or_else(|| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+        )
+        .env(
+            "ProgramFiles",
+            std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+        )
+        .env(
+            "LOCALAPPDATA",
+            std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+        );
 
         start_child_process(run_csharp, &compiled_executable_name).await?
     };
