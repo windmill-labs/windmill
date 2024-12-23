@@ -332,6 +332,7 @@ pub async fn uv_pip_compile(
             .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .envs(PROXY_ENVS.clone())
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
