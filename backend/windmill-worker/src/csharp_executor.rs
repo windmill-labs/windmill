@@ -45,9 +45,11 @@ use crate::SYSTEM_ROOT;
 #[cfg(feature = "csharp")]
 const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.csharp.config.proto");
 
+#[cfg(feature = "csharp")]
 #[cfg(windows)]
 const DOTNET_ROOT_DEFAULT: &str = "C:\\Program Files\\dotnet";
 
+#[cfg(feature = "csharp")]
 #[cfg(unix)]
 const DOTNET_ROOT_DEFAULT: &str = "/usr/share/dotnet";
 
