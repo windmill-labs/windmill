@@ -190,7 +190,7 @@ pub type StaticFields = HashMap<String, Box<RawValue>>;
 pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
 pub type AllowUserResources = Vec<String>;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
     #[default]
@@ -1374,6 +1374,22 @@ async fn execute_component(
         }
     };
 
+    if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode, opt_authed.as_ref()) {
+        let mut tx = user_db.clone().begin(authed).await?;
+        let perm = sqlx::query_scalar!(
+            "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2",
+            path,
+            &w_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if perm.is_none() {
+            return Err(Error::NotAuthorized(
+                "Unauthorized to execute this app".into(),
+            ));
+        }
+    }
+
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
@@ -1400,7 +1416,7 @@ async fn execute_component(
         ),
         _ => unreachable!(),
     };
-    let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone());
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (uuid, tx) = push(
         &db,
