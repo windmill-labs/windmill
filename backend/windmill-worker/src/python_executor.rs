@@ -339,7 +339,7 @@ pub async fn uv_pip_compile(
 
         #[cfg(windows)]
         {
-            child_cmd = child_cmd
+            child_cmd
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env(
