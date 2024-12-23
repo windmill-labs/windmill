@@ -204,7 +204,7 @@ RUN chown -R windmill:windmill ${APP}
 RUN cp -r /root/.cache /home/windmill/.cache && \
     chown -R windmill:windmill /home/windmill/.cache
 
-USER windmill
+USER root
 
 EXPOSE 8000
 
