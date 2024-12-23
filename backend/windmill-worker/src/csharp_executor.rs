@@ -315,6 +315,7 @@ async fn build_cs_proj(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
         );
+        build_cs_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
     }
 
     let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
@@ -334,7 +335,6 @@ async fn build_cs_proj(
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
-
     if let Err(e) = std::fs::remove_file(Path::new(job_dir).join("nuget.config")) {
         if e.kind() != io::ErrorKind::NotFound {
             Err(anyhow!("Error erasing nuget.config: {}", e))?;
@@ -342,11 +342,15 @@ async fn build_cs_proj(
     }
 
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
+    #[cfg(unix)]
+    let target = format!("{job_dir}/Main");
+    #[cfg(windows)]
+    let target = format!("{job_dir}/Main.exe");
 
     match save_cache(
         &bin_path,
         &format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}"),
-        &format!("{job_dir}/Main"),
+        &target,
     )
     .await
     {
@@ -420,7 +424,10 @@ pub async fn handle_csharp_job(
     let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
 
     let cache_logs = if cache {
+        #[cfg(unix)]
         let target = format!("{job_dir}/Main");
+        #[cfg(windows)]
+        let target = format!("{job_dir}/Main.exe");
 
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
@@ -515,7 +522,10 @@ pub async fn handle_csharp_job(
 
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
+        #[cfg(unix)]
         let compiled_executable_name = "./Main";
+        #[cfg(windows)]
+        let compiled_executable_name = "./Main.exe";
         let mut run_csharp = Command::new(compiled_executable_name);
         run_csharp
             .current_dir(job_dir)
