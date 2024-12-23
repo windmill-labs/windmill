@@ -24,6 +24,7 @@
 	export let name: string
 	export let componentType: string | undefined = undefined
 	export let showScriptPicker = false
+	export let rawApps = false
 
 	let tab = 'inlinescripts'
 	let filter: string = ''
@@ -159,7 +160,7 @@
 		<div class="font-bold items-baseline truncate">Choose a language</div>
 		<div class="flex gap-2">
 			{#if showScriptPicker}
-				<RunnableSelector on:pick hideCreateScript />
+				<RunnableSelector {rawApps} on:pick hideCreateScript />
 			{/if}
 			<Button
 				on:click={() => picker?.openDrawer()}
@@ -201,23 +202,25 @@
 				{/each}
 			</div>
 		</div>
-		<div id="app-editor-frontend-runnables">
-			<div class="mb-1 text-sm font-semibold">
-				Frontend
-				<Tooltip
-					documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts"
-				>
-					Frontend scripts are executed in the browser and can manipulate the app context directly.
-				</Tooltip>
-			</div>
+		{#if !rawApps}
+			<div id="app-editor-frontend-runnables">
+				<div class="mb-1 text-sm font-semibold">
+					Frontend
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts"
+					>
+						Frontend scripts are executed in the browser and can manipulate the app context
+						directly.
+					</Tooltip>
+				</div>
 
-			<div>
-				<FlowScriptPicker
-					label={`JavaScript`}
-					lang="javascript"
-					on:click={() => {
-						const newInlineScript = {
-							content: `// read outputs and ctx
+				<div>
+					<FlowScriptPicker
+						label={`JavaScript`}
+						lang="javascript"
+						on:click={() => {
+							const newInlineScript = {
+								content: `// read outputs and ctx
 console.log(ctx.email)
 
 // access a global state store
@@ -235,14 +238,15 @@ state.foo += 1
 // all helpers can be found at https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts-helpers
 
 return state.foo`,
-							language: 'frontend',
-							path: 'frontend script',
-							schema: undefined
-						}
-						dispatch('new', newInlineScript)
-					}}
-				/>
+								language: 'frontend',
+								path: 'frontend script',
+								schema: undefined
+							}
+							dispatch('new', newInlineScript)
+						}}
+					/>
+				</div>
 			</div>
-		</div>
+		{/if}
 	</div>
 </div>
