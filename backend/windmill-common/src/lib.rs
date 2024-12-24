@@ -47,6 +47,7 @@ pub mod tracing_init;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod resource;
 pub mod worker;
 pub mod workspaces;
 
@@ -247,18 +248,16 @@ pub async fn connect_db(
         Err(_) => {
             if server_mode {
                 DEFAULT_MAX_CONNECTIONS_SERVER
+            } else if indexer_mode {
+                DEFAULT_MAX_CONNECTIONS_INDEXER
             } else {
-                if indexer_mode {
-                    DEFAULT_MAX_CONNECTIONS_INDEXER
-                } else {
-                    DEFAULT_MAX_CONNECTIONS_WORKER
-                        + std::env::var("NUM_WORKERS")
-                            .ok()
-                            .map(|x| x.parse().ok())
-                            .flatten()
-                            .unwrap_or(1)
-                        - 1
-                }
+                DEFAULT_MAX_CONNECTIONS_WORKER
+                    + std::env::var("NUM_WORKERS")
+                        .ok()
+                        .map(|x| x.parse().ok())
+                        .flatten()
+                        .unwrap_or(1)
+                    - 1
             }
         }
     };

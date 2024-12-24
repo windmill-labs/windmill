@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Unplug } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Unplug, Database } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
@@ -23,10 +23,10 @@
 		| 'webhooks'
 		| 'schedules'
 		| 'routes'
-		| 'websockets'
+		| 'websockets' | 'database'
 		| 'kafka'
 		| 'emails'
-	)[] = ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'emails']
+	)[] = ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'database', 'emails']
 	const dispatch = createEventDispatcher()
 
 	onMount(() => {
@@ -55,6 +55,7 @@
 		routes: { icon: Route, countKey: 'http_routes_count' },
 		websockets: { icon: Unplug, countKey: 'websocket_count' },
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
+		database: { icon: Database, countKey: 'database_count' },
 		emails: { icon: Mail, countKey: 'email_count' }
 	}
 </script>

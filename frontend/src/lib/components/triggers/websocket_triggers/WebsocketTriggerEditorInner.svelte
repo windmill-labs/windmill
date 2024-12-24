@@ -20,12 +20,12 @@
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '../Toggle.svelte'
 	import { fade } from 'svelte/transition'
-	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import type { Schema } from '$lib/common'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -431,7 +431,7 @@
 								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 									<div class="flex flex-row gap-2 w-full">
 										<label class="flex flex-col w-full">
-											<div class="text-secondary text-sm">Type</div>
+											<div class="text-secondary text-sm mb-2">Type</div>
 											<select
 												class="w-20"
 												on:change={(e) => {
@@ -458,7 +458,7 @@
 									</div>
 									{#if 'raw_message' in v}
 										<div class="flex flex-col w-full">
-											<div class="text-secondary text-sm">
+											<div class="text-secondary text-sm mb-2">
 												Raw JSON message (if a string, wrapping quotes will be discarded)
 											</div>
 											<JsonEditor
@@ -569,7 +569,7 @@
 								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 									<div class="flex flex-row gap-2 w-full">
 										<label class="flex flex-col w-full">
-											<div class="text-secondary text-sm">Type</div>
+											<div class="text-secondary text-sm mb-2">Type</div>
 											<select
 												class="w-20"
 												on:change={(e) => {
@@ -587,12 +587,12 @@
 										</label>
 									</div>
 									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm">Key</div>
+										<div class="text-secondary text-sm mb-2">Key</div>
 										<input type="text" bind:value={v.key} />
 									</label>
 									<!-- svelte-ignore a11y-label-has-associated-control -->
 									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm">Value</div>
+										<div class="text-secondary text-sm mb-2">Value</div>
 										<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} />
 									</label>
 								</div>

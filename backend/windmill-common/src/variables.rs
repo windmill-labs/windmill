@@ -6,11 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::error::{Error, Result};
+use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
-
-use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -109,6 +109,47 @@ pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<Stri
     Ok(key)
 }
 
+pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
+    mc.encrypt_str_to_base64(value)
+}
+
+pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
+    mc.decrypt_base64_to_string(value).map_err(|e| match e {
+        MagicCryptError::DecryptError(_) => Error::InternalErr(
+            "Could not decrypt value. The value may have been encrypted with a different key."
+                .to_string(),
+        ),
+        _ => Error::InternalErr(e.to_string()),
+    })
+}
+
+struct Variable {
+    value: String,
+    is_secret: bool,
+}
+
+pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let path = path.strip_prefix("$var:").unwrap().to_string();
+    let mut variable = sqlx::query_as!(
+        Variable,
+        "SELECT value, is_secret
+        FROM variable
+        WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
+    )
+    .fetch_one(db)
+    .await?;
+    if variable.is_secret {
+        let mc = build_crypt(db, w_id).await?;
+        variable.value = decrypt(&mc, variable.value)?;
+    }
+    Ok(variable.value)
+}
+
 pub async fn get_secret_value_as_admin(
     db: &DB,
     w_id: &str,
@@ -132,7 +173,7 @@ pub async fn get_secret_value_as_admin(
     let r = if variable.is_secret {
         let value = variable.value;
         if !value.is_empty() {
-            let mc = build_crypt(&db, &w_id).await?;
+            let mc = build_crypt(db, w_id).await?;
             decrypt_value_with_mc(value, mc).await?
         } else {
             "".to_string()
@@ -144,17 +185,14 @@ pub async fn get_secret_value_as_admin(
     Ok(r)
 }
 
-pub async fn decrypt_value_with_mc(
-    value: String,
-    mc: MagicCrypt256,
-) -> Result<String, crate::error::Error> {
-    Ok(mc.decrypt_base64_to_string(value).map_err(|e| match e {
+pub async fn decrypt_value_with_mc(value: String, mc: MagicCrypt256) -> Result<String> {
+    mc.decrypt_base64_to_string(value).map_err(|e| match e {
         MagicCryptError::DecryptError(_) => crate::error::Error::InternalErr(
             "Could not decrypt value. The value may have been encrypted with a different key."
                 .to_string(),
         ),
         _ => crate::error::Error::InternalErr(e.to_string()),
-    })?)
+    })
 }
 
 pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";

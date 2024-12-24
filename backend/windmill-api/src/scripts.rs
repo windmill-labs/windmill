@@ -28,6 +28,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -199,7 +200,7 @@ async fn list_scripts(
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
     let (per_page, offset) = paginate(pagination);
-
+    println!("Inside list script");
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",
@@ -286,6 +287,15 @@ async fn list_scripts(
             sqlb.and_where_in("kind", lowercased_kinds.as_slice());
         }
     }
+
+    if let Some(languages) = lq.languages {
+        let languages = languages
+            .into_iter()
+            .map(quote)
+            .collect_vec();
+        sqlb.and_where_in("language", languages.as_slice());
+    }
+
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
     }

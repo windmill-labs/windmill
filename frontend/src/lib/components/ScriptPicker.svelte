@@ -29,6 +29,7 @@
 	export let allowRefresh = false
 	export let allowEdit = true
 	export let allowView = true
+	export let languages: string | undefined = undefined
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
@@ -48,7 +49,11 @@
 			}))
 		} else if (itemKind == 'script') {
 			items = (
-				await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kinds.join(',') })
+				await ScriptService.listScripts({
+					workspace: $workspaceStore!,
+					kinds: kinds.join(','),
+					languages
+				})
 			).map((script) => ({
 				value: script.path,
 				label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
