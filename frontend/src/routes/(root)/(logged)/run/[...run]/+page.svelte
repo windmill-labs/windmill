@@ -912,7 +912,7 @@
 			/>
 			<div class="w-full mt-10">
 				<FlowStatusViewer
-					jobId={job.id}
+					jobId={job?.id ?? ""}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}

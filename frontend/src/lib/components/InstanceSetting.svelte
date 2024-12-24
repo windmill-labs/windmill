@@ -1,4 +1,4 @@
-<script lang="typescript">
+<script lang="ts">
 	import { isCloudHosted } from '$lib/cloud'
 	import { enterpriseLicense, isCriticalAlertsUIOpen } from '$lib/stores'
 	import {
