@@ -12,11 +12,10 @@
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
+	import { json } from 'svelte-highlight/languages'
+	import { Highlight } from 'svelte-highlight'
 	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -24,7 +23,6 @@
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true

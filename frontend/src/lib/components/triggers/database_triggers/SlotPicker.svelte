@@ -12,7 +12,7 @@
 	export let edit: boolean
 	export let replication_slot_name: string = ''
 	export let database_resource_path: string = ''
-	let items: string[] = []
+	let items: (string | undefined)[] = []
 	async function listDatabaseSlot() {
 		try {
 			const result = await DatabaseTriggerService.listDatabaseSlot({

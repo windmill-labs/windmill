@@ -101,7 +101,6 @@
 		}
 	}
 	let savedScript: Script | undefined = undefined
-	let destroyDatabaseTrigger = true
 </script>
 
 <ScriptBuilder
@@ -110,7 +109,6 @@
 	lockedLanguage={templatePath != null || hubPath != null}
 	on:deploy={(e) => {
 		let newHash = e.detail
-		destroyDatabaseTrigger = false
 		goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 	}}
 	on:saveInitial={(e) => {

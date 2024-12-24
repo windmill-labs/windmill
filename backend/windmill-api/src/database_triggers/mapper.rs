@@ -7,8 +7,8 @@ use super::handler::Language;
 fn postgres_to_typescript_type(postgres_type: Option<Type>) -> String {
     let data_type = match postgres_type {
         Some(postgres_type) => match postgres_type {
-            Type::BOOL => "bool",
-            Type::BOOL_ARRAY => "Array<bool>",
+            Type::BOOL => "boolean",
+            Type::BOOL_ARRAY => "Array<boolean>",
             Type::CHAR | Type::BPCHAR | Type::VARCHAR | Type::NAME | Type::TEXT => "string",
             Type::CHAR_ARRAY
             | Type::BPCHAR_ARRAY

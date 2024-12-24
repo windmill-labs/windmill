@@ -35,7 +35,7 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::build_crypt;
+use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::to_raw_value;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -52,7 +52,6 @@ use windmill_git_sync::handle_deployment_metadata;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
-use crate::variables::{decrypt, encrypt};
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
@@ -113,14 +112,6 @@ pub fn workspaced_service() -> Router {
         .route("/usage", get(get_usage))
         .route("/used_triggers", get(get_used_triggers))
         .route("/critical_alerts", get(get_critical_alerts))
-        .route(
-            "/critical_alerts/:id/acknowledge",
-            post(acknowledge_critical_alert),
-        )
-        .route(
-            "/critical_alerts/acknowledge_all",
-            post(acknowledge_all_critical_alerts),
-        )
         .route(
             "/critical_alerts/:id/acknowledge",
             post(acknowledge_critical_alert),
@@ -2087,10 +2078,6 @@ async fn mute_critical_alerts(
     .execute(&db)
     .await?;
 
-    Ok(format!(
-        "Updated mute criticital alert ui settings for workspace: {}",
-        &w_id
-    ))
     Ok(format!(
         "Updated mute criticital alert ui settings for workspace: {}",
         &w_id

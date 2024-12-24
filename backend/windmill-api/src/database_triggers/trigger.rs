@@ -206,7 +206,6 @@ async fn loop_ping(db: &DB, database_trigger: &DatabaseTrigger, error: Option<&s
 async fn listen_to_transactions(
     database_trigger: &DatabaseTrigger,
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<(), Error> {
     let resource = get_database_resource(
@@ -354,7 +353,7 @@ async fn listen_to_transactions(
                                 )]));
                                 body.insert("trigger_info".to_string(), to_raw_value(&database_info));
                                 let body = HashMap::from([("data".to_string(), to_raw_value(&serde_json::json!(body)))]);
-                                let _ = run_job(Some(body), extra, &db, rsmq.clone(), database_trigger).await;
+                                let _ = run_job(Some(body), extra, &db, database_trigger).await;
                                 continue;
                             }
 
@@ -370,7 +369,6 @@ async fn listen_to_transactions(
 async fn try_to_listen_to_database_transactions(
     db_trigger: DatabaseTrigger,
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let database_trigger = sqlx::query_scalar!(
@@ -401,8 +399,7 @@ async fn try_to_listen_to_database_transactions(
             if has_lock.flatten().unwrap_or(false) {
                 tracing::info!("Spawning new task to listen_to_database_transaction");
                 tokio::spawn(async move {
-                    let result =
-                        listen_to_transactions(&db_trigger, db.clone(), rsmq, killpill_rx).await;
+                    let result = listen_to_transactions(&db_trigger, db.clone(), killpill_rx).await;
                     if let Err(e) = result {
                         update_ping(&db, &db_trigger, Some(e.to_string().as_str())).await;
                     };
@@ -423,7 +420,6 @@ async fn try_to_listen_to_database_transactions(
 
 async fn listen_to_unlistened_database_events(
     db: &DB,
-    rsmq: &Option<rsmq_async::MultiplexedRsmq>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) {
     let database_triggers = sqlx::query_as!(
@@ -466,7 +462,6 @@ async fn listen_to_unlistened_database_events(
                 try_to_listen_to_database_transactions(
                     trigger,
                     db.clone(),
-                    rsmq.clone(),
                     killpill_rx.resubscribe(),
                 )
                 .await;
@@ -478,13 +473,9 @@ async fn listen_to_unlistened_database_events(
     };
 }
 
-pub async fn start_database(
-    db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) {
+pub async fn start_database(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) {
     tokio::spawn(async move {
-        listen_to_unlistened_database_events(&db, &rsmq, &killpill_rx).await;
+        listen_to_unlistened_database_events(&db, &killpill_rx).await;
         loop {
             tokio::select! {
                 biased;
@@ -492,7 +483,7 @@ pub async fn start_database(
                     return;
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(15)) => {
-                    listen_to_unlistened_database_events(&db, &rsmq, &killpill_rx).await
+                    listen_to_unlistened_database_events(&db,  &killpill_rx).await
                 }
             }
         }

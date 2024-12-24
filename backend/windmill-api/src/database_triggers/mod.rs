@@ -68,7 +68,6 @@ async fn run_job(
     args: Option<HashMap<String, Box<RawValue>>>,
     extra: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     trigger: &DatabaseTrigger,
 ) -> anyhow::Result<()> {
     let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
@@ -80,7 +79,7 @@ async fn run_job(
         trigger.email.clone(),
         &trigger.workspace_id,
         db,
-        "anonymous".to_string(),
+        Some("anonymous".to_string()),
     )
     .await?;
 
@@ -93,7 +92,6 @@ async fn run_job(
             authed,
             db.clone(),
             user_db,
-            rsmq,
             trigger.workspace_id.clone(),
             StripPath(trigger.script_path.to_owned()),
             run_query,
@@ -106,7 +104,6 @@ async fn run_job(
             authed,
             db.clone(),
             user_db,
-            rsmq,
             trigger.workspace_id.clone(),
             StripPath(trigger.script_path.to_owned()),
             run_query,

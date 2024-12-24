@@ -95,34 +95,7 @@ impl TryFrom<&str> for ScriptLang {
             "php" => Self::Php,
             "rust" => Self::Rust,
             "ansible" => Self::Ansible,
-            _ => return Err("Language not supported".to_string()),
-        };
-
-        Ok(language)
-    }
-}
-
-impl TryFrom<&str> for ScriptLang {
-    type Error = String;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let language = match value {
-            "bun" => Self::Bun,
-            "bunnative" => Self::Bunnative,
-            "nativets" => Self::Nativets,
-            "deno" => Self::Deno,
-            "python3" => Self::Python3,
-            "go" => Self::Go,
-            "bash" => Self::Bash,
-            "powershell" => Self::Powershell,
-            "postgresql" => Self::Postgresql,
-            "mysql" => Self::Mysql,
-            "bigquery" => Self::Bigquery,
-            "snowflake" => Self::Snowflake,
-            "mssql" => Self::Mssql,
-            "graphql" => Self::Graphql,
-            "php" => Self::Php,
-            "rust" => Self::Rust,
-            "ansible" => Self::Ansible,
+            "csharp" => Self::CSharp,
             _ => return Err("Language not supported".to_string()),
         };
 

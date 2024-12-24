@@ -60,7 +60,7 @@ use windmill_common::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
         Pagination, StripPath,
     },
-    variables::{build_crypt, build_crypt_with_key_suffix},
+    variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
     HUB_BASE_URL,
 };

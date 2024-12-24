@@ -1,16 +1,14 @@
 <script lang="ts">
-	import { Button } from '../../common'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
 	import { RouteIcon } from 'lucide-svelte'
 
-	import Skeleton from '../../common/skeleton/Skeleton.svelte'
+	import RouteEditor from './RouteEditor.svelte'
 	import { canWrite } from '$lib/utils'
-	import Alert from '../../common/alert/Alert.svelte'
-	import type { TriggerContext } from '../../triggers'
 	import { getContext } from 'svelte'
-	import Description from '$lib/components/Description.svelte'	import RouteEditor from './RouteEditor.svelte'
-
+	import Description from '$lib/components/Description.svelte'
+	import { Button, Alert, Skeleton } from '$lib/components/common'
+	import type { TriggerContext } from '$lib/components/triggers'
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
