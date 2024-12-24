@@ -1,12 +1,21 @@
-FROM nikolaik/python-nodejs:python3.11-nodejs19-slim
+FROM python:3.11-slim as python-base
+FROM node:19-slim as node-base
+
+FROM python-base
+COPY --from=node-base /usr/local /usr/local
+
+ENV PATH="/usr/local/bin:${PATH}"
 
 RUN apt-get update \
-    && apt-get install -y shellcheck
-RUN yarn global add diagnostic-languageserver
-RUN yarn global add pyright
+    && apt-get install -y shellcheck wget \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install pipenv
+
+RUN npm install -g diagnostic-languageserver pyright
+
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    url=; \
     case "$arch" in \
     'amd64') \
     targz='go1.22.5.linux-amd64.tar.gz'; \
@@ -24,25 +33,31 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GOBIN=/usr/local/go/bin
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
+
 RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
 
 COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
 
+# Set up Python environment
+ENV PIPENV_VENV_IN_PROJECT=1
+RUN mkdir -p /pyls
+WORKDIR /pyls
 COPY Pipfile .
-
 RUN cat Pipfile
-
 RUN pip install Cython
-
 RUN pipenv install
 
+# Copy launcher script
 COPY pyls_launcher.py .
 
+# Set up temporary directory for monaco
 RUN mkdir -p /tmp/monaco && chmod -R 777 /tmp/monaco
+RUN cd /tmp/monaco && npm install --save-dev windmill-client
 
-RUN cd /tmp/monaco && yarn add -D windmill-client
+# Ensure all users have access to the installed packages and configurations
+RUN chmod -R a+rX /usr/local && \
+    chmod -R a+rX /pyls
 
 EXPOSE 3001
 
-CMD ["python3" ,"pyls_launcher.py"]
-
+CMD ["python3", "pyls_launcher.py"]
