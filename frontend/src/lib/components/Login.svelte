@@ -15,7 +15,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	export let rd: string | undefined = undefined
 	export let email: string | undefined = undefined
@@ -149,7 +149,7 @@
 
 	async function loadLogins() {
 		const allLogins = await OauthService.listOauthLogins()
-		logins = allLogins.oauth.map(login => ({
+		logins = allLogins.oauth.map((login) => ({
 			type: login.type,
 			displayName: login.display_name || login.type
 		}))
@@ -171,19 +171,52 @@
 
 	const dispatch = createEventDispatcher()
 
+	onMount(() => {
+		try {
+			localStorage.removeItem('closeUponLogin')
+		} catch (e) {
+			console.error('Could not remove closeUponLogin from local storage', e)
+		}
+	})
+
 	function popupListener(event) {
 		let data = event.data
 		if (event.origin !== window.location.origin) {
 			return
 		}
 
+		processPopupData(data)
+		window.removeEventListener('message', popupListener)
+	}
+
+	function processPopupData(data) {
 		if (data.type === 'error') {
-			sendUserToast(event.data.error, true)
+			sendUserToast(data.error, true)
 		} else if (data.type === 'success') {
-			window.removeEventListener('message', popupListener)
 			dispatch('login')
 		}
 	}
+
+	function handleStorageEvent(event) {
+		if (event.key === 'oauth-success') {
+			try {
+				processPopupData(JSON.parse(event.newValue))
+				console.log('oauth-success from storage')
+				// Clean up
+				localStorage.removeItem('oauth-success')
+				window.removeEventListener('storage', handleStorageEvent)
+			} catch (e) {
+				console.error('Could not process oauth-success from storage', e)
+			}
+		} else {
+			console.log('Storage event', event.key)
+		}
+	}
+
+	onDestroy(() => {
+		window.removeEventListener('message', popupListener)
+		window.removeEventListener('storage', handleStorageEvent)
+	})
 
 	function storeRedirect(provider: string) {
 		if (rd) {
@@ -197,8 +230,10 @@
 		if (popup) {
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)
+			window.addEventListener('storage', handleStorageEvent)
 			window.open(url, '_blank', 'popup')
 		} else {
+			localStorage.setItem('closeUponLogin', 'false')
 			window.location.href = url
 		}
 	}
@@ -214,14 +249,14 @@
 			{/each}
 		{:else}
 			{#each providers as { type, icon }}
-				{#if logins?.some(login => login.type === type)}
+				{#if logins?.some((login) => login.type === type)}
 					<Button
 						color="light"
 						variant="border"
 						startIcon={{ icon, classes: 'h-4' }}
 						on:click={() => storeRedirect(type)}
 					>
-						{logins.find(login => login.type === type)?.displayName}
+						{logins.find((login) => login.type === type)?.displayName}
 					</Button>
 				{/if}
 			{/each}
@@ -329,11 +364,11 @@
 				<p class="text-2xs text-tertiary italic mt-10 text-center">
 					By logging in, you agree to our
 					<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
-						Terms of Service
+						Terms of service
 					</a>
 					and
 					<a href="https://windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
-						Privacy Policy
+						Privacy policy
 					</a>
 				</p>
 			{/if}

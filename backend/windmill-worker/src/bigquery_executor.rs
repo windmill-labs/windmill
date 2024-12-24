@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt};
+use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
@@ -9,11 +10,11 @@ use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
 };
-use windmill_queue::{CanceledBy, HTTP_CLIENT};
+use windmill_queue::CanceledBy;
 
 use serde::Deserialize;
 
-use crate::common::OccupancyMetrics;
+use crate::common::{build_http_client, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{build_args_values, resolve_job_timeout},
@@ -68,9 +69,10 @@ fn do_bigquery_inner<'a>(
     all_statement_values: &'a HashMap<String, Value>,
     project_id: &'a str,
     token: &'a str,
-    timeout_ms: i32,
+    timeout_ms: u64,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    http_client: &'a Client,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let param_names = parse_sql_statement_named_params(query, '@');
 
@@ -86,7 +88,7 @@ fn do_bigquery_inner<'a>(
         .collect::<Vec<&Value>>();
 
     let result_f = async move {
-        let response = HTTP_CLIENT
+        let response = http_client
             .post(
                 "https://bigquery.googleapis.com/bigquery/v2/projects/".to_string()
                     + project_id
@@ -249,13 +251,10 @@ pub async fn do_bigquery(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let timeout_ms = i32::try_from(
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
-            .await
-            .0
-            .as_millis(),
-    )
-    .unwrap_or(200000);
+    let (timeout_duration, _, _) =
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+    let timeout_ms = timeout_duration.as_millis() as u64;
+    let http_client = build_http_client(timeout_duration)?;
 
     let project_id = authentication_manager
         .project_id()
@@ -325,6 +324,7 @@ pub async fn do_bigquery(
                     timeout_ms,
                     None,
                     annotations.return_last_result && i < queries.len() - 1,
+                    &http_client,
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -353,6 +353,7 @@ pub async fn do_bigquery(
             timeout_ms,
             Some(column_order),
             false,
+            &http_client,
         )?
     };
 
@@ -366,6 +367,7 @@ pub async fn do_bigquery(
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
 

@@ -11,6 +11,7 @@ import { getLocalSetting } from './utils'
 
 export interface UserExt {
 	email: string
+	name?: string
 	username: string
 	is_admin: boolean
 	is_super_admin: boolean
@@ -54,6 +55,7 @@ export const isPremiumStore = writable<boolean>(false)
 export const starStore = writable(1)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<string | false | undefined>(undefined)
+export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
 export const userWorkspaces: Readable<

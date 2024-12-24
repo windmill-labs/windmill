@@ -20,6 +20,7 @@ pub mod apps;
 pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
+pub mod cache;
 pub mod db;
 pub mod ee;
 pub mod email_ee;
@@ -28,18 +29,21 @@ pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
 pub mod global_settings;
+pub mod indexer;
 pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+pub mod otel_ee;
 pub mod queue;
 pub mod s3_helpers;
 pub mod schedule;
 pub mod scripts;
 pub mod server;
 pub mod stats_ee;
+pub mod tracing_init;
 pub mod users;
 pub mod utils;
 pub mod variables;
@@ -47,13 +51,12 @@ pub mod resource;
 pub mod worker;
 pub mod workspaces;
 
-pub mod tracing_init;
-
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
+pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 
 #[macro_export]
 macro_rules! add_time {
@@ -85,6 +88,12 @@ lazy_static::lazy_static! {
     .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], *METRICS_PORT)));
 
     pub static ref METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("METRICS_PORT").is_ok() || std::env::var("METRICS_ADDR").is_ok());
+
+    pub static ref OTEL_METRICS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_METRICS").is_ok());
+    pub static ref OTEL_TRACING_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_TRACING").is_ok());
+    pub static ref OTEL_LOGS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS").is_ok());
+
+
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -98,6 +107,8 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
 
     pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+
+    pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref INSTANCE_NAME: String = rd_string(5);
 

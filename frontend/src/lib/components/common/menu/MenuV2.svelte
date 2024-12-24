@@ -11,6 +11,7 @@
 	export let justifyEnd: boolean = false
 	export let lightMode: boolean = false
 	export let maxHeight: number = 900
+	export let disabled = false
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'fixed',
 		middleware: [offset(), flip(), shift()],
@@ -21,7 +22,7 @@
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-8">
 	<ResolveOpen {open} on:open on:close />
 	<div use:floatingRef class="w-full">
-		<MenuButton class={twMerge('w-full', justifyEnd ? 'flex justify-end' : '')}>
+		<MenuButton class={twMerge('w-full', justifyEnd ? 'flex justify-end' : '')} disabled={disabled}>
 			<slot name="trigger" />
 		</MenuButton>
 	</div>

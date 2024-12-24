@@ -665,7 +665,7 @@ pub fn copy_recursively(
 
 pub async fn prebundle_bun_script(
     inner_content: &str,
-    lockfile: Option<String>,
+    lockfile: Option<&String>,
     script_path: &str,
     job_id: &Uuid,
     w_id: &str,
@@ -678,7 +678,7 @@ pub async fn prebundle_bun_script(
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
-        &lockfile,
+        lockfile,
         script_path,
         db.clone(),
         w_id,
@@ -747,7 +747,7 @@ async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) ->
 
 async fn compute_bundle_local_and_remote_path(
     inner_content: &str,
-    requirements_o: &Option<String>,
+    requirements_o: Option<&String>,
     script_path: &str,
     db: Option<DB>,
     w_id: &str,
@@ -755,10 +755,7 @@ async fn compute_bundle_local_and_remote_path(
     let mut input_src = format!(
         "{}{}",
         inner_content,
-        requirements_o
-            .as_ref()
-            .map(|x| x.to_string())
-            .unwrap_or_default()
+        requirements_o.as_ref().map(|x| x.as_str()).unwrap_or("")
     );
 
     if let Some(db) = db {
@@ -811,8 +808,8 @@ async fn write_lockb(splitted_lockb_2: &str, job_dir: &str) -> Result<()> {
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
-    requirements_o: Option<String>,
-    codebase: Option<String>,
+    requirements_o: Option<&String>,
+    codebase: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -833,7 +830,7 @@ pub async fn handle_bun_job(
         if requirements_o.is_some() && !annotation.nobundling && codebase.is_none() {
             let (local_path, remote_path) = compute_bundle_local_and_remote_path(
                 inner_content,
-                &requirements_o,
+                requirements_o,
                 job.script_path(),
                 Some(db.clone()),
                 &job.workspace_id,
@@ -1520,6 +1517,15 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     }
     if let Some(ref node_path) = NODE_PATH.as_ref() {
         bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        bun_envs.insert("SystemRoot".to_string(), crate::SYSTEM_ROOT.to_string());
+        bun_envs.insert(
+            "USERPROFILE".to_string(),
+            crate::USERPROFILE_ENV.to_string(),
+        );
     }
 
     return bun_envs;

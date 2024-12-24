@@ -146,7 +146,7 @@
 										color="blue"
 										buttonType="button"
 										btnClasses="!p-1 !w-[34px] !ml-1"
-										aria-label="Save Deployment Message"
+										aria-label="Save deployment message"
 										on:click={() => {
 											updateDeploymentMsg(selectedVersion?.script_hash)
 										}}

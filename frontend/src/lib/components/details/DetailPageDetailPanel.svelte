@@ -52,6 +52,7 @@
 						<slot slot="webhooks" name="webhooks" />
 						<slot slot="routes" name="routes" />
 						<slot slot="websockets" name="websockets" />
+						<slot slot="kafka" name="kafka" />
 						<slot slot="database" name="database" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />

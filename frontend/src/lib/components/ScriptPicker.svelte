@@ -27,6 +27,8 @@
 	export let kinds: Script['kind'][] = ['script']
 	export let disabled = false
 	export let allowRefresh = false
+	export let allowEdit = true
+	export let allowView = true
 	export let languages: string | undefined = undefined
 
 	let items: { value: string; label: string }[] = []
@@ -132,74 +134,86 @@
 	{#if scriptPath !== undefined && scriptPath !== ''}
 		{#if itemKind == 'flow'}
 			<div class="flex gap-2">
-				<Button
-					endIcon={{ icon: ExternalLink }}
-					target="_blank"
-					color="light"
-					size="xs"
-					variant="border"
-					href="{base}/flows/edit/{scriptPath}">Edit</Button
-				>
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					on:click={async () => {
-						drawerFlowViewer.openDrawer()
-					}}
-				>
-					View
-				</Button>
+				{#if allowEdit}
+					<Button
+						endIcon={{ icon: ExternalLink }}
+						target="_blank"
+						color="light"
+						size="xs"
+						variant="border"
+						href="{base}/flows/edit/{scriptPath}">Edit</Button
+					>
+				{/if}
+				{#if allowView}
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						on:click={async () => {
+							drawerFlowViewer.openDrawer()
+						}}
+					>
+						View
+					</Button>
+				{/if}
 			</div>
 		{:else if itemKind == 'app'}
 			<div class="flex gap-2">
-				<Button
-					startIcon={{ icon: Pen }}
-					target="_blank"
-					color="light"
-					size="xs"
-					href="{base}/apps/edit/{scriptPath}"
-					variant="border"
-				>
-					Edit
-				</Button>
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					target="_blank"
-					startIcon={{ icon: Code }}
-					href="{base}/apps/get/{scriptPath}"
-				>
-					View
-				</Button>
+				{#if allowEdit}
+					<Button
+						startIcon={{ icon: Pen }}
+						target="_blank"
+						color="light"
+						size="xs"
+						href="{base}/apps/edit/{scriptPath}"
+						variant="border"
+					>
+						Edit
+					</Button>
+				{/if}
+				{#if allowView}
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						target="_blank"
+						startIcon={{ icon: Code }}
+						href="{base}/apps/get/{scriptPath}"
+					>
+						View
+					</Button>
+				{/if}
 			</div>
 		{:else}
 			<div class="flex gap-2">
-				<Button
-					startIcon={{ icon: Pen }}
-					target="_blank"
-					color="light"
-					size="xs"
-					href="{base}/scripts/edit/{scriptPath}"
-					variant="border"
-				>
-					Edit
-				</Button>
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					startIcon={{ icon: Code }}
-					on:click={async () => {
-						const { language, content } = await getScriptByPath(scriptPath ?? '')
-						code = content
-						lang = language
-						drawerViewer.openDrawer()
-					}}
-				>
-					View
-				</Button>
+				{#if allowEdit}
+					<Button
+						startIcon={{ icon: Pen }}
+						target="_blank"
+						color="light"
+						size="xs"
+						href="{base}/scripts/edit/{scriptPath}"
+						variant="border"
+					>
+						Edit
+					</Button>
+				{/if}
+				{#if allowView}
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						startIcon={{ icon: Code }}
+						on:click={async () => {
+							const { language, content } = await getScriptByPath(scriptPath ?? '')
+							code = content
+							lang = language
+							drawerViewer.openDrawer()
+						}}
+					>
+						View
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	{/if}

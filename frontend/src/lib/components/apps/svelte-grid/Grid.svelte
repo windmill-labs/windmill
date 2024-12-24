@@ -52,7 +52,7 @@
 	export let sensor = 20
 	export let root: boolean = false
 	export let parentWidth: number | undefined = undefined
-
+	export let disableMove: boolean = false
 	let getComputedCols
 	let container
 
@@ -475,6 +475,7 @@
 				overlapped={$overlappedStore}
 				moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
 				type={item.data['type']}
+				{disableMove}
 			>
 				{#if item[getComputedCols]}
 					<slot

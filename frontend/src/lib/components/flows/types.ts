@@ -40,4 +40,5 @@ export type FlowEditorContext = {
 	flowInputsStore: Writable<FlowInput>
 	customUi: FlowBuilderWhitelabelCustomUi
 	insertButtonOpen: Writable<boolean>
+	executionCount: Writable<number>
 }

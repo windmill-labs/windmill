@@ -218,33 +218,43 @@
 	}
 
 	let raw: boolean = false
-	// let mounted = false
 
-	// $: if (componentInput.value && mounted) {
-	// 	const newItems = (Array.isArray(componentInput.value) ? componentInput.value : [])
-	// 		.filter((x) => x != undefined)
-	// 		.map((item, index) => {
-	// 			return { value: item, id: generateRandomString() }
-	// 		})
-
-	// 	if (
-	// 		JSON.stringify(newItems.map((i) => i.value)) !== JSON.stringify(items.map((i) => i.value))
-	// 	) {
-	// 		items = newItems
-	// 	}
-	// }
-
-	// onMount(() => {
-	// 	mounted = true
-	// })
+	let refreshCount = 0
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
 	{#if Array.isArray(items) && componentInput.value}
-		<div class="flex flex-row items-center justify-between">
+		<div class="flex flex-row items-center justify-between mr-1">
 			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
-
-			{#if subFieldType === 'ag-grid' || subFieldType === 'table-column'}
+			{#if subFieldType == 'labeledselect'}
+				<Toggle
+					options={{
+						right: 'w/ value'
+					}}
+					size="xs"
+					on:change={(e) => {
+						if (e.detail) {
+							items = items.map((item) => {
+								if (typeof item.value === 'string') {
+									return { ...item, value: { label: item.value, value: item.value } }
+								} else {
+									return item
+								}
+							})
+						} else {
+							items = items.map((item) => {
+								if (typeof item.value === 'object' && item.value.hasOwnProperty('label')) {
+									return { ...item, value: item.value.value }
+								} else {
+									return { ...item, value: JSON.stringify(item.value) }
+								}
+							})
+						}
+						refreshCount += 1
+					}}
+					checked={items.some((x) => typeof x.value != 'string')}
+				/>
+			{:else if subFieldType === 'ag-grid' || subFieldType === 'table-column'}
 				<Toggle
 					options={{
 						right: 'Raw'
@@ -254,49 +264,51 @@
 				/>
 			{/if}
 		</div>
-		<section
-			use:dragHandleZone={{
-				items,
-				flipDurationMs,
-				dropTargetStyle: {}
-			}}
-			on:consider={handleConsider}
-			on:finalize={handleFinalize}
-		>
-			{#each items as item, index (item.id)}
-				<div class="border-0 outline-none w-full">
-					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+		{#key refreshCount}
+			<section
+				use:dragHandleZone={{
+					items,
+					flipDurationMs,
+					dropTargetStyle: {}
+				}}
+				on:consider={handleConsider}
+				on:finalize={handleFinalize}
+			>
+				{#each items as item, index (item.id)}
+					<div class="border-0 outline-none w-full">
+						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
-					<div class="flex flex-row gap-2 items-center relative my-1 w-full">
-						<div class="grow min-w-0">
-							<SubTypeEditor
-								{id}
-								subFieldType={raw ? 'object' : subFieldType}
-								bind:componentInput
-								bind:value={item.value}
-								on:remove={() => deleteElementByType(index)}
-							/>
-						</div>
-
-						<div class="flex justify-between flex-col items-center">
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<div class="w-4 h-4 cursor-move handle" use:dragHandle>
-								<GripVertical size={16} />
+						<div class="flex flex-row gap-2 items-center relative my-1 w-full">
+							<div class="grow min-w-0">
+								<SubTypeEditor
+									{id}
+									subFieldType={raw ? 'object' : subFieldType}
+									bind:componentInput
+									bind:value={item.value}
+									on:remove={() => deleteElementByType(index)}
+								/>
 							</div>
-							{#if subFieldType !== 'db-explorer'}
-								<button
-									class="z-10 rounded-full p-1 duration-200 hover:bg-surface-hover"
-									aria-label="Remove item"
-									on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
-								>
-									<X size={14} />
-								</button>
-							{/if}
+
+							<div class="flex justify-between flex-col items-center">
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<div class="w-4 h-4 cursor-move handle" use:dragHandle>
+									<GripVertical size={16} />
+								</div>
+								{#if subFieldType !== 'db-explorer'}
+									<button
+										class="z-10 rounded-full p-1 duration-200 hover:bg-surface-hover"
+										aria-label="Remove item"
+										on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
+									>
+										<X size={14} />
+									</button>
+								{/if}
+							</div>
 						</div>
 					</div>
-				</div>
-			{/each}
-		</section>
+				{/each}
+			</section>
+		{/key}
 	{/if}
 	{#if subFieldType === 'db-explorer'}
 		{#if componentInput.loading}

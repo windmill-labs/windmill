@@ -60,7 +60,7 @@
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? JSON.parse(JSON.stringify(value)) : value
+				nargs[key] = value === 'object' ? structuredClone(value) : value
 			}
 		})
 		args = nargs
@@ -154,7 +154,7 @@
 			{@const argName = item.value}
 			<div>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+				{#if !schemaSkippedValues.includes(argName) && keys.includes(argName)}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						class="flex flex-row items-center bg-surface"
@@ -174,7 +174,7 @@
 										required={schema?.required?.includes(argName)}
 										pattern={schema.properties[argName].pattern}
 										bind:valid={inputCheck[argName]}
-										defaultValue={schema.properties[argName].default}
+										defaultValue={structuredClone(schema.properties[argName].default)}
 										enum_={schema.properties[argName].enum}
 										format={schema.properties[argName].format}
 										contentEncoding={schema.properties[argName].contentEncoding}
@@ -235,7 +235,7 @@
 										required={schema?.required?.includes(argName)}
 										pattern={schema.properties[argName].pattern}
 										bind:valid={inputCheck[argName]}
-										defaultValue={schema.properties[argName].default}
+										defaultValue={structuredClone(schema.properties[argName].default)}
 										enum_={schema.properties[argName].enum}
 										format={schema.properties[argName].format}
 										contentEncoding={schema.properties[argName].contentEncoding}
@@ -333,7 +333,7 @@
 				startIcon={{ icon: Plus }}
 				on:click={() => variableEditor?.initNew?.()}
 			>
-				New Variable
+				New variable
 			</Button>
 		</div>
 	</ItemPicker>

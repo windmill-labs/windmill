@@ -10,14 +10,15 @@
 		Code2,
 		LayoutDashboard,
 		Building,
-		Calendar
+		Calendar,
+		ServerCog
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 
 	import Menu from '../common/menu/MenuV2.svelte'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import MenuLink from './MenuLink.svelte'
@@ -41,6 +42,47 @@
 		{ label: 'Runs', href: `${base}/runs`, icon: Play },
 		{ label: 'Schedules', href: `${base}/schedules`, icon: Calendar }
 	]
+
+	let secondMenuLinks = [
+		{
+			label: 'Resources',
+			href: `${base}/resources`
+		},
+		{
+			label: 'Variables',
+			href: `${base}/variables`
+		},
+		{
+			label: 'Custom HTTP Routes',
+			href: `${base}/routes`
+		},
+		{
+			label: 'Websocket Triggers',
+			href: `${base}/websockets`
+		},
+		{
+			label: 'Kafka Triggers',
+			href: `${base}/kafka`
+		},
+		{
+			label: 'Audit logs',
+			href: `${base}/audit_logs`
+		},
+		{
+			label: 'Groups',
+			href: `${base}/groups`
+		},
+		{
+			label: 'Folders',
+			href: `${base}/folders`
+		},
+		{
+			label: 'Workers',
+			href: `${base}/workers`
+		}
+	]
+
+	let moreOpen = false
 </script>
 
 <Menu>
@@ -122,8 +164,22 @@
 				tabindex="-1"
 			>
 				<Building size={14} />
-				All Workspaces
+				All workspaces
 			</a>
+
+			{#if $superadmin}
+				<MenuItem
+					href="#superadmin-settings"
+					class={twMerge(
+						'flex flex-row gap-3.5 items-center px-2 py-2 ',
+						'text-secondary text-xs',
+						'hover:bg-surface-hover hover:text-primary cursor-pointer'
+					)}
+				>
+					<ServerCog size={14} />
+					Instance settings
+				</MenuItem>
+			{/if}
 
 			<MenuItem
 				href="#"
@@ -137,6 +193,27 @@
 				<LogOut size={14} />
 				Sign out
 			</MenuItem>
+		</div>
+		<div
+			on:mouseenter={() => (moreOpen = true)}
+			on:mouseleave={() => (moreOpen = false)}
+			class="divide-y"
+			role="none"
+		>
+			{#if moreOpen == false}
+				<div class="px-2 text-tertiary text-2xs">More...</div>
+			{:else}
+				{#each secondMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+					<div>
+						<a
+							href={menuLink.href}
+							class="flex flex-row gap-3.5 items-center px-2 py-0.5 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer"
+						>
+							{menuLink.label}
+						</a>
+					</div>
+				{/each}
+			{/if}
 		</div>
 	</div>
 	{#if $enterpriseLicense}

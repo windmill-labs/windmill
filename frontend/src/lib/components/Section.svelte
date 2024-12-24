@@ -48,9 +48,7 @@
 			{/if}
 		</h2>
 		<slot name="action" />
-		{#if collapsable && collapsed}
-			<slot name="badge" />
-		{/if}
+		<slot name="badge" />
 	</div>
 	<div class={collapsable && collapsed ? `hidden ${$$props.class}` : `${$$props.class}`}>
 		<slot />

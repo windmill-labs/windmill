@@ -46,8 +46,10 @@ lazy_static::lazy_static! {
 
     static ref DENO_CERT: String = std::env::var("DENO_CERT").ok().unwrap_or_else(|| String::new());
     static ref DENO_TLS_CA_STORE: String = std::env::var("DENO_TLS_CA_STORE").ok().unwrap_or_else(|| String::new());
+    static ref DISABLE_DENO_LOCK: bool = std::env::var("DISABLE_DENO_LOCK").is_ok();
 
 }
+
 async fn get_common_deno_proc_envs(
     token: &str,
     base_internal_url: &str,
@@ -81,6 +83,15 @@ async fn get_common_deno_proc_envs(
     }
     if DENO_TLS_CA_STORE.len() > 0 {
         deno_envs.insert(String::from("DENO_TLS_CA_STORE"), DENO_TLS_CA_STORE.clone());
+    }
+
+    #[cfg(windows)]
+    {
+        deno_envs.insert("SystemRoot".to_string(), crate::SYSTEM_ROOT.to_string());
+        deno_envs.insert(
+            "USERPROFILE".to_string(),
+            crate::USERPROFILE_ENV.to_string(),
+        );
     }
     return deno_envs;
 }
@@ -168,7 +179,7 @@ pub async fn generate_deno_lock(
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -352,13 +363,17 @@ try {{
         args.push("--unstable-fs");
         args.push("--unstable-worker-options");
         args.push("--unstable-http");
-        if let Some(reqs) = requirements_o {
-            if !reqs.is_empty() {
-                let _ = write_file(job_dir, "lock.json", &reqs)?;
-                args.push("--lock=lock.json");
-                args.push("--frozen=false");
+
+        if !*DISABLE_DENO_LOCK {
+            if let Some(reqs) = requirements_o {
+                if !reqs.is_empty() {
+                    let _ = write_file(job_dir, "lock.json", &reqs)?;
+                    args.push("--lock=lock.json");
+                    args.push("--frozen=false");
+                }
             }
         }
+
         let allow_read = format!(
             "--allow-read=./,/tmp/windmill/cache/deno/,{}",
             DENO_PATH.as_str()

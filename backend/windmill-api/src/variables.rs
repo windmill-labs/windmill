@@ -8,7 +8,6 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    oauth2_ee::_refresh_token,
     users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };
@@ -183,10 +182,21 @@ async fn get_variable(
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-                Some(
-                    _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap(), &db)
+                #[cfg(feature = "oauth2")]
+                {
+                    Some(
+                        crate::oauth2_ee::_refresh_token(
+                            tx,
+                            &variable.path,
+                            &w_id,
+                            variable.account.unwrap(),
+                            &db,
+                        )
                         .await?,
-                )
+                    )
+                }
+                #[cfg(not(feature = "oauth2"))]
+                return Err(Error::InternalErr("Require oauth2 feature".to_string()));
             } else if !value.is_empty() && decrypt_secret {
                 let _ = tx.commit().await;
                 let mc = build_crypt(&db, &w_id).await?;
@@ -299,7 +309,6 @@ async fn create_variable(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
@@ -352,7 +361,6 @@ async fn create_variable(
         &w_id,
         DeployedObject::Variable { path: variable.path.clone(), parent_path: None },
         Some(format!("Variable '{}' created", variable.path.clone())),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -384,7 +392,6 @@ async fn delete_variable(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -424,7 +431,6 @@ async fn delete_variable(
         &w_id,
         DeployedObject::Variable { path: path.to_string(), parent_path: Some(path.to_string()) },
         Some(format!("Variable '{}' deleted", path)),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -455,7 +461,6 @@ async fn update_variable(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(ns): Json<EditVariable>,
@@ -578,7 +583,6 @@ async fn update_variable(
         &w_id,
         DeployedObject::Variable { path: npath.clone(), parent_path: Some(path.to_string()) },
         None,
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -646,7 +650,19 @@ pub async fn get_value_internal<'c>(
         .await?;
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-            _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap(), db).await?
+            #[cfg(feature = "oauth2")]
+            {
+                crate::oauth2_ee::_refresh_token(
+                    tx,
+                    &variable.path,
+                    &w_id,
+                    variable.account.unwrap(),
+                    db,
+                )
+                .await?
+            }
+            #[cfg(not(feature = "oauth2"))]
+            return Err(Error::InternalErr("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
             tx.commit().await?;
             let mc = build_crypt(&db, &w_id).await?;

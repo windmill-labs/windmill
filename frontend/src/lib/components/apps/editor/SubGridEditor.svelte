@@ -245,6 +245,7 @@
 							)
 						}
 					}}
+					disableMove={!!$connectingInput.opened}
 				>
 					<ComponentWrapper
 						id={dataItem.id}

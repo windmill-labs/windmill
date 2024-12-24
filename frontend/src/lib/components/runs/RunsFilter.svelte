@@ -141,8 +141,8 @@
 					<ToggleButton value="folder" label="Folder" />
 					<ToggleButtonMore
 						togglableItems={[
-							{ label: 'Schedule Path', value: 'schedulePath' },
-							{ label: 'Concurrency Key', value: 'concurrencyKey' },
+							{ label: 'Schedule path', value: 'schedulePath' },
+							{ label: 'Concurrency key', value: 'concurrencyKey' },
 							{ label: 'Label', value: 'label' },
 							{ label: 'Tag', value: 'tag' }
 						]}
@@ -690,7 +690,7 @@
 						{/key}
 					{:else if filterBy === 'concurrencyKey'}
 						{#key concurrencyKey}
-							<Label label="Concurrency Key">
+							<Label label="Concurrency key">
 								<div class="relative w-full">
 									{#if concurrencyKey}
 										<button
@@ -765,7 +765,7 @@
 					</Label>
 				{/if}
 
-				<Label label="Show Skipped Flows">
+				<Label label="Show skipped flows">
 					<div class="flex flex-row gap-1 items-center">
 						<Toggle size="xs" bind:checked={isSkipped} />
 						<Tooltip>Skipped flows are flows that did an early break</Tooltip>

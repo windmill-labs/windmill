@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.425.1
+  version: 1.441.1
   title: Windmill API
 
   contact:
@@ -405,6 +405,8 @@ paths:
               type: object
               properties:
                 is_super_admin:
+                  type: boolean
+                is_devops:
                   type: boolean
                 name:
                   type: string
@@ -869,9 +871,20 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/CriticalAlert"
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CriticalAlert'
+                  total_rows:
+                    type: integer
+                    description: Total number of rows matching the query.
+                    example: 100
+                  total_pages:
+                    type: integer
+                    description: Total number of pages based on the page size.
+                    example: 10
 
   /settings/critical_alerts/{id}/acknowledge:
     post:
@@ -1105,9 +1118,15 @@ paths:
       operationId: refreshUserToken
       tags:
         - user
+      parameters:
+        - name: if_expiring_in_less_than_s
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
-          description: free usage
+          description: new token
           content:
             text/plain:
               schema:
@@ -2329,11 +2348,14 @@ paths:
                     type: boolean
                   websocket_used:
                     type: boolean
+                  kafka_used:
+                    type: boolean
                   database_used:
                     type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
+                  - kafka_used
                   - database_used
   /w/{workspace}/users/list:
     get:
@@ -2751,9 +2773,20 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/CriticalAlert"
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CriticalAlert'
+                  total_rows:
+                    type: integer
+                    description: Total number of rows matching the query.
+                    example: 100
+                  total_pages:
+                    type: integer
+                    description: Total number of pages based on the page size.
+                    example: 10
 
   /w/{workspace}/workspaces/critical_alerts/{id}/acknowledge:
     post:
@@ -3721,6 +3754,27 @@ paths:
                       - value
                 required:
                   - app
+
+  /apps_u/public_app_by_custom_path/{custom_path}:
+    get:
+      summary: get public app by custom path
+      operationId: getPublicAppByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: app details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AppWithLastVersion"
+                  - type: object
+                    properties:
+                      workspace_id:
+                        type: string
 
   /scripts/hub/get/{path}:
     get:
@@ -5361,6 +5415,8 @@ paths:
                   type: boolean
                 deployment_message:
                   type: string
+                custom_path:
+                  type: string
               required:
                 - path
                 - value
@@ -5407,6 +5463,23 @@ paths:
       responses:
         "200":
           description: app details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps/get/lite/{path}:
+    get:
+      summary: get app lite by path
+      operationId: getAppLiteByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: app lite details
           content:
             application/json:
               schema:
@@ -5686,6 +5759,8 @@ paths:
                   $ref: "#/components/schemas/Policy"
                 deployment_message:
                   type: string
+                custom_path:
+                  type: string
       responses:
         "200":
           description: app updated
@@ -5693,6 +5768,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/apps/custom_path_exists/{custom_path}:
+    get:
+      summary: check if custom path exists
+      operationId: customPathExists
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: custom path exists
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/apps_u/execute_component/{path}:
     post:
@@ -5717,6 +5809,8 @@ paths:
                 #flow: flow/<path>
                 path:
                   type: string
+                version:
+                  type: integer
                 args: {}
                 raw_code:
                   type: object
@@ -5734,6 +5828,8 @@ paths:
                   required:
                     - content
                     - language
+                id:
+                  type: integer
                 force_viewer_static_fields:
                   type: object
                 force_viewer_one_of_fields:
@@ -6840,6 +6936,42 @@ paths:
                   - resume
                   - cancel
 
+  /w/{workspace}/jobs/slack_approval/{id}:
+    get:
+      summary: generate interactive slack approval for suspended job
+      operationId: getSlackApprovalPayload
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: approver
+          in: query
+          schema:
+            type: string
+        - name: message
+          in: query
+          schema:
+            type: string
+        - name: slack_resource_path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: flow_step_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Interactive slack approval message sent successfully
+
   /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
@@ -7111,6 +7243,8 @@ paths:
                 schedule:
                   type: string
                 timezone:
+                  type: string
+                cron_version:
                   type: string
               required:
                 - schedule
@@ -7667,6 +7801,169 @@ paths:
       responses:
         "200":
           description: websocket trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/create:
+    post:
+      summary: create kafka trigger
+      operationId: createKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new kafka trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewKafkaTrigger"
+      responses:
+        "201":
+          description: kafka trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/update/{path}:
+    post:
+      summary: update kafka trigger
+      operationId: updateKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditKafkaTrigger"
+      responses:
+        "200":
+          description: kafka trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/delete/{path}:
+    delete:
+      summary: delete kafka trigger
+      operationId: deleteKafkaTrigger
+      tags:
+        -  kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/get/{path}:
+    get:
+      summary: get kafka trigger
+      operationId: getKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KafkaTrigger"
+
+  
+  /w/{workspace}/kafka_triggers/list:
+    get:
+      summary: list kafka triggers
+      operationId: listKafkaTriggers
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: kafka trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KafkaTrigger"
+
+  
+  /w/{workspace}/kafka_triggers/exists/{path}:
+    get:
+      summary: does kafka trigger exists
+      operationId: existsKafkaTrigger
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: kafka trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/kafka_triggers/setenabled/{path}:
+    post:
+      summary: set enabled kafka trigger
+      operationId: setKafkaTriggerEnabled
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated kafka trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: kafka trigger enabled set
           content:
             text/plain:
               schema:
@@ -8894,6 +9191,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
                 database_trigger
                 database_trigger,
               ]
@@ -8934,6 +9232,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
                 database_trigger,
               ]
       requestBody:
@@ -8984,6 +9283,7 @@ paths:
                 raw_app,
                 http_trigger,
                 websocket_trigger,
+                kafka_trigger,
                 database_trigger,
               ]
       requestBody:
@@ -10269,11 +10569,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: hosts
-          in: query
-          required: true
-          schema:
-            type: string
         - name: min_ts
           in: query
           required: false
@@ -10302,6 +10597,29 @@ paths:
                   count_per_host:
                     description: count of log lines that matched the query per hostname
                     type: object
+
+  /srch/index/delete/{idx_name}:
+    delete:
+      summary: Restart container and delete the index to recreate it.
+      operationId: clearIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: idx_name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - JobIndex
+              - ServiceLogIndex
+      responses:
+        "200":
+          description: idx to be deleted and container restarting
+          content:
+            text/plain:
+              schema:
+                type: string
 
 components:
   securitySchemes:
@@ -10377,6 +10695,12 @@ components:
         format: uuid
     Path:
       name: path
+      in: path
+      required: true
+      schema:
+        type: string
+    CustomPath:
+      name: custom_path
       in: path
       required: true
       schema:
@@ -11011,6 +11335,9 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
+              "flownode",
+              "appscript",
             ]
         schedule_path:
           type: string
@@ -11111,6 +11438,9 @@ components:
               "identity",
               "deploymentcallback",
               "singlescriptflow",
+              "flowscript",
+              "flownode",
+              "appscript",
             ]
         schedule_path:
           type: string
@@ -11201,6 +11531,8 @@ components:
           type: string
         is_admin:
           type: boolean
+        name:
+          type: string
         is_super_admin:
           type: boolean
         created_at:
@@ -11903,6 +12235,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - path
         - edited_by
@@ -11985,6 +12319,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - path
         - schedule
@@ -12034,6 +12370,8 @@ components:
         paused_until:
           type: string
           format: date-time
+        cron_version:
+          type: string
       required:
         - schedule
         - timezone
@@ -12221,6 +12559,8 @@ components:
         websocket_count:
           type: number
         database_count:
+          type: number
+        kafka_count:
           type: number
 
     WebsocketTrigger:
@@ -12540,6 +12880,222 @@ components:
         - replication_slot_name
         - publication_name
 
+    KafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - enabled
+
+    NewKafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - script_path
+        - is_flow
+        - kafka_resource_path
+        - group_id
+        - topics
+
+    EditKafkaTrigger:
+      type: object
+      properties:
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+              
+      required:
+        - path
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - is_flow
+
+    KafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - enabled
+
+    NewKafkaTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - script_path
+        - is_flow
+        - kafka_resource_path
+        - group_id
+        - topics
+
+    EditKafkaTrigger:
+      type: object
+      properties:
+        kafka_resource_path:
+          type: string
+        group_id:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+              
+      required:
+        - path
+        - script_path
+        - kafka_resource_path
+        - group_id
+        - topics
+        - is_flow
+
     Group:
       type: object
       properties:
@@ -12729,6 +13285,8 @@ components:
           type: string
           enum: ["password", "github"]
         super_admin:
+          type: boolean
+        devops:
           type: boolean
         verified:
           type: boolean
@@ -12965,6 +13523,8 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        custom_path:
+          type: string
       required:
         - id
         - workspace_id

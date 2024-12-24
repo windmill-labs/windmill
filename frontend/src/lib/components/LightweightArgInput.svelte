@@ -170,18 +170,23 @@
 			error = 'Required'
 			valid && (valid = false)
 		} else {
-			if (pattern && !testRegex(pattern, v)) {
-				if (!emptyString(customErrorMessage)) {
-					error = customErrorMessage ?? ''
-				} else if (format == 'email') {
-					error = 'invalid email address'
-				} else {
-					error = `should match ${pattern}`
-				}
-				valid && (valid = false)
-			} else {
+			if (!required && (v == undefined || v == null || v === '')) {
 				error = ''
 				!valid && (valid = true)
+			} else {
+				if (pattern && !testRegex(pattern, v)) {
+					if (!emptyString(customErrorMessage)) {
+						error = customErrorMessage ?? ''
+					} else if (format == 'email') {
+						error = 'invalid email address'
+					} else {
+						error = `should match ${pattern}`
+					}
+					valid && (valid = false)
+				} else {
+					error = ''
+					!valid && (valid = true)
+				}
 			}
 		}
 	}
@@ -327,6 +332,7 @@
 									options={itemsType?.multiselect ?? []}
 									selectedOptionsDraggable={true}
 									{disabled}
+									--sms-open-z-index={20}
 								/>
 							</div>
 						{:else if Array.isArray(itemsType?.enum) && Array.isArray(value)}
@@ -337,6 +343,7 @@
 									options={itemsType?.enum ?? []}
 									selectedOptionsDraggable={true}
 									{disabled}
+									--sms-open-z-index={20}
 								/>
 							</div>
 						{:else if Array.isArray(enum_) && Array.isArray(value)}
@@ -347,6 +354,7 @@
 									options={enum_ ?? []}
 									selectedOptionsDraggable={true}
 									{disabled}
+									--sms-open-z-index={20}
 								/>
 							</div>
 						{:else}

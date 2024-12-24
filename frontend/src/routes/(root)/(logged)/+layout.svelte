@@ -28,7 +28,10 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
-		usedTriggerKinds
+		usedTriggerKinds,
+
+		devopsRole
+
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -190,15 +193,20 @@
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used, database_used } =
-			await WorkspaceService.getUsedTriggers({
-				workspace: $workspaceStore ?? ''
-			})
+		const { http_routes_used, websocket_used, kafka_used, database_used } =
+			await WorkspaceService.getUsedTriggers(
+			{
+					workspace: $workspaceStore ?? ''
+				}
+		)
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
 		if (websocket_used) {
 			usedKinds.push('ws')
+		}
+		if (kafka_used) {
+			usedKinds.push('kafka')
 		}
 
 		if (database_used) {
@@ -286,7 +294,7 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $workspaceStore && $superadmin !== undefined && $userStore) {
+		if ($enterpriseLicense && $workspaceStore && $userStore && ($devopsRole || $userStore.is_admin)) {
 			mountModal = true
 			loadCriticalAlertsMuted()
 		}

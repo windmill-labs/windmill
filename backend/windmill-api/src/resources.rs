@@ -646,7 +646,6 @@ async fn create_resource(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
@@ -696,7 +695,6 @@ async fn create_resource(
         &w_id,
         DeployedObject::Resource { path: resource.path.clone(), parent_path: None },
         Some(format!("Resource '{}' created", resource.path.clone())),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -717,7 +715,6 @@ async fn delete_resource(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -756,7 +753,6 @@ async fn delete_resource(
         &w_id,
         DeployedObject::Resource { path: path.to_string(), parent_path: Some(path.to_string()) },
         Some(format!("Resource '{}' deleted", path)),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -774,7 +770,6 @@ async fn update_resource(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
@@ -844,7 +839,6 @@ async fn update_resource(
         &w_id,
         DeployedObject::Resource { path: npath.to_string(), parent_path: Some(path.to_string()) },
         Some(format!("Resource '{}' updated", npath)),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -871,7 +865,6 @@ async fn update_resource_value(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
@@ -905,7 +898,6 @@ async fn update_resource_value(
         &w_id,
         DeployedObject::Resource { path: path.to_string(), parent_path: Some(path.to_string()) },
         None,
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -1024,7 +1016,6 @@ async fn create_resource_type(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
@@ -1056,7 +1047,6 @@ async fn create_resource_type(
             "Resource Type '{}' created",
             resource_type.name.clone()
         )),
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -1111,7 +1101,6 @@ async fn delete_resource_type(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
@@ -1144,7 +1133,6 @@ async fn delete_resource_type(
         &w_id,
         DeployedObject::ResourceType { path: name.clone() },
         None,
-        rsmq.clone(),
         true,
     )
     .await?;
@@ -1162,7 +1150,6 @@ async fn update_resource_type(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
@@ -1201,7 +1188,6 @@ async fn update_resource_type(
         &w_id,
         DeployedObject::ResourceType { path: name.clone() },
         None,
-        rsmq.clone(),
         true,
     )
     .await?;

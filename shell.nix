@@ -7,6 +7,8 @@ let
   rust_overlay = import (builtins.fetchTarball
     "https://github.com/oxalica/rust-overlay/archive/master.tar.gz");
   pkgs = import <nixpkgs> { overlays = [ rust_overlay ]; };
+  lib = pkgs.lib;
+  stdenv = pkgs.stdenv;
   # TODO: Pin version?
   # rustVersion = "latest";
   rustVersion = "2024-09-30";
@@ -35,7 +37,7 @@ in pkgs.mkShell {
 
   # Add the following lines to set the LD_LIBRARY_PATH
   LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath (with pkgs; [
-    lzma
+    xz
     libseccomp
     bzip2
     openssl_3_3
@@ -58,4 +60,36 @@ in pkgs.mkShell {
   # Useful for development
   RUST_LOG = "debug";
 
+  # ---- Samael ----
+  # https://github.com/njaremko/samael/blob/master/flake.nix#L104-L119
+  # Otherwise samael crate will fail to build
+  # Need to tell bindgen where to find libclang
+  LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+
+  # Set C flags for Rust's bindgen program. Unlike ordinary C
+  # compilation, bindgen does not invoke $CC directly. Instead it
+  # uses LLVM's libclang. To make sure all necessary flags are
+  # included we need to look in a few places.
+  # See https://web.archive.org/web/20220523141208/https://hoverbear.org/blog/rust-bindgen-in-nix/
+  BINDGEN_EXTRA_CLANG_ARGS =
+    "${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
+      builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"
+    } ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"} ${
+      builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"
+    } -idirafter ${pkgs.libiconv}/include ${
+      lib.optionalString stdenv.cc.isClang
+      "-idirafter ${stdenv.cc.cc}/lib/clang/${
+        lib.getVersion stdenv.cc.cc
+      }/include"
+    } ${
+      lib.optionalString stdenv.cc.isGNU
+      "-isystem ${stdenv.cc.cc}/include/c++/${
+        lib.getVersion stdenv.cc.cc
+      } -isystem ${stdenv.cc.cc}/include/c++/${
+        lib.getVersion stdenv.cc.cc
+      }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/${
+        lib.getVersion stdenv.cc.cc
+      }/include"
+    }";
+  # ---- Samael ----
 }

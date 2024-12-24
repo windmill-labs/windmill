@@ -11,23 +11,30 @@ use crate::db::ApiAuthed;
 use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
+#[cfg(feature = "oauth2")]
 use crate::oauth2_ee::AllClients;
+#[cfg(feature = "oauth2")]
+use crate::oauth2_ee::SlackVerifier;
+#[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
+
 use crate::tracing_init::MyOnFailure;
 use crate::{
-    oauth2_ee::SlackVerifier,
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
 };
+
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
-use axum::{middleware::from_extractor, routing::get, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
 use db::DB;
 use http::HeaderValue;
 use reqwest::Client;
+#[cfg(feature = "oauth2")]
 use std::collections::HashMap;
+
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
@@ -38,14 +45,17 @@ use tower_http::{
     trace::TraceLayer,
 };
 use windmill_common::db::UserDB;
-use windmill_common::worker::{ALL_TAGS, CLOUD_HOSTED};
-use windmill_common::{BASE_URL, INSTANCE_NAME, utils::GIT_VERSION};
+use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
 
+mod ai;
 mod apps;
+mod args;
 mod audit;
+mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
@@ -58,17 +68,22 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+#[cfg(feature = "http_trigger")]
 mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
-mod ai;
 mod database_triggers;
 
+#[cfg(feature = "enterprise")]
+mod apps_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+mod kafka_triggers_ee;
+#[cfg(feature = "oauth2")]
 pub mod oauth2_ee;
 mod oidc_ee;
 mod raw_apps;
@@ -79,7 +94,8 @@ mod scim_ee;
 mod scripts;
 mod service_logs;
 mod settings;
-pub mod smtp_server_ee;
+#[cfg(feature = "smtp")]
+mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
@@ -89,13 +105,16 @@ mod users_ee;
 mod utils;
 mod variables;
 mod webhook_util;
+#[cfg(feature = "websocket")]
 mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
+mod slack_approvals;
+mod workspaces_export;
+mod workspaces_extra;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
-
 
 lazy_static::lazy_static! {
 
@@ -107,10 +126,6 @@ lazy_static::lazy_static! {
 
     pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
 
-    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
-        .ok()
-        .map(|x| SlackVerifier::new(x).unwrap());
-
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -120,11 +135,22 @@ lazy_static::lazy_static! {
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
+
+}
+
+#[cfg(feature = "oauth2")]
+lazy_static::lazy_static! {
     pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
         slack: None
     }));
+
+
+    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
+        .ok()
+        .map(|x| SlackVerifier::new(x).unwrap());
+
 }
 
 // Compliance with cloud events spec.
@@ -162,31 +188,19 @@ type ServiceLogIndexReader = windmill_indexer::service_logs_ee::ServiceLogIndexR
 
 pub async fn run_server(
     db: DB,
-    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     job_index_reader: Option<IndexReader>,
     log_index_reader: Option<ServiceLogIndexReader>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
-    base_internal_url: String,
+    #[cfg(feature = "smtp")] base_internal_url: String,
 ) -> anyhow::Result<()> {
-    if let Some(mut rsmq) = rsmq.clone() {
-        for tag in ALL_TAGS.read().await.iter() {
-            let r =
-                rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
-            if let Err(e) = r {
-                tracing::info!("Redis queue {tag} could not be created: {e:#}");
-            } else {
-                tracing::info!("Redis queue {tag} created");
-            }
-        }
-    }
     let user_db = UserDB::new(db.clone());
 
     #[cfg(feature = "enterprise")]
     let ext_jwks = ExternalJwks::load().await;
-    let auth_cache = Arc::new(users::AuthCache::new(
+    let auth_cache = Arc::new(crate::auth::AuthCache::new(
         db.clone(),
         std::env::var("SUPERADMIN_SECRET").ok(),
         #[cfg(feature = "enterprise")]
@@ -201,7 +215,6 @@ pub async fn run_server(
 
     let middleware_stack = ServiceBuilder::new()
         .layer(Extension(db.clone()))
-        .layer(Extension(rsmq.clone()))
         .layer(Extension(user_db.clone()))
         .layer(Extension(auth_cache.clone()))
         .layer(Extension(job_index_reader))
@@ -224,17 +237,22 @@ pub async fn run_server(
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
 
-        let smtp_server = Arc::new(SmtpServer {
-            db: db.clone(),
-            user_db: user_db,
-            auth_cache: auth_cache.clone(),
-            rsmq: rsmq.clone(),
-            base_internal_url: base_internal_url.clone(),
-        });
-        if let Err(err) = smtp_server.start_listener_thread(addr).await {
-            tracing::error!("Error starting SMTP server: {err:#}");
+        #[cfg(feature = "smtp")]
+        {
+            let smtp_server = Arc::new(SmtpServer {
+                db: db.clone(),
+                user_db: user_db,
+                auth_cache: auth_cache.clone(),
+                base_internal_url: base_internal_url.clone(),
+            });
+            if let Err(err) = smtp_server.start_listener_thread(addr).await {
+                tracing::error!("Error starting SMTP server: {err:#}");
+            }
         }
     }
+
+    // #[cfg(feature = "kafka")]
+    // start_listening().await;
 
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
@@ -248,7 +266,30 @@ pub async fn run_server(
         }
     };
 
+    let kafka_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            kafka_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "kafka")))]
+        {
+            Router::new()
+        }
+    };
+
     if !*CLOUD_HOSTED {
+        #[cfg(feature = "websocket")]
+        {
+            let ws_killpill_rx = rx.resubscribe();
+            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            let kafka_killpill_rx = rx.resubscribe();
+            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
+        }
         let ws_killpill_rx = rx.resubscribe();
         websocket_triggers::start_websockets(db.clone(), rsmq.clone(), ws_killpill_rx).await;
         let db_killpill_rx = rx.resubscribe();
@@ -282,7 +323,15 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
-                        .nest("/oauth", oauth2_ee::workspaced_service())
+                        .nest("/oauth", {
+                            #[cfg(feature = "oauth2")]
+                            {
+                                oauth2_ee::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "oauth2"))]
+                            Router::new()
+                        })
                         .nest("/ai", ai::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
@@ -295,6 +344,25 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
+                        .nest("/http_triggers", {
+                            #[cfg(feature = "http_trigger")]
+                            {
+                                http_triggers::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "http_trigger"))]
+                            Router::new()
+                        })
+                        .nest("/websocket_triggers", {
+                            #[cfg(feature = "websocket")]
+                            {
+                                websocket_triggers::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "websocket"))]
+                            Router::new()
+                        })
+                        .nest("/kafka_triggers", kafka_triggers_service),
                         .nest("/http_triggers", http_triggers::workspaced_service())
                         .nest(
                             "/websocket_triggers",
@@ -324,10 +392,7 @@ pub async fn run_server(
                     "/srch/w/:workspace_id/index",
                     indexer_ee::workspaced_service(),
                 )
-                .nest(
-                    "/srch/index",
-                    indexer_ee::global_service(),
-                )
+                .nest("/srch/index", indexer_ee::global_service())
                 .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",
@@ -340,6 +405,17 @@ pub async fn run_server(
                 )
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
+                .nest("/apps_u", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        apps_ee::global_unauthed_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest(
                     "/w/:workspace_id/apps_u",
                     apps::unauthed_service()
@@ -350,6 +426,8 @@ pub async fn run_server(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
+                .route("/slack", post(slack_approvals::slack_app_callback_handler))
+                .route("/w/:workspace_id/jobs/slack_approval/:job_id", get(slack_approvals::request_slack_approval))
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),
@@ -362,13 +440,29 @@ pub async fn run_server(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
                 )
-                .nest(
-                    "/oauth",
-                    oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
-                )
+                .nest("/oauth", {
+                    #[cfg(feature = "oauth2")]
+                    {
+                        oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension)))
+                    }
+
+                    #[cfg(not(feature = "oauth2"))]
+                    Router::new()
+                })
                 .nest(
                     "/r",
-                    http_triggers::routes_global_service().layer(from_extractor::<OptAuthed>()),
+                    {
+                        #[cfg(feature = "http_trigger")]
+                        {
+                            http_triggers::routes_global_service()
+                        }
+
+                        #[cfg(not(feature = "http_trigger"))]
+                        {
+                            Router::new()
+                        }
+                    }
+                    .layer(from_extractor::<OptAuthed>()),
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))

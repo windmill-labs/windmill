@@ -13,6 +13,7 @@ export interface Setting {
 		| 'password'
 		| 'select'
 		| 'textarea'
+		| 'codearea'
 		| 'seconds'
 		| 'email'
 		| 'license_key'
@@ -20,6 +21,8 @@ export interface Setting {
 		| 'critical_error_channels'
 		| 'slack_connect'
 		| 'smtp_connect'
+		| 'indexer_rates'
+		| 'otel'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -31,9 +34,31 @@ export interface Setting {
 	isValid?: (value: any) => boolean
 	error?: string
 	defaultValue?: () => any
+	codeAreaLang?: string,
 }
 
 export type SettingStorage = 'setting'
+
+export const scimSamlSetting: Setting[] = [
+	{
+		label: 'SCIM token',
+		description: 'Token used to authenticate requests from the IdP',
+		key: 'scim_token',
+		fieldType: 'text',
+		placeholder: 'mytoken',
+		storage: 'setting',
+		ee_only: ''
+	},
+	{
+		label: 'SAML metadata',
+		description: 'XML metadata url OR content for the SAML IdP',
+		key: 'saml_metadata',
+		fieldType: 'textarea',
+		placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
+		storage: 'setting',
+		ee_only: ''
+	}
+]
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
@@ -82,6 +107,13 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false
 		},
 		{
+			label: 'Keep job directories for debug',
+			key: 'keep_job_dir',
+			fieldType: 'boolean',
+			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
+			storage: 'setting'
+		},
+		{
 			label: 'Max timeout for sync endpoints',
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',
@@ -106,7 +138,8 @@ export const settings: Record<string, Setting[]> = {
 				'Whether we should consider the reported usage of this instance as non-prod. <a href="https://www.windmill.dev/docs/advanced/instance_settings#non-prod-instance">Learn more</a>',
 			key: 'dev_instance',
 			fieldType: 'boolean',
-			storage: 'setting'
+			storage: 'setting',
+			ee_only: ''
 		},
 		{
 			label: 'Retention period in secs',
@@ -120,14 +153,15 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false
 		},
 		{
-			label: 'Expose metrics',
+			label: 'Delete logs from s3 periodically',
 			description:
-				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
-			key: 'expose_metrics',
+				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+			key: 'monitor_logs_on_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
 		},
+
 		{
 			label: 'Instance object storage',
 			description:
@@ -137,24 +171,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-		{
-			label: 'Critical alert channels',
-			description:
-				'Channels to send critical alerts to. SMTP must be configured for the email channel. A Slack workspace must be connected to the instance for the Slack channel. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
-			key: 'critical_error_channels',
-			fieldType: 'critical_error_channels',
-			storage: 'setting',
-			ee_only: 'Channels other than tracing are only available in the EE version'
-		},
-		{
-			label: 'Mute critical alerts in UI',
-			description: 'Enable to mute critical alerts in the UI',
-			key: 'critical_alert_mute_ui',
-			fieldType: 'boolean',
-			storage: 'setting',
-			requiresReloadOnChange: true,
-			ee_only: 'Critical alerts in UI are only available in the EE version'
-		},
+
 		{
 			label: 'Azure OpenAI base path',
 			description:
@@ -200,10 +217,10 @@ export const settings: Record<string, Setting[]> = {
 			requiresReloadOnChange: true
 		}
 	],
-	'SSO/OAuth': [],
+	'Auth/OAuth': [],
 	Registries: [
 		{
-			label: 'Pip Index Url',
+			label: 'Pip index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
 			fieldType: 'text',
@@ -212,7 +229,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Pip Extra Index Url',
+			label: 'Pip extra index url',
 			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
@@ -221,7 +238,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Npm Config Registry',
+			label: 'Npm config registry',
 			description: 'Add private npm registry',
 			key: 'npm_config_registry',
 			fieldType: 'text',
@@ -230,7 +247,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Bunfig Install Scopes',
+			label: 'Bunfig install scopes',
 			description:
 				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
 			key: 'bunfig_install_scopes',
@@ -238,9 +255,44 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Nuget Config',
+			description:
+				'Write a nuget.config file to set custom package sources and credentials',
+			key: 'nuget_config',
+			fieldType: 'codearea',
+			codeAreaLang: 'xml',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
-	SMTP: [
+	Alerts: [
+		{
+			label: 'Critical alert channels',
+			description:
+				'Channels to send critical alerts to. SMTP and Slack must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
+			key: 'critical_error_channels',
+			fieldType: 'critical_error_channels',
+			storage: 'setting',
+			ee_only: 'Channels other than tracing are only available in the EE version'
+		},
+		{
+			label: 'Mute critical alerts in UI',
+			description: 'Enable to mute critical alerts in the UI',
+			key: 'critical_alert_mute_ui',
+			fieldType: 'boolean',
+			storage: 'setting',
+			requiresReloadOnChange: true,
+			ee_only: 'Critical alerts in UI are only available in the EE version'
+		},
+		{
+			label: 'Slack',
+			key: 'slack',
+			fieldType: 'slack_connect',
+			storage: 'setting',
+			ee_only: ''
+		},
 		{
 			label: 'SMTP',
 			key: 'smtp_settings',
@@ -249,51 +301,35 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
-	Slack: [
+	'OTEL/Prom': [
 		{
-			label: 'Slack',
-			key: 'slack',
-			fieldType: 'slack_connect',
-			storage: 'setting',
-			ee_only: ''
-		}
-	],
-	'SCIM/SAML': [
-		{
-			label: 'SCIM token',
-			description: 'Token used to authenticate requests from the IdP',
-			key: 'scim_token',
-			fieldType: 'text',
-			placeholder: 'mytoken',
+			label: 'OpenTelemetry',
+			key: 'otel',
+			fieldType: 'otel',
 			storage: 'setting',
 			ee_only: ''
 		},
+
 		{
-			label: 'SAML metadata',
-			description: 'XML metadata url OR content for the SAML IdP',
-			key: 'saml_metadata',
-			fieldType: 'textarea',
-			placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
+			label: 'Prometheus',
+			description:
+				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
+			key: 'expose_metrics',
+			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
 		}
 	],
-	Debug: [
+	Indexer: [
 		{
-			label: 'Keep job directories',
-			key: 'keep_job_dir',
-			fieldType: 'boolean',
-			description: 'Keep Job directories after execution at /tmp/windmill/WORKER/JOB_ID',
-			storage: 'setting'
-		},
-		{
-			label: 'Expose debug metrics',
-			key: 'expose_debug_metrics',
-			fieldType: 'boolean',
-			description: 'Expose additional metrics (require metrics to be enabled)',
-			storage: 'setting'
+			label: '',
+			key: 'indexer_settings',
+			fieldType: 'indexer_rates',
+			storage: 'setting',
+			ee_only: 'Full text search across jobs and service logs is an EE feature'
 		}
 	],
+
 	Telemetry: [
 		{
 			label: 'Disable telemetry',

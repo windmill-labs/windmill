@@ -72,14 +72,24 @@ export function displayDate(
 	displayDate = true
 ): string {
 	const date = new Date(dateString ?? '')
-	if (date.toString() === 'Invalid Date') {
+	if (Number.isNaN(date.valueOf())) {
 		return ''
 	} else {
-		return `${date.toLocaleTimeString([], {
+		const timeChoices: Intl.DateTimeFormatOptions = {
 			hour: '2-digit',
 			minute: '2-digit',
 			second: displaySecond ? '2-digit' : undefined
-		})}${displayDate ? ` ${date.getDate()}/${date.getMonth() + 1}` : ''}`
+		}
+		const dateChoices: Intl.DateTimeFormatOptions = displayDate
+			? {
+					day: 'numeric',
+					month: 'numeric'
+			  }
+			: {}
+		return date.toLocaleString(undefined, {
+			...timeChoices,
+			...dateChoices
+		})
 	}
 }
 
@@ -174,6 +184,8 @@ const portalDivs = ['app-editor-select']
 interface ClickOutsideOptions {
 	capture?: boolean
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
+	stopPropagation?: boolean
+	customEventName?: string
 }
 
 export function clickOutside(
@@ -204,8 +216,15 @@ export function clickOutside(
 			const parent = target.closest(portalDivsSelector)
 
 			if (!parent) {
+				if (opts?.stopPropagation) {
+					event.stopPropagation()
+				}
 				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
 			}
+		}
+
+		if (opts?.customEventName) {
+			node.dispatchEvent(new CustomEvent<MouseEvent>(opts.customEventName, { detail: event }))
 		}
 	}
 
@@ -218,6 +237,63 @@ export function clickOutside(
 		},
 		destroy() {
 			document.removeEventListener('click', handleClick, capture ?? true)
+		}
+	}
+}
+
+export function pointerDownOutside(
+	node: Node,
+	options?: ClickOutsideOptions
+): { destroy(): void; update(newOptions: ClickOutsideOptions): void } {
+	const handlePointerDown = async (event: PointerEvent) => {
+		if (options?.customEventName) {
+			node.dispatchEvent(
+				new CustomEvent<PointerEvent>(options.customEventName, {
+					detail: event,
+					bubbles: true
+				})
+			)
+		}
+		const target = event.target as HTMLElement
+
+		let excludedElements: HTMLElement[] = []
+		if (options?.exclude) {
+			if (Array.isArray(options.exclude)) {
+				excludedElements = options.exclude
+			} else {
+				excludedElements = await options.exclude()
+			}
+		}
+
+		const isExcluded = excludedElements.some((excludedEl) => {
+			const contains = excludedEl?.contains?.(target)
+			const isTarget = target === excludedEl
+			return contains || isTarget
+		})
+
+		if (node && !node.contains(target) && !event.defaultPrevented && !isExcluded) {
+			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+			const parent = target.closest(portalDivsSelector)
+
+			if (!parent) {
+				if (options?.stopPropagation) {
+					event.stopPropagation()
+				}
+				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
+				return false
+			}
+		}
+	}
+
+	const capture = options?.capture ?? true
+	document.addEventListener('pointerdown', handlePointerDown, capture ?? true)
+
+	return {
+		update(newOptions: ClickOutsideOptions) {
+			options = newOptions
+		},
+		destroy() {
+			document.removeEventListener('pointerdown', handlePointerDown, capture ?? true)
 		}
 	}
 }
@@ -462,6 +538,20 @@ export function formatCron(inp: string): string {
 	} else {
 		return inp
 	}
+}
+
+export function cronV1toV2(inp: string): string {
+	let splitted = inp.split(' ')
+	splitted = splitted.filter(String)
+	// subtract 1 from day of week (last element of array if element is a number >= 1 )
+	let dowStr = splitted[splitted.length - 1]
+	if (dowStr && !isNaN(parseInt(dowStr))) {
+		let dow = parseInt(dowStr)
+		if (dow > 0) {
+			splitted[splitted.length - 1] = (dow - 1).toString()
+		}
+	}
+	return splitted.concat(Array(6 - splitted.length).fill('*')).join(' ')
 }
 
 export function classNames(...classes: Array<string | undefined>): string {
@@ -816,11 +906,10 @@ function replaceFalseWithUndefinedRec(obj: any) {
 				// If the value is false, replace it with undefined
 				if (obj[key] === false) {
 					// delete obj[key];
-					obj[key] = undefined;
-
+					obj[key] = undefined
 				} else {
 					// If the value is an object, call the function recursively
-					replaceFalseWithUndefinedRec(obj[key]);
+					replaceFalseWithUndefinedRec(obj[key])
 				}
 			}
 		}
@@ -1004,4 +1093,14 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 export function validateFileExtension(ext: string) {
 	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
 	return validExtensionRegex.test(ext)
+}
+
+export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
+	return !!job_kind && (job_kind === 'flowpreview' || job_kind === 'flownode')
+}
+
+export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
+	return (
+		!!job_kind && (job_kind === 'preview' || job_kind === 'flowscript' || job_kind === 'appscript')
+	)
 }

@@ -6,7 +6,10 @@
 		userStore,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
-		enterpriseLicense
+		enterpriseLicense,
+
+		devopsRole
+
 	} from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -50,6 +53,7 @@
 	import { type Changelog, changelogs } from './changelogs'
 	import { page } from '$app/stores'
 	import SideBarNotification from './SideBarNotification.svelte'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -97,6 +101,13 @@
 			icon: Unplug,
 			disabled: $userStore?.operator,
 			kind: 'ws'
+		},
+		{
+			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/kafka_triggers',
+			icon: KafkaIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'kafka'
 		},
 		{
 			label: 'Database',
@@ -150,7 +161,7 @@
 				...(!$superadmin && !$userStore?.is_admin
 					? [
 							{
-								label: 'Leave Workspace',
+								label: 'Leave workspace',
 								action: () => {
 									leaveWorkspaceModal = true
 								},
@@ -185,20 +196,20 @@
 			],
 			disabled: $userStore?.operator
 		},
-		$superadmin || $userStore?.is_admin
+		$devopsRole || $userStore?.is_admin
 			? {
 					label: 'Logs',
 					icon: Logs,
 					subItems: [
 						{
-							label: 'Audit Logs',
+							label: 'Audit logs',
 							href: `${base}/audit_logs`,
 							icon: Eye
 						},
-						...($superadmin
+						...($devopsRole
 							? [
 									{
-										label: 'Service Logs',
+										label: 'Service logs',
 										href: `${base}/service_logs`,
 										icon: Logs
 									}
@@ -207,7 +218,7 @@
 						...($enterpriseLicense
 							? [
 									{
-										label: 'Critical Alerts',
+										label: 'Critical alerts',
 										action: () => {
 											isCriticalAlertsUIOpen.set(true)
 										},
@@ -219,7 +230,7 @@
 					]
 			  }
 			: {
-					label: 'Audit Logs',
+					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator
@@ -319,9 +330,10 @@
 							<MenuItem>
 								<div class="py-1" role="none">
 									<a
-										href={subItem.href}
+										href={subItem.disabled ? '' : subItem.href}
 										class={twMerge(
-											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary'
+											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary',
+											subItem.disabled ? 'pointer-events-none opacity-50' : ''
 										)}
 										role="menuitem"
 										tabindex="-1"

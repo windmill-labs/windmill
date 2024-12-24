@@ -41,7 +41,7 @@ pub async fn handle_go_job(
     client: &AuthedClientBackgroundTask,
     inner_content: &str,
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
@@ -194,6 +194,10 @@ func Run(req Req) (interface{{}}, error){{
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        build_go_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+
         let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
         handle_child(
             &job.id,
@@ -292,6 +296,9 @@ func Run(req Req) (interface{{}}, error){{
         if let Some(ref goproxy) = *GOPROXY {
             run_go.env("GOPROXY", goproxy);
         }
+
+        #[cfg(windows)]
+        run_go.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
 
         run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
         start_child_process(run_go, compiled_executable_name).await?

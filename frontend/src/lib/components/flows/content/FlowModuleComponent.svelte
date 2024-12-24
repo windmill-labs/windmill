@@ -57,7 +57,8 @@
 		pathStore,
 		saveDraft,
 		flowInputsStore,
-		customUi
+		customUi,
+		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -107,17 +108,18 @@
 
 	$: editor !== undefined && setCopilotModuleEditor()
 
-	$: stepPropPicker = failureModule
-		? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
-		: getStepPropPicker(
-				$flowStateStore,
-				parentModule,
-				previousModule,
-				flowModule.id,
-				$flowStore,
-				$previewArgs,
-				false
-		  )
+	$: stepPropPicker =
+		$executionCount != undefined && failureModule
+			? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
+			: getStepPropPicker(
+					$flowStateStore,
+					parentModule,
+					previousModule,
+					flowModule.id,
+					$flowStore,
+					$previewArgs,
+					false
+			  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -265,6 +267,9 @@
 							$flowStateStore[flowModule.id].schema,
 							$pathStore
 						)
+						if (flowModule.value.type == 'rawscript') {
+							module.value.input_transforms = flowModule.value.input_transforms
+						}
 						flowModule = module
 						$flowStateStore[module.id] = state
 					}}
@@ -478,7 +483,7 @@
 											<FlowRetries bind:flowModuleRetry={flowModule.retry} />
 										</Section>
 									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
-										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
+										<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
 											</svelte:fragment>

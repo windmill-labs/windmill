@@ -59,7 +59,7 @@
 
 	$: inlineScript &&
 		(inlineScript.path = `${defaultIfEmptyString(
-			appPath,
+			$appPath,
 			`u/${$userStore?.username ?? 'unknown'}/newapp`
 		)}/${name?.replaceAll(' ', '_')}`)
 

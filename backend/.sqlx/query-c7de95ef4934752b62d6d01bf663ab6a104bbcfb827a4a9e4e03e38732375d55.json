@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value AS \"value!: Json<Box<RawValue>>\"\n                FROM flow_version_lite WHERE id = $1 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c7de95ef4934752b62d6d01bf663ab6a104bbcfb827a4a9e4e03e38732375d55"
+}

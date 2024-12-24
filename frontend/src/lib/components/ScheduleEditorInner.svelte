@@ -20,11 +20,11 @@
 		type Retry
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { List, Loader2, Save } from 'lucide-svelte'
+	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
@@ -37,6 +37,10 @@
 	let initialPath = ''
 	let edit = true
 	let schedule: string = '0 0 12 * *'
+	let cronVersion: string = 'v2'
+	let isLatestCron = true
+	let initialCronVersion: string = 'v2'
+	let initialSchedule: string
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
 	let paused_until: string | undefined = undefined
 
@@ -214,11 +218,13 @@
 	async function loadScript(p: string | undefined): Promise<void> {
 		if (p) {
 			runnable = undefined
-			if (is_flow) {
-				runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
-			} else {
-				runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
-			}
+			try {
+				if (is_flow) {
+					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+				} else {
+					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
+				}
+			} catch (err) {}
 		} else {
 			runnable = undefined
 		}
@@ -315,8 +321,12 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
+			cronVersion = s.cron_version ?? 'v2'
+			initialCronVersion = cronVersion
+			isLatestCron = cronVersion == 'v2'
 			enabled = s.enabled
 			schedule = s.schedule
+			initialSchedule = schedule
 			timezone = s.timezone
 			paused_until = s.paused_until
 			showPauseUntil = paused_until !== undefined
@@ -423,7 +433,8 @@
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
-					paused_until: paused_until
+					paused_until: paused_until,
+					cron_version: cronVersion
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -456,7 +467,8 @@
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
-					paused_until: paused_until
+					paused_until: paused_until,
+					cron_version: cronVersion
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -495,11 +507,30 @@
 
 	let showPauseUntil = false
 	$: !showPauseUntil && (paused_until = undefined)
+
+	function onVersionChange() {
+		cronVersion = isLatestCron ? 'v2' : 'v1'
+		if (cronVersion === 'v2' && initialCronVersion === 'v1') {
+			// switches day-of-week from v1 -> v2
+			schedule = cronV1toV2(schedule)
+		} else if (
+			cronVersion === 'v1' &&
+			initialCronVersion === 'v1' &&
+			schedule !== initialSchedule
+		) {
+			// revert back to original
+			schedule = initialSchedule
+		}
+	}
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
 	<DrawerContent
-		title={edit ? `Edit schedule ${initialPath}` : 'New schedule'}
+		title={edit
+			? can_write
+				? `Edit schedule ${initialPath}`
+				: `View schedule ${initialPath}`
+			: 'New schedule'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
@@ -516,22 +547,24 @@
 							View runs
 						</Button>
 					</div>
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'Enabled' }}
-							on:change={async (e) => {
-								await ScheduleService.setScheduleEnabled({
-									path: initialPath,
-									workspace: $workspaceStore ?? '',
-									requestBody: { enabled: e.detail }
-								})
-								dispatch('update')
-								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
-							}}
-						/>
-					</div>
+					{#if can_write}
+						<div class="mr-8 center-center -mt-1">
+							<Toggle
+								disabled={!can_write}
+								checked={enabled}
+								options={{ right: 'Enabled' }}
+								on:change={async (e) => {
+									await ScheduleService.setScheduleEnabled({
+										path: initialPath,
+										workspace: $workspaceStore ?? '',
+										requestBody: { enabled: e.detail }
+									})
+									dispatch('update')
+									sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+								}}
+							/>
+						</div>
+					{/if}
 				{/if}
 				<Button
 					startIcon={{ icon: Save }}
@@ -540,7 +573,8 @@
 						emptyString(script_path) ||
 						(errorHandlerSelected == 'slack' &&
 							!emptyString(errorHandlerPath) &&
-							emptyString(errorHandlerExtraArgs['channel']))}
+							emptyString(errorHandlerExtraArgs['channel'])) ||
+						!can_write}
 					on:click={scheduleScript}
 				>
 					{edit ? 'Save' : 'Schedule'}
@@ -550,6 +584,7 @@
 		{#if drawerLoading}
 			<Loader2 class="animate-spin" />
 		{:else}
+			{can_write}
 			<div class="flex flex-col gap-12">
 				<div class="flex flex-col gap-4">
 					<div>
@@ -562,6 +597,7 @@
 								placeholder="Short summary to be displayed when listed"
 								class="text-sm w-full"
 								bind:value={summary}
+								disabled={!can_write}
 								on:keyup={() => {
 									if (!edit && summary?.length > 0 && !dirtyPath) {
 										pathC?.setName(
@@ -614,9 +650,42 @@
 
 				<Section label="Schedule">
 					<svelte:fragment slot="header">
-						<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+						{#if cronVersion === 'v1'}
+							<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+						{:else}
+							<Tooltip
+								>Schedules use <a
+									href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax"
+									>extended CRON syntax</a
+								>.</Tooltip
+							>
+						{/if}
 					</svelte:fragment>
-					<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
+					{#if initialCronVersion !== 'v2'}
+						<div class="flex flex-row">
+							<AlertTriangle color="orange" class="mr-2" size={16} />
+							<Toggle
+								options={{
+									right: 'enable latest Cron syntax',
+									rightTooltip:
+										'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
+									rightDocumentationLink:
+										'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
+								}}
+								size="xs"
+								bind:checked={isLatestCron}
+								on:change={onVersionChange}
+								disabled={!can_write}
+							/>
+						</div>
+					{/if}
+					<CronInput
+						disabled={!can_write}
+						bind:schedule
+						bind:timezone
+						bind:validCRON
+						bind:cronVersion
+					/>
 					<Toggle
 						options={{
 							right: 'Pause schedule until...',
@@ -625,6 +694,7 @@
 						}}
 						bind:checked={showPauseUntil}
 						size="xs"
+						disabled={!can_write}
 					/>
 					{#if showPauseUntil}
 						<DateTimeInput bind:value={paused_until} />
@@ -658,6 +728,8 @@
 							scriptPath={script_path}
 							allowFlow={true}
 							{itemKind}
+							allowView={script_path != '' && !!runnable}
+							allowEdit={script_path != '' && !!runnable && !$userStore?.operator}
 						/>
 					{/if}
 					{#if itemKind == 'flow'}
@@ -695,6 +767,11 @@
 										This {is_flow ? 'flow' : 'script'} takes no argument
 									</div>
 								{/if}
+							{:else if script_path != ''}
+								<div class="text-xs texg-gray-700 my-2">
+									You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have
+									access to it.
+								</div>
 							{:else}
 								<div class="text-xs texg-gray-700 my-2">
 									Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
@@ -730,6 +807,7 @@
 									<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
 										defaults
 										<Dropdown
+											disabled={!can_write}
 											items={[
 												{
 													displayName: `Override future schedules only`,
@@ -822,6 +900,7 @@
 								</div>
 							</Section>
 						{:else if optionTabSelected === 'recovery_handler'}
+							{@const disabled = !can_write || emptyString($enterpriseLicense)}
 							<Section label="Recovery handler">
 								<svelte:fragment slot="header">
 									<div class="flex flex-row gap-2">
@@ -833,6 +912,7 @@
 									<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
 										defaults
 										<Dropdown
+											{disabled}
 											items={[
 												{
 													displayName: `Override future schedules only`,
@@ -853,7 +933,7 @@
 									</div>
 								</svelte:fragment>
 								<ErrorOrRecoveryHandler
-									isEditable={can_write && !emptyString($enterpriseLicense)}
+									isEditable={!disabled}
 									errorOrRecovery="recovery"
 									bind:handlerSelected={recoveryHandlerSelected}
 									bind:handlerPath={recoveryHandlerPath}
@@ -906,12 +986,14 @@
 											class="!w-14 mx-2 text-center"
 											bind:value={recoveredTimes}
 											min="1"
+											{disabled}
 										/>
 										<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
 									</div>
 								</div>
 							</Section>
 						{:else if optionTabSelected === 'success_handler'}
+							{@const disabled = !can_write || emptyString($enterpriseLicense)}
 							<Section label="Success handler">
 								<svelte:fragment slot="header">
 									<div class="flex flex-row gap-2">
@@ -923,6 +1005,7 @@
 									<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
 										defaults
 										<Dropdown
+											{disabled}
 											items={[
 												{
 													displayName: `Override future schedules only`,
@@ -943,7 +1026,7 @@
 									</div>
 								</svelte:fragment>
 								<ErrorOrRecoveryHandler
-									isEditable={can_write && !emptyString($enterpriseLicense)}
+									isEditable={!disabled}
 									errorOrRecovery="success"
 									bind:handlerSelected={successHandlerSelected}
 									bind:handlerPath={successHandlerPath}
@@ -974,6 +1057,7 @@
 								</ErrorOrRecoveryHandler>
 							</Section>
 						{:else if optionTabSelected === 'retries'}
+							{@const disabled = !can_write || emptyString($enterpriseLicense)}
 							<Section label="Retries">
 								<svelte:fragment slot="header">
 									<div class="flex flex-row gap-2">
@@ -988,14 +1072,17 @@
 										flow step in the flow editor.
 									</Tooltip>
 								</svelte:fragment>
-								<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script'} />
+								<FlowRetries
+									bind:flowModuleRetry={retry}
+									disabled={itemKind !== 'script' || disabled}
+								/>
 							</Section>
 						{:else if optionTabSelected === 'tag'}
 							<Section
 								label="Custom script tag"
 								tooltip="When set, the script tag will be overridden by this tag"
 							>
-								<WorkerTagPicker bind:tag popupPlacement="top-end" />
+								<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
 							</Section>
 						{/if}
 					{:else}

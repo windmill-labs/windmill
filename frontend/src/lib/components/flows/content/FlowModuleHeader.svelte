@@ -108,7 +108,8 @@
 	{/if}
 	{#if module.value.type === 'script'}
 		<div class="w-2" />
-		{#if !module.value.path.startsWith('hub/')}
+
+		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
 			<Button
 				size="xs"
 				color="light"
@@ -123,12 +124,17 @@
 				}}
 				startIcon={{ icon: Pen }}
 				iconOnly={false}
+				tooltip={module.value.hash != undefined
+					? 'Script is locked with a specific hash'
+					: undefined}
 				disabled={module.value.hash != undefined}
 			>
-				Edit {#if module.value.hash != undefined} (locked hash){/if}
+				Edit
 			</Button>
 		{/if}
-		<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
+		{#if customUi?.tagEdit != false}
+			<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
+		{/if}
 		{#if customUi?.scriptFork != false}
 			<Button
 				size="xs"

@@ -4,7 +4,7 @@ use core::fmt::Write;
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use reqwest::Response;
+use reqwest::{Client, Response};
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{resolve_job_timeout, OccupancyMetrics};
+use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
@@ -122,6 +122,7 @@ fn do_snowflake_inner<'a>(
     token_is_keypair: bool,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    http_client: &'a Client,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     body.insert("statement".to_string(), json!(query));
 
@@ -145,7 +146,7 @@ fn do_snowflake_inner<'a>(
     }
 
     let result_f = async move {
-        let mut request = HTTP_CLIENT
+        let mut request = http_client
             .post(format!(
                 "https://{}.snowflakecomputing.com/api/v2/statements/",
                 account_identifier.to_uppercase()
@@ -365,6 +366,11 @@ pub async fn do_snowflake(
 
     let queries = parse_sql_blocks(query);
 
+    let (timeout_duration, _, _) =
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+
+    let http_client = build_http_client(timeout_duration)?;
+
     let result_f = if queries.len() > 1 {
         let futures = queries
             .iter()
@@ -379,6 +385,7 @@ pub async fn do_snowflake(
                     token_is_keypair,
                     None,
                     annotations.return_last_result && i < queries.len() - 1,
+                    &http_client,
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -407,6 +414,7 @@ pub async fn do_snowflake(
             token_is_keypair,
             Some(column_order),
             false,
+            &http_client,
         )?
     };
     let r = run_future_with_polling_update_job_poller(
@@ -419,6 +427,7 @@ pub async fn do_snowflake(
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
     *mem_peak = (r.get().len() / 1000) as i32;

@@ -15,6 +15,7 @@
 		HttpTriggerService,
 		VariableService,
 		WebsocketTriggerService,
+		KafkaTriggerService,
 
 		DatabaseTriggerService
 
@@ -40,6 +41,7 @@
 		| 'raw_app'
 		| 'http_trigger'
 		| 'websocket_trigger'
+		| 'kafka_trigger'
 		| 'database_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
@@ -226,6 +228,11 @@
 			})
 		} else if (kind == 'websocket_trigger') {
 			return await WebsocketTriggerService.existsWebsocketTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'kafka_trigger') {
+			return await KafkaTriggerService.existsKafkaTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

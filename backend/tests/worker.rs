@@ -1,4 +1,6 @@
-use std::str::FromStr;
+use serde::de::DeserializeOwned;
+use std::future::Future;
+use std::{str::FromStr, sync::Arc};
 use windmill_api_client::types::{NewScript, NewScriptLanguage};
 
 #[cfg(feature = "enterprise")]
@@ -10,6 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
 
+use tokio::sync::RwLock;
 #[cfg(feature = "enterprise")]
 use tokio::time::{timeout, Duration};
 
@@ -28,6 +31,9 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
     jobs::{JobKind, JobPayload, RawCode},
     scripts::{ScriptHash, ScriptLang},
+    worker::{
+        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
+    },
 };
 use windmill_queue::PushIsolationLevel;
 
@@ -76,7 +82,11 @@ async fn initialize_tracing() {
 
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        let _ = windmill_common::tracing_init::initialize_tracing("test");
+        let _ = windmill_common::tracing_init::initialize_tracing(
+            "test",
+            &windmill_common::utils::Mode::Standalone,
+            "test",
+        );
     });
 }
 
@@ -125,17 +135,20 @@ impl ApiServer {
             db.clone(),
             None,
             None,
-            None,
             addr,
             rx,
             port_tx,
             false,
+            #[cfg(feature = "smtp")]
             format!("http://localhost:{}", addr.port()),
         ));
 
         _port_rx.await.unwrap();
 
-        return Self { addr, tx, task };
+        // clear the cache between tests
+        windmill_common::cache::clear();
+
+        Self { addr, tx, task }
     }
 
     async fn close(self) -> anyhow::Result<()> {
@@ -898,8 +911,8 @@ impl RunJob {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
         }
 
-        let tx = PushIsolationLevel::IsolatedRoot(db.clone(), None);
-        let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+        let (uuid, tx) = windmill_queue::push(
             &db,
             tx,
             "test-workspace",
@@ -1017,7 +1030,7 @@ fn spawn_test_worker(
             windmill_common::worker::make_suspended_pull_query(&wc).await;
             windmill_common::worker::make_pull_query(&wc).await;
         }
-        windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
+        windmill_worker::run_worker(
             &db,
             worker_instance,
             worker_name,
@@ -1027,7 +1040,6 @@ fn spawn_test_worker(
             rx,
             tx2,
             &base_internal_url,
-            None,
             false,
         )
         .await
@@ -1171,6 +1183,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             continue_on_error: None,
                             skip_if: None,
                         }],
+                        modules_node: None,
                     }
                     .into(),
                     stop_after_if: Default::default(),
@@ -1387,6 +1400,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 skip_if: None,
                             },
                         ],
+                        modules_node: None,
                     }.into(),
                     stop_after_if: Default::default(),
                     stop_after_all_iters_if: Default::default(),
@@ -1792,6 +1806,48 @@ fn main(world: String) -> Result<String, String> {
 
     assert_eq!(result, serde_json::json!("Hello Hyrule!"));
 }
+
+// #[sqlx::test(fixtures("base"))]
+// async fn test_csharp_job(db: Pool<Postgres>) {
+//     initialize_tracing().await;
+//     let server = ApiServer::start(db.clone()).await;
+//     let port = server.addr.port();
+//
+//     let content = r#"
+// using System;
+//
+// class Script
+// {
+//     public static string Main(string world, int b = 2)
+//     {
+//         Console.WriteLine($"Hello {world} - {b}. This is a log line");
+//         return $"Hello {world} - {b}";
+//     }
+// }
+//         "#
+//     .to_owned();
+//
+//     let result = RunJob::from(JobPayload::Code(RawCode {
+//         hash: None,
+//         content,
+//         path: None,
+//         lock: None,
+//         language: ScriptLang::CSharp,
+//         custom_concurrency_key: None,
+//         concurrent_limit: None,
+//         concurrency_time_window_s: None,
+//         cache_ttl: None,
+//         dedicated_worker: None,
+//     }))
+//     .arg("world", json!("Arakis"))
+//     .arg("b", json!(3))
+//     .run_until_complete(&db, port)
+//     .await
+//     .json_result()
+//     .unwrap();
+//
+//     assert_eq!(result, serde_json::json!("Hello Arakis - 3"));
+// }
 
 #[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) {
@@ -3112,6 +3168,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         summary: None,
         tag: None,
         paused_until: None,
+        cron_version: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3179,6 +3236,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 no_flow_overlap: None,
                 tag: None,
                 paused_until: None,
+                cron_version: None,
             },
         )
         .await
@@ -3261,6 +3319,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         summary: None,
         tag: None,
         paused_until: None,
+        cron_version: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3329,6 +3388,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 no_flow_overlap: None,
                 tag: None,
                 paused_until: None,
+                cron_version: None,
             },
         )
         .await
@@ -3611,4 +3671,541 @@ def main():
 
     run_deployed_relative_imports(&db, content.clone(), ScriptLang::Python3).await;
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
+}
+
+#[sqlx::test(fixtures("base", "result_format"))]
+async fn test_result_format(db: Pool<Postgres>) {
+    let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
+
+    set_jwt_secret().await;
+
+    let server = ApiServer::start(db.clone()).await;
+
+    let port = server.addr.port();
+
+    let token = windmill_worker::create_token_for_owner(
+        &db,
+        "test-workspace",
+        "u/test-user",
+        "",
+        100,
+        "",
+        &Uuid::nil(),
+    )
+    .await
+    .unwrap();
+
+    #[derive(Debug, Deserialize)]
+    struct JobResponse {
+        result: Option<Box<serde_json::value::RawValue>>,
+    }
+
+    async fn get_result<T: DeserializeOwned>(url: String) -> T {
+        reqwest::get(url)
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    let correct_result = r#"[{"b":"first","a":"second"}]"#;
+
+    let job_response: JobResponse = get_result(format!("http://localhost:{port}/api/w/test-workspace/jobs_u/get/{ordered_result_job_id}?token={token}&no_logs=true")).await;
+    assert_eq!(job_response.result.unwrap().get(), correct_result);
+
+    let job_response: JobResponse = get_result(format!("http://localhost:{port}/api/w/test-workspace/jobs_u/completed/get_result_maybe/{ordered_result_job_id}?token={token}&no_logs=true")).await;
+    assert_eq!(job_response.result.unwrap().get(), correct_result);
+
+    let job_result: Box<serde_json::value::RawValue> = get_result(format!("http://localhost:{port}/api/w/test-workspace/jobs_u/completed/get_result/{ordered_result_job_id}?token={token}&no_logs=true")).await;
+    assert_eq!(job_result.get(), correct_result);
+
+    let response = windmill_api::jobs::run_wait_result(
+        &db,
+        Uuid::parse_str(ordered_result_job_id).unwrap(),
+        "test-workspace".to_string(),
+        None,
+        "test-user",
+    )
+    .await
+    .unwrap();
+    let result: Box<serde_json::value::RawValue> = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert_eq!(result.get(), correct_result);
+}
+
+async fn test_for_versions<F: Future<Output = ()>>(
+    version_flags: impl Iterator<Item = Arc<RwLock<bool>>>,
+    test: impl Fn() -> F,
+) {
+    for version_flag in version_flags {
+        *version_flag.write().await = true;
+        test().await;
+    }
+}
+
+mod job_payload {
+    use super::*;
+
+    use lazy_static::lazy_static;
+
+    use windmill_common::cache;
+    use windmill_common::flows::FlowNodeId;
+
+    lazy_static! {
+        static ref VERSION_FLAGS: [Arc<RwLock<bool>>; 3] = [
+            MIN_VERSION_IS_AT_LEAST_1_427.clone(),
+            MIN_VERSION_IS_AT_LEAST_1_432.clone(),
+            MIN_VERSION_IS_AT_LEAST_1_440.clone(),
+        ];
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_script_hash_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123412),
+                path: "f/system/hello".to_string(),
+                custom_concurrency_key: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                language: ScriptLang::Deno,
+                priority: None,
+                apply_preprocessor: false,
+            })
+            .arg("world", json!("foo"))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(result, json!("Hello foo!"));
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_flow_script_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        // Deploy the flow to produce the "lite" version.
+        let _ = RunJob::from(JobPayload::FlowDependencies {
+            path: "f/system/hello_with_nodes_flow".to_string(),
+            dedicated_worker: None,
+            version: 1443253234253454,
+        })
+        .run_until_complete(&db, port)
+        .await
+        .json_result()
+        .unwrap();
+
+        let flow_data = cache::flow::fetch_version_lite(&db, 1443253234253454)
+            .await
+            .unwrap();
+        let flow_value = flow_data.value();
+        let flow_scripts = {
+            async fn load(db: &Pool<Postgres>, modules: &[FlowModule]) -> Vec<FlowNodeId> {
+                let mut res = vec![];
+                for module in modules {
+                    let value =
+                        serde_json::from_str::<FlowModuleValue>(module.value.get()).unwrap();
+                    match value {
+                        FlowModuleValue::FlowScript { id, .. } => res.push(id),
+                        FlowModuleValue::ForloopFlow { modules_node: Some(flow_node), .. } => {
+                            let flow_data = cache::flow::fetch_flow(db, flow_node).await.unwrap();
+                            res.extend(Box::pin(load(db, &flow_data.value().modules)).await);
+                        }
+                        _ => {}
+                    }
+                }
+                res
+            }
+
+            load(&db, &flow_value.modules).await
+        };
+        assert_eq!(flow_scripts.len(), 2);
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::FlowScript {
+                id: flow_scripts[0],
+                language: ScriptLang::Deno,
+                custom_concurrency_key: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                path: "f/system/hello/test-0".into(),
+            })
+            .arg("world", json!("foo"))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(result, json!("Hello foo!"));
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        let test = || async {
+            let result = RunJob::from(JobPayload::FlowScript {
+                id: flow_scripts[1],
+                language: ScriptLang::Deno,
+                custom_concurrency_key: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                path: "f/system/hello/test-0".into(),
+            })
+            .arg("hello", json!("You know nothing Jean Neige"))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(
+                result,
+                json!("Did you just say \"You know nothing Jean Neige\"??!")
+            );
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_flow_node_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        // Deploy the flow to produce the "lite" version.
+        let _ = RunJob::from(JobPayload::FlowDependencies {
+            path: "f/system/hello_with_nodes_flow".to_string(),
+            dedicated_worker: None,
+            version: 1443253234253454,
+        })
+        .run_until_complete(&db, port)
+        .await
+        .json_result()
+        .unwrap();
+
+        let flow_data = cache::flow::fetch_version_lite(&db, 1443253234253454)
+            .await
+            .unwrap();
+        let flow_value = flow_data.value();
+        let forloop_module =
+            serde_json::from_str::<FlowModuleValue>(flow_value.modules[0].value.get()).unwrap();
+        let FlowModuleValue::ForloopFlow { modules_node: Some(id), .. } = forloop_module else {
+            panic!("Expected a forloop module with a flow node");
+        };
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::FlowNode {
+                id,
+                path: "f/system/hello_with_nodes_flow/forloop-0".into(),
+            })
+            .arg("iter", json!({ "value": "tests", "index": 0 }))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(result, json!("Did you just say \"Hello tests!\"??!"));
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_dependencies_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::Dependencies {
+                path: "f/system/hello".to_string(),
+                hash: ScriptHash(123412),
+                language: ScriptLang::Deno,
+                dedicated_worker: None,
+            })
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(
+                result.get("status").unwrap(),
+                &json!("Successful lock file generation")
+            );
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    // Just test that deploying a flow work as expected.
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_flow_dependencies_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::FlowDependencies {
+                path: "f/system/hello_with_nodes_flow".to_string(),
+                dedicated_worker: None,
+                version: 1443253234253454,
+            })
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(
+                result.get("status").unwrap(),
+                &json!("Successful lock file generation")
+            );
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_raw_flow_dependencies_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::RawFlowDependencies {
+                path: "none".to_string(),
+                flow_value: serde_json::from_value(json!({
+                    "modules": [{
+                        "id": "a",
+                        "value": {
+                            "type": "rawscript",
+                            "content": r#"export function main(world: string) {
+                                const greet = `Hello ${world}!`;
+                                console.log(greet)
+                                return greet
+                            }"#,
+                            "language": "deno",
+                            "input_transforms": {
+                                "world": { "type": "javascript", "expr": "flow_input.world" }
+                            }
+                        }
+                    }],
+                    "schema": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": { "world": { "type": "string" } },
+                        "type": "object",
+                        "order": [  "world" ]
+                    }
+                }))
+                .unwrap(),
+            })
+            .arg("skip_flow_update", json!(true))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            let result = RunJob::from(JobPayload::RawFlow {
+                value: serde_json::from_value::<FlowValue>(
+                    result.get("updated_flow_value").unwrap().clone(),
+                )
+                .unwrap(),
+                path: None,
+                restarted_from: None,
+            })
+            .arg("world", json!("Jean Neige"))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(result, json!("Hello Jean Neige!"));
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_raw_script_dependencies_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::RawScriptDependencies {
+                script_path: "none".into(),
+                content: r#"export function main(world: string) {
+                    const greet = `Hello ${world}!`;
+                    console.log(greet)
+                    return greet
+                }"#
+                .into(),
+                language: ScriptLang::Deno,
+            })
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(
+                result,
+                json!({ "lock": "", "status": "Successful lock file generation" })
+            );
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_flow_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::Flow {
+                path: "f/system/hello_with_nodes_flow".to_string(),
+                dedicated_worker: None,
+                apply_preprocessor: true,
+            })
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(
+                result,
+                json!([
+                    "Did you just say \"Hello foo!\"??!",
+                    "Did you just say \"Hello bar!\"??!",
+                    "Did you just say \"Hello baz!\"??!",
+                ])
+            );
+        };
+        // Test the not "lite" flow.
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        // Deploy the flow to produce the "lite" version.
+        let _ = RunJob::from(JobPayload::FlowDependencies {
+            path: "f/system/hello_with_nodes_flow".to_string(),
+            dedicated_worker: None,
+            version: 1443253234253454,
+        })
+        .run_until_complete(&db, port)
+        .await
+        .json_result()
+        .unwrap();
+        // Test the "lite" flow.
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_restarted_flow_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let completed_job_id = RunJob::from(JobPayload::Flow {
+                path: "f/system/hello_with_nodes_flow".to_string(),
+                dedicated_worker: None,
+                apply_preprocessor: true,
+            })
+            .run_until_complete(&db, port)
+            .await
+            .id;
+
+            let result = RunJob::from(JobPayload::RestartedFlow {
+                completed_job_id,
+                step_id: "a".into(),
+                branch_or_iteration_n: None,
+            })
+            .arg("iter", json!({ "value": "tests", "index": 0 }))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(
+                result,
+                json!([
+                    "Did you just say \"Hello foo!\"??!",
+                    "Did you just say \"Hello bar!\"??!",
+                    "Did you just say \"Hello baz!\"??!",
+                ])
+            );
+        };
+        // Test the not "lite" flow.
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        // Deploy the flow to produce the "lite" version.
+        let _ = RunJob::from(JobPayload::FlowDependencies {
+            path: "f/system/hello_with_nodes_flow".to_string(),
+            dedicated_worker: None,
+            version: 1443253234253454,
+        })
+        .run_until_complete(&db, port)
+        .await
+        .json_result()
+        .unwrap();
+        // Test the "lite" flow.
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_raw_flow_payload(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let result = RunJob::from(JobPayload::RawFlow {
+                value: serde_json::from_value(json!({
+                    "modules": [{
+                        "id": "a",
+                        "value": {
+                            "type": "rawscript",
+                            "content": r#"export function main(world: string) {
+                                const greet = `Hello ${world}!`;
+                                console.log(greet)
+                                return greet
+                            }"#,
+                            "language": "deno",
+                            "input_transforms": {
+                                "world": { "type": "javascript", "expr": "flow_input.world" }
+                            }
+                        }
+                    }],
+                    "schema": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": { "world": { "type": "string" } },
+                        "type": "object",
+                        "order": [  "world" ]
+                    }
+                }))
+                .unwrap(),
+                path: None,
+                restarted_from: None,
+            })
+            .arg("world", json!("Jean Neige"))
+            .run_until_complete(&db, port)
+            .await
+            .json_result()
+            .unwrap();
+
+            assert_eq!(result, json!("Hello Jean Neige!"));
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
 }

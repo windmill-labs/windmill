@@ -710,6 +710,14 @@ const aggridcomponentconst = {
 					{ field: 'age', flex: 1 }
 				]
 			} as StaticAppInput,
+			rowIdCol: {
+				type: 'static',
+				fieldType: 'text',
+				value: '',
+				placeholder: 'id',
+				tooltip:
+					'column id to fetch the row id from (leave empty to use an auto-generated id. Recommended to be set but must be unique to each row)'
+			},
 			flex: {
 				type: 'static',
 				fieldType: 'boolean',
@@ -818,6 +826,14 @@ const aggridinfinitecomponentconst = {
 				subFieldType: 'ag-grid',
 				value: []
 			} as StaticAppInput,
+			rowIdCol: {
+				type: 'static',
+				fieldType: 'text',
+				value: '',
+				placeholder: 'id',
+				tooltip:
+					'column id to fetch the row id from (leave empty to use an auto-generated id. Recommended to be set but must be unique to each row)'
+			},
 			flex: {
 				type: 'static',
 				fieldType: 'boolean',
@@ -2199,13 +2215,12 @@ This is a paragraph.
 				items: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'text',
-					value: ['Foo', 'Bar']
+					subFieldType: 'labeledselect',
+					value: ['Foo', 'Bar'] as (string | { label: string; value: string })[]
 				} as StaticAppInput,
 				defaultItems: {
 					type: 'static',
-					fieldType: 'array',
-					subFieldType: 'text',
+					fieldType: 'object',
 					value: []
 				} as StaticAppInput,
 				placeholder: {
@@ -3384,7 +3399,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: [
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
-					]
+					] as (string | { label: string; value: string })[]
 				} as StaticAppInput,
 
 				defaultValue: {
@@ -3419,14 +3434,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'labeledselect',
-					value: [
-						{ value: 'foo', label: 'Foo' },
-						{ value: 'bar', label: 'Bar' }
-					]
+					value: ['Foo', 'Bar'] as (string | { label: string; value: string })[]
 				} as StaticAppInput,
 				defaultValue: {
 					type: 'static',
-					value: undefined as { value: string; label: string } | undefined,
+					value: undefined as any,
 					fieldType: 'object'
 				}
 			}
@@ -3790,6 +3802,14 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: [],
 					loading: false
 				} as StaticAppInput,
+				rowIdCol: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					placeholder: 'id',
+					tooltip:
+						'column id to fetch the row id from (leave empty to use an auto-generated id. Recommended to be set but must be unique to each row)'
+				},
 				whereClause: {
 					type: 'static',
 					fieldType: 'text',
@@ -3930,7 +3950,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: 'sm',
 					fieldType: 'select',
 					selectOptions: [
-						{ value: 'xs', label: 'Extra Small' },
+						{ value: 'xs', label: 'Extra small' },
 						{ value: 'sm', label: 'Small' }
 					]
 				},
@@ -4103,7 +4123,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	recomputeallcomponent: {
-		name: 'Recompute all',
+		name: 'Recompute All',
 		icon: RefreshCw,
 		documentationLink: `${documentationBaseUrl}/recompute_all`,
 		dims: '4:1-6:1' as AppComponentDimensions,

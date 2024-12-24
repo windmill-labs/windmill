@@ -89,6 +89,7 @@
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket_triggers/WebsocketTriggersPanel.svelte'
+	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
 	import DatabaseTriggersPanel from '$lib/components/triggers/database_triggers/DatabaseTriggersPanel.svelte'
 
 	let script: Script | undefined
@@ -316,7 +317,7 @@
 
 		if (!$userStore?.operator) {
 			buttons.push({
-				label: 'Build App',
+				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
 						const app = createAppFromScript(script.path, script.schema)
@@ -725,6 +726,11 @@
 			<svelte:fragment slot="websockets">
 				<div class="p-2">
 					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="kafka">
+				<div class="p-2">
+					<KafkaTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="database">

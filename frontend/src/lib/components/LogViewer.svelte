@@ -2,7 +2,7 @@
 	const s3LogPrefixes = [
 		'\n[windmill] Previous logs have been saved to object storage at logs/',
 		'\n[windmill] Previous logs have been saved to disk at logs/',
-		'\n[windmill] No object storage set in instance settings. Previous logs have been saved to disk at '
+		'\n[windmill] No object storage set in instance settings. Previous logs have been saved to disk at logs/'
 	]
 </script>
 

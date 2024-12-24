@@ -11,7 +11,14 @@ export type ScheduleTrigger = {
 
 export type TriggerContext = {
 	selectedTrigger: Writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll' | 'database'
+		| 'webhooks'
+		| 'emails'
+		| 'schedules'
+		| 'cli'
+		| 'routes'
+		| 'websockets'
+		| 'scheduledPoll' | 'database'
+		| 'kafka'
 	>
 	primarySchedule: Writable<ScheduleTrigger | undefined | false>
 	triggersCount: Writable<TriggersCount | undefined>

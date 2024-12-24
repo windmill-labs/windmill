@@ -1,18 +1,18 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
-use futures::TryStreamExt;
+use futures::{stream, TryStreamExt};
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
-use windmill_queue::{CanceledBy, HTTP_CLIENT};
+use windmill_queue::CanceledBy;
 
 use serde::Deserialize;
 
-use crate::common::OccupancyMetrics;
+use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{common::build_args_map, AuthedClientBackgroundTask};
 
@@ -81,8 +81,12 @@ pub async fn do_graphql(
             }
         }
     }
+    let (timeout_duration, _, _) =
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
 
-    let mut request = HTTP_CLIENT.post(api.base_url).json(&json!({
+    let http_client = build_http_client(timeout_duration)?;
+
+    let mut request = http_client.post(api.base_url).json(&json!({
         "query": query,
         "variables": variables
     }));
@@ -154,6 +158,7 @@ pub async fn do_graphql(
         worker_name,
         &job.workspace_id,
         &mut Some(occupation_metrics),
+        Box::pin(stream::once(async { 0 })),
     )
     .await?;
 

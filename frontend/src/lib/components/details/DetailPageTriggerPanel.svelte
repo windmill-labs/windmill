@@ -3,6 +3,7 @@
 	import { CalendarCheck2, MailIcon, Route, Terminal, Webhook, Unplug } from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
 
 	export let triggerSelected:
 		| 'webhooks'
@@ -11,6 +12,7 @@
 		| 'cli'
 		| 'routes'
 		| 'websockets'
+		| 'kafka'
 		| 'database'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
@@ -42,6 +44,12 @@
 			<span class="flex flex-row gap-2 items-center text-xs">
 				<Unplug size={12} />
 				Websockets
+			</span>
+		</Tab>
+		<Tab value="kafka">
+			<span class="flex flex-row gap-2 items-center text-xs">
+				<KafkaIcon size={12} />
+				Kafka
 			</span>
 		</Tab>
 		<Tab value="database">
@@ -76,6 +84,8 @@
 				<slot name="schedules" />
 			{:else if triggerSelected === 'websockets'}
 				<slot name="websockets" />
+			{:else if triggerSelected === 'kafka'}
+				<slot name="kafka" />
 			{:else if triggerSelected === 'database'}
 				<slot name="database" />
 			{:else if triggerSelected === 'cli'}

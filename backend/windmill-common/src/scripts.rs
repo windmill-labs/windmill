@@ -25,7 +25,7 @@ use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Hash, Eq, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
@@ -46,6 +46,7 @@ pub enum ScriptLang {
     Php,
     Rust,
     Ansible,
+    CSharp,
 }
 
 impl ScriptLang {
@@ -68,6 +69,7 @@ impl ScriptLang {
             ScriptLang::Php => "php",
             ScriptLang::Rust => "rust",
             ScriptLang::Ansible => "ansible",
+            ScriptLang::CSharp => "csharp",
         }
     }
 }
@@ -100,7 +102,35 @@ impl TryFrom<&str> for ScriptLang {
     }
 }
 
-#[derive(PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
+impl TryFrom<&str> for ScriptLang {
+    type Error = String;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let language = match value {
+            "bun" => Self::Bun,
+            "bunnative" => Self::Bunnative,
+            "nativets" => Self::Nativets,
+            "deno" => Self::Deno,
+            "python3" => Self::Python3,
+            "go" => Self::Go,
+            "bash" => Self::Bash,
+            "powershell" => Self::Powershell,
+            "postgresql" => Self::Postgresql,
+            "mysql" => Self::Mysql,
+            "bigquery" => Self::Bigquery,
+            "snowflake" => Self::Snowflake,
+            "mssql" => Self::Mssql,
+            "graphql" => Self::Graphql,
+            "php" => Self::Php,
+            "rust" => Self::Rust,
+            "ansible" => Self::Ansible,
+            _ => return Err("Language not supported".to_string()),
+        };
+
+        Ok(language)
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
 

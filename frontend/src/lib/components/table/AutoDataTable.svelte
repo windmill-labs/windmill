@@ -400,7 +400,7 @@
 												disablePopup={typeof value === 'string' && value.length < 100}
 											>
 												<div
-													class="max-w-80 text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
+													class="max-w-[100ch] text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
 												>
 													{txt?.length > 100 ? txt.slice(0, 100) + '...' : txt}
 												</div>

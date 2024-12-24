@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:openidconnect"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
 stripe = ["dep:async-stripe"]
 enterprise_saml = ["dep:samael"]
 benchmark = []
@@ -19,13 +19,20 @@ parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/par
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 openidconnect = ["dep:openidconnect"]
 tantivy = ["dep:windmill-indexer"]
+kafka = ["dep:rdkafka"]
+websocket = ["dep:tokio-tungstenite"]
+smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
+license = ["dep:rsa"]
+zip = ["dep:async_zip"]
+oauth2 = ["dep:async-oauth2"]
+http_trigger = ["dep:matchit"]
+static_frontend = ["dep:rust-embed"]
 
 [dependencies]
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
-windmill-parser-py-imports.workspace = true
 windmill-parser-ts.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
@@ -43,7 +50,7 @@ itertools.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 sqlx.workspace = true
-async-oauth2.workspace = true
+async-oauth2 = { workspace = true, optional = true }
 tracing.workspace = true
 sql-builder.workspace = true
 serde_json.workspace = true
@@ -55,15 +62,15 @@ base32.workspace = true
 serde_urlencoded.workspace = true
 cron.workspace = true
 mime_guess.workspace = true
-rust-embed.workspace = true
+rust-embed = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
 quick_cache.workspace = true
 rand.workspace = true
 time.workspace = true
 native-tls.workspace = true
 tokio-native-tls.workspace = true
-openssl.workspace = true
-mail-parser = { workspace = true, features = ["serde_support"] }
+openssl = { workspace = true, optional = true }
+mail-parser = { workspace = true, features = ["serde_support"], optional = true }
 magic-crypt.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
@@ -75,13 +82,12 @@ urlencoding.workspace = true
 async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
-async_zip.workspace = true
-rsmq_async.workspace = true
+async_zip = { workspace = true, optional = true }
 regex.workspace = true
 bytes.workspace = true
 samael = { workspace = true, optional = true }
 async-recursion.workspace = true
-rsa.workspace = true
+rsa = { workspace = true, optional = true}
 uuid.workspace = true
 tinyvector = { workspace = true, optional = true}
 hf-hub  = { workspace = true, optional = true}
@@ -94,8 +100,10 @@ object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
 url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
-matchit.workspace = true
-tokio-tungstenite.workspace = true
+matchit = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true}
+rdkafka = { workspace = true, optional = true }
+const_format.workspace = true
 rust-postgres.workspace = true
 pin-project.workspace = true
 http.workspace = true

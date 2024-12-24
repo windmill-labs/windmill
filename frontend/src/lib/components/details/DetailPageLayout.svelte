@@ -59,6 +59,7 @@
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
 							<slot slot="websockets" name="websockets" />
+							<slot slot="kafka" name="kafka" />
 							<slot slot="database" name="database" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
@@ -80,7 +81,9 @@
 				{#if !isOperator}
 					<Tab value="triggers">Triggers</Tab>
 				{/if}
-				{#if !flow_json}
+				{#if flow_json}
+					<Tab value="raw">Export</Tab>
+				{:else}
 					<Tab value="script">Script</Tab>
 				{/if}
 
@@ -102,6 +105,7 @@
 								<slot slot="routes" name="routes" />
 								<slot slot="script" name="script" />
 								<slot slot="websockets" name="websockets" />
+								<slot slot="kafka" name="kafka" />
 								<slot slot="database" name="database" />
 								<slot slot="emails" name="emails" />
 								<slot slot="schedules" name="schedules" />

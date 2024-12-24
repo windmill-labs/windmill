@@ -1,23 +1,14 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition'
 	import { secondaryMenuLeft, secondaryMenuRight } from './'
-	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../../../types'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import DocLink from '../DocLink.svelte'
 
-	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let right: boolean
 
 	let secondaryMenu = right ? secondaryMenuRight : secondaryMenuLeft
 	let width: number
-	let lastSelected = $selectedComponent
-
-	$: if (right && lastSelected !== $selectedComponent) {
-		secondaryMenu.close()
-		lastSelected = $selectedComponent
-	}
 </script>
 
 <div

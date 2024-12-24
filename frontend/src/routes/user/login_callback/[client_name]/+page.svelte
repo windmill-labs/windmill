@@ -45,8 +45,7 @@
 
 			if (rd?.startsWith('http')) {
 				if (closeUponLogin) {
-					window.opener.postMessage({ type: 'success' }, '*')
-					window.close()
+					closeUponLoginSuccess()
 					return
 				}
 				window.location.href = rd
@@ -72,8 +71,7 @@
 				if (allWorkspaces?.length == 1) {
 					$workspaceStore = allWorkspaces[0].id
 					if (closeUponLogin) {
-						window.opener.postMessage({ type: 'success' }, '*')
-						window.close()
+						closeUponLoginSuccess()
 						return
 					}
 					if (rd) {
@@ -85,7 +83,7 @@
 				}
 
 				if (closeUponLogin) {
-					window.close()
+					closeUponLoginSuccess()
 					return
 				}
 
@@ -113,6 +111,16 @@
 		document.documentElement.classList.add('dark')
 	} else {
 		document.documentElement.classList.remove('dark')
+	}
+
+	function closeUponLoginSuccess() {
+		const message = { type: 'success' }
+		if (window.opener) {
+			window.opener.postMessage(message, '*')
+		} else {
+			localStorage.setItem('oauth-success', JSON.stringify(message))
+		}
+		window.close()
 	}
 </script>
 

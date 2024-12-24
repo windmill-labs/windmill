@@ -4,35 +4,48 @@ use std::path::{Component, Path, PathBuf};
 use async_recursion::async_recursion;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
+use sha2::Digest;
 use sqlx::types::Json;
 use uuid::Uuid;
 use windmill_common::error::Error;
 use windmill_common::error::Result;
-use windmill_common::flows::{FlowModule, FlowModuleValue};
+use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
+#[cfg(feature = "python")]
+use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+
 use windmill_common::{
+    apps::AppScriptId,
+    cache::{self, RawData},
     error::{self, to_anyhow},
-    flows::FlowValue,
+    flows::{add_virtual_items_if_necessary, FlowValue},
     jobs::QueuedJob,
     scripts::ScriptLang,
     DB,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+#[cfg(feature = "python")]
 use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
-use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
+use crate::csharp_executor::generate_nuget_lockfile;
+
+#[cfg(feature = "php")]
+use crate::php_executor::{composer_install, parse_php_imports};
+#[cfg(feature = "python")]
+use crate::python_executor::{
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
+};
+#[cfg(feature = "rust")]
+use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
-    bun_executor::gen_bun_lockfile,
-    deno_executor::generate_deno_lock,
+    bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
-    php_executor::{composer_install, parse_php_imports},
 };
 
 pub async fn update_script_dependency_map(
@@ -194,6 +207,7 @@ pub fn extract_relative_imports(
     language: &Option<ScriptLang>,
 ) -> Option<Vec<String>> {
     match language {
+        #[cfg(feature = "python")]
         Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
         Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
             parse_bun_relative_imports(&raw_code, script_path).ok()
@@ -202,8 +216,9 @@ pub fn extract_relative_imports(
     }
 }
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_dependency_job(
     job: &QueuedJob,
+    preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -212,21 +227,8 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
-    rsmq: Option<R>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let raw_code = match job.raw_code {
-        Some(ref code) => code.to_owned(),
-        None => sqlx::query_scalar!(
-            "SELECT content FROM script WHERE hash = $1 AND workspace_id = $2",
-            &job.script_hash.unwrap_or(ScriptHash(0)).0,
-            &job.workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .unwrap_or_else(|| "No script found at this hash".to_string()),
-    };
-
     let script_path = job.script_path();
     let raw_deps = job
         .args
@@ -255,6 +257,16 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         None
     };
 
+    // `JobKind::Dependencies` job store either:
+    // - A saved script `hash` in the `script_hash` column.
+    // - Preview raw lock and code in the `queue` or `job` table.
+    let script_data = match job.script_hash {
+        Some(hash) => &cache::script::fetch(db, hash).await?.0,
+        _ => match preview_data {
+            Some(RawData::Script(data)) => data,
+            _ => return Err(Error::InternalErr("expected script hash".into())),
+        },
+    };
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -262,7 +274,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
-        &raw_code,
+        &script_data.code,
         mem_peak,
         canceled_by,
         job_dir,
@@ -299,6 +311,9 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             .execute(db)
             .await?;
 
+            // `lock` has been updated; invalidate the cache.
+            cache::script::invalidate(hash);
+
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -313,7 +328,6 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     parent_path: parent_path.clone(),
                 },
                 deployment_message.clone(),
-                rsmq.clone(),
                 false,
             )
             .await
@@ -321,7 +335,8 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 tracing::error!(%e, "error handling deployment metadata");
             }
 
-            let relative_imports = extract_relative_imports(&raw_code, script_path, &job.language);
+            let relative_imports =
+                extract_relative_imports(&script_data.code, script_path, &job.language);
             if let Some(relative_imports) = relative_imports {
                 update_script_dependency_map(
                     &job.id,
@@ -351,7 +366,6 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                     &job.created_by,
                     &job.permissioned_as,
                     db,
-                    rsmq,
                     already_visited,
                 )
                 .await
@@ -387,9 +401,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
     }
 }
 
-async fn trigger_dependents_to_recompute_dependencies<
-    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
->(
+async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     script_path: &str,
     deployment_message: Option<String>,
@@ -398,7 +410,6 @@ async fn trigger_dependents_to_recompute_dependencies<
     created_by: &str,
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    rsmq: Option<R>,
     mut already_visited: Vec<String>,
 ) -> error::Result<()> {
     let script_importers = sqlx::query!(
@@ -417,8 +428,7 @@ async fn trigger_dependents_to_recompute_dependencies<
         if already_visited.contains(&s.importer_path) {
             continue;
         }
-        let tx: PushIsolationLevel<'_, R> =
-            PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
+        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
         if let Some(ref dm) = deployment_message {
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
@@ -525,8 +535,9 @@ async fn trigger_dependents_to_recompute_dependencies<
     Ok(())
 }
 
-pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_flow_dependency_job(
     job: &QueuedJob,
+    preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -535,7 +546,6 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
-    rsmq: Option<R>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     let job_path = job.script_path.clone().ok_or_else(|| {
@@ -570,11 +580,6 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         )
     };
 
-    let raw_flow = job.raw_flow.clone().map(|v| Ok(v)).unwrap_or_else(|| {
-        Err(Error::InternalErr(
-            "Flow Dependency requires raw flow".to_owned(),
-        ))
-    })?;
     let (deployment_message, parent_path) =
         get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -588,7 +593,18 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         })
         .flatten();
 
-    let mut flow = serde_json::from_str::<FlowValue>((*raw_flow.0).get()).map_err(to_anyhow)?;
+    // `JobKind::FlowDependencies` job store either:
+    // - A saved flow version `id` in the `script_hash` column.
+    // - Preview raw flow in the `queue` or `job` table.
+    let mut flow = match job.script_hash {
+        Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
+        _ => match preview_data {
+            Some(RawData::Flow(data)) => data.clone(),
+            _ => return Err(Error::InternalErr("expected script hash".into())),
+        },
+    }
+    .value()
+    .clone();
 
     let mut tx = db.begin().await?;
 
@@ -612,15 +628,15 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         occupancy_metrics,
     )
     .await?;
-    let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
+    let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
-    // Re-check cancelation to ensure we don't accidentially override a flow.
+    // Re-check cancellation to ensure we don't accidentally override a flow.
     if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
         .fetch_optional(db)
         .await
         .map(|v| Some(true) == v)
         .unwrap_or_else(|err| {
-            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
             false
         })
     {
@@ -636,18 +652,38 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
 
         sqlx::query!(
             "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-            new_flow_value,
+            &new_flow_value as &Json<Box<RawValue>>,
             job_path,
             job.workspace_id
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
         sqlx::query!(
             "UPDATE flow_version SET value = $1 WHERE id = $2",
-            new_flow_value,
+            &new_flow_value as &Json<Box<RawValue>>,
             version
         )
-        .execute(db)
+        .execute(&mut *tx)
+        .await?;
+
+        // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
+        let mut value_lite = flow.clone();
+        tx = reduce_flow(
+            tx,
+            &mut value_lite.modules,
+            &job_path,
+            &job.workspace_id,
+            flow.failure_module.as_ref(),
+            flow.same_worker,
+        )
+        .await?;
+        sqlx::query!(
+            "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
+             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+            version,
+            Json(value_lite) as Json<FlowValue>,
+        )
+        .execute(&mut *tx)
         .await?;
 
         tx.commit().await?;
@@ -659,7 +695,6 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
             &job.workspace_id,
             DeployedObject::Flow { path: job_path, parent_path, version },
             deployment_message,
-            rsmq.clone(),
             false,
         )
         .await
@@ -742,6 +777,7 @@ async fn lock_modules<'c>(
                 FlowModuleValue::ForloopFlow {
                     iterator,
                     modules,
+                    modules_node,
                     skip_failures,
                     parallel,
                     parallelism,
@@ -767,6 +803,7 @@ async fn lock_modules<'c>(
                     e.value = FlowModuleValue::ForloopFlow {
                         iterator,
                         modules: nmodules,
+                        modules_node,
                         skip_failures,
                         parallel,
                         parallelism,
@@ -802,7 +839,7 @@ async fn lock_modules<'c>(
                     }
                     e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
                 }
-                FlowModuleValue::WhileloopFlow { modules, skip_failures } => {
+                FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures } => {
                     let nmodules;
                     (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
                         modules,
@@ -821,10 +858,14 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
-                    e.value =
-                        FlowModuleValue::WhileloopFlow { modules: nmodules, skip_failures }.into()
+                    e.value = FlowModuleValue::WhileloopFlow {
+                        modules: nmodules,
+                        modules_node,
+                        skip_failures,
+                    }
+                    .into()
                 }
-                FlowModuleValue::BranchOne { branches, default } => {
+                FlowModuleValue::BranchOne { branches, default, default_node } => {
                     let mut nbranches = vec![];
                     nmodified_ids = vec![];
                     for mut b in branches {
@@ -870,8 +911,12 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
-                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default: ndefault }
-                        .into();
+                    e.value = FlowModuleValue::BranchOne {
+                        branches: nbranches,
+                        default: ndefault,
+                        default_node,
+                    }
+                    .into();
                 }
                 _ => (),
             };
@@ -920,7 +965,7 @@ async fn lock_modules<'c>(
         )
         .await;
         //
-        match new_lock {
+        let lock = match new_lock {
             Ok(new_lock) => {
                 let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
                 tx = clear_dependency_map_for_item(
@@ -961,20 +1006,7 @@ async fn lock_modules<'c>(
                         language = ScriptLang::Bun;
                     };
                 }
-                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
-                    lock: Some(new_lock),
-                    path,
-                    input_transforms,
-                    content,
-                    language,
-                    tag,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                    is_trigger,
-                });
-                new_flow_modules.push(e);
-                continue;
+                Some(new_lock)
             }
             Err(error) => {
                 // TODO: Record flow raw script error lock logs
@@ -984,24 +1016,288 @@ async fn lock_modules<'c>(
                     error = ?error,
                     "Failed to generate flow lock for raw script"
                 );
-                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
-                    lock: None,
-                    path,
-                    input_transforms,
+                None
+            }
+        };
+        e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
+            lock,
+            path,
+            input_transforms,
+            content,
+            language,
+            tag,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            is_trigger,
+        });
+        new_flow_modules.push(e);
+        continue;
+    }
+    Ok((new_flow_modules, tx, modified_ids))
+}
+
+async fn insert_flow_node<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    path: &str,
+    workspace_id: &str,
+    code: Option<&String>,
+    lock: Option<&String>,
+    flow: Option<&Json<Box<RawValue>>>,
+) -> Result<(sqlx::Transaction<'c, sqlx::Postgres>, FlowNodeId)> {
+    let hash = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(code.unwrap_or(&Default::default()));
+        hasher.update(lock.unwrap_or(&Default::default()));
+        hasher.update(flow.unwrap_or(&Default::default()).get());
+        format!("{:x}", hasher.finalize())
+    };
+
+    // Insert the flow node if it doesn't exist.
+    let id = sqlx::query_scalar!(
+        r#"
+        INSERT INTO flow_node (path, workspace_id, hash_v2, lock, code, flow)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (path, workspace_id, hash_v2) DO UPDATE SET path = EXCLUDED.path -- trivial update to return the id
+        RETURNING id
+        "#,
+        path,
+        workspace_id,
+        hash,
+        lock,
+        code,
+        flow as Option<&Json<Box<RawValue>>>
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    Ok((tx, FlowNodeId(id)))
+}
+
+async fn insert_app_script(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    app: i64,
+    code: String,
+    lock: Option<String>,
+) -> Result<AppScriptId> {
+    let code_sha256 = format!("{:x}", sha2::Sha256::digest(&code));
+    let hash = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(app.to_le_bytes());
+        hasher.update(&code_sha256);
+        hasher.update(lock.as_ref().unwrap_or(&Default::default()));
+        format!("{:x}", hasher.finalize())
+    };
+
+    // Insert the app script if it doesn't exist.
+    sqlx::query_scalar!(
+        r#"
+        INSERT INTO app_script (app, hash, lock, code, code_sha256)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (hash) DO UPDATE SET app = EXCLUDED.app -- trivial update to return the id
+        RETURNING id
+        "#,
+        app,
+        hash,
+        lock,
+        code,
+        code_sha256
+    )
+    .fetch_one(db)
+    .await
+    .map(AppScriptId)
+    .map_err(Into::into)
+}
+
+async fn insert_flow_modules<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    path: &str,
+    workspace_id: &str,
+    failure_module: Option<&Box<FlowModule>>,
+    same_worker: bool,
+    modules: &mut Vec<FlowModule>,
+    modules_node: &mut Option<FlowNodeId>,
+) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    tx = Box::pin(reduce_flow(
+        tx,
+        modules,
+        path,
+        workspace_id,
+        failure_module,
+        same_worker,
+    ))
+    .await?;
+    add_virtual_items_if_necessary(modules);
+    if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
+        return Ok(tx);
+    }
+    let id;
+    (tx, id) = insert_flow_node(
+        tx,
+        path,
+        workspace_id,
+        None,
+        None,
+        Some(&Json(to_raw_value(&FlowValue {
+            modules: std::mem::take(modules),
+            failure_module: failure_module.cloned(),
+            same_worker,
+            ..Default::default()
+        }))),
+    )
+    .await?;
+    *modules_node = Some(id);
+    Ok(tx)
+}
+
+async fn reduce_flow<'c>(
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+    modules: &mut Vec<FlowModule>,
+    path: &str,
+    workspace_id: &str,
+    failure_module: Option<&Box<FlowModule>>,
+    same_worker: bool,
+) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    use FlowModuleValue::*;
+    for module in &mut *modules {
+        let mut val =
+            serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
+                Error::InternalErr(format!(
+                    "reduce_flow: Failed to parse flow module value: {}",
+                    err
+                ))
+            })?;
+        match &mut val {
+            RawScript { .. } => {
+                // In order to avoid an unnecessary `.clone()` of `val`, take ownership of it's content
+                // using `std::mem::replace`.
+                let RawScript {
+                    lock,
                     content,
                     language,
+                    input_transforms,
                     tag,
                     custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     is_trigger,
+                    ..
+                } = std::mem::replace(&mut val, Identity)
+                else {
+                    unreachable!()
+                };
+                let id;
+                (tx, id) =
+                    insert_flow_node(tx, path, workspace_id, Some(&content), lock.as_ref(), None)
+                        .await?;
+                val = FlowScript {
+                    input_transforms,
+                    id,
+                    tag,
+                    language,
+                    custom_concurrency_key,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    is_trigger,
+                };
+            }
+            ForloopFlow { modules, modules_node, .. }
+            | WhileloopFlow { modules, modules_node, .. } => {
+                tx = insert_flow_modules(
+                    tx,
+                    path,
+                    workspace_id,
+                    failure_module,
+                    same_worker,
+                    modules,
+                    modules_node,
+                )
+                .await?;
+            }
+            BranchOne { branches, default, default_node, .. } => {
+                for branch in branches.iter_mut() {
+                    tx = insert_flow_modules(
+                        tx,
+                        path,
+                        workspace_id,
+                        failure_module,
+                        same_worker,
+                        &mut branch.modules,
+                        &mut branch.modules_node,
+                    )
+                    .await?;
+                }
+                tx = insert_flow_modules(
+                    tx,
+                    path,
+                    workspace_id,
+                    failure_module,
+                    same_worker,
+                    default,
+                    default_node,
+                )
+                .await?;
+            }
+            BranchAll { branches, .. } => {
+                for branch in branches.iter_mut() {
+                    tx = insert_flow_modules(
+                        tx,
+                        path,
+                        workspace_id,
+                        failure_module,
+                        same_worker,
+                        &mut branch.modules,
+                        &mut branch.modules_node,
+                    )
+                    .await?;
+                }
+            }
+            _ => {}
+        }
+        module.value = to_raw_value(&val);
+    }
+    Ok(tx)
+}
+
+async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64) -> Result<()> {
+    match value {
+        Value::Object(object) => {
+            if let Some(Value::Object(script)) = object.get_mut("inlineScript") {
+                if script
+                    .get("language")
+                    .and_then(|x| x.as_str())
+                    .is_some_and(|x| x == "frontend")
+                {
+                    return Ok(());
+                }
+                // replace `content` with an empty string:
+                let Some(Value::String(code)) = script.get_mut("content").map(std::mem::take)
+                else {
+                    return Err(error::Error::InternalErr(
+                        "Missing `content` in inlineScript".to_string(),
+                    ));
+                };
+                // remove `lock`:
+                let lock = script.remove("lock").and_then(|x| match x {
+                    Value::String(s) => Some(s),
+                    _ => None,
                 });
-                new_flow_modules.push(e);
-                continue;
+                let id = insert_app_script(db, app, code, lock).await?;
+                // insert the `id` into the `script` object:
+                script.insert("id".to_string(), json!(id.0));
+            } else {
+                for (_, value) in object {
+                    Box::pin(reduce_app(db, value, app)).await?;
+                }
             }
         }
+        Value::Array(array) => {
+            for value in array {
+                Box::pin(reduce_app(db, value, app)).await?;
+            }
+        }
+        _ => {}
     }
-    Ok((new_flow_modules, tx, modified_ids))
+    Ok(())
 }
 
 fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
@@ -1166,7 +1462,7 @@ async fn lock_modules_app(
     }
 }
 
-pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn handle_app_dependency_job(
     job: &QueuedJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -1176,7 +1472,6 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
-    rsmq: Option<R>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
@@ -1190,11 +1485,12 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
         .clone()
         .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
         .0;
-    let value = sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", id)
+    let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
-        .await?;
+        .await?
+        .map(|record| (record.app_id, record.value));
 
-    if let Some(value) = value {
+    if let Some((app_id, value)) = record {
         let value = lock_modules_app(
             value,
             job,
@@ -1209,6 +1505,21 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
             token,
             occupancy_metrics,
         )
+        .await?;
+
+        // Compute a lite version of the app value (w/ `inlineScript.{lock,code}`).
+        let mut value_lite = value.clone();
+        reduce_app(db, &mut value_lite, app_id).await?;
+        if let Value::Object(object) = &mut value_lite {
+            object.insert("version".to_string(), json!(id));
+        }
+        sqlx::query!(
+            "INSERT INTO app_version_lite (id, value) VALUES ($1, $2)
+             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+            id,
+            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
+        )
+        .execute(db)
         .await?;
 
         // Re-check cancelation to ensure we don't accidentially override an app.
@@ -1238,7 +1549,6 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
             &job.workspace_id,
             DeployedObject::App { path: job_path, version: id, parent_path },
             deployment_message,
-            rsmq.clone(),
             false,
         )
         .await
@@ -1272,6 +1582,7 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
     }
 }
 
+#[cfg(feature = "python")]
 async fn python_dep(
     reqs: String,
     job_id: &Uuid,
@@ -1283,6 +1594,8 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    no_uv_compile: bool,
+    no_uv_install: bool,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
     let req: std::result::Result<String, Error> = uv_pip_compile(
@@ -1295,7 +1608,7 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        false,
+        no_uv_compile,
         false,
     )
     .await;
@@ -1312,7 +1625,7 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            false,
+            no_uv_install,
             false,
         )
         .await;
@@ -1337,7 +1650,7 @@ async fn capture_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
-    worker_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
     base_internal_url: &str,
     token: &str,
     script_path: &str,
@@ -1347,58 +1660,111 @@ async fn capture_dependency_job(
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
-            let reqs = if raw_deps {
-                job_raw_code.to_string()
-            } else {
-                let mut already_visited = vec![];
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Python requires the python feature to be enabled".to_string(),
+            ));
 
-                windmill_parser_py_imports::parse_python_imports(
-                    job_raw_code,
-                    &w_id,
-                    script_path,
-                    &db,
-                    &mut already_visited,
+            #[cfg(feature = "python")]
+            {
+                let reqs = if raw_deps {
+                    job_raw_code.to_string()
+                } else {
+                    let mut already_visited = vec![];
+
+                    windmill_parser_py_imports::parse_python_imports(
+                        job_raw_code,
+                        &w_id,
+                        script_path,
+                        &db,
+                        &mut already_visited,
+                    )
+                    .await?
+                    .join("\n")
+                };
+
+                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
+                    PythonAnnotations::parse(job_raw_code);
+
+                if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                    if let Err(e) = sqlx::query!(
+                        r#"
+                          INSERT INTO metrics (id, value) 
+                               VALUES ('no_uv_usage_py', $1)
+                        "#,
+                        serde_json::to_value("").map_err(to_anyhow)?
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
+                    }
+                }
+
+                python_dep(
+                    reqs,
+                    job_id,
+                    mem_peak,
+                    canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    w_id,
+                    worker_dir,
+                    &mut Some(occupancy_metrics),
+                    no_uv_compile | no_uv,
+                    no_uv_install | no_uv,
                 )
-                .await?
-                .join("\n")
-            };
-
-            python_dep(
-                reqs,
-                job_id,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                worker_dir,
-                &mut Some(occupancy_metrics),
-            )
-            .await
+                .await
+            }
         }
         ScriptLang::Ansible => {
-            if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for ansible".to_string(),
-                ));
-            }
-            let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
-            let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
+            #[cfg(not(feature = "python"))]
+            return Err(Error::InternalErr(
+                "Ansible requires the python feature to be enabled".to_string(),
+            ));
 
-            python_dep(
-                reqs,
-                job_id,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                worker_dir,
-                &mut Some(occupancy_metrics),
-            )
-            .await
+            #[cfg(feature = "python")]
+            {
+                if raw_deps {
+                    return Err(Error::ExecutionErr(
+                        "Raw dependencies not supported for ansible".to_string(),
+                    ));
+                }
+                let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
+                let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
+
+                if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
+                    if let Err(e) = sqlx::query!(
+                        r#"
+                        INSERT INTO metrics (id, value) 
+                            VALUES ('no_uv_usage_ansible', $1)
+                        "#,
+                        serde_json::to_value("").map_err(to_anyhow)?
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
+                    };
+                }
+
+                python_dep(
+                    reqs,
+                    job_id,
+                    mem_peak,
+                    canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    w_id,
+                    worker_dir,
+                    &mut Some(occupancy_metrics),
+                    false,
+                    false,
+                )
+                .await
+            }
         }
         ScriptLang::Go => {
             if raw_deps {
@@ -1473,7 +1839,7 @@ async fn capture_dependency_job(
             if req.is_some() && !raw_deps {
                 crate::bun_executor::prebundle_bun_script(
                     job_raw_code,
-                    req.clone(),
+                    req.as_ref(),
                     script_path,
                     job_id,
                     w_id,
@@ -1489,33 +1855,40 @@ async fn capture_dependency_job(
             Ok(req.unwrap_or_else(String::new))
         }
         ScriptLang::Php => {
-            let reqs = if raw_deps {
-                if job_raw_code.is_empty() {
-                    return Ok("".to_string());
-                }
-                job_raw_code.to_string()
-            } else {
-                match parse_php_imports(job_raw_code)? {
-                    Some(reqs) => reqs,
-                    None => {
+            #[cfg(not(feature = "php"))]
+            return Err(Error::InternalErr(
+                "PHP requires the php feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "php")]
+            {
+                let reqs = if raw_deps {
+                    if job_raw_code.is_empty() {
                         return Ok("".to_string());
                     }
-                }
-            };
-
-            composer_install(
-                mem_peak,
-                canceled_by,
-                job_id,
-                w_id,
-                db,
-                job_dir,
-                worker_name,
-                reqs,
-                None,
-                occupancy_metrics,
-            )
-            .await
+                    job_raw_code.to_string()
+                } else {
+                    match parse_php_imports(job_raw_code)? {
+                        Some(reqs) => reqs,
+                        None => {
+                            return Ok("".to_string());
+                        }
+                    }
+                };
+                composer_install(
+                    mem_peak,
+                    canceled_by,
+                    job_id,
+                    w_id,
+                    db,
+                    job_dir,
+                    worker_name,
+                    reqs,
+                    None,
+                    occupancy_metrics,
+                )
+                .await
+            }
         }
         ScriptLang::Rust => {
             if raw_deps {
@@ -1524,6 +1897,12 @@ async fn capture_dependency_job(
                 ));
             }
 
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::InternalErr(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
             let lockfile = generate_cargo_lockfile(
                 job_id,
                 job_raw_code,
@@ -1537,20 +1916,28 @@ async fn capture_dependency_job(
             )
             .await?;
 
-            build_rust_crate(
+            #[cfg(feature = "rust")]
+            Ok(lockfile)
+        }
+        ScriptLang::CSharp => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for C#".to_string(),
+                ));
+            }
+
+            generate_nuget_lockfile(
                 job_id,
+                job_raw_code,
                 mem_peak,
                 canceled_by,
                 job_dir,
                 db,
                 worker_name,
                 w_id,
-                base_internal_url,
-                &compute_rust_hash(&job_raw_code, Some(&lockfile)),
                 occupancy_metrics,
             )
-            .await?;
-            Ok(lockfile)
+            .await
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

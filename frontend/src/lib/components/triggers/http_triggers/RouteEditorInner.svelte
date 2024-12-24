@@ -12,6 +12,8 @@
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
@@ -163,7 +165,7 @@
 
 	let dirtyPath = false
 
-	$: fullRoute = `${$page.url.origin}${base}/api/r/${
+	$: fullRoute = `${window.location.origin}${base}/api/r/${
 		isCloudHosted() ? $workspaceStore + '/' : ''
 	}${route_path}`
 
@@ -342,36 +344,48 @@
 
 					{#if static_asset_config}
 						<div class="flex flex-col w-full gap-1">
-							<Toggle
-								class="flex justify-end"
-								bind:checked={s3FileUploadRawMode}
-								size="xs"
-								options={{ left: 'Existing file' }}
-							/>
-							{#if s3FileUploadRawMode}
-								<JsonEditor
-									bind:editor={s3Editor}
-									on:focus={(e) => {
-										dispatch('focus')
-									}}
-									on:blur={(e) => {
-										dispatch('blur')
-									}}
-									code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
-									bind:value={static_asset_config}
-								/>
-								<Button
-									variant="border"
-									color="light"
+							{#if can_write}
+								<Toggle
+									class="flex justify-end"
+									bind:checked={s3FileUploadRawMode}
 									size="xs"
-									btnClasses="mt-1"
-									on:click={() => {
-										s3FilePicker?.open?.(static_asset_config)
-									}}
-									startIcon={{ icon: Pipette }}
-								>
-									Choose an object from the catalog
-								</Button>
+									options={{ left: 'Existing file' }}
+									disabled={!can_write}
+								/>
+							{/if}
+							{#if s3FileUploadRawMode}
+								{#if can_write}
+									<JsonEditor
+										bind:editor={s3Editor}
+										on:focus={(e) => {
+											dispatch('focus')
+										}}
+										on:blur={(e) => {
+											dispatch('blur')
+										}}
+										code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
+										bind:value={static_asset_config}
+									/>
+								{:else}
+									<Highlight
+										language={json}
+										code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
+									/>
+								{/if}
+								{#if can_write}
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="mt-1"
+										on:click={() => {
+											s3FilePicker?.open?.(static_asset_config)
+										}}
+										startIcon={{ icon: Pipette }}
+									>
+										Choose an object from the catalog
+									</Button>
+								{/if}
 							{:else}
 								<FileUpload
 									allowMultiple={false}
@@ -404,7 +418,8 @@
 								allowFlow={true}
 								bind:itemKind
 								bind:scriptPath={script_path}
-								allowRefresh
+								allowRefresh={can_write}
+								allowEdit={!$userStore?.operator}
 							/>
 
 							{#if script_path === undefined}

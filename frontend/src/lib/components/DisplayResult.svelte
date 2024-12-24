@@ -34,6 +34,7 @@
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import PdfViewer from './display/PdfViewer.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -71,6 +72,7 @@
 		| 'markdown'
 		| 'map'
 		| 'nondisplayable'
+		| 'pdf'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -199,6 +201,8 @@
 						return 'html'
 					} else if (keys.length == 1 && keys[0] === 'map') {
 						return 'map'
+					} else if (keys.length == 1 && keys[0] === 'pdf') {
+						return 'pdf'
 					} else if (keys.length == 1 && keys[0] === 'file') {
 						return 'file'
 					} else if (
@@ -277,6 +281,7 @@
 			Array.isArray(json) &&
 			json.length > 0 &&
 			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
 			json[0].every((item) => typeof item === 'string') &&
 			json
 				.slice(1)
@@ -335,6 +340,7 @@
 			if (
 				input.length > 1 &&
 				Array.isArray(input[0]) &&
+				input[0].length > 0 &&
 				input[0].every((item) => typeof item === 'string')
 			) {
 				const headers = input[0]
@@ -398,7 +404,7 @@
 	>{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
-			: 'min-h-[200px]'}"
+			: 'min-h-[160px]'}"
 		>{#if result != undefined && length != undefined && largeObject != undefined}<div
 				class="flex justify-between items-center w-full"
 				><div class="text-tertiary text-sm">
@@ -526,6 +532,13 @@
 							alt="gif rendered"
 							class="w-auto h-full"
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
+						/>
+					</div>
+				{:else if !forceJson && resultKind === 'pdf'}
+					<div class="h-96 mt-2 border">
+						<PdfViewer
+							allowFullscreen
+							source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
@@ -667,6 +680,14 @@
 											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
+							{:else if result?.s3?.endsWith('.pdf')}
+								<div class="h-96 mt-2 border">
+									<PdfViewer
+										allowFullscreen
+										source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
+									/>
+								</div>
 							{/if}
 						{/if}
 					</div>
@@ -735,6 +756,14 @@
 											>open image preview <ArrowDownFromLine />
 										</button>
 									{/if}
+								{:else if s3object?.s3?.endsWith('.pdf')}
+									<div class="h-96 mt-2 border">
+										<PdfViewer
+											allowFullscreen
+											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
+												(s3object.storage ? `&storage=${s3object.storage}` : '')}
+										/>
+									</div>
 								{/if}
 							{/each}
 						</div>

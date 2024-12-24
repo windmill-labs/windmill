@@ -42,7 +42,10 @@
                 "noop",
                 "appdependencies",
                 "deploymentcallback",
-                "singlescriptflow"
+                "singlescriptflow",
+                "flowscript",
+                "flownode",
+                "appscript"
               ]
             }
           }
@@ -72,7 +75,8 @@
                 "php",
                 "bunnative",
                 "rust",
-                "ansible"
+                "ansible",
+                "csharp"
               ]
             }
           }

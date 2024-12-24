@@ -132,9 +132,8 @@
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
-	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
-
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+
 	let rawValue: string | undefined = undefined
 
 	function computeDefaultValue(
@@ -211,12 +210,12 @@
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 
-	let oldDefaultValue = defaultValue
+	let oldDefaultValue = structuredClone(defaultValue)
 	function handleDefaultValueChange() {
-		if (value == oldDefaultValue) {
+		if (deepEqual(value, oldDefaultValue)) {
 			value = defaultValue
 		}
-		oldDefaultValue = defaultValue
+		oldDefaultValue = structuredClone(defaultValue)
 	}
 
 	function evalValueToRaw() {
@@ -497,7 +496,6 @@
 																{onlyMaskPassword}
 																{disablePortal}
 																{disabled}
-																noDelete
 																schema={getSchemaFromProperties(itemsType?.properties)}
 																bind:args={v}
 															/>
@@ -659,60 +657,63 @@
 				{#if oneOf && oneOf.length >= 2}
 					<div class="flex flex-col gap-2 w-full">
 						{#if oneOf && oneOf.length >= 2}
-							<ToggleButtonGroup bind:selected={oneOfSelected}>
+							<ToggleButtonGroup
+								bind:selected={oneOfSelected}
+								on:selected={() => {
+									value = { label: oneOfSelected }
+									redraw += 1
+								}}
+							>
 								{#each oneOf as obj}
 									<ToggleButton value={obj.title} label={obj.title} />
 								{/each}
 							</ToggleButtonGroup>
-
 							{#if oneOfSelected}
 								{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
 								{@const obj = oneOf[objIdx]}
 								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
-									<div class="p-4 pl-8 border rounded w-full">
-										{#if orderEditable}
-											<SchemaFormDnd
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												schema={{
-													properties: Object.fromEntries(
-														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-													),
-													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
-												args={value}
-												dndType={`nested-${title}`}
-												on:reorder={(e) => {
-													if (oneOf && oneOf[objIdx]) {
-														const keys = e.detail
-														oneOf[objIdx].order = keys
-													}
-												}}
-												on:change
-											/>
-										{:else}
-											<SchemaForm
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												noDelete
-												schema={{
-													properties: Object.fromEntries(
-														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-													),
-													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
-												bind:args={value}
-											/>
-										{/if}
-									</div>
+									{#key redraw}
+										<div class="p-4 pl-8 border rounded w-full">
+											{#if orderEditable}
+												<SchemaFormDnd
+													{onlyMaskPassword}
+													{disablePortal}
+													{disabled}
+													schema={{
+														properties: obj.properties,
+														order: obj.order,
+														$schema: '',
+														required: obj.required ?? [],
+														type: 'object'
+													}}
+													args={value}
+													dndType={`nested-${title}`}
+													on:reorder={(e) => {
+														if (oneOf && oneOf[objIdx]) {
+															const keys = e.detail
+															oneOf[objIdx].order = keys
+														}
+													}}
+													on:change
+												/>
+											{:else}
+												<SchemaForm
+													{onlyMaskPassword}
+													{disablePortal}
+													{disabled}
+													schemaSkippedValues={['label']}
+													schema={{
+														properties: obj.properties,
+														order: obj.order,
+														$schema: '',
+														required: obj.required ?? [],
+														type: 'object'
+													}}
+													bind:args={value}
+												/>
+											{/if}
+										</div>
+									{/key}
 								{:else if disabled}
 									<textarea disabled />
 								{:else}

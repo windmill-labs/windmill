@@ -3,12 +3,13 @@
 	import type { AppEditorContext } from '../types'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import type { Job } from '$lib/gen'
-	import RunnalbeJobPanelInner from './RunnalbeJobPanelInner.svelte'
+	import RunnableJobPanelInner from './RunnableJobPanelInner.svelte'
 
 	export let float: boolean = true
 	export let hidden: boolean = false
 	export let testJob: Job | undefined = undefined
 	export let jobToWatch: { componentId: string; job: string } | undefined = undefined
+	export let width: number | undefined = undefined
 
 	const { runnableJobEditorPanel, selectedComponentInEditor } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -16,7 +17,7 @@
 
 	let testJobLoader: TestJobLoader
 
-	$: $runnableJobEditorPanel.focused &&
+	$: ($runnableJobEditorPanel.focused || !float) &&
 		$selectedComponentInEditor &&
 		$runnableJobEditorPanel.jobs &&
 		updateSelectedJob()
@@ -56,12 +57,15 @@
 			class="absolute z-[100] top-0 right-0 border-t h-full"
 			style="width: {$runnableJobEditorPanel.width}px; transform: translateX({$runnableJobEditorPanel.width}px);"
 		>
-			<RunnalbeJobPanelInner {frontendJob} {testJob} />
+			<RunnableJobPanelInner {testIsLoading} {frontendJob} {testJob} />
 		</div>
 	{:else}
-		<div class="flex flex-col w-full">
+		<div
+			class="flex flex-col min-w-0 grow h-full"
+			style={width !== undefined ? `width:${width}px;` : ''}
+		>
 			{#if $selectedComponentInEditor}
-				<RunnalbeJobPanelInner {frontendJob} {testJob} />
+				<RunnableJobPanelInner {testIsLoading} {frontendJob} {testJob} />
 			{:else if !hidden}
 				<div class="text-sm text-secondary text-center py-8 px-2 border-l h-full">
 					Logs and results will be displayed here

@@ -1,5 +1,5 @@
 use serde_json::value::RawValue;
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
@@ -15,8 +15,8 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
-        OccupancyMetrics,
+        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
@@ -32,7 +32,7 @@ lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
-    static ref CARGO_PATH: String = format!("{}/bin/cargo", CARGO_HOME.as_str());
+    static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
 }
 
 #[cfg(windows)]
@@ -43,8 +43,8 @@ lazy_static::lazy_static! {
 
 #[cfg(unix)]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = "/usr/local/cargo".to_string();
-    static ref RUSTUP_HOME_DEFAULT: String = "/usr/local/rustup".to_string();
+    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
@@ -132,7 +132,7 @@ pub async fn generate_cargo_lockfile(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
-    check_cargo_exists()?;
+    check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     gen_cargo_crate(code, job_dir)?;
 
@@ -209,6 +209,7 @@ pub async fn build_rust_crate(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
         );
+        build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
     }
 
     let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
@@ -270,24 +271,6 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
     ))
 }
 
-#[cfg(not(feature = "enterprise"))]
-fn check_cargo_exists() -> Result<(), Error> {
-    if !Path::new(CARGO_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
-        return Err(Error::NotFound(msg));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-fn check_cargo_exists() -> Result<(), Error> {
-    if !Path::new(CARGO_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-ee-full` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
-        return Err(Error::NotFound(msg));
-    }
-    Ok(())
-}
-
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_rust_job(
     mem_peak: &mut i32,
@@ -297,16 +280,16 @@ pub async fn handle_rust_job(
     client: &AuthedClientBackgroundTask,
     inner_content: &str,
     job_dir: &str,
-    requirements_o: Option<String>,
+    requirements_o: Option<&String>,
     shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
-    check_cargo_exists()?;
+    check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let hash = compute_rust_hash(inner_content, requirements_o.as_ref());
+    let hash = compute_rust_hash(inner_content, requirements_o);
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
@@ -402,7 +385,10 @@ pub async fn handle_rust_job(
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
-        run_rust.env("SystemRoot", SYSTEM_ROOT.as_str());
+        {
+            run_rust.env("SystemRoot", SYSTEM_ROOT.as_str());
+            run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
 
         start_child_process(run_rust, compiled_executable_name).await?
     };

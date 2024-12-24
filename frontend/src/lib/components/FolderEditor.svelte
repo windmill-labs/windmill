@@ -62,6 +62,7 @@
 				owner: (ownerKind == 'user' ? 'u/' : 'g/') + ownerItem
 			}
 		})
+		ownerItem = ''
 		loadFolder()
 	}
 
@@ -193,7 +194,7 @@
 					<AutoComplete
 						required
 						noInputStyles
-						items={ownerKind === 'user' ? usernames : groups}
+						items={ownerKind === 'user' ? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/'+x)) : groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/'+x))}
 						bind:selectedItem={ownerItem}
 					/>
 					{#if ownerKind == 'group'}

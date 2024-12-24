@@ -33,7 +33,7 @@
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
+	import { devopsRole, enterpriseLicense, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
@@ -244,7 +244,7 @@
 					queryParseErrors = searchResults.query_parse_errors
 					indexMetadata = searchResults.index_metadata
 				} catch (e) {
-					sendUserToast(e, true)
+					sendUserToast(e.body, true)
 				}
 				loadingCompletedRuns = false
 				selectedItem = selectItem(0)
@@ -610,7 +610,7 @@
 						/>
 					{:else if tab === 'logs'}
 						<div class="p-2">
-							{#if !$superadmin}
+							{#if !$devopsRole}
 								<Alert title="Service logs are only available to superadmins" type="warning">
 									Service logs are only available to superadmins
 								</Alert>
@@ -701,7 +701,7 @@
 									<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
 										{#if indexMetadata.indexed_until}
 											<span class="px-2">
-												Most recently indexed job was created <TimeAgo
+												Most recently indexed job was created at <TimeAgo
 													agoOnlyIfRecent
 													date={indexMetadata.indexed_until || ''}
 												/>
@@ -745,7 +745,7 @@
 									<div class="flex flex-row pt-10 text-xs text-secondary">
 										{#if indexMetadata.indexed_until}
 											<span class="px-2">
-												Most recently indexed job was created <TimeAgo
+												Most recently indexed job was created at <TimeAgo
 													agoOnlyIfRecent
 													date={indexMetadata.indexed_until}
 												/>

@@ -80,6 +80,7 @@
 	}
 
 	try {
+		
 		setLicense()
 		redirectIfNecessary()
 		checkFirstTimeSetup()
