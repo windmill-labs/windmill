@@ -46,10 +46,16 @@ use crate::SYSTEM_ROOT;
 const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.csharp.config.proto");
 
 #[cfg(feature = "csharp")]
-lazy_static::lazy_static! {
-    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
-    static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").expect("Could not find the DOTNET_ROOT environment variable");
+#[cfg(windows)]
+const DOTNET_ROOT_DEFAULT: &str = "C:\\Program Files\\dotnet";
 
+#[cfg(feature = "csharp")]
+#[cfg(unix)]
+const DOTNET_ROOT_DEFAULT: &str = "/usr/share/dotnet";
+
+#[cfg(feature = "csharp")]
+lazy_static::lazy_static! {
+    static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").unwrap_or_else(|_| DOTNET_ROOT_DEFAULT.to_string());
 }
 
 #[cfg(feature = "csharp")]
@@ -83,6 +89,30 @@ pub async fn generate_nuget_lockfile(
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    gen_lockfile_cmd
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        )
+        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+        .env(
+            "APPDATA",
+            std::env::var("APPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+        )
+        .env(
+            "ProgramFiles",
+            std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+        )
+        .env(
+            "LOCALAPPDATA",
+            std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+        );
+
     let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
     handle_child(
         job_id,
@@ -147,6 +177,17 @@ fn gen_cs_proj(
         })
         .join("\n");
 
+    let item_group = if pkgs.is_empty() {
+        "".to_string()
+    } else {
+        format!(
+            r#"  <ItemGroup>
+{pkgs}
+  </ItemGroup>
+"#
+        )
+    };
+
     write_file(
         job_dir,
         "Main.csproj",
@@ -159,10 +200,7 @@ fn gen_cs_proj(
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
-  <ItemGroup>
-{pkgs}
-  </ItemGroup>
-
+{item_group}
 </Project>
 "#
         ),
@@ -297,13 +335,27 @@ async fn build_cs_proj(
         .stderr(Stdio::piped());
 
     #[cfg(windows)]
-    {
-        build_cs_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-        build_cs_cmd.env(
+    build_cs_cmd
+        .env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        )
+        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+        .env(
+            "APPDATA",
+            std::env::var("APPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+        )
+        .env(
+            "ProgramFiles",
+            std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+        )
+        .env(
+            "LOCALAPPDATA",
+            std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
-    }
 
     let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
     handle_child(
@@ -322,7 +374,6 @@ async fn build_cs_proj(
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
-
     if let Err(e) = std::fs::remove_file(Path::new(job_dir).join("nuget.config")) {
         if e.kind() != io::ErrorKind::NotFound {
             Err(anyhow!("Error erasing nuget.config: {}", e))?;
@@ -330,11 +381,15 @@ async fn build_cs_proj(
     }
 
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
+    #[cfg(unix)]
+    let target = format!("{job_dir}/Main");
+    #[cfg(windows)]
+    let target = format!("{job_dir}/Main.exe");
 
     match save_cache(
         &bin_path,
         &format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}"),
-        &format!("{job_dir}/Main"),
+        &target,
     )
     .await
     {
@@ -408,18 +463,16 @@ pub async fn handle_csharp_job(
     let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
 
     let cache_logs = if cache {
-        let target = format!("{job_dir}/Main");
-
         #[cfg(unix)]
-        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
-        #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
-
-        symlink.map_err(|e| {
-            Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
-            ))
-        })?;
+        {
+            let target = format!("{job_dir}/Main");
+            let symlink = std::os::unix::fs::symlink(&bin_path, &target);
+            symlink.map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "could not copy cached binary from {bin_path} to {job_dir}/Main: {e:?}"
+                ))
+            })?;
+        }
 
         cache_logs
     } else {
@@ -497,10 +550,21 @@ pub async fn handle_csharp_job(
             .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let compiled_executable_name = "./Main";
-        let mut run_csharp = Command::new(compiled_executable_name);
+        #[cfg(unix)]
+        let compiled_executable_name = "./Main".to_string();
+        #[cfg(windows)]
+        let compiled_executable_name = if cache {
+            bin_path.to_string()
+        } else {
+            format!("{job_dir}/Main.exe")
+        };
+        let mut run_csharp = Command::new(&compiled_executable_name);
         run_csharp
             .current_dir(job_dir)
             .env_clear()
@@ -515,8 +579,31 @@ pub async fn handle_csharp_job(
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(windows)]
+        run_csharp
+            .env("SystemRoot", SYSTEM_ROOT.as_str())
+            .env("SystemRoot", SYSTEM_ROOT.as_str())
+            .env(
+                "TMP",
+                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+            )
+            .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+            .env(
+                "APPDATA",
+                std::env::var("APPDATA")
+                    .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+            )
+            .env(
+                "ProgramFiles",
+                std::env::var("ProgramFiles").unwrap_or_else(|_| String::from("C:\\Program Files")),
+            )
+            .env(
+                "LOCALAPPDATA",
+                std::env::var("LOCALAPPDATA")
+                    .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+            );
 
-        start_child_process(run_csharp, compiled_executable_name).await?
+        start_child_process(run_csharp, &compiled_executable_name).await?
     };
 
     handle_child(
