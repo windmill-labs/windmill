@@ -28,6 +28,12 @@ RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
 
 COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
 
+ENV PIPENV_VENV_IN_PROJECT=1
+
+RUN mkdir -p /pyls
+
+WORKDIR /pyls
+
 COPY Pipfile .
 
 RUN cat Pipfile
@@ -42,7 +48,12 @@ RUN mkdir -p /tmp/monaco && chmod -R 777 /tmp/monaco
 
 RUN cd /tmp/monaco && yarn add -D windmill-client
 
+# Ensure all users have access to the installed packages and configurations
+RUN chmod -R a+rX /usr/local && \
+    chmod -R a+rX /pyls && \
+    chown -R pn:pn /pyls
+
 EXPOSE 3001
 
-CMD ["python3" ,"pyls_launcher.py"]
+CMD ["python3", "pyls_launcher.py"]
 
