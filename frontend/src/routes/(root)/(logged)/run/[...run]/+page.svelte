@@ -911,15 +911,19 @@
 				class="py-4 max-w-7xl mx-auto px-4"
 			/>
 			<div class="w-full mt-10">
-				<FlowStatusViewer
-					jobId={job?.id}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
-					}}
-					initialJob={job}
-					workspaceId={$workspaceStore}
-					bind:selectedJobStep
-				/>
+				{#if job?.id}
+					<FlowStatusViewer
+						jobId={job?.id}
+						on:jobsLoaded={({ detail }) => {
+							job = detail
+						}}
+						initialJob={job}
+						workspaceId={$workspaceStore}
+						bind:selectedJobStep
+					/>
+				{:else}
+					<Skeleton layout={[[5]]} />
+				{/if}
 			</div>
 		{/if}
 	</div>

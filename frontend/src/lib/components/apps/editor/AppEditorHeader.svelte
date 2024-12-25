@@ -1465,7 +1465,7 @@
 											<div class="w-full mt-10 mb-20">
 												{#if job?.id}
 													<FlowStatusViewer
-														jobId={job.id}
+														jobId={job?.id}
 														on:jobsLoaded={({ detail }) => {
 															job = detail
 														}}
