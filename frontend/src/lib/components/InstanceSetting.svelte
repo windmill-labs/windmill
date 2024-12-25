@@ -1,4 +1,4 @@
-<script lang="typescript">
+<script lang="ts">
 	import { isCloudHosted } from '$lib/cloud'
 	import { enterpriseLicense, isCriticalAlertsUIOpen } from '$lib/stores'
 	import {
@@ -184,7 +184,7 @@
 				<SimpleEditor
 					autoHeight
 					class="editor"
-					lang={setting.codeAreaLang ?? "txt"}
+					lang={setting.codeAreaLang ?? 'txt'}
 					bind:code={$values[setting.key]}
 					fixedOverflowWidgets={false}
 				/>

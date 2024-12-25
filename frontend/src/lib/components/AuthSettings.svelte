@@ -1,4 +1,4 @@
-<script lang="typescript">
+<script lang="ts">
 	import { enterpriseLicense } from '$lib/stores'
 	import { Alert, Button, Tab, Tabs } from './common'
 
