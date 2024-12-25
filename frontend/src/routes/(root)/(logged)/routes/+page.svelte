@@ -20,7 +20,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
-	import RouteEditor from '$lib/components/triggers/http_triggers/RouteEditor.svelte'
+	import RouteEditor from '$lib/components/triggers/http/RouteEditor.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 

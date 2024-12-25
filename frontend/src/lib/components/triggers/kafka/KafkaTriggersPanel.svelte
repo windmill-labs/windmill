@@ -1,16 +1,14 @@
 <script lang="ts">
-	import { Button } from '../common'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { KafkaTriggerService, type KafkaTrigger } from '$lib/gen'
-	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { canWrite } from '$lib/utils'
-	import Alert from '../common/alert/Alert.svelte'
-	import type { TriggerContext } from '../triggers'
 	import { getContext } from 'svelte'
 	import KafkaTriggerEditor from './KafkaTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import Description from '$lib/components/Description.svelte'
+	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import KafkaIcon from '../../icons/KafkaIcon.svelte'
 
 	export let isFlow: boolean
 	export let path: string

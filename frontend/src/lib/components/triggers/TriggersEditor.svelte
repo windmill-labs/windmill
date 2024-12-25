@@ -1,19 +1,19 @@
 <script lang="ts">
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import { Tabs } from '$lib/components/common'
-	import WebhooksPanel from '$lib/components/triggers/webhook_triggers/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
-	import RoutesPanel from '$lib/components/triggers/http_triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import ScheduledPollPanel from './scheduled_triggers/ScheduledPollPanel.svelte'
-	import WebsocketTriggersPanel from './websocket_triggers/WebsocketTriggersPanel.svelte'
-	import DatabaseTriggersPanel from './database_triggers/DatabaseTriggersPanel.svelte'
-	import KafkaTriggersPanel from './KafkaTriggersPanel.svelte'
+	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
+	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
+	import DatabaseTriggersPanel from './database/DatabaseTriggersPanel.svelte'
+	import KafkaTriggersPanel from './kafka/KafkaTriggersPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false

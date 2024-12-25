@@ -28,7 +28,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import WebsocketTriggerEditor from '$lib/components/triggers/websocket_triggers/WebsocketTriggerEditor.svelte'
+	import WebsocketTriggerEditor from '$lib/components/triggers/websocket/WebsocketTriggerEditor.svelte'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 

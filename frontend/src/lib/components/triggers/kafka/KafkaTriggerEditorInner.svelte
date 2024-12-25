@@ -12,9 +12,9 @@
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '../Toggle.svelte'
+	import Toggle from '../../Toggle.svelte'
 	import { fade } from 'svelte/transition'
-	import ResourcePicker from '../ResourcePicker.svelte'
+	import ResourcePicker from '../../ResourcePicker.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
