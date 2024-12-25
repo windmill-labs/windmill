@@ -5,14 +5,12 @@
 	import InlineScriptRunnableByPath from './InlineScriptRunnableByPath.svelte'
 	import type { Runnable, StaticAppInput } from '../../inputType'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
 
 	export let runnable: HiddenRunnable
 	export let id: string
 	export let transformer: boolean
-	export let rawApps: boolean = false
 
-	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
 	async function fork(nrunnable: Runnable) {
 		runnable = { ...runnable, ...nrunnable, autoRefresh: true, recomputeOnInputChanged: true }
 	}
@@ -39,9 +37,11 @@
 			bind:inlineScript={runnable.transformer}
 			name="Transformer"
 			on:delete={() => {
-				delete $runnableComponents[id]
-				runnable.transformer = undefined
-				runnable = runnable
+				if (runnableComponents) {
+					delete $runnableComponents[id]
+					runnable.transformer = undefined
+					runnable = runnable
+				}
 			}}
 		/>
 	{:else}
@@ -50,34 +50,15 @@
 		</div>
 	{/if}
 {:else if runnable?.type === 'runnableByName' && runnable.inlineScript}
-	{#if rawApps}
-		{#if runnable.inlineScript.language == 'frontend'}
-			<div class="text-sm text-tertiary">Frontend scripts not supported for raw apps</div>
-		{:else}
-			<ScriptEditor
-				noHistory
-				noSyncFromGithub
-				lang={runnable.inlineScript.language}
-				path={runnable.inlineScript.path ? runnable.inlineScript.path + '_fullscreen' : undefined}
-				fixedOverflowWidgets={false}
-				bind:code={runnable.inlineScript.content}
-				bind:schema={runnable.inlineScript.schema}
-				on:createScriptFromInlineScript
-				tag={undefined}
-				saveToWorkspace
-			/>
-		{/if}
-	{:else}
-		<InlineScriptEditor
-			on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
-			{id}
-			bind:inlineScript={runnable.inlineScript}
-			bind:name={runnable.name}
-			bind:fields={runnable.fields}
-			syncFields
-			on:delete
-		/>
-	{/if}
+	<InlineScriptEditor
+		on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
+		{id}
+		bind:inlineScript={runnable.inlineScript}
+		bind:name={runnable.name}
+		bind:fields={runnable.fields}
+		syncFields
+		on:delete
+	/>
 {:else if runnable?.type == 'runnableByPath'}
 	<InlineScriptRunnableByPath
 		bind:runnable
@@ -88,9 +69,8 @@
 	/>
 {:else}
 	<EmptyInlineScript
-		{rawApps}
+		unusedInlineScripts={$app?.unusedInlineScripts}
 		on:pick={(e) => onPick(e.detail)}
-		name={runnable.name}
 		on:delete
 		showScriptPicker
 		on:new={(e) => {

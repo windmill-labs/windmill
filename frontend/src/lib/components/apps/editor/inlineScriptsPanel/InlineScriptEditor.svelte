@@ -8,7 +8,7 @@
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
-	import { defaultIfEmptyString, emptySchema, itemsExists } from '$lib/utils'
+	import { emptySchema, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -18,7 +18,6 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
 
@@ -56,12 +55,6 @@
 
 		return schema
 	}
-
-	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(
-			$appPath,
-			`u/${$userStore?.username ?? 'unknown'}/newapp`
-		)}/${name?.replaceAll(' ', '_')}`)
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -209,6 +202,7 @@
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
 		<InlineScriptEditorDrawer
+			appPath={$appPath}
 			bind:isOpen={drawerIsOpen}
 			{editor}
 			bind:this={inlineScriptEditorDrawer}
@@ -310,7 +304,7 @@
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
-						path={inlineScript.path}
+						path={$appPath + '/' + id}
 						bind:this={editor}
 						small
 						class="flex flex-1 grow h-full"

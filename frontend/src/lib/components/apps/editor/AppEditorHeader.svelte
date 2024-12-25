@@ -1463,12 +1463,16 @@
 											<div class="mt-10" />
 											<FlowProgressBar {job} class="py-4" />
 											<div class="w-full mt-10 mb-20">
-												<FlowStatusViewer
-													jobId={job.id}
-													on:jobsLoaded={({ detail }) => {
-														job = detail
-													}}
-												/>
+												{#if job?.id}
+													<FlowStatusViewer
+														jobId={job.id}
+														on:jobsLoaded={({ detail }) => {
+															job = detail
+														}}
+													/>
+												{:else}
+													<Loader2 class="animate-spin" />
+												{/if}
 											</div>
 										{/if}
 									</div>

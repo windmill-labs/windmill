@@ -13,7 +13,6 @@
 	export let componentType: string
 	export let id: string
 	export let transformer: boolean
-	export let rawApps: boolean = false
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -77,8 +76,8 @@
 			/>
 		{:else}
 			<EmptyInlineScript
+				unusedInlineScripts={$app?.unusedInlineScripts}
 				{componentType}
-				name={componentInput.runnable.name}
 				on:delete={clear}
 				on:new={(e) => {
 					if (

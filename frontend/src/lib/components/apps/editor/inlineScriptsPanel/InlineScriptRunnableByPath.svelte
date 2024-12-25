@@ -23,12 +23,14 @@
 	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
+	import { get } from 'svelte/store'
 
 	export let runnable: RunnableByPath
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	export let id: string
+	export let rawApps = false
 
-	const { stateId } = getContext<AppViewerContext>('AppViewerContext')
+	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
 
 	let drawerFlowViewer: Drawer
 	let flowPath: string = ''
@@ -110,7 +112,9 @@
 
 <div class="p-2 h-full flex flex-col gap-2">
 	<div class="flex flex-row-reverse w-full gap-2">
-		<RunButton hideShortcut {id} />
+		{#if !rawApps}
+			<RunButton hideShortcut {id} />
+		{/if}
 
 		<Button
 			variant="border"
@@ -120,7 +124,9 @@
 			on:click={async () => {
 				sendUserToast('Refreshing inputs')
 				refresh(runnable)
-				$stateId = $stateId + 1
+				if (viewerContext) {
+					viewerContext.stateId.update((x) => x + 1)
+				}
 				await tick()
 			}}
 		/>
@@ -219,7 +225,7 @@
 		/>
 	</div>
 	<div class="w-full grow overflow-y-auto">
-		{#key $stateId}
+		{#key viewerContext?.stateId ? get(viewerContext.stateId) : 0}
 			{#if notFound}
 				<div class="text-red-400"
 					>{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}</div

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use std::process::Stdio;
 
 use async_recursion::async_recursion;
 use serde_json::value::RawValue;
@@ -7,6 +8,7 @@ use serde_json::{json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
 use uuid::Uuid;
+use windmill_common::apps::RawAppValue;
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
@@ -32,7 +34,7 @@ use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
-use crate::common::OccupancyMetrics;
+use crate::common::{start_child_process, OccupancyMetrics};
 use crate::csharp_executor::generate_nuget_lockfile;
 
 #[cfg(feature = "php")]
@@ -1485,12 +1487,15 @@ pub async fn handle_app_dependency_job(
         .clone()
         .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
         .0;
-    let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
-        .fetch_optional(db)
-        .await?
-        .map(|record| (record.app_id, record.value));
+    let record = sqlx::query!(
+        "SELECT app_id, value, raw_app FROM app_version WHERE id = $1",
+        id
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|record| (record.app_id, record.value, record.raw_app));
 
-    if let Some((app_id, value)) = record {
+    if let Some((app_id, value, raw_app)) = record {
         let value = lock_modules_app(
             value,
             job,
@@ -1539,6 +1544,22 @@ pub async fn handle_app_dependency_job(
             .execute(db)
             .await?;
 
+        if !raw_app {
+            let app_value = serde_json::from_value::<RawAppValue>(value)
+                .map_err(|e| Error::InternalErr(format!("Failed to parse raw app: {}", e)))?;
+            upload_raw_app(
+                &app_value,
+                job,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                &mut Some(occupancy_metrics),
+            )
+            .await?;
+        }
+
         let (deployment_message, parent_path) =
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -1580,6 +1601,44 @@ pub async fn handle_app_dependency_job(
     } else {
         Ok(())
     }
+}
+
+async fn upload_raw_app(
+    app_value: &RawAppValue,
+    job: &QueuedJob,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+) -> Result<()> {
+    for file in app_value.files.iter() {
+        write_file(&job_dir, file.0, file.1)?;
+        let mut cmd = tokio::process::Command::new("esbuild");
+        cmd.env_clear()
+            .args("--bundle --minify --sourcemap --outfile=dist/".split(' '))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let child = start_child_process(cmd, "esbuild").await?;
+
+        crate::handle_child::handle_child(
+            &job.id,
+            db,
+            mem_peak,
+            canceled_by,
+            child,
+            false,
+            worker_name,
+            &job.workspace_id,
+            "esbuild",
+            Some(30),
+            false,
+            occupancy_metrics,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 #[cfg(feature = "python")]

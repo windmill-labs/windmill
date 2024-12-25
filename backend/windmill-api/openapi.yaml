@@ -5422,6 +5422,8 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                raw_app:
+                  type: boolean
               required:
                 - path
                 - value
@@ -5766,6 +5768,8 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                raw_app:
+                  type: boolean
       responses:
         "200":
           description: app updated

@@ -39,7 +39,6 @@
 	export let forceSchemaDisplay: boolean = false
 	export let wrapperClass = ''
 	export let wrapperStyle = ''
-	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 	export let outputs: {
 		result: Output<any>
@@ -47,6 +46,7 @@
 		jobId?: Output<any> | undefined
 	}
 	export let extraKey = ''
+	export let initializing: boolean = false
 	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
 	export let refreshOnStart: boolean = false
@@ -383,7 +383,7 @@
 						requestBody['raw_code'] = {
 							content: inlineScript.id === undefined ? inlineScript.content : '',
 							language: inlineScript.language ?? '',
-							path: inlineScript.path,
+							path: $appPath + '/' + inlineScript.id,
 							lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
 							cache_ttl: inlineScript.cache_ttl
 						}
@@ -624,15 +624,16 @@
 			}
 		}
 
+		const nautoRefresh = (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh
 		if (replaceCallback) {
 			$runnableComponents[id] = {
-				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				autoRefresh: nautoRefresh,
 				refreshOnStart: refreshOnStart,
 				cb: [cancellableRun]
 			}
 		} else {
 			$runnableComponents[id] = {
-				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				autoRefresh: nautoRefresh,
 				refreshOnStart: refreshOnStart,
 				cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 			}
@@ -640,6 +641,10 @@
 
 		if (!noInitialize && !$initialized.initializedComponents.includes(id)) {
 			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
+		}
+		// console.log(initializing, $initialized.initialized, refreshOnStart)
+		if (initializing && $initialized.initialized && (refreshOnStart || nautoRefresh)) {
+			setDebouncedExecute()
 		}
 	})
 
@@ -825,7 +830,8 @@
 				<slot />
 			</div>
 		{/if}
-		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
+
+		{#if render && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50 app-component-refresh-btn">
 				<RefreshButton {loading} {id} />
 			</div>

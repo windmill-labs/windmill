@@ -6,6 +6,7 @@
 	import { Save } from 'lucide-svelte'
 
 	let scriptEditorDrawer: Drawer
+	export let appPath: string
 	export let inlineScript: InlineScript
 	export let editor: Editor | undefined = undefined
 	export let isOpen: boolean | undefined = undefined
@@ -30,7 +31,7 @@
 				noHistory
 				noSyncFromGithub
 				lang={inlineScript.language}
-				path={inlineScript.path ? inlineScript.path + '_fullscreen' : undefined}
+				path={appPath + '/' + inlineScript.id + '_fullscreen'}
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}

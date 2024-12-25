@@ -86,6 +86,7 @@ mod kafka_triggers_ee;
 pub mod oauth2_ee;
 mod oidc_ee;
 mod raw_apps;
+mod raw_apps_v2;
 mod resources;
 mod saml_ee;
 mod schedule;
@@ -93,6 +94,7 @@ mod scim_ee;
 mod scripts;
 mod service_logs;
 mod settings;
+mod slack_approvals;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
 mod static_assets;
@@ -109,7 +111,6 @@ mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
-mod slack_approvals;
 mod workspaces_export;
 mod workspaces_extra;
 
@@ -417,7 +418,10 @@ pub async fn run_server(
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
-                .route("/w/:workspace_id/jobs/slack_approval/:job_id", get(slack_approvals::request_slack_approval))
+                .route(
+                    "/w/:workspace_id/jobs/slack_approval/:job_id",
+                    get(slack_approvals::request_slack_approval),
+                )
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),

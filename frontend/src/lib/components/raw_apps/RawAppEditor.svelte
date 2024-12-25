@@ -1,63 +1,45 @@
 <script lang="ts">
 	import { versionRangeToVersion } from '$lib/ata'
 	// import { animateTo } from '$lib/components/apps/editor/appUtils'
-	import InlineScriptsPanel from '$lib/components/apps/editor/inlineScriptsPanel/InlineScriptsPanel.svelte'
-	import type { Runnable } from '$lib/components/apps/inputType'
 	import { Button } from '$lib/components/common'
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import { extToLang } from '$lib/editorUtils'
-	import {
-		loadSandpackClient,
-		type BundlerState,
-		type SandpackClient
-	} from '@codesandbox/sandpack-client'
-	import { onMount, setContext } from 'svelte'
+	// import {
+	// 	loadSandpackClient,
+	// 	// type BundlerState,
+	// 	type SandpackClient
+	// } from '@codesandbox/sandpack-client'
+	import { SandpackRuntime } from '@codesandbox/sandpack-client/clients/runtime'
+
+	import { onMount } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
+	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
+	import type { HiddenRunnable } from '../apps/types'
+	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
+	import type { Policy } from '$lib/gen'
+
+	export let appPath: string
+	export let files: Record<string, { code: string }>
+	export let runnables: Writable<Record<string, HiddenRunnable>> = writable({})
+	export let newApp: boolean
+	export let policy: Policy
+	export let summary = ''
+	export let path: string
+	export let newPath: string | undefined = undefined
+
 	let editor: Editor | undefined = undefined
 
 	let iframe: HTMLIFrameElement | undefined = undefined
 
 	let activeFile = '/index.tsx'
 
-	let files: Record<string, { code: string }> = {
-		'/index.tsx': {
-			code: `import React from 'react';
-import { createRoot } from 'react-dom/client';
-
-const App = () => {
-  return <div style={{ width: "100%" }}><h1>Hello, Wooorldd!</h1>
-    <div style={{ width: "100%", height: "100%", background: "red" }}>BAR</div></div>;
-};
-
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);`
-		},
-		'/index.css': {
-			code: `
-body {
-	background: blue;
-}`
-		},
-		'/package.json': {
-			code: `{
-	"dependencies": {
-		"react": "18.3.1",
-		"react-dom": "18.3.1"
-	}
-}`
-		},
-		'/policy.json': {
-			code: 'foo'
-		}
-	}
-
-	let client: SandpackClient | undefined = undefined
-	let bundlerState: BundlerState | undefined = undefined
+	let client: SandpackRuntime | undefined = undefined
+	// let bundlerState: BundlerState | undefined = undefined
 	onMount(async () => {
 		if (iframe) {
-			client = await loadSandpackClient(
+			client = new SandpackRuntime(
 				iframe,
 				{
 					files,
@@ -68,7 +50,9 @@ body {
 					}
 				},
 				{
+					// bundlerURL: 'https://786946de.sandpack-bundler-4bw.pages.dev',
 					// bundlerURL: 'http://localhost:3001/',
+					// bundlerURL: 'https://sandpack-bundler.codesandbox.io',
 					showOpenInCodeSandbox: false
 					// customNpmRegistries: [
 					// 	{
@@ -82,7 +66,7 @@ body {
 			)
 			client.listen((msg) => {
 				if (msg.type == 'state') {
-					bundlerState = msg.state
+					// bundlerState = msg.state
 					// const libs = Object.entries(bundlerState.transpiledModules)
 					// 	.filter(([name, mod]) => mod.module.path.startsWith('/node_modules'))
 					// 	.map(([name, mod]) => ({
@@ -162,18 +146,19 @@ body {
 		appPanelSize = 100
 	}
 
-	setContext('AppEditorContext', {
-		selectedComponentInEditor: writable(undefined)
-	})
-
-	setContext('AppViewerContext', {
-		app: writable({
-			hiddenInlineScripts: [] as Runnable[]
-		})
-	})
+	let selectedRunnable: string | undefined = undefined
 </script>
 
 <div class="h-screen">
+	<RawAppEditorHeader
+		bind:summary
+		policy={{}}
+		diffDrawer={undefined}
+		{newApp}
+		{newPath}
+		appPath={''}
+		{runnables}
+	/>
 	<Splitpanes id="o2" horizontal class="!overflow-visible">
 		<Pane bind:size={appPanelSize} class="ovisible">
 			<div class="flex">
@@ -227,6 +212,7 @@ body {
 							}, 500)
 						}}
 					/>
+					<!-- svelte-ignore a11y-missing-attribute -->
 					<iframe class="min-h-screen w-full" bind:this={iframe} />
 				</div>
 			</div>
@@ -234,7 +220,13 @@ body {
 		<Pane>
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div class="flex h-full w-full overflow-x-visible">
-				<InlineScriptsPanel on:hidePanel={() => hideBottomPanel(true)} rawApps on:hidePanel />
+				<RawAppInlineScriptsPanel
+					{appPath}
+					bind:selectedRunnable
+					{runnables}
+					on:hidePanel={() => hideBottomPanel(true)}
+					on:hidePanel
+				/>
 			</div>
 			<!-- <div class="bg-red-400 h-full w-full" /> -->
 		</Pane>

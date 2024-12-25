@@ -14,8 +14,6 @@
 	import DocLink from '../settingsPanel/DocLink.svelte'
 	import HideButton from '../settingsPanel/HideButton.svelte'
 
-	export let rawApps: boolean = false
-
 	const PREFIX = 'script-selector-' as const
 
 	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
@@ -56,13 +54,13 @@
 			}
 		}
 		let index = 0
-		let newScriptPath = `${rawApps ? 'Backend' : 'Background'} Runnable ${index}`
+		let newScriptPath = `Background Runnable ${index}`
 
 		const names = getAllScriptNames($app)
 
 		// Find a name that is not used by any other inline script
 		while (names.includes(newScriptPath)) {
-			newScriptPath = `${rawApps ? 'Backend' : 'Background'} Runnable ${++index}`
+			newScriptPath = `Background Runnable ${++index}`
 		}
 
 		if (!$app.hiddenInlineScripts) {
@@ -85,7 +83,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<PanelSection title={rawApps ? 'Backend Runnables' : 'Runnables'} id="app-editor-runnable-panel">
+<PanelSection title="Runnables" id="app-editor-runnable-panel">
 	<svelte:fragment slot="action">
 		<div class="flex flex-row gap-1">
 			<HideButton
@@ -100,107 +98,103 @@
 		</div>
 	</svelte:fragment>
 	<div class="w-full flex flex-col gap-6 py-1">
-		{#if !rawApps}
-			<div>
-				<div class="flex flex-col gap-2 w-full">
-					{#if runnables.inline.length > 0}
-						<div class="flex gap-1 flex-col">
-							{#each runnables.inline as { name, id, transformer }, index (index)}
-								<button
-									id={PREFIX + id}
-									class="panel-item
+		<div>
+			<div class="flex flex-col gap-2 w-full">
+				{#if runnables.inline.length > 0}
+					<div class="flex gap-1 flex-col">
+						{#each runnables.inline as { name, id, transformer }, index (index)}
+							<button
+								id={PREFIX + id}
+								class="panel-item
 				{$selectedComponentInEditor === id
-										? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-										: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-									on:click={() => selectScript(id)}
-								>
-									<span class="text-2xs truncate">{name}</span>
-									<div>
-										<Badge color="indigo">{id}</Badge>
-									</div>
-								</button>
-								{#if transformer && !rawApps}
-									<div class="w-full pl-4">
-										<button
-											id={PREFIX + id + '_transformer'}
-											class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
+								on:click={() => selectScript(id)}
+							>
+								<span class="text-2xs truncate">{name}</span>
+								<div>
+									<Badge color="indigo">{id}</Badge>
+								</div>
+							</button>
+							{#if transformer}
+								<div class="w-full pl-4">
+									<button
+										id={PREFIX + id + '_transformer'}
+										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 			{$selectedComponentInEditor === id + '_transformer'
-												? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-												: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-											on:click={() => selectScript(id + '_transformer')}
-										>
-											<span class="text-2xs truncate">Transformer</span>
-										</button>
-									</div>
-								{/if}
-							{/each}
-						</div>
-					{/if}
-					{#each runnables.imported as { name, id, transformer }, index (index)}
-						<button
-							id={PREFIX + id}
-							class="panel-item
+											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+											: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
+										on:click={() => selectScript(id + '_transformer')}
+									>
+										<span class="text-2xs truncate">Transformer</span>
+									</button>
+								</div>
+							{/if}
+						{/each}
+					</div>
+				{/if}
+				{#each runnables.imported as { name, id, transformer }, index (index)}
+					<button
+						id={PREFIX + id}
+						class="panel-item
 						{$selectedComponentInEditor === id
-								? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-								: 'hover:bg-blue-50'}"
-							on:click={() => selectScript(id)}
-						>
-							<span class="text-2xs truncate">{name}</span>
-							<Badge color="indigo">{id}</Badge>
-						</button>
-						{#if transformer && !rawApps}
-							<div class="w-full pl-4">
-								<button
-									id={PREFIX + id + '_transformer'}
-									class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
+							? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+							: 'hover:bg-blue-50'}"
+						on:click={() => selectScript(id)}
+					>
+						<span class="text-2xs truncate">{name}</span>
+						<Badge color="indigo">{id}</Badge>
+					</button>
+					{#if transformer}
+						<div class="w-full pl-4">
+							<button
+								id={PREFIX + id + '_transformer'}
+								class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 {$selectedComponentInEditor === id + '_transformer'
-										? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-										: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-									on:click={() => selectScript(id + '_transformer')}
-								>
-									<span class="text-2xs truncate">Transformer</span>
-								</button>
-							</div>
-						{/if}
-					{/each}
-
-					{#if $app.unusedInlineScripts?.length > 0}
-						<div class="flex gap-1 flex-col">
-							{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
-								{@const id = `unused-${index}`}
-								<button
-									id={PREFIX + id}
-									class="panel-item
-								{$selectedComponentInEditor === id
-										? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-										: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-									on:click={() => selectScript(id)}
-								>
-									<span class="text-2xs truncate">{unusedInlineScript.name}</span>
-									<Badge color="red">Detached</Badge>
-								</button>
-							{/each}
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
+								on:click={() => selectScript(id + '_transformer')}
+							>
+								<span class="text-2xs truncate">Transformer</span>
+							</button>
 						</div>
 					{/if}
-					{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
-						<div class="text-xs text-tertiary">No scripts/flows</div>
-					{/if}
-				</div>
+				{/each}
+
+				{#if $app.unusedInlineScripts?.length > 0}
+					<div class="flex gap-1 flex-col">
+						{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
+							{@const id = `unused-${index}`}
+							<button
+								id={PREFIX + id}
+								class="panel-item
+								{$selectedComponentInEditor === id
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
+								on:click={() => selectScript(id)}
+							>
+								<span class="text-2xs truncate">{unusedInlineScript.name}</span>
+								<Badge color="red">Detached</Badge>
+							</button>
+						{/each}
+					</div>
+				{/if}
+				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
+					<div class="text-xs text-tertiary">No scripts/flows</div>
+				{/if}
 			</div>
-		{/if}
+		</div>
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
 				<div class="text-xs text-secondary font-semibold truncate">
-					{#if !rawApps}
-						Background Runnables
+					Background Runnables
 
-						<Tooltip
-							documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
-						>
-							Background runnables can be triggered on app refresh or when their input changes. The
-							result can be shared among many components.
-						</Tooltip>
-					{/if}
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
+					>
+						Background runnables can be triggered on app refresh or when their input changes. The
+						result can be shared among many components.
+					</Tooltip>
 				</div>
 				<Button
 					size="xs"
@@ -231,7 +225,7 @@
 								<span class="text-2xs truncate">{name}</span>
 								<Badge color="indigo">{id}</Badge>
 							</button>
-							{#if transformer && !rawApps}
+							{#if transformer}
 								<div class="w-full pl-4">
 									<button
 										id={PREFIX + id + '_transformer'}
@@ -248,7 +242,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-tertiary">No {rawApps ? 'backend' : 'background'} runnable</div>
+					<div class="text-xs text-tertiary">No background runnable</div>
 				{/if}
 			</div>
 		</div>
