@@ -1464,7 +1464,7 @@
 											<FlowProgressBar {job} class="py-4" />
 											<div class="w-full mt-10 mb-20">
 												<FlowStatusViewer
-													jobId={job?.id ?? ""}
+													jobId={job?.id ?? ''}
 													on:jobsLoaded={({ detail }) => {
 														job = detail
 													}}

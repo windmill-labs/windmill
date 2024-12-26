@@ -155,6 +155,7 @@
 				displayName: login.display_name || login.type
 			}))
 			saml = allLogins.saml
+
 			showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 		} catch (e) {
 			logins = []

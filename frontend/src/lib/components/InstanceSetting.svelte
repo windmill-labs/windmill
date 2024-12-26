@@ -184,7 +184,7 @@
 				<SimpleEditor
 					autoHeight
 					class="editor"
-					lang={setting.codeAreaLang ?? "txt"}
+					lang={setting.codeAreaLang ?? 'txt'}
 					bind:code={$values[setting.key]}
 					fixedOverflowWidgets={false}
 				/>
