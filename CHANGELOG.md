@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.441.2](https://github.com/windmill-labs/windmill/compare/v1.441.1...v1.441.2) (2024-12-27)
+
+
+### Bug Fixes
+
+* **backend:** fix zombies left by the bash executor ([#4985](https://github.com/windmill-labs/windmill/issues/4985)) ([8db69ce](https://github.com/windmill-labs/windmill/commit/8db69ce15e25601d0ac2ac98b1e45c0c01c11967))
+
 ## [1.441.1](https://github.com/windmill-labs/windmill/compare/v1.441.0...v1.441.1) (2024-12-24)
 
 
