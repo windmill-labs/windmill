@@ -5,6 +5,8 @@ FROM python-base
 COPY --from=node-base /usr/local /usr/local
 
 ENV PATH="/usr/local/bin:${PATH}"
+ENV PIPENV_VENV_IN_PROJECT=1
+ENV XDG_CACHE_HOME=/pyls/.cache
 
 RUN apt-get update \
     && apt-get install -y shellcheck wget \
@@ -16,6 +18,7 @@ RUN npm install -g diagnostic-languageserver pyright
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    url=; \
     case "$arch" in \
     'amd64') \
     targz='go1.22.5.linux-amd64.tar.gz'; \
@@ -38,8 +41,9 @@ RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
 
 COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-ENV PIPENV_VENV_IN_PROJECT=1
-RUN mkdir -p /pyls
+RUN mkdir -p /pyls/.cache
+RUN ln -s /pyls/.cache /root/.cache
+
 WORKDIR /pyls
 COPY Pipfile .
 RUN cat Pipfile
@@ -52,7 +56,8 @@ RUN mkdir -p /tmp/monaco && chmod -R 777 /tmp/monaco
 RUN cd /tmp/monaco && npm install --save-dev windmill-client
 
 RUN chmod -R a+rX /usr/local && \
-    chmod -R a+rX /pyls
+    chmod -R a+rX /pyls && \
+    chmod -R a+rX /root/.cache
 
 EXPOSE 3001
 
