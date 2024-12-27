@@ -122,7 +122,7 @@ exit_status=$?
 
 # Clean up the named pipe and background processes
 rm -f bp
-
+pkill -P $$ || true
 
 # Exit with the captured status
 exit $exit_status
