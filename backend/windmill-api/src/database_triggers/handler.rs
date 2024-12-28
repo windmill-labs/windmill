@@ -30,7 +30,10 @@ use windmill_common::{
 };
 
 use crate::{
-    database_triggers::mapper::{Mapper, MappingInfo},
+    database_triggers::{
+        mapper::{Mapper, MappingInfo},
+        relation,
+    },
     db::{ApiAuthed, DB},
 };
 
@@ -43,7 +46,7 @@ pub struct Database {
     pub db_name: String,
 }
 
-#[derive(FromRow, Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct TableToTrack {
     pub table_name: String,
     pub where_clause: Option<String>,
@@ -60,7 +63,7 @@ impl TableToTrack {
     }
 }
 
-#[derive(FromRow, Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Relations {
     pub schema_name: String,
     pub table_to_track: Vec<TableToTrack>,
@@ -383,7 +386,7 @@ pub async fn list_database_triggers(
 
 #[derive(Deserialize, Serialize)]
 pub struct PublicationData {
-    #[serde(deserialize_with = "check_if_not_duplication_relation")]
+    #[serde(default, deserialize_with = "check_if_not_duplication_relation")]
     table_to_track: Option<Vec<Relations>>,
     #[serde(deserialize_with = "check_if_valid_transaction_type")]
     transaction_to_track: Vec<String>,
@@ -516,8 +519,6 @@ pub async fn list_database_publication(
 ) -> error::Result<Json<Vec<String>>> {
     let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
 
-    tracing::info!("Database :{:#?} {}", &database, &database_resource_path);
-
     let mut connection = get_raw_postgres_connection(&database).await?;
 
     let publication_names = sqlx::query_as!(
@@ -526,8 +527,6 @@ pub async fn list_database_publication(
     )
     .fetch_all(&mut connection)
     .await?;
-
-    tracing::info!("{:#?}", &publication_names);
 
     let publications = publication_names
         .iter()
@@ -631,8 +630,6 @@ async fn new_publication(
 
     let query = query.build();
 
-    println!("{}", query.sql());
-
     query.execute(&mut *connection).await?;
 
     Ok(())
@@ -704,6 +701,9 @@ pub async fn alter_publication(
 
     let mut query = QueryBuilder::new("");
     let quoted_publication_name = quote_identifier(&publication_name);
+
+    let transaction_to_track_as_str = transaction_to_track.iter().join(",");
+
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
             if all_table {
@@ -755,6 +755,15 @@ pub async fn alter_publication(
                         query.push(',');
                     }
                 }
+                query.push(";");
+                query.build().execute(&mut connection).await?;
+                query.reset();
+                query.push("ALTER PUBLICATION ");
+                query.push(&quoted_publication_name);
+                query.push(format!(
+                    " SET (publish = '{}');",
+                    transaction_to_track_as_str
+                ));
             }
         }
         _ => {
@@ -762,28 +771,13 @@ pub async fn alter_publication(
             let to_execute = format!(
                 r#"
                 CREATE
-                    PUBLICATION {} FOR ALL TABLES
+                    PUBLICATION {} FOR ALL TABLES WITH (publish = '{}')
                 "#,
-                quoted_publication_name
+                quoted_publication_name, transaction_to_track_as_str
             );
             query.push(&to_execute);
         }
     };
-    println!("Query: {}", query.sql());
-
-    query.push(";");
-    query.build().execute(&mut connection).await?;
-    query.reset();
-    query.push("ALTER PUBLICATION ");
-    query.push(&quoted_publication_name);
-    if !transaction_to_track.is_empty() {
-        let transactions = || transaction_to_track.iter().join(",");
-        let with_parameter = format!(" SET (publish = '{}'); ", transactions());
-        query.push(&with_parameter);
-    } else {
-        query.push(" SET (publish = 'insert,update,delete')");
-    }
-    println!("{}", query.sql());
 
     query.build().execute(&mut connection).await?;
 
@@ -834,8 +828,6 @@ async fn get_publication_scope_and_transaction(
     if transaction.delete {
         transaction_to_track.push("delete".to_string());
     }
-
-    tracing::info!("{:#?}", &transaction);
 
     Ok((transaction.all_table, transaction_to_track))
 }
@@ -1094,9 +1086,10 @@ pub async fn set_enabled(
         w_id,
     )
     .fetch_optional(&mut *tx)
-    .await?;
+    .await?
+    .flatten();
 
-    not_found_if_none(one_o.flatten(), "Database trigger", path)?;
+    not_found_if_none(one_o, "Database trigger", path)?;
 
     audit_log(
         &mut *tx,
@@ -1279,8 +1272,6 @@ pub async fn get_template_script(
     let mapper = Mapper::new(mapper, language);
 
     let template = mapper.get_template();
-
-    println!("{}", template);
 
     Ok(template)
 }

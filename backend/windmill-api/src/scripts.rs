@@ -200,7 +200,6 @@ async fn list_scripts(
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
     let (per_page, offset) = paginate(pagination);
-    println!("Inside list script");
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",

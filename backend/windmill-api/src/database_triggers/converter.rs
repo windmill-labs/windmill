@@ -94,7 +94,7 @@ impl Converter {
                     Type::FLOAT8_ARRAY => {
                         Converter::parse_array(str, |str| Ok(Some(str.parse::<f64>()?)))?
                     }
-                    //Type::NUMERIC => Ok(str.parse()?),
+                    //Type::NUMERIC => str.parse()?,
                     //Type::NUMERIC_ARRAY => Converter::parse_array(str, |str| Ok(Some(str.parse()?)))?,
                     Type::BYTEA => to_raw_value(&from_bytea_hex(str)?),
                     Type::BYTEA_ARRAY => {

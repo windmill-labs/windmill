@@ -82,7 +82,7 @@ impl PostgresSimpleClient {
         let (client, connection) = config.connect(NoTls).await.map_err(Error::Postgres)?;
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                println!("{:#?}", e);
+                tracing::debug!("{:#?}", e);
             };
             tracing::info!("Successfully Connected into database");
         });
@@ -338,6 +338,7 @@ async fn listen_to_transactions(
                                     Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
                                 }
                             };
+                            println!("{:#?}", &json);
                             if let Some((o_id, Ok(mut body), transaction_type)) = json {
                                 let relation = match relations.get_relation(o_id) {
                                     Ok(relation) => relation,

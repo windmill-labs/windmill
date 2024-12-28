@@ -71,7 +71,6 @@ async fn run_job(
     trigger: &DatabaseTrigger,
 ) -> anyhow::Result<()> {
     let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
-    println!("Args: {:#?}", args);
     let label_prefix = Some(format!("db-{}-", trigger.path));
 
     let authed = fetch_api_authed(

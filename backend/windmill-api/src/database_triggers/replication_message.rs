@@ -215,7 +215,6 @@ impl TupleData {
                 TUPLE_DATA_BINARY_BYTE => {
                     let len = buf.read_i32::<BigEndian>()?;
                     let mut data = vec![0; len as usize];
-                    println!("Binary: {:#?}", &buf.bytes[buf.idx..buf.idx + len as usize]);
                     buf.read_exact(&mut data)?;
                     TupleData::Binary(data.into())
                 }

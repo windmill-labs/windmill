@@ -20,8 +20,8 @@ fn postgres_to_typescript_type(postgres_type: Option<Type>) -> String {
             Type::FLOAT4 | Type::FLOAT8 => "number",
             Type::FLOAT8_ARRAY | Type::FLOAT4_ARRAY => "Array<number>",
             Type::NUMERIC_ARRAY => "Array<number>",
-            Type::BYTEA => "string",
-            Type::BYTEA_ARRAY => "Array<string>",
+            Type::BYTEA => "Array<number>",
+            Type::BYTEA_ARRAY => "Array<Array<number>>",
             Type::DATE => "string",
             Type::DATE_ARRAY => "Array<string>",
             Type::TIME => "string",
@@ -55,7 +55,7 @@ fn into_body_struct(language: Language, mapped_info: Vec<MappingInfo>) -> String
                 let full_field = format!("\t\t{}: {},\r\n", key, typescript_type);
                 block.push_str(&full_field);
             }
-            block.push_str("\t}\r\n");
+            block.push_str("\t}");
         }
     }
     block
@@ -98,8 +98,15 @@ impl Mapper {
     fn into_typescript_template(self) -> Vec<String> {
         let mut struct_definitions = Vec::new();
         for (_, mapping_info) in self.to_template {
-            for (_, mapped_info) in mapping_info {
-                let struct_body = into_body_struct(Language::Typescript, mapped_info);
+            let last_elem = mapping_info.len() - 1;
+            for (i, (_, mapped_info)) in mapping_info.into_iter().enumerate() {
+                let mut struct_body = into_body_struct(Language::Typescript, mapped_info);
+                let struct_body = if i != last_elem {
+                    struct_body.push_str("\r\n");
+                    struct_body
+                } else {
+                    struct_body
+                };
                 struct_definitions.push(struct_body);
             }
         }
@@ -115,14 +122,14 @@ impl Mapper {
 
 
 export async function main(database: {{
-    transaction_type: "insert" | "update" | "delete";
-    schema_name: string;
-    table_name: string;
-    row: {}
+  transaction_type: "insert" | "update" | "delete";
+  schema_name: string;
+  table_name: string;
+  row: {}
 }}) {{
 }}
     "#,
-            struct_definition.join("|"),
+            struct_definition.join("\t| "),
         )
     }
 }

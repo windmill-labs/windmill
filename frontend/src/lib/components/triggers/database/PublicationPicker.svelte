@@ -37,7 +37,7 @@
 				workspace: $workspaceStore!,
 				publication: publication_name,
 				requestBody: {
-					table_to_track,
+					table_to_track: selectedTable != 'all' ? table_to_track : undefined,
 					transaction_to_track: transaction_to_track
 				}
 			})
