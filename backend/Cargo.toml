@@ -199,6 +199,7 @@ json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
 semver = "^1"
+ofiles = "0.2.0"
 
 deno_fetch = "0.203.0"
 deno_tls = "0.166.0"

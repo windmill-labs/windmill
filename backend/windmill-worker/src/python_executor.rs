@@ -1483,8 +1483,17 @@ pub async fn handle_python_reqs(
             "{py_prefix}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
-        if metadata(&venv_p).await.is_ok() {
-            // If dir exists skip installation and push path to output
+        if metadata(&venv_p).await.is_ok()
+            // Check if venv_p/.lock is in use 
+            // If it is, it is better to wait for it's release and check if wheel has been installed after
+            && ofiles::opath(venv_p.clone() + "/.lock")
+                .unwrap_or_else(|e| {
+                    tracing::error!("Failed to check if any PID has {}/.lock open: {e}", &venv_p);
+                    vec![]
+                })
+                .is_empty()
+        {
+            // If dir exists or .lock is held skip installation and push path to output
             req_paths.push(venv_p);
             in_cache.push(req.to_string());
         } else {
@@ -1587,7 +1596,6 @@ pub async fn handle_python_reqs(
                             });
 
                         if canceled {
-
                             tracing::info!(
                                 // If there is listener on other side,
                                 workspace_id = %w_id_2,
