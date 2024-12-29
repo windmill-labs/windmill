@@ -16,6 +16,7 @@ clone_newuser: {CLONE_NEWUSER}
 
 keep_caps: false
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -107,6 +108,12 @@ mount {
 mount {
     src: "/dev/random"
     dst: "/dev/random"
+    is_bind: true
+}
+
+mount {
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
     is_bind: true
 }
 
