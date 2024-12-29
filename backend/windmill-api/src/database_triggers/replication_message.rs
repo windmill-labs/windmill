@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use core::str;
 use std::{
     cmp,
@@ -48,19 +50,6 @@ const REPLICA_IDENTITY_DEFAULT_BYTE: i8 = 0x64;
 const REPLICA_IDENTITY_NOTHING_BYTE: i8 = 0x6E;
 const REPLICA_IDENTITY_FULL_BYTE: i8 = 0x66;
 const REPLICA_IDENTITY_INDEX_BYTE: i8 = 0x69;
-
-#[derive(Debug)]
-pub struct BeginBody {
-    last_lsn: i64,
-    timestamp: i64,
-    transaction_id: i32,
-}
-
-impl BeginBody {
-    pub fn new(last_lsn: i64, timestamp: i64, transaction_id: i32) -> Self {
-        Self { last_lsn, timestamp, transaction_id }
-    }
-}
 
 #[derive(Debug)]
 pub struct CommitBody {
@@ -120,19 +109,6 @@ impl RelationBody {
         columns: Columns,
     ) -> Self {
         Self { transaction_id, o_id, namespace, name, replica_identity, columns }
-    }
-}
-
-#[derive(Debug)]
-pub struct TypeBody {
-    o_id: Oid,
-    namespace: String,
-    name: String,
-}
-
-impl TypeBody {
-    pub fn new(o_id: Oid, namespace: String, name: String) -> TypeBody {
-        TypeBody { o_id, namespace, name }
     }
 }
 
@@ -243,10 +219,10 @@ pub enum TransactionBody {
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum LogicalReplicationMessage {
-    Begin(BeginBody),
+    Begin,
     Commit(CommitBody),
     Relation(RelationBody),
-    Type(TypeBody),
+    Type,
     Insert(InsertBody),
     Update(UpdateBody),
     Delete(DeleteBody),
@@ -326,15 +302,11 @@ impl XLogDataBody {
 
         let logical_replication_message = match byte {
             BEGIN_BYTE => {
-                let last_lsn = buf.read_i64::<BigEndian>()?;
-                let timestamp = buf.read_i64::<BigEndian>()?;
-                let transaction_id = buf.read_i32::<BigEndian>()?;
+                buf.read_i64::<BigEndian>()?;
+                buf.read_i64::<BigEndian>()?;
+                buf.read_i32::<BigEndian>()?;
 
-                LogicalReplicationMessage::Begin(BeginBody::new(
-                    last_lsn,
-                    timestamp,
-                    transaction_id,
-                ))
+                LogicalReplicationMessage::Begin
             }
             COMMIT_BYTE => {
                 let flags = buf.read_i8()?;
@@ -391,11 +363,11 @@ impl XLogDataBody {
                 ))
             }
             TYPE_BYTE => {
-                let o_id = buf.read_u32::<BigEndian>()?;
-                let namespace = buf.read_cstr()?;
-                let name = buf.read_cstr()?;
+                buf.read_u32::<BigEndian>()?;
+                buf.read_cstr()?;
+                buf.read_cstr()?;
 
-                LogicalReplicationMessage::Type(TypeBody::new(o_id, namespace, name))
+                LogicalReplicationMessage::Type
             }
             INSERT_BYTE => {
                 let transaction_id = match logical_replication_settings.streaming {

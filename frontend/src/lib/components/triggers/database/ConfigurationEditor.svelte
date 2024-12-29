@@ -6,7 +6,7 @@
 	import { DatabaseTriggerService, type Relations } from '$lib/gen'
 	import { emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Plus, Save, X } from 'lucide-svelte'
+	import { Loader2, Plus, X } from 'lucide-svelte'
 	import MultiSelect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import { tick } from 'svelte'
@@ -34,7 +34,6 @@
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let selectedTable: 'all' | 'specific' = 'specific'
-
 	export async function openNew() {
 		open = true
 		await tick()
@@ -66,7 +65,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					transaction_to_track: transaction_to_track,
-					table_to_track: relations
+					table_to_track: selectedTable === 'specific' ? relations : undefined
 				}
 			})
 
@@ -93,11 +92,6 @@
 
 	let darkMode = false
 
-	async function configurationSet(): Promise<void> {
-		sendUserToast('Config saved!')
-		drawer.closeDrawer()
-	}
-
 	$: showAddSchema =
 		selectedTable !== 'all' &&
 		(selectedPublicAction === 'create' ||
@@ -109,18 +103,6 @@
 {#if open}
 	<Drawer size="800px" bind:this={drawer}>
 		<DrawerContent title={'Database Configuration'} on:close={drawer.closeDrawer}>
-			<svelte:fragment slot="actions">
-				{#if !drawerLoading}
-					<Button
-						startIcon={{ icon: Save }}
-						disabled={emptyStringTrimmed(replication_slot_name) ||
-							emptyStringTrimmed(publication_name)}
-						on:click={configurationSet}
-					>
-						Save
-					</Button>
-				{/if}
-			</svelte:fragment>
 			{#if drawerLoading}
 				<Loader2 class="animate-spin" />
 			{:else}

@@ -18,6 +18,7 @@ use futures::{pin_mut, SinkExt, StreamExt};
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
+use serde_json::to_value;
 use windmill_common::{worker::to_raw_value, INSTANCE_NAME};
 
 use super::{
@@ -27,6 +28,7 @@ use super::{
 
 pub struct LogicalReplicationSettings {
     pub streaming: bool,
+    #[allow(unused)]
     pub binary: bool,
 }
 
@@ -286,7 +288,7 @@ async fn listen_to_transactions(
                                     relations.add_relation(relation_body);
                                     None
                                 }
-                                Begin(_) | Type(_) => {
+                                Begin | Type => {
                                     None
                                 }
                                 Commit(commit) => {
@@ -338,7 +340,6 @@ async fn listen_to_transactions(
                                     Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
                                 }
                             };
-                            println!("{:#?}", &json);
                             if let Some((o_id, Ok(mut body), transaction_type)) = json {
                                 let relation = match relations.get_relation(o_id) {
                                     Ok(relation) => relation,
@@ -352,8 +353,9 @@ async fn listen_to_transactions(
                                     "wm_trigger".to_string(),
                                     to_raw_value(&serde_json::json!({"kind": "database", })),
                                 )]));
-                                body.insert("trigger_info".to_string(), to_raw_value(&database_info));
-                                let body = HashMap::from([("data".to_string(), to_raw_value(&serde_json::json!(body)))]);
+                                let object = to_value(&database_info).unwrap();
+                                body.insert("trigger_info".to_string(), object);
+                                let body = HashMap::from([("database".to_string(), to_raw_value(&serde_json::json!(body)))]);
                                 let _ = run_job(Some(body), extra, &db, database_trigger).await;
                                 continue;
                             }

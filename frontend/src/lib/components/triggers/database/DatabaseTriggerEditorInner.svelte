@@ -312,7 +312,10 @@
 									on:click={getTemplateScript}
 									target="_blank"
 									{loading}
-									disabled={emptyString(database_resource_path) || relations.length === 0}
+									disabled={emptyString(database_resource_path) ||
+										emptyString(replication_slot_name) ||
+										emptyString(publication_name) ||
+										relations.length === 0}
 									>Create from template
 								</Button>
 								<Tooltip

@@ -235,7 +235,7 @@ sqlx = { version = "0.8.0", features = [
     "runtime-tokio-rustls",
     "bigdecimal"
 ] }
-bigdecimal = "^0"
+bigdecimal = {version = "^0"}
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
@@ -271,7 +271,7 @@ native-tls = "^0"
 # samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
 samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
-rust_decimal = { version = "^1", features = ["db-postgres"]}
+rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }

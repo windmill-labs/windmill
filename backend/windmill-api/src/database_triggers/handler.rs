@@ -15,9 +15,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{
     postgres::{types::Oid, PgConnectOptions},
-    Connection, Execute, FromRow, PgConnection, QueryBuilder, Value,
+    Connection, FromRow, PgConnection, QueryBuilder,
 };
-use tracing_subscriber::fmt::format;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::Error;
 use windmill_common::{
@@ -30,10 +29,7 @@ use windmill_common::{
 };
 
 use crate::{
-    database_triggers::{
-        mapper::{Mapper, MappingInfo},
-        relation,
-    },
+    database_triggers::mapper::{Mapper, MappingInfo},
     db::{ApiAuthed, DB},
 };
 

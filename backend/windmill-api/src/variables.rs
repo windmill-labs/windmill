@@ -26,12 +26,12 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     variables::{
-        build_crypt, decrypt, encrypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable
+        build_crypt, decrypt, encrypt, get_reserved_variables, ContextualVariable, CreateVariable,
+        ListableVariable,
     },
 };
 
 use lazy_static::lazy_static;
-use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};

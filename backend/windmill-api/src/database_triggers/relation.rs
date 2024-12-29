@@ -1,6 +1,6 @@
 use core::str;
 
-use serde_json::value::RawValue;
+use serde_json::{Map, Value};
 use std::{collections::HashMap, str::Utf8Error};
 
 use super::{
@@ -8,14 +8,10 @@ use super::{
     replication_message::{Columns, RelationBody, TupleData},
 };
 use rust_postgres::types::Oid;
-use windmill_common::worker::to_raw_value;
 #[derive(Debug, thiserror::Error)]
 pub enum RelationConversionError {
     #[error("Could not find matching table")]
     FailToFindMatchingTable,
-
-    #[error("Missing Column {0}")]
-    MissingColumn(String),
 
     #[error("Binary data not supported")]
     BinaryFormatNotSupported,
@@ -54,14 +50,14 @@ impl RelationConverter {
     pub fn body_to_json(
         &self,
         to_decode: (Oid, Vec<TupleData>),
-    ) -> Result<HashMap<String, Box<RawValue>>, RelationConversionError> {
+    ) -> Result<Map<String, Value>, RelationConversionError> {
         let (o_id, tuple_data) = to_decode;
-        let mut object: HashMap<String, Box<RawValue>> = HashMap::new();
+        let mut object: Map<String, Value> = Map::new();
         let columns = self.get_columns(o_id)?;
 
         for (i, column) in columns.iter().enumerate() {
             let value = match &tuple_data[i] {
-                TupleData::Null | TupleData::UnchangedToast => to_raw_value::<&Option<()>>(&&None),
+                TupleData::Null | TupleData::UnchangedToast => Value::Null,
                 TupleData::Binary(_) => {
                     return Err(RelationConversionError::BinaryFormatNotSupported)
                 }
@@ -73,6 +69,8 @@ impl RelationConverter {
 
             object.insert(column.name.clone(), value);
         }
-        Ok(HashMap::from([("row".to_string(), to_raw_value(&object))]))
+        let mut res = Map::new();
+        res.insert("row".to_string(), Value::Object(object));
+        Ok(res)
     }
 }
