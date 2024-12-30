@@ -1497,7 +1497,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         let restarted = sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null
                 WHERE last_ping < now() - ($1 || ' seconds')::interval
-                 AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
+                 AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
             )
             .fetch_all(db)
@@ -1534,7 +1534,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
 
     let mut timeout_query =
         "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'singlescriptflow')"
+    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')"
             .to_string();
     if *RESTART_ZOMBIE_JOBS {
         timeout_query.push_str(" AND same_worker = true");
@@ -1618,7 +1618,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         r#"
         SELECT *
         FROM queue
-        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview')
+        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
             AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval AND canceled = false
         "#,
     ).bind(FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str())
