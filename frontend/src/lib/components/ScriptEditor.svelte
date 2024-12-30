@@ -118,6 +118,7 @@
 			selectedTab === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
 			tag
 		)
+		setFocusToLogs()
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -249,6 +250,8 @@
 	$: selectedTab && inferSchema(code)
 
 	let argsRender = 0
+
+	let setFocusToLogs = () => {}
 </script>
 
 <TestJobLoader
@@ -447,6 +450,7 @@
 					</Pane>
 					<Pane size={67} class="relative">
 						<LogPanel
+							bind:setFocusToLogs
 							{lang}
 							previewJob={testJob}
 							{pastPreviews}
