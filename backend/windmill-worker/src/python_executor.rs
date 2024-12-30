@@ -1484,9 +1484,8 @@ pub async fn handle_python_reqs(
             "{py_prefix}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
-        if metadata(&venv_p).await.is_ok() && !BUSY_VENV_P.read().await.contains(&venv_p)
-        {
-            // If dir exists or .lock is held skip installation and push path to output
+        if metadata(&venv_p).await.is_ok() && !BUSY_VENV_P.read().await.contains(&venv_p) {
+            BUSY_VENV_P.write().await.insert(venv_p.clone());
             req_paths.push(venv_p);
             in_cache.push(req.to_string());
         } else {
@@ -1704,7 +1703,6 @@ pub async fn handle_python_reqs(
             );
 
             let start = std::time::Instant::now();
-            BUSY_VENV_P.write().await.insert(venv_p.clone());
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if is_not_pro {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
