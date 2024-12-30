@@ -56,7 +56,7 @@
 	const getDropdownItems = () => {
 		return [
 			{
-				label: 'Input Editor',
+				label: 'Input editor',
 				onClick: () => {
 					handleEditSchema('inputEditor')
 				},
@@ -85,7 +85,7 @@
 				disabled: $flowInputEditorState?.selectedTab === 'history'
 			},
 			{
-				label: 'Saved Inputs',
+				label: 'Saved inputs',
 				onClick: () => {
 					handleEditSchema('savedInputs')
 				},

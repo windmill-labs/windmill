@@ -274,7 +274,7 @@
 		{#if editPanelSize > 0}
 			<Pane
 				bind:size={editPanelSize}
-				minSize={noPreview ? 100 : 30}
+				minSize={noPreview ? 100 : 35}
 				class="border rounded-md rounded-tl-none"
 			>
 				{#if editTab !== 'inputEditor'}
