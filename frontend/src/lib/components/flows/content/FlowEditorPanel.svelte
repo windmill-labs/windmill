@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
-
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import FlowSettings from './FlowSettings.svelte'
