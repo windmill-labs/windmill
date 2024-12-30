@@ -21,7 +21,7 @@
 	let captures: Capture[] = []
 
 	let page = 1
-	let perPage = 15
+	let perPage = 10
 	let hasMore = false
 
 	async function refreshCaptures(path: string | null) {
