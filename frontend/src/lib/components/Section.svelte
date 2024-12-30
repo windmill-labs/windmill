@@ -55,12 +55,9 @@
 			{/if}
 		</div>
 	{/if}
-	<div
-		class={twMerge(
-			'grow min-h-0',
-			collapsable && collapsed ? `hidden ${$$props.class}` : `${$$props.class}`
-		)}
-	>
-		<slot />
-	</div>
+	{#if !collapsable || !collapsed}
+		<div class={twMerge('grow min-h-0', $$props.class)}>
+			<slot />
+		</div>
+	{/if}
 </div>
