@@ -5,7 +5,6 @@
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
-
 	import { Pen, Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
@@ -40,9 +39,11 @@
 	export let lightweightMode: boolean = false
 	export let displayWebhookWarning: boolean = false
 	export let dndType: string | undefined = undefined
-	export let editSchema: boolean = false
+	export let editTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' | undefined =
+		undefined
 	export let previewSchema: Record<string, any> | undefined = undefined
-	export let extraTab: boolean = false
+	export let editPanelDefaultSize: number | undefined = undefined
+	export let editPanelSize = 0
 
 	const dispatch = createEventDispatcher()
 
@@ -195,12 +196,15 @@
 	let editor: SimpleEditor | undefined = undefined
 
 	const editTabDefaultSize = noPreview ? 100 : 50
-	let editPanelSizeSmooth = tweened(0, { duration: 200 })
-	let inputPanelSizeSmooth = tweened(100, { duration: 200 })
-	let editPanelSize = 0
-	let inputPanelSize = 100
+	editPanelSize = editPanelDefaultSize ?? editTabDefaultSize
+	let inputPanelSize = 100 - editPanelSize
+	let editPanelSizeSmooth = tweened(editPanelSize, {
+		duration: 150
+	})
+	let inputPanelSizeSmooth = tweened(inputPanelSize, { duration: 150 })
 
 	function openEditTab() {
+		if (editPanelSize > 0) return
 		editPanelSizeSmooth.set(editTabDefaultSize)
 		inputPanelSizeSmooth.set(100 - editTabDefaultSize)
 	}
@@ -216,7 +220,7 @@
 	}
 	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 
-	$: editSchema ? openEditTab() : closeEditTab()
+	$: !!editTab ? openEditTab() : closeEditTab()
 
 	let pannelButtonWidth: number = 0
 </script>
@@ -270,10 +274,10 @@
 		{#if editPanelSize > 0}
 			<Pane
 				bind:size={editPanelSize}
-				minSize={noPreview ? 100 : 20}
+				minSize={noPreview ? 100 : 30}
 				class="border rounded-md rounded-tl-none"
 			>
-				{#if extraTab}
+				{#if editTab !== 'inputEditor'}
 					<slot name="extraTab" />
 				{:else}
 					<!-- WIP -->

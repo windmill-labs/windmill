@@ -4,7 +4,11 @@
 	import { onDestroy, onMount, setContext } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput } from '$lib/components/flows/types'
+	import type {
+		FlowEditorContext,
+		FlowInput,
+		FlowInputEditorState
+	} from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
 	import { OpenAPI, type FlowModule, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history'
@@ -102,7 +106,8 @@
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
 		insertButtonOpen: writable(false),
-		executionCount: writable(0)
+		executionCount: writable(0),
+		flowInputEditorState: writable<FlowInputEditorState | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

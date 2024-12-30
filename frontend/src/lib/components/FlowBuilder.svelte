@@ -44,7 +44,7 @@
 	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput } from './flows/types'
+	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import {
 		Calendar,
@@ -529,7 +529,11 @@
 		flowInputsStore: writable<FlowInput>({}),
 		customUi,
 		insertButtonOpen,
-		executionCount: writable(0)
+		executionCount: writable(0),
+		flowInputEditorState: writable<FlowInputEditorState | undefined>({
+			selectedTab: undefined,
+			editPanelSize: 0
+		})
 	})
 
 	setContext<TriggerContext>('TriggerContext', {

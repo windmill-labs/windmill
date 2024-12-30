@@ -42,7 +42,7 @@
 >
 	<List justify="between" gap="none">
 		<div class="w-full overflow-auto min-h-0 grow">
-			<table class={twMerge('min-w-full divide-y')}>
+			<table class="table-fixed w-full">
 				<slot />
 			</table>
 		</div>

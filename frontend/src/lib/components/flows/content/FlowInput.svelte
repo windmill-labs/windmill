@@ -25,9 +25,8 @@
 
 	export let noEditor: boolean
 	export let disabled: boolean
-	export let newFlow = false
 
-	const { flowStore, flowStateStore, previewArgs, pathStore, initialPath } =
+	const { flowStore, flowStateStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let payloadData: any | undefined = undefined
@@ -36,57 +35,82 @@
 	let previewSchema: Record<string, any> | undefined = undefined
 	let previewArguments: any | undefined = undefined
 	let editOptionsOpen = false
-	//const yOffset = 191
-
-	const dropdownItems: Array<{
+	let dropdownItems: Array<{
 		label: string
 		onClick: () => void
 		disabled?: boolean
-	}> = [
-		{
-			label: 'Json',
-			onClick: () => {
-				selectedTab = 'json'
-				handleEditSchema(true)
-			}
-		},
-		{
-			label: "First step's inputs",
-			onClick: () => {
-				copyFirstStepSchema($flowStateStore, flowStore)
-				handleEditSchema(false)
-			}
-		},
-		{
-			label: 'History',
-			onClick: () => {
-				selectedTab = 'history'
-				handleEditSchema(true)
-			}
-		},
-		{
-			label: 'Saved Inputs',
-			onClick: () => {
-				selectedTab = 'savedInputs'
-				handleEditSchema(true)
-			},
-			disabled: newFlow
-		},
-		{
-			label: 'Captures',
-			onClick: () => {
-				selectedTab = 'captures'
-				handleEditSchema(true)
-			}
-		}
-	].filter((item) => !item.disabled)
+	}> = []
+	//const yOffset = 191
 
-	let editSchema = false
-	function handleEditSchema(edit?: boolean) {
-		if (edit !== undefined) {
-			editSchema = edit
+	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
+	function updateEditPanelSize(size: number | undefined) {
+		if (!$flowInputEditorState) return
+		if (!size || size === 0) {
+			$flowInputEditorState.editPanelSize = undefined
+			return
+		}
+		$flowInputEditorState.editPanelSize = size
+	}
+	$: updateEditPanelSize(editPanelSize)
+
+	const getDropdownItems = () => {
+		return [
+			{
+				label: 'Input Editor',
+				onClick: () => {
+					handleEditSchema('inputEditor')
+				},
+				disabled:
+					!$flowInputEditorState?.selectedTab ||
+					$flowInputEditorState?.selectedTab === 'inputEditor'
+			},
+			{
+				label: 'Json',
+				onClick: () => {
+					handleEditSchema('json')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'json'
+			},
+			{
+				label: "First step's inputs",
+				onClick: () => {
+					copyFirstStepSchema($flowStateStore, flowStore)
+				}
+			},
+			{
+				label: 'History',
+				onClick: () => {
+					handleEditSchema('history')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'history'
+			},
+			{
+				label: 'Saved Inputs',
+				onClick: () => {
+					handleEditSchema('savedInputs')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'savedInputs'
+			},
+			{
+				label: 'Captures',
+				onClick: () => {
+					handleEditSchema('captures')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'captures'
+			}
+		].filter((item) => !item.disabled)
+	}
+
+	function handleEditSchema(editTab?: any) {
+		if (!$flowInputEditorState) {
+			return
+		}
+		if (editTab !== undefined) {
+			$flowInputEditorState.selectedTab = editTab
+		} else if ($flowInputEditorState.selectedTab === undefined) {
+			$flowInputEditorState.selectedTab = 'inputEditor'
 		} else {
-			editSchema = !editSchema
+			$flowInputEditorState.selectedTab = undefined
 		}
 	}
 
@@ -122,9 +146,7 @@
 		await tick()
 		runDisabled = editSchema
 	}
-	$: updateRunDisabled(editSchema)
-
-	let selectedTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' = 'inputEditor'
+	$: updateRunDisabled(!!$flowInputEditorState?.selectedTab)
 
 	function updatePreviewSchema(payloadData: any) {
 		if (!payloadData) {
@@ -146,15 +168,19 @@
 		$previewArgs = previewArguments
 		previousArgs = previewArguments
 		payloadData = undefined
-		editSchema = false
+		if ($flowInputEditorState) {
+			$flowInputEditorState.selectedTab = undefined
+		}
 	}
 
 	function applySchema() {
 		if (!payloadData) return
 		$flowStore.schema = schemaFromPayload(payloadData)
-		editSchema = false
 		previewSchema = undefined
 		previewArguments = undefined
+		if ($flowInputEditorState) {
+			$flowInputEditorState.selectedTab = undefined
+		}
 	}
 
 	let previousArgs: Record<string, any> | undefined = undefined
@@ -180,6 +206,8 @@
 		}
 	}
 	$: updatePayloadFromJson(pendingJson)
+
+	$: $flowInputEditorState, (dropdownItems = getDropdownItems())
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -210,27 +238,30 @@
 				}}
 				offset={undefined}
 				displayWebhookWarning
-				{editSchema}
+				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
 				bind:args={$previewArgs}
-				extraTab={selectedTab !== 'inputEditor'}
+				bind:editPanelSize
+				editPanelDefaultSize={$flowInputEditorState?.editPanelSize}
 			>
 				<svelte:fragment slot="openEditTab">
 					<div
 						class={twMerge(
 							'flex flex-row divide-x border rounded-md bg-surface',
-							editSchema ? 'rounded-r-none border-r-0' : ''
+							!!$flowInputEditorState?.selectedTab ? 'rounded-r-none border-r-0' : ''
 						)}
 					>
 						<button
 							on:click={() => {
-								selectedTab = 'inputEditor'
 								handleEditSchema()
 							}}
 							class="hover:bg-surface-hover"
+							title={!!$flowInputEditorState?.selectedTab
+								? 'Close input editor'
+								: 'Open input editor'}
 						>
 							<div class="p-2 center-center">
-								<svelte:component this={editSchema ? X : Pen} size={14} />
+								<svelte:component this={!!$flowInputEditorState?.selectedTab ? X : Pen} size={14} />
 							</div>
 						</button>
 						<ButtonDropDown
@@ -274,7 +305,7 @@
 					{/if}
 				</svelte:fragment>
 				<svelte:fragment slot="extraTab">
-					{#if selectedTab === 'history'}
+					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
 							name="From history"
 							disabled={!payloadData}
@@ -290,7 +321,7 @@
 								}}
 							/>
 						</FlowInputEditor>
-					{:else if selectedTab === 'captures'}
+					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
 							name="From captures"
 							disabled={!payloadData}
@@ -309,7 +340,7 @@
 								isFlow={true}
 							/>
 						</FlowInputEditor>
-					{:else if selectedTab === 'savedInputs'}
+					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
 							name="Saved inputs"
 							disabled={!payloadData}
@@ -326,7 +357,7 @@
 								}}
 							/>
 						</FlowInputEditor>
-					{:else if selectedTab === 'json'}
+					{:else if $flowInputEditorState?.selectedTab === 'json'}
 						<FlowInputEditor
 							name="From JSON"
 							disabled={!pendingJson?.length || !jsonValid}
