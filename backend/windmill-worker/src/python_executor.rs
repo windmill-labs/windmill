@@ -1588,6 +1588,7 @@ pub async fn handle_python_reqs(
                             });
 
                         if canceled {
+
                             tracing::info!(
                                 // If there is listener on other side,
                                 workspace_id = %w_id_2,
