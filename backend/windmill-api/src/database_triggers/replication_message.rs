@@ -52,20 +52,6 @@ const REPLICA_IDENTITY_FULL_BYTE: i8 = 0x66;
 const REPLICA_IDENTITY_INDEX_BYTE: i8 = 0x69;
 
 #[derive(Debug)]
-pub struct CommitBody {
-    pub flags: i8,
-    pub commit_lsn: u64,
-    pub end_lsn: u64,
-    pub timestamp: i64,
-}
-
-impl CommitBody {
-    pub fn new(flags: i8, commit_lsn: u64, end_lsn: u64, timestamp: i64) -> Self {
-        Self { flags, commit_lsn, end_lsn, timestamp }
-    }
-}
-
-#[derive(Debug)]
 pub enum ReplicaIdentity {
     Default,
     Nothing,
@@ -220,7 +206,7 @@ pub enum TransactionBody {
 #[derive(Debug)]
 pub enum LogicalReplicationMessage {
     Begin,
-    Commit(CommitBody),
+    Commit,
     Relation(RelationBody),
     Type,
     Insert(InsertBody),
@@ -309,13 +295,11 @@ impl XLogDataBody {
                 LogicalReplicationMessage::Begin
             }
             COMMIT_BYTE => {
-                let flags = buf.read_i8()?;
-                let commit_lsn = buf.read_u64::<BigEndian>()?;
-                let end_lsn = buf.read_u64::<BigEndian>()?;
-                let timestamp = buf.read_i64::<BigEndian>()?;
-                LogicalReplicationMessage::Commit(CommitBody::new(
-                    flags, commit_lsn, end_lsn, timestamp,
-                ))
+                buf.read_i8()?;
+                buf.read_u64::<BigEndian>()?;
+                buf.read_u64::<BigEndian>()?;
+                buf.read_i64::<BigEndian>()?;
+                LogicalReplicationMessage::Commit
             }
             RELATION_BYTE => {
                 let transaction_id = match logical_replication_settings.streaming {

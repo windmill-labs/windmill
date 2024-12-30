@@ -453,7 +453,8 @@ pub async fn list_slot_name(
         FROM
             pg_replication_slots 
         WHERE 
-            plugin = 'pgoutput';
+            plugin = 'pgoutput' AND
+            slot_type = 'logical';
         "#
     )
     .fetch_all(&mut connection)

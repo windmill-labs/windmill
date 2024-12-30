@@ -288,45 +288,7 @@ async fn listen_to_transactions(
                                     relations.add_relation(relation_body);
                                     None
                                 }
-                                Begin | Type => {
-                                    None
-                                }
-                                Commit(commit) => {
-                                    match sqlx::query_scalar!(
-                                        r#"
-                                        UPDATE 
-                                            database_trigger
-                                        SET 
-                                            last_lsn = $1
-                                        WHERE
-                                            workspace_id = $2
-                                            AND path = $3
-                                            AND server_id = $4 
-                                            AND enabled IS TRUE
-                                        RETURNING 1
-                                        "#,
-                                        commit.end_lsn as i64,
-                                        &database_trigger.workspace_id,
-                                        &database_trigger.path,
-                                        *INSTANCE_NAME
-                                    )
-                                    .fetch_optional(&db)
-                                    .await
-                                    {
-                                        Ok(updated) => {
-                                            if updated.flatten().is_none() {
-                                                return;
-                                            }
-                                        }
-                                        Err(err) => {
-                                            tracing::warn!(
-                                                "Error updating ping of database {}: {:?}",
-                                                database_trigger.path,
-                                                err
-                                            );
-                                            return;
-                                        }
-                                    };
+                                Begin | Type | Commit => {
                                     None
                                 }
                                 Insert(insert) => {
