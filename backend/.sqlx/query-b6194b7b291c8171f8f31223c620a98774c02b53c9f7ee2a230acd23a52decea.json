@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM database_trigger \n        WHERE \n            workspace_id = $1 AND \n            path = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b6194b7b291c8171f8f31223c620a98774c02b53c9f7ee2a230acd23a52decea"
+}
