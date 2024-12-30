@@ -37,7 +37,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	const { flowStore, selectedId, flowInputEditorState } =
+		getContext<FlowEditorContext>('FlowEditorContext') || {}
 </script>
 
 <Section label={captureTypeLabels[triggerType]}>
@@ -106,6 +107,14 @@
 				$flowStore.schema = schema
 				if (redirect) {
 					$selectedId = 'Input'
+					if (!$flowInputEditorState) {
+						$flowInputEditorState = {
+							selectedTab: 'captures',
+							editPanelSize: 50
+						}
+					} else {
+						$flowInputEditorState.selectedTab = 'captures'
+					}
 				}
 			}}
 			on:saveTrigger
