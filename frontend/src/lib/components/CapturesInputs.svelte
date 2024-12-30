@@ -87,11 +87,8 @@
 		>
 			<colgroup>
 				<col class="w-8" />
-				<!-- Icon column -->
 				<col class="w-20" />
-				<!-- Date column -->
 				<col />
-				<!-- Remaining space for payload data -->
 			</colgroup>
 
 			<tbody class="w-full overflow-y-auto">
