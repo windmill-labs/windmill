@@ -2340,7 +2340,7 @@ pub async fn set_flow_user_state(
     let r = sqlx::query_scalar!(
         r#"
         UPDATE queue SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
-        WHERE id = $3 AND workspace_id = $4 AND job_kind IN ('flow', 'flowpreview') RETURNING 1
+        WHERE id = $3 AND workspace_id = $4 AND job_kind IN ('flow', 'flowpreview', 'flownode') RETURNING 1
         "#,
         key,
         value,
