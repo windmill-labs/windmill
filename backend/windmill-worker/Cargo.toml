@@ -69,7 +69,6 @@ dyn-iter.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
-ofiles.workspace = true
 deno_fetch = { workspace = true, optional = true }
 deno_webidl = { workspace = true, optional = true }
 deno_web = { workspace = true, optional = true }

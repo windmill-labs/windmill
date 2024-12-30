@@ -15,7 +15,7 @@ use tokio::{
     fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
     process::Command,
-    sync::Semaphore,
+    sync::{RwLock, Semaphore},
     task,
 };
 use uuid::Uuid;
@@ -35,6 +35,8 @@ use windmill_common::variables::get_secret_value_as_admin;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
+    static ref BUSY_VENV_P: RwLock<HashSet<String>> = RwLock::new(HashSet::new());
+
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
@@ -1482,15 +1484,7 @@ pub async fn handle_python_reqs(
             "{py_prefix}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
-        if metadata(&venv_p).await.is_ok()
-            // Check if venv_p/.lock is in use 
-            // If it is, it is better to wait for it's release and check if wheel has been installed after
-            && ofiles::opath(venv_p.clone() + "/.lock")
-                .unwrap_or_else(|e| {
-                    tracing::error!("Failed to check if any PID has {}/.lock open: {e}", &venv_p);
-                    vec![]
-                })
-                .is_empty()
+        if metadata(&venv_p).await.is_ok() && !BUSY_VENV_P.read().await.contains(&venv_p)
         {
             // If dir exists or .lock is held skip installation and push path to output
             req_paths.push(venv_p);
@@ -1710,6 +1704,7 @@ pub async fn handle_python_reqs(
             );
 
             let start = std::time::Instant::now();
+            BUSY_VENV_P.write().await.insert(venv_p.clone());
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if is_not_pro {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
@@ -1887,8 +1882,9 @@ pub async fn handle_python_reqs(
                 );
             }
         } else {
-            req_paths.push(venv_p);
+            req_paths.push(venv_p.clone());
         }
+        BUSY_VENV_P.write().await.remove(&venv_p);
     }
 
     if has_work {
