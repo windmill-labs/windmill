@@ -1,13 +1,13 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { Clipboard, Info, Trash2, Plus } from 'lucide-svelte'
+	import { Info, Trash2, Plus } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import Button from '../common/button/Button.svelte'
 	import CustomPopover from '../CustomPopover.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
-	import SchemaViewer from '../SchemaViewer.svelte'
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { isObject } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { type TriggerKind } from '../triggers'
@@ -94,12 +94,10 @@
 					iconOnly
 					startIcon={{ icon: Plus }}
 					on:click={() => {
-						if (captureType !== 'all') {
-							dispatch('openTriggers', {
-								kind: captureTriggerKindToTriggerKind(captureType),
-								config: {}
-							})
-						}
+						dispatch('openTriggers', {
+							kind: captureTriggerKindToTriggerKind(captureType),
+							config: {}
+						})
 					}}
 				/>
 			{/if}
@@ -140,43 +138,21 @@
 							? { required: [], properties: {}, ...convert(payloadData) }
 							: {}}
 					<div class="flex flex-row gap-1" transition:slide>
-						<div class="text-xs border p-2 rounded-md overflow-auto grow whitespace-nowrap">
-							{JSON.stringify(payloadData)}
-						</div>
-						<Button
-							size="xs2"
-							color="light"
-							variant="border"
-							on:click={() => {
-								copyToClipboard(JSON.stringify(payloadData))
-							}}
-							iconOnly
-							startIcon={{ icon: Clipboard }}
-						/>
-
-						{#if isFlow && testKind === 'main'}
-							<CustomPopover>
-								<Button
-									size="xs"
-									color="light"
-									variant="border"
-									on:click={() => {
-										dispatch('updateSchema', { schema, redirect: true })
-									}}
-									wrapperClasses="h-full"
-								>
-									Apply schema
-								</Button>
-
-								<svelte:fragment slot="overlay">
-									{#if schema}
-										<div class="min-w-[400px]">
-											<SchemaViewer {schema} />
-										</div>
-									{/if}
-								</svelte:fragment>
-							</CustomPopover>
-						{/if}
+						<CustomPopover class="w-full overflow-auto flex items-center justify-center">
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								class="text-xs border w-full font-normal text-left p-1 rounded-md whitespace-nowrap overflow-hidden text-ellipsis"
+								on:click={() => {
+									copyToClipboard(JSON.stringify(payloadData))
+								}}
+							>
+								{JSON.stringify(payloadData)}
+							</div>
+							<svelte:fragment slot="overlay">
+								<ObjectViewer json={payloadData} />
+							</svelte:fragment>
+						</CustomPopover>
 
 						{#if testKind === 'preprocessor' && !hasPreprocessor}
 							<CustomPopover noPadding>
@@ -210,6 +186,15 @@
 							<Button
 								size="xs"
 								color="dark"
+								dropdownItems={[
+									{
+										label: 'Apply schema only',
+										onClick: () => {
+											dispatch('updateSchema', { schema, redirect: true })
+										},
+										disabled: !isFlow || testKind !== 'main'
+									}
+								].filter((item) => !item.disabled)}
 								on:click={() => {
 									if (isFlow && testKind === 'main') {
 										dispatch('updateSchema', { schema, redirect: false })
