@@ -1245,7 +1245,6 @@ async fn spawn_uv_install(
                 "--target",
                 venv_p,
                 "--no-cache",
-                "-q",
             ]
         };
 
@@ -1768,10 +1767,12 @@ pub async fn handle_python_reqs(
                 }
             };
 
-            let mut stderr = uv_install_proccess
+            let mut stderr_buf = String::new();
+            let mut stderr_pipe = uv_install_proccess
                 .stderr
                 .take()
                 .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
+            let stderr_future = stderr_pipe.read_to_string(&mut stderr_buf);
 
             if let Some(pid) = pids.lock().await.get_mut(i) {
                 *pid = uv_install_proccess.id();
@@ -1788,9 +1789,12 @@ pub async fn handle_python_reqs(
                     uv_install_proccess.kill().await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
-                }
-                // Finished
-                exitstatus = uv_install_proccess.wait() => match exitstatus {
+                },                
+                (_, exitstatus) = async {
+                    // See tokio::process::Child::wait_with_output() for more context
+                    // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
+                    (stderr_future.await, uv_install_proccess.wait().await)
+                 } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(
                             workspace_id = %w_id,
@@ -1799,24 +1803,18 @@ pub async fn handle_python_reqs(
                             status.code()
                         );
 
-                        let mut buf = String::new();
-                        stderr.read_to_string(&mut buf).await.unwrap_or_else(|_|{
-                            buf = "Cannot read stderr to string".to_owned();
-                            0
-                        });
-
                         append_logs(
                             &job_id,
                             w_id,
                             format!(
-                                "\nError while installing {}:\n{buf}",
+                                "\nError while installing {}:\n{stderr_buf}",
                                 &req
                             ),
                             db,
                         )
                         .await;
                         pids.lock().await.get_mut(i).and_then(|e| e.take());
-                        return Err(anyhow!(buf));
+                        return Err(anyhow!(stderr_buf));
                     },
                     Err(e) => {
                         tracing::error!(
