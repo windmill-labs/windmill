@@ -38,6 +38,7 @@ impl LogicalReplicationSettings {
     }
 }
 
+#[allow(unused)]
 trait RowExist {
     fn row_exist(&self) -> bool;
 }
