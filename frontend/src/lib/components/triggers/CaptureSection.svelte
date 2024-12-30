@@ -18,7 +18,7 @@
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
 	import CaptureTable from './CaptureTable.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import type { CaptureTriggerKind } from '$lib/gen'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -30,6 +30,12 @@
 	const dispatch = createEventDispatcher<{
 		captureToggle: undefined
 	}>()
+
+	onDestroy(() => {
+		if (captureInfo.active) {
+			dispatch('captureToggle')
+		}
+	})
 </script>
 
 <div transition:slide class="pb-4">
