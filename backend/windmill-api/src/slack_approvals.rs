@@ -867,11 +867,16 @@ async fn get_modal_blocks(
 
     tracing::debug!("Job ID: {:?}", job_id);
 
-    let (job_kind, script_hash, raw_flow) = sqlx::query!(
+    let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
             queue.job_kind AS \"job_kind: JobKind\",
             queue.script_hash AS \"script_hash: ScriptHash\",
-            queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\"
+            queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+            completed_job.parent_job AS \"parent_job: Uuid\",
+            completed_job.created_at AS \"created_at: chrono::NaiveDateTime\",
+            completed_job.created_by AS \"created_by!\",
+            queue.script_path,
+            queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
         FROM queue
         JOIN completed_job ON completed_job.parent_job = queue.id
         WHERE completed_job.id = $1 AND completed_job.workspace_id = $2
@@ -883,11 +888,21 @@ async fn get_modal_blocks(
     .await
     .map_err(|e| error::Error::BadRequest(e.to_string()))?
     .ok_or_else(|| error::Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
-    .map(|r| (r.job_kind, r.script_hash, r.raw_flow))?;
+    .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
 
-    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await {
+    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await
+    {
         Ok(data) => data,
-        _ => cache::job::fetch_preview_flow(&db, &job_id, raw_flow).await?,
+        Err(_) => {
+            if let Some(parent_job_id) = parent_job_id.as_ref() {
+                cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow)
+                    .await?
+            } else {
+                return Err(error::Error::BadRequest(
+                    "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
+                ));
+            }
+        }
     };
 
     let flow_value = &flow_data.flow;
@@ -903,8 +918,22 @@ async fn get_modal_blocks(
         })
     });
 
-    let message_str =
-        message.unwrap_or("*A workflow has been suspended and is waiting for approval:*\n");
+    let args_str = args.map_or("None".to_string(), |a| a.get().to_string());
+    let parent_job_id_str = parent_job_id.map_or("None".to_string(), |id| id.to_string());
+    let script_path_str = script_path.as_deref().unwrap_or("None");
+    
+    let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let fallback_message = format!(
+        "A workflow has been suspended and is waiting for approval:\n\n\
+        *Created by*: {created_by}\n\
+        *Created at*: {created_at_formatted}\n\
+        *Script path*: {script_path_str}\n\
+        *Args*: {args_str}\n\
+        *Flow ID*: {parent_job_id_str}\n\n"
+    );
+
+    let message_str: &str = message.unwrap_or_else(|| fallback_message.as_str());
 
     tracing::debug!("Schema: {:#?}", schema);
 
