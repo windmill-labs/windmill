@@ -225,7 +225,7 @@
 	let pannelButtonWidth: number = 0
 </script>
 
-<div style={offset ? `height: calc(100vh - ${offset}px);` : 'height: 100%;'} class="px-4">
+<div style={offset ? `height: calc(100vh - ${offset}px);` : 'height: 100%;'} class="w-full">
 	<div class="relative z-[100000]">
 		<div
 			class="absolute"
@@ -235,10 +235,10 @@
 			<slot name="openEditTab" />
 		</div>
 	</div>
-	<Splitpanes class="splitter-hidden w-fit">
+	<Splitpanes class="splitter-hidden w-full">
 		{#if !noPreview}
 			<Pane bind:size={inputPanelSize} minSize={20}>
-				<div class="flex flex-col">
+				<div class="flex flex-col pr-2">
 					<div class="w-full justify-left pr-2">
 						<div style={`width: calc(100% - ${pannelButtonWidth}px);`}>
 							<slot name="addProperty" />

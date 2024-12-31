@@ -226,7 +226,7 @@
 
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
-		<div class="py-2 h-full">
+		<div class="py-2 px-4 h-full">
 			<EditableSchemaForm
 				bind:schema={$flowStore.schema}
 				isFlowInput
