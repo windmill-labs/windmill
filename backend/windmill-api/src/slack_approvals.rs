@@ -180,6 +180,7 @@ struct PrivateMetadata {
     resume_url: String,
     resource_path: String,
     container: Container,
+    hide_cancel: Option<bool>,
 }
 
 pub async fn slack_app_callback_handler(
@@ -354,6 +355,12 @@ async fn handle_submission(
     let resume_url = private_metadata.resume_url;
     let resource_path = private_metadata.resource_path;
     let container: Container = private_metadata.container;
+    let hide_cancel = private_metadata.hide_cancel;
+
+    // If hide_cancel is true, we don't need to extract information from the private_metadata
+    if hide_cancel.unwrap_or(false) && action == "cancel" {
+        return Ok(());
+    }
 
     // Use regex to extract information from private_metadata
     let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>resume|cancel)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[a-fA-F0-9]+)(?:\?approver=(?P<approver>[^&]+))?").unwrap();
@@ -1026,12 +1033,20 @@ async fn get_modal_blocks(
         *Flow ID*: {parent_job_id_str}\n\n"
     );
 
-    let message_str: &str = message.unwrap_or_else(|| fallback_message.as_str());
+    let mut message_str: String = message.unwrap_or_else(|| fallback_message.as_str()).to_string();
 
     tracing::debug!("Schema: {:#?}", schema);
 
     if let Some(resume_schema) = schema {
         let hide_cancel = resume_schema.hide_cancel.unwrap_or(false);
+
+        // if hide cancel is false add note to message
+        if !hide_cancel {
+            message_str.push_str("\n\n*NOTE*: closing this modal will cancel the workflow.\n\n");
+        }
+
+        // Convert message_str back to &str when needed
+        let message_str_ref: &str = &message_str;
 
         if let Some(schema_obj) = resume_schema.resume_form {
             let inner_schema: ResumeSchema =
@@ -1044,7 +1059,7 @@ async fn get_modal_blocks(
                 })?;
 
             let blocks = transform_schemas(
-                message_str,
+                message_str_ref,
                 Some(&inner_schema.schema.properties),
                 &urls,
                 Some(&inner_schema.schema.order),
@@ -1066,7 +1081,7 @@ async fn get_modal_blocks(
         } else {
             tracing::debug!("No suspend form found!");
             let blocks = transform_schemas(
-                message_str,
+                message_str_ref,
                 None,
                 &urls,
                 None,
@@ -1112,7 +1127,7 @@ fn construct_payload(
             "type": "plain_text",
             "text": "Resume Workflow"
         },
-        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container }).to_string(),
+        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel }).to_string(),
     });
 
     if !hide_cancel {
