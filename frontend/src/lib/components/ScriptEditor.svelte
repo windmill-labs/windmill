@@ -473,7 +473,6 @@
 								<div class="h-full p-2">
 									<CaptureTable
 										bind:this={captureTable}
-										captureType="all"
 										{hasPreprocessor}
 										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
 										isFlow={false}

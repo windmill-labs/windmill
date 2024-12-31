@@ -23,7 +23,7 @@
 	export let hasPreprocessor = false
 	export let canHavePreprocessor = false
 	export let isFlow = false
-	export let captureType: CaptureTriggerKind | 'all' = 'webhook'
+	export let captureType: CaptureTriggerKind | undefined = 'webhook'
 	export let headless = false
 	export let addButton = false
 	export let hideCapturesWhenEmpty = false
@@ -70,7 +70,7 @@
 			workspace: $workspaceStore!,
 			runnableKind: isFlow ? 'flow' : 'script',
 			path,
-			triggerKind: captureType !== 'all' ? captureType : undefined
+			triggerKind: captureType
 		})
 	}
 	refreshCaptures()
@@ -86,7 +86,7 @@
 		)}
 	>
 		<svelte:fragment slot="header">
-			{#if addButton && captureType !== 'all'}
+			{#if addButton && captureType !== undefined}
 				<Button
 					size="xs2"
 					color="light"
@@ -94,10 +94,11 @@
 					iconOnly
 					startIcon={{ icon: Plus }}
 					on:click={() => {
-						dispatch('openTriggers', {
-							kind: captureTriggerKindToTriggerKind(captureType),
-							config: {}
-						})
+						captureType &&
+							dispatch('openTriggers', {
+								kind: captureTriggerKindToTriggerKind(captureType),
+								config: {}
+							})
 					}}
 				/>
 			{/if}
@@ -120,7 +121,7 @@
 		<div class="flex flex-col gap-1 pt-2 grow overflow-y-auto">
 			{#if captures.length === 0}
 				<div class="text-xs text-secondary">
-					{captureType === 'all' ? 'No captures yet' : `No ${captureType} captures yet`}
+					{!captureType ? 'No captures yet' : `No ${captureType} captures yet`}
 				</div>
 			{:else}
 				{#each captures as capture}

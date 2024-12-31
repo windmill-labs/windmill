@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Button } from '$lib/components/common'
-	import { Webhook, Route, Unplug, Mail, Plus } from 'lucide-svelte'
+	import { Webhook, Route, Unplug, Mail } from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
@@ -29,7 +29,7 @@
 	<svelte:fragment slot="trigger">
 		{#if small}
 			<RoundIconButton>
-				<CaptureIcon size={14} />
+				<CaptureIcon />
 			</RoundIconButton>
 		{:else}
 			<Button

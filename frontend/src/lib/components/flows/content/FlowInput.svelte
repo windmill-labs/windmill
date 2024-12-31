@@ -13,7 +13,7 @@
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 	import HistoricInpts from '$lib/components/HistoricInpts.svelte'
-	import SavedInputsPickerV2 from '$lib/components/SavedInputsPickerV2.svelte'
+	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
 	import { CornerDownLeft, Pen, X, ChevronDown, Plus } from 'lucide-svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
@@ -377,7 +377,7 @@
 							<svelete:fragment slot="header">
 								<Tooltip>Shared inputs are available to anyone with access to the script</Tooltip>
 							</svelete:fragment>
-							<SavedInputsPickerV2
+							<SavedInputsPicker
 								flowPath={initialPath}
 								on:select={(e) => {
 									payloadData = e.detail
