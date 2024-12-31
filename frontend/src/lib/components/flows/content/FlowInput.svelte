@@ -208,6 +208,8 @@
 	$: updatePayloadFromJson(pendingJson)
 
 	$: $flowInputEditorState, (dropdownItems = getDropdownItems())
+
+	$: console.log('dbg editTab', $flowInputEditorState?.selectedTab)
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->

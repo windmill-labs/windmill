@@ -186,6 +186,7 @@
 				offset={yOffset}
 				lightweightMode
 				dndType="drawer"
+				editTab="inputEditor"
 			>
 				<svelte:fragment slot="addProperty">
 					<AddPropertyV2 bind:schema on:change>

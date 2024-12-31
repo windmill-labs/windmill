@@ -39,8 +39,7 @@
 	export let lightweightMode: boolean = false
 	export let displayWebhookWarning: boolean = false
 	export let dndType: string | undefined = undefined
-	export let editTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' | undefined =
-		'inputEditor'
+	export let editTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' | undefined
 	export let previewSchema: Record<string, any> | undefined = undefined
 	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
@@ -196,7 +195,7 @@
 	let editor: SimpleEditor | undefined = undefined
 
 	const editTabDefaultSize = noPreview ? 100 : 50
-	editPanelSize = editPanelInitialSize ?? editTabDefaultSize
+	editPanelSize = editTab ? editPanelInitialSize ?? editTabDefaultSize : 0
 	let inputPanelSize = 100 - editPanelSize
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150

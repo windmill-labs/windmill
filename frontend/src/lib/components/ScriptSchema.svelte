@@ -11,4 +11,4 @@
 	const yOffset = 80
 </script>
 
-<EditableSchemaForm bind:schema uiOnly offset={yOffset} />
+<EditableSchemaForm bind:schema uiOnly offset={yOffset} editTab="inputEditor" />

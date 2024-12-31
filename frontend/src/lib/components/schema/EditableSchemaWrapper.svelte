@@ -115,6 +115,7 @@
 			{uiOnly}
 			{noPreview}
 			{lightweightMode}
+			editTab="inputEditor"
 		>
 			<svelte:fragment slot="addProperty">
 				{#if !noPreview}
