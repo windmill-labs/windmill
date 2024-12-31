@@ -2160,7 +2160,7 @@ pub struct SuspendedJobFlow {
     pub approvers: Vec<Approval>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct QueryApprover {
     pub approver: Option<String>,
 }
@@ -2340,7 +2340,7 @@ pub async fn set_flow_user_state(
     let r = sqlx::query_scalar!(
         r#"
         UPDATE queue SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
-        WHERE id = $3 AND workspace_id = $4 AND job_kind IN ('flow', 'flowpreview') RETURNING 1
+        WHERE id = $3 AND workspace_id = $4 AND job_kind IN ('flow', 'flowpreview', 'flownode') RETURNING 1
         "#,
         key,
         value,
@@ -2373,11 +2373,11 @@ fn create_signature(
 }
 
 #[allow(non_snake_case)]
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ResumeUrls {
-    approvalPage: String,
-    cancel: String,
-    resume: String,
+    pub approvalPage: String,
+    pub cancel: String,
+    pub resume: String,
 }
 
 fn build_resume_url(
@@ -2394,6 +2394,14 @@ fn build_resume_url(
 
 pub async fn get_resume_urls(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::JsonResult<ResumeUrls> {
+    get_resume_urls_internal(Extension(db), Path((w_id, job_id, resume_id)), Query(approver)).await
+}
+
+pub async fn get_resume_urls_internal(
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
@@ -5561,3 +5569,4 @@ async fn delete_completed_job<'a>(
     let response = Json(cj).into_response();
     Ok(response)
 }
+

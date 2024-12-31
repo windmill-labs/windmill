@@ -59,6 +59,7 @@
 	import autosize from '$lib/autosize'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -442,7 +443,7 @@
 				/></h1
 			>
 			<div class="py-2 box prose mb-8 text-secondary">
-				{resourceTypeViewerObj.description ?? ''}
+				<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
 			</div>
 			{#if resourceTypeViewerObj.formatExtension}
 				<Alert

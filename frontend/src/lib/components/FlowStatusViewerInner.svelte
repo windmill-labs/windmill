@@ -18,7 +18,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { emptyString, msToSec, truncateRev } from '$lib/utils'
+	import { emptyString, isScriptPreview, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { ChevronDown, Hourglass, Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
@@ -728,11 +728,7 @@
 				})
 			}
 
-			if (
-				jobLoaded.job_kind == 'script' ||
-				jobLoaded.job_kind == 'flowscript' ||
-				jobLoaded.job_kind == 'preview'
-			) {
+			if (jobLoaded.job_kind == 'script' || isScriptPreview(jobLoaded.job_kind)) {
 				let id: string | undefined = undefined
 				if (
 					(innerModule?.type == 'forloopflow' || innerModule?.type == 'whileloopflow') &&
