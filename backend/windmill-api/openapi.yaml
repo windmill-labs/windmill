@@ -6975,6 +6975,16 @@ paths:
           required: true
           schema:
             type: string
+        - name: default_args_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: dynamic_enum_json
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Interactive slack approval message sent successfully

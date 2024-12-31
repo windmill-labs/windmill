@@ -852,6 +852,8 @@ interface SlackApprovalOptions {
   channelId: string;
   message?: string;
   approver?: string;
+  defaultArgsJson?: Record<string, any>;
+  dynamicEnumJson?: Record<string, any>;
 }
 
 export async function requestInteractiveSlackApproval({
@@ -859,6 +861,8 @@ export async function requestInteractiveSlackApproval({
   channelId,
   message,
   approver,
+  defaultArgsJson,
+  dynamicEnumJson,
 }: SlackApprovalOptions): Promise<void> {
   const workspace = getWorkspace();
   const flowJobId = getEnv("WM_FLOW_JOB_ID");
@@ -881,6 +885,8 @@ export async function requestInteractiveSlackApproval({
     slackResourcePath: string;
     channelId: string;
     flowStepId: string;
+    defaultArgsJson?: string;
+    dynamicEnumJson?: string;
   } = {
     slackResourcePath,
     channelId,
@@ -892,6 +898,14 @@ export async function requestInteractiveSlackApproval({
   }
   if (approver) {
     params.approver = approver;
+  }
+
+  if (defaultArgsJson) {
+    params.defaultArgsJson = JSON.stringify(defaultArgsJson);
+  }
+
+  if (dynamicEnumJson) {
+    params.dynamicEnumJson = JSON.stringify(dynamicEnumJson);
   }
 
   await JobService.getSlackApprovalPayload({

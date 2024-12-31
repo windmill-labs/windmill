@@ -9,6 +9,7 @@ import os
 import random
 import time
 import warnings
+import json
 from json import JSONDecodeError
 from typing import Dict, Any, Union, Literal
 
@@ -629,6 +630,8 @@ class Windmill:
         channel_id: str,
         message: str = None,
         approver: str = None,
+        default_args_json: dict = None,
+        dynamic_enum_json: dict = None,
     ) -> None:
         """
         Request interactive Slack approval
@@ -657,6 +660,10 @@ class Windmill:
             params["channel_id"] = channel_id
         if os.environ.get("WM_FLOW_STEP_ID"):
             params["flow_step_id"] = os.environ.get("WM_FLOW_STEP_ID")
+        if default_args_json:
+            params["default_args_json"] = json.dumps(default_args_json)
+        if dynamic_enum_json:
+            params["dynamic_enum_json"] = json.dumps(dynamic_enum_json)
 
         self.get(
             f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}",
@@ -1018,12 +1025,16 @@ def request_interactive_slack_approval(
     channel_id: str,
     message: str = None,
     approver: str = None,
+    default_args_json: dict = None,
+    dynamic_enum_json: dict = None,
 ) -> None:
     return _client.request_interactive_slack_approval(
         slack_resource_path=slack_resource_path,
         channel_id=channel_id,
         message=message,
         approver=approver,
+        default_args_json=default_args_json,
+        dynamic_enum_json=dynamic_enum_json,
     )
 
 @init_global_client
