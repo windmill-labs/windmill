@@ -32,7 +32,13 @@
 				<Plus size={14} />
 			</RoundIconButton>
 		{:else}
-			<Button color="dark" btnClasses="rounded-l-none" wrapperClasses="h-full" nonCaptureEvent>
+			<Button
+				color="dark"
+				btnClasses="rounded-l-none"
+				wrapperClasses="h-full"
+				nonCaptureEvent
+				title="Capture"
+			>
 				<CaptureIcon />
 			</Button>
 		{/if}
