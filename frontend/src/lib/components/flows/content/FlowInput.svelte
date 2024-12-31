@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import { ButtonType } from '$lib/components/common/button/model'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { copyFirstStepSchema } from '../flowStore'
@@ -22,7 +23,6 @@
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import { tick } from 'svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
-
 	export let noEditor: boolean
 	export let disabled: boolean
 
@@ -210,6 +210,17 @@
 	$: $flowInputEditorState, (dropdownItems = getDropdownItems())
 
 	$: console.log('dbg editTab', $flowInputEditorState?.selectedTab)
+
+	let tabButtonWidth = 0
+
+	const TAB_TITLES: Record<string, string> = {
+		inputEditor: 'Input editor',
+		captures: 'Captures',
+		history: 'History',
+		savedInputs: 'Saved inputs',
+		json: 'JSON',
+		undefined: ''
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -245,34 +256,49 @@
 				bind:args={$previewArgs}
 				bind:editPanelSize
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
+				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 			>
 				<svelte:fragment slot="openEditTab">
 					<div
 						class={twMerge(
-							'flex flex-row divide-x border rounded-md bg-surface',
-							!!$flowInputEditorState?.selectedTab ? 'rounded-r-none border-r-0' : ''
+							'flex flex-row divide-x rounded-md bg-surface overflow-hidden',
+							!!$flowInputEditorState?.selectedTab ? 'rounded-r-none' : '',
+							ButtonType.ColorVariants.blue.divider
 						)}
 					>
 						<button
 							on:click={() => {
 								handleEditSchema()
 							}}
-							class="hover:bg-surface-hover"
 							title={!!$flowInputEditorState?.selectedTab
 								? 'Close input editor'
 								: 'Open input editor'}
+							class={ButtonType.ColorVariants.blue.contained}
 						>
 							<div class="p-2 center-center">
 								<svelte:component this={!!$flowInputEditorState?.selectedTab ? X : Pen} size={14} />
 							</div>
 						</button>
+
 						<ButtonDropDown
 							{dropdownItems}
 							closeOnClick={true}
 							bind:open={editOptionsOpen}
 							placement="bottom-end"
 						>
-							<div class="p-2 center-center hover:bg-surface-hover">
+							<div
+								class={twMerge(
+									'p-2 center-center hover:bg-surface-hover',
+									ButtonType.ColorVariants.blue.contained,
+									'flex flex-row items-center gap-2 rounded-br-md',
+									'transition-all duration-150 ease-in-out overflow-hidden whitespace-nowrap',
+									!!$flowInputEditorState?.selectedTab ? 'w-[120px]' : 'w-[30px]'
+								)}
+								bind:clientWidth={tabButtonWidth}
+							>
+								{#if !!$flowInputEditorState?.selectedTab}
+									<h2 class="text-xs">{TAB_TITLES[$flowInputEditorState?.selectedTab]}</h2>
+								{/if}
 								<ChevronDown size={16} />
 							</div>
 						</ButtonDropDown>
@@ -309,7 +335,6 @@
 				<svelte:fragment slot="extraTab">
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
-							name="From history"
 							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
@@ -325,13 +350,14 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
-							name="From captures"
 							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 						>
-							<svelete:fragment slot="header">
-								<CaptureButton on:openTriggers small={true} />
+							<svelete:fragment slot="action">
+								<div class="center-center">
+									<CaptureButton on:openTriggers small={true} />
+								</div>
 							</svelete:fragment>
 							<CapturesInputs
 								on:select={(e) => {
@@ -344,7 +370,6 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
-							name="Saved inputs"
 							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
@@ -361,7 +386,6 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
 						<FlowInputEditor
-							name="From JSON"
 							disabled={!pendingJson?.length || !jsonValid}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}

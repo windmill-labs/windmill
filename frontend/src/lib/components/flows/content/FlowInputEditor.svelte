@@ -4,7 +4,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { CornerDownLeft } from 'lucide-svelte'
 
-	export let name: string
+	export let name: string = ''
 	export let disabled = false
 
 	const dispatch = createEventDispatcher()
@@ -45,14 +45,17 @@
 			<slot name="header" />
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			<Button
-				size="xs2"
-				color="dark"
-				{disabled}
-				{dropdownItems}
-				shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
-				on:click={applySchemaAndArgs}>Apply</Button
-			>
+			<div class="flex flex-row gap-2">
+				<slot name="action" />
+				<Button
+					size="xs2"
+					color="dark"
+					{disabled}
+					{dropdownItems}
+					shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
+					on:click={applySchemaAndArgs}>Apply</Button
+				>
+			</div>
 		</svelte:fragment>
 		<slot />
 	</Section>

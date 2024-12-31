@@ -222,13 +222,14 @@
 	$: !!editTab ? openEditTab() : closeEditTab()
 
 	let pannelButtonWidth: number = 0
+	export let pannelExtraButtonWidth: number = 0
 </script>
 
 <div style={offset ? `height: calc(100vh - ${offset}px);` : 'height: 100%;'} class="w-full">
 	<div class="relative z-[100000]">
 		<div
 			class="absolute"
-			style="right: calc({editPanelSize}% - 2px); top: 0px;"
+			style="right: calc({editPanelSize}% - 2px - {pannelExtraButtonWidth}px); top: 0px;"
 			bind:clientWidth={pannelButtonWidth}
 		>
 			<slot name="openEditTab" />
@@ -239,7 +240,7 @@
 			<Pane bind:size={inputPanelSize} minSize={20}>
 				<div class="flex flex-col pr-2">
 					<div class="w-full justify-left pr-2">
-						<div style={`width: calc(100% - ${pannelButtonWidth}px);`}>
+						<div style={`width: calc(100% - ${pannelButtonWidth - pannelExtraButtonWidth}px);`}>
 							<slot name="addProperty" />
 						</div>
 					</div>
