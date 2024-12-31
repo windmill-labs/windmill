@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO completed_job\n                ( workspace_id\n                , id\n                , parent_job\n                , created_by\n                , created_at\n                , started_at\n                , duration_ms\n                , success\n                , script_hash\n                , script_path\n                , args\n                , result\n                , raw_code\n                , raw_lock\n                , canceled\n                , canceled_by\n                , canceled_reason\n                , job_kind\n                , schedule_path\n                , permissioned_as\n                , flow_status\n                , raw_flow\n                , is_flow_step\n                , is_skipped\n                , language\n                , email\n                , visible_to_owner\n                , mem_peak\n                , tag\n                , priority\n                )\n            SELECT \n                  queue.workspace_id\n                , queue.id\n                , queue.parent_job\n                , queue.created_by\n                , queue.created_at\n                , queue.started_at\n                , COALESCE($2::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(queue.started_at, now())))) * 1000)\n                , $3 AS success\n                , queue.script_hash\n                , queue.script_path\n                , queue.args\n                , $4 AS result\n                , queue.raw_code\n                , queue.raw_lock\n                , queue.canceled OR COALESCE($7, queue.canceled_by) IS NOT NULL as canceled\n                , COALESCE($7, queue.canceled_by) as canceled_by\n                , COALESCE($8, queue.canceled_reason) as canceled_reason\n                , queue.job_kind\n                , queue.schedule_path\n                , queue.permissioned_as\n                , queue.flow_status\n                , queue.raw_flow\n                , queue.is_flow_step\n                , $5 AS is_skipped\n                , queue.language\n                , queue.email\n                , queue.visible_to_owner\n                , GREATEST($6, queue.mem_peak) AS mem_peak\n                , queue.tag\n                , queue.priority\n            FROM queue\n            WHERE queue.id = $1\n            LIMIT 1\n            ON CONFLICT (id) DO UPDATE SET \n                success = $3, \n                result = $4\n            RETURNING duration_ms, canceled\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "duration_ms",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "canceled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Bool",
+        "Jsonb",
+        "Bool",
+        "Int4",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e0b51a22f3843ef3297b639c8b58ff78bbfa61d49ba670e15f43b0074c94e863"
+}
