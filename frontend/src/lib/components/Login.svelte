@@ -148,14 +148,21 @@
 	}
 
 	async function loadLogins() {
-		const allLogins = await OauthService.listOauthLogins()
-		logins = allLogins.oauth.map((login) => ({
-			type: login.type,
-			displayName: login.display_name || login.type
-		}))
-		saml = allLogins.saml
+		try {
+			const allLogins = await OauthService.listOauthLogins()
+			logins = allLogins.oauth.map((login) => ({
+				type: login.type,
+				displayName: login.display_name || login.type
+			}))
+			saml = allLogins.saml
 
-		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
+			showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
+		} catch (e) {
+			logins = []
+			saml = undefined
+			showPassword = true
+			console.error('Could not load logins', e)
+		}
 	}
 
 	loadLogins()
