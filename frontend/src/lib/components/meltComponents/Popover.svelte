@@ -27,7 +27,7 @@
 </button>
 
 {#if open}
-	<div use:melt={$content} transition:fade={{ duration: 100 }} class="content">
+	<div use:melt={$content} transition:fade={{ duration: 100 }} class="content z-[9999]">
 		{#if displayArrow}
 			<div use:melt={$arrow} />
 		{/if}
@@ -49,6 +49,6 @@
 	}
 
 	.content {
-		@apply z-10 w-fit rounded-[4px] bg-surface p-0 overflow-hidden shadow-md;
+		@apply w-fit rounded-[4px] bg-surface p-0 overflow-hidden shadow-md;
 	}
 </style>

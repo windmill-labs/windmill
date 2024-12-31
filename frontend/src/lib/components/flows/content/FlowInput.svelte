@@ -242,7 +242,7 @@
 				{previewSchema}
 				bind:args={$previewArgs}
 				bind:editPanelSize
-				editPanelDefaultSize={$flowInputEditorState?.editPanelSize}
+				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 			>
 				<svelte:fragment slot="openEditTab">
 					<div

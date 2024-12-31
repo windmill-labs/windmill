@@ -40,9 +40,9 @@
 	export let displayWebhookWarning: boolean = false
 	export let dndType: string | undefined = undefined
 	export let editTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' | undefined =
-		undefined
+		'inputEditor'
 	export let previewSchema: Record<string, any> | undefined = undefined
-	export let editPanelDefaultSize: number | undefined = undefined
+	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
 
 	const dispatch = createEventDispatcher()
@@ -196,7 +196,7 @@
 	let editor: SimpleEditor | undefined = undefined
 
 	const editTabDefaultSize = noPreview ? 100 : 50
-	editPanelSize = editPanelDefaultSize ?? editTabDefaultSize
+	editPanelSize = editPanelInitialSize ?? editTabDefaultSize
 	let inputPanelSize = 100 - editPanelSize
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
@@ -275,7 +275,7 @@
 			<Pane
 				bind:size={editPanelSize}
 				minSize={noPreview ? 100 : 35}
-				class="border rounded-md rounded-tl-none"
+				class={twMerge('border rounded-md', pannelButtonWidth > 0 ? 'rounded-tl-none' : '')}
 			>
 				{#if editTab !== 'inputEditor'}
 					<slot name="extraTab" />
