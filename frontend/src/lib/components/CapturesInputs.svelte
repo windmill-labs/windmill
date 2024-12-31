@@ -84,6 +84,7 @@
 			on:previous={goToPreviousPage}
 			bind:currentPage={page}
 			{hasMore}
+			tableFixed={true}
 		>
 			<colgroup>
 				<col class="w-8" />

@@ -113,6 +113,7 @@
 			on:previous={goToPreviousPage}
 			bind:currentPage={page}
 			hasMore={hasMoreCurrentRuns}
+			tableFixed={true}
 		>
 			{#if loading && (jobs == undefined || jobs?.length == 0)}
 				<div class="text-center text-tertiary text-xs py-2">Loading current runs...</div>
@@ -150,6 +151,7 @@
 			on:previous={goToPreviousPage}
 			bind:currentPage={page}
 			hasMore={hasMorePreviousRuns}
+			tableFixed={true}
 		>
 			{#if previousInputs === undefined}
 				<Skeleton layout={[[1], 0.5, [1]]} />

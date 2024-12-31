@@ -24,6 +24,7 @@
 	export let rowCount: number | undefined = undefined
 	export let hasMore: boolean = true
 	export let contentHeight: number = 0
+	export let tableFixed: boolean = false
 
 	let footerHeight: number = 0
 	let tableHeight: number = 0
@@ -42,7 +43,7 @@
 >
 	<List justify="between" gap="none">
 		<div class="w-full overflow-auto min-h-0 grow">
-			<table class="table-fixed w-full">
+			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				<slot />
 			</table>
 		</div>
