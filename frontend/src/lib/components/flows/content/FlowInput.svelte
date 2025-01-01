@@ -118,7 +118,7 @@
 		const parsed = JSON.parse(JSON.stringify(payload))
 
 		if (!parsed) {
-			sendUserToast('Invalid JSON', true)
+			sendUserToast('Invalid Schema', true)
 			return
 		}
 
@@ -149,19 +149,21 @@
 	$: updateRunDisabled(!!$flowInputEditorState?.selectedTab)
 
 	function updatePreviewSchema(payloadData: any) {
+		previewSchema = undefined
+		previewArguments = undefined
 		if (!payloadData) {
-			previewSchema = undefined
-			previewArguments = undefined
+			updatePreviewArgs(undefined)
 			return
 		}
 		previewSchema = schemaFromPayload(payloadData)
 		previewArguments = payloadData
+		updatePreviewArgs(previewArguments)
 	}
 
 	$: updatePreviewSchema(payloadData)
 
 	function applySchemaAndArgs() {
-		if (!payloadData) {
+		if (!payloadData || !previewSchema || !previewArguments) {
 			return
 		}
 		$flowStore.schema = previewSchema
@@ -184,10 +186,10 @@
 	}
 
 	let previousArgs: Record<string, any> | undefined = undefined
-	function updatePreviewArgs(previewArguments: Record<string, any>) {
+	function updatePreviewArgs(previewArguments: Record<string, any> | undefined) {
 		if (!previewArguments && previousArgs) {
 			$previewArgs = previousArgs
-		} else {
+		} else if (previewArguments) {
 			previousArgs = $previewArgs
 			$previewArgs = previewArguments
 		}
@@ -196,20 +198,26 @@
 
 	let jsonValid = false
 	function updatePayloadFromJson(pendingJson: string) {
-		if (!pendingJson?.length) return
+		if (!pendingJson?.length) {
+			payloadData = undefined
+			updatePreviewSchema(undefined)
+			jsonValid = false
+			return
+		}
 		try {
 			const parsed = JSON.parse(pendingJson)
 			payloadData = parsed
+			updatePreviewSchema(parsed)
 			jsonValid = true
 		} catch (error) {
+			payloadData = undefined
+			updatePreviewSchema(undefined)
 			jsonValid = false
 		}
 	}
 	$: updatePayloadFromJson(pendingJson)
 
 	$: $flowInputEditorState, (dropdownItems = getDropdownItems())
-
-	$: console.log('dbg editTab', $flowInputEditorState?.selectedTab)
 
 	let tabButtonWidth = 0
 
@@ -338,6 +346,9 @@
 							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
 						>
 							<HistoricInpts
 								scriptHash={null}
@@ -353,6 +364,9 @@
 							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
 						>
 							<svelete:fragment slot="action">
 								<div class="center-center">
@@ -373,6 +387,9 @@
 							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
 						>
 							<svelete:fragment slot="header">
 								<Tooltip>Shared inputs are available to anyone with access to the script</Tooltip>
@@ -389,6 +406,9 @@
 							disabled={!pendingJson?.length || !jsonValid}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
 						>
 							<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
 						</FlowInputEditor>

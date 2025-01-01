@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { CornerDownLeft } from 'lucide-svelte'
@@ -28,6 +28,10 @@
 	function applySchemaAndArgs() {
 		dispatch('applySchemaAndArgs')
 	}
+
+	onDestroy(() => {
+		dispatch('destroy')
+	})
 </script>
 
 <svelte:window
