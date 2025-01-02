@@ -17,7 +17,7 @@ export type TriggerContext = {
 		| 'cli'
 		| 'routes'
 		| 'websockets'
-		| 'scheduledPoll'
+		| 'scheduledPoll' | 'database'
 		| 'kafka'
 	>
 	primarySchedule: Writable<ScheduleTrigger | undefined | false>

@@ -1,18 +1,19 @@
 <script lang="ts">
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import { Tabs } from '$lib/components/common'
-	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
-	import ScheduledPollPanel from './ScheduledPollPanel.svelte'
-	import KafkaTriggersPanel from './KafkaTriggersPanel.svelte'
+	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
+	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
+	import DatabaseTriggersPanel from './database/DatabaseTriggersPanel.svelte'
+	import KafkaTriggersPanel from './kafka/KafkaTriggersPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -33,6 +34,7 @@
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
 				<Tab value="kafka" selectedClass="text-primary text-sm font-semibold">Kafka</Tab>
+				<Tab value="database" selectedClass="text-primary text-sm font-semibold">Database</Tab>
 				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 				{#if isFlow}
 					<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
@@ -80,6 +82,12 @@
 					{#if $selectedTrigger === 'kafka'}
 						<div class="p-4">
 							<KafkaTriggersPanel {newItem} path={currentPath} {isFlow} />
+						</div>
+					{/if}
+
+					{#if $selectedTrigger === 'database'}
+						<div class="p-4">
+							<DatabaseTriggersPanel {newItem} path={currentPath} {isFlow} />
 						</div>
 					{/if}
 

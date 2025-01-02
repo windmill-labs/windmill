@@ -26,9 +26,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import WebsocketTriggerEditor from '$lib/components/triggers/WebsocketTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import WebsocketTriggerEditor from '$lib/components/triggers/websocket/WebsocketTriggerEditor.svelte'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 

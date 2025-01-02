@@ -1,7 +1,4 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    variables::decrypt,
-};
+use crate::db::{ApiAuthed, DB};
 use anthropic::AnthropicCache;
 use axum::{
     body::Bytes,
@@ -19,7 +16,7 @@ use serde::{Deserialize, Deserializer};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::error::{to_anyhow, Result};
-use windmill_common::variables::build_crypt;
+use windmill_common::variables::get_variable_or_self;
 
 use windmill_common::error::Error;
 
@@ -346,36 +343,9 @@ lazy_static! {
     pub static ref AI_KEY_CACHE: Cache<String, AiCache> = Cache::new(500);
 }
 
-struct Variable {
-    value: String,
-    is_secret: bool,
-}
-
 #[derive(Deserialize, Debug)]
 struct ProxyQueryParams {
     no_cache: Option<bool>,
-}
-
-async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<String> {
-    if !path.starts_with("$var:") {
-        return Ok(path);
-    }
-    let path = path.strip_prefix("$var:").unwrap().to_string();
-    let mut variable = sqlx::query_as!(
-        Variable,
-        "SELECT value, is_secret
-        FROM variable
-        WHERE path = $1 AND workspace_id = $2",
-        &path,
-        &w_id
-    )
-    .fetch_one(db)
-    .await?;
-    if variable.is_secret {
-        let mc = build_crypt(db, w_id).await?;
-        variable.value = decrypt(&mc, variable.value)?;
-    }
-    Ok(variable.value)
 }
 
 #[derive(Deserialize, Debug)]

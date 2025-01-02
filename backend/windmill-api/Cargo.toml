@@ -104,8 +104,13 @@ matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
 rdkafka = { workspace = true, optional = true }
 const_format.workspace = true
-
+rust-postgres.workspace = true
 pin-project.workspace = true
 http.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
+pg_escape.workspace = true
+byteorder.workspace = true
+memchr.workspace = true
+thiserror.workspace = true
+rust_decimal.workspace = true

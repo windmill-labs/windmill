@@ -12,6 +12,7 @@
 		| 'cli'
 		| 'routes'
 		| 'websockets'
+		| 'database'
 		| 'scheduledPoll' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let simplfiedPoll: boolean = false
@@ -52,6 +53,7 @@
 						<slot slot="routes" name="routes" />
 						<slot slot="websockets" name="websockets" />
 						<slot slot="kafka" name="kafka" />
+						<slot slot="database" name="database" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />
 						<slot slot="cli" name="cli" />

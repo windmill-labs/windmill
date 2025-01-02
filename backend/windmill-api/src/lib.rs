@@ -59,6 +59,7 @@ mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
+mod database_triggers;
 mod db;
 mod drafts;
 pub mod ee;
@@ -93,6 +94,7 @@ mod scim_ee;
 mod scripts;
 mod service_logs;
 mod settings;
+mod slack_approvals;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
 mod static_assets;
@@ -109,7 +111,6 @@ mod websocket_triggers;
 mod workers;
 mod workspaces;
 mod workspaces_ee;
-mod slack_approvals;
 mod workspaces_export;
 mod workspaces_extra;
 
@@ -289,6 +290,8 @@ pub async fn run_server(
             let kafka_killpill_rx = rx.resubscribe();
             kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
         }
+        let db_killpill_rx = rx.resubscribe();
+        database_triggers::start_database(db.clone(), db_killpill_rx).await;
     }
 
     // build our application with a route
@@ -357,7 +360,11 @@ pub async fn run_server(
                             #[cfg(not(feature = "websocket"))]
                             Router::new()
                         })
-                        .nest("/kafka_triggers", kafka_triggers_service),
+                        .nest("/kafka_triggers", kafka_triggers_service)
+                        .nest(
+                            "/database_triggers",
+                            database_triggers::workspaced_service(),
+                        ),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -417,7 +424,10 @@ pub async fn run_server(
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
-                .route("/w/:workspace_id/jobs/slack_approval/:job_id", get(slack_approvals::request_slack_approval))
+                .route(
+                    "/w/:workspace_id/jobs/slack_approval/:job_id",
+                    get(slack_approvals::request_slack_approval),
+                )
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),
