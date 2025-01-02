@@ -3713,7 +3713,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						mysql: 'MySQL',
 						ms_sql_server: 'MS SQL Server',
 						snowflake: 'Snowflake',
-						bigquery: 'BigQuery'
+						bigquery: 'BigQuery',
+						snowflake_oauth: 'Snowflake OAuth'
 					},
 					configuration: {
 						postgresql: {
