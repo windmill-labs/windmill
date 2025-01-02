@@ -47,6 +47,7 @@
 	export let drawerOpen = false
 	export let nodeId: string | undefined = undefined
 	export let language: string | undefined = undefined
+	export let appPath: string | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -645,7 +646,7 @@
 									>
 								</button>
 							{:else if !result?.disable_download}
-								<FileDownload {workspaceId} s3object={result} />
+								<FileDownload {workspaceId} s3object={result} {appPath} />
 								<button
 									class="text-secondary underline text-2xs whitespace-nowrap"
 									on:click={() => {

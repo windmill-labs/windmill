@@ -10,6 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     db::{ApiAuthed, DB},
+    job_helpers_ee::{download_s3_file_internal, DownloadFileQuery},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
@@ -27,7 +28,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Json, Path, Query},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Router,
 };
@@ -92,6 +93,7 @@ pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
         .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
+        .route("/download_s3_file/*path", get(download_s3_file_from_app))
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
 }
@@ -1676,6 +1678,65 @@ async fn upload_s3_file_from_app(
     upload_file_from_req(s3_client, &file_key, request, options).await?;
 
     return Ok(Json(UploadFileResponse { file_key }));
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn download_s3_file_from_app() -> Result<()> {
+    return Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ));
+}
+
+#[cfg(feature = "parquet")]
+async fn download_s3_file_from_app(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DownloadFileQuery>,
+) -> Result<Response> {
+    let path = path.to_path();
+
+    let policy_o = sqlx::query_scalar!(
+        "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let policy = policy_o
+        .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
+        .transpose()?
+        .unwrap_or_else(|| Policy {
+            execution_mode: ExecutionMode::Viewer,
+            triggerables: None,
+            triggerables_v2: None,
+            on_behalf_of: None,
+            on_behalf_of_email: None,
+            s3_inputs: None,
+        });
+
+    let (username, permissioned_as, email) =
+        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+
+    let on_behalf_authed =
+        fetch_api_authed_from_permissioned_as(permissioned_as, email, &w_id, &db, Some(username))
+            .await?;
+
+    let allowed = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM completed_job WHERE result @> ('{"s3":"' || $1 ||  '"}')::jsonb AND workspace_id = $2 AND script_path LIKE $3 || '/%' AND (job_kind = 'appscript' OR job_kind = 'preview'))"#,
+            query.file_key,
+            w_id,
+            path,
+        ).fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+
+    if !allowed {
+        return Err(Error::BadRequest("File restricted".to_string()));
+    }
+
+    download_s3_file_internal(on_behalf_authed, &db, None, "", &w_id, query).await
 }
 
 fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
