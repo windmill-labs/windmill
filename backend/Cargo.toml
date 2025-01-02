@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.440.3"
+version = "1.441.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.440.3"
+version = "1.441.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -79,6 +79,7 @@ oauth2 = ["windmill-api/oauth2"]
 http_trigger = ["windmill-api/http_trigger"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
+scoped_cache = ["windmill-common/scoped_cache"]
 
 
 [dependencies]

@@ -332,9 +332,22 @@ pub async fn uv_pip_compile(
             .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .envs(PROXY_ENVS.clone())
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            child_cmd
+                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+
         let child_process = start_child_process(child_cmd, uv_cmd).await?;
         append_logs(&job_id, &w_id, logs, db).await;
         handle_child(

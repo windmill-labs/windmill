@@ -41,7 +41,8 @@
 		truncateRev,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined
+		replaceFalseWithUndefined,
+		isFlowPreview
 	} from '../../../utils'
 	import type {
 		AppInput,
@@ -1404,7 +1405,7 @@
 											</div>
 										{/if}
 
-										{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+										{#if job?.job_kind !== 'flow' && !isFlowPreview(job?.job_kind)}
 											{@const jobResult = $jobsById[selectedJobId]}
 											<Splitpanes horizontal class="grow border w-full">
 												<Pane size={50} minSize={10}>
@@ -1463,7 +1464,7 @@
 											<FlowProgressBar {job} class="py-4" />
 											<div class="w-full mt-10 mb-20">
 												<FlowStatusViewer
-													jobId={job.id}
+													jobId={job?.id ?? ''}
 													on:jobsLoaded={({ detail }) => {
 														job = detail
 													}}

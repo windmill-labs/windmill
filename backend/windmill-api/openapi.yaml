@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.440.3
+  version: 1.441.2
   title: Windmill API
 
   contact:
@@ -6942,6 +6942,42 @@ paths:
                   - approvalPage
                   - resume
                   - cancel
+
+  /w/{workspace}/jobs/slack_approval/{id}:
+    get:
+      summary: generate interactive slack approval for suspended job
+      operationId: getSlackApprovalPayload
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: approver
+          in: query
+          schema:
+            type: string
+        - name: message
+          in: query
+          schema:
+            type: string
+        - name: slack_resource_path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: flow_step_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Interactive slack approval message sent successfully
 
   /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:

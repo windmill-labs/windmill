@@ -19,6 +19,8 @@
 		displayDate,
 		emptyString,
 		encodeState,
+		isFlowPreview,
+		isScriptPreview,
 		truncateHash,
 		truncateRev
 	} from '$lib/utils'
@@ -288,7 +290,7 @@
 	}
 
 	function forkPreview() {
-		if (job?.job_kind == 'flowpreview') {
+		if (isFlowPreview(job?.job_kind)) {
 			$initialArgsStore = job?.args
 			const state = {
 				flow: { value: job?.raw_flow },
@@ -355,7 +357,7 @@
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
-{#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
+{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 	<Drawer bind:this={debugViewer} size="800px">
 		<DrawerContent title="Debug Detail" on:close={debugViewer.closeDrawer}>
 			<svelte:fragment slot="actions">
@@ -472,7 +474,7 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			{#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
+			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 				<div class="inline">
 					<ButtonDropdown hasPadding={false}>
 						<svelte:fragment slot="buttonReplacement">
@@ -488,7 +490,7 @@
 					</ButtonDropdown>
 				</div>
 			{/if}
-			{#if job?.job_kind === 'flowpreview' || job?.job_kind === 'preview'}
+			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
 				<Button
 					color="dark"
 					size="md"
@@ -496,7 +498,7 @@
 					startIcon={{ icon: GitBranch }}
 					on:click={forkPreview}
 				>
-					Fork {job?.job_kind == 'flowpreview' ? 'flow' : 'code'} preview
+					Fork {isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview
 				</Button>
 			{/if}
 			{#if persistentScriptDefinition !== undefined}
@@ -833,8 +835,8 @@
 				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
 			</div>
 		{/if}
-		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow' && job?.job_kind !== 'flownode'}
-			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || job?.job_kind == 'preview')}
+		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'singlescriptflow' && !isFlowPreview(job?.job_kind)}
+			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
@@ -854,7 +856,7 @@
 						<Tab value="result">Result</Tab>
 						<Tab value="logs">Logs</Tab>
 						<Tab value="stats">Metrics</Tab>
-						{#if job?.job_kind == 'preview'}
+						{#if isScriptPreview(job?.job_kind)}
 							<Tab value="code">Code</Tab>
 						{/if}
 					</Tabs>
@@ -910,7 +912,7 @@
 			/>
 			<div class="w-full mt-10">
 				<FlowStatusViewer
-					jobId={job.id}
+					jobId={job?.id ?? ''}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}

@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.441.2](https://github.com/windmill-labs/windmill/compare/v1.441.1...v1.441.2) (2024-12-27)
+
+
+### Bug Fixes
+
+* **backend:** fix zombies left by the bash executor ([#4985](https://github.com/windmill-labs/windmill/issues/4985)) ([8db69ce](https://github.com/windmill-labs/windmill/commit/8db69ce15e25601d0ac2ac98b1e45c0c01c11967))
+
+## [1.441.1](https://github.com/windmill-labs/windmill/compare/v1.441.0...v1.441.1) (2024-12-24)
+
+
+### Bug Fixes
+
+* **backend:** timeout for bigquery/graphql/snowflake ([#4965](https://github.com/windmill-labs/windmill/issues/4965)) ([1d20dea](https://github.com/windmill-labs/windmill/commit/1d20dea6630407840fd058a8b51c410fae3fbe78))
+* windows compatibility for C# ([#4980](https://github.com/windmill-labs/windmill/issues/4980)) ([b12e9c3](https://github.com/windmill-labs/windmill/commit/b12e9c3005db10d15ee27894a819dbb556832a83))
+* **windows&python:** Access is denied. (os error 5) ([#4969](https://github.com/windmill-labs/windmill/issues/4969)) ([6bd2dc3](https://github.com/windmill-labs/windmill/commit/6bd2dc38325388a55dd288b94e26ac6018622aaa))
+
+## [1.441.0](https://github.com/windmill-labs/windmill/compare/v1.440.3...v1.441.0) (2024-12-20)
+
+
+### Features
+
+* interactive slack approvals ([#4942](https://github.com/windmill-labs/windmill/issues/4942)) ([6308bf0](https://github.com/windmill-labs/windmill/commit/6308bf0dcb1d6670e839a1a1e0b794bf3ce6520c))
+
 ## [1.440.3](https://github.com/windmill-labs/windmill/compare/v1.440.2...v1.440.3) (2024-12-19)
 
 
