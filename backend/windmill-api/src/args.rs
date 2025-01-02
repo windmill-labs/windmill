@@ -65,6 +65,7 @@ impl WebhookArgs {
                     let s3_client = build_object_store_client(&s3_resource).await?;
 
                     let mut body = HashMap::new();
+                    let mut files = HashMap::new();
 
                     while let Some(field) = multipart.next_field().await.map_err(|e| {
                         Error::BadRequest(format!(
@@ -107,12 +108,9 @@ impl WebhookArgs {
                                 )
                                 .await?;
 
-                                body.insert(
-                                    name,
-                                    to_raw_value(&serde_json::json!({
-                                        "s3": &file_key
-                                    })),
-                                );
+                                files.entry(name).or_insert(vec![]).push(serde_json::json!({
+                                    "s3": &file_key
+                                }));
                             } else {
                                 body.insert(
                                     name,
@@ -120,6 +118,10 @@ impl WebhookArgs {
                                 );
                             }
                         }
+                    }
+
+                    for (k, v) in files {
+                        body.insert(k, to_raw_value(&v));
                     }
 
                     if self.wrap_body.unwrap_or(false) {
