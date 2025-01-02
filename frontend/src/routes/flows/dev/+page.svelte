@@ -4,7 +4,11 @@
 	import { onDestroy, onMount, setContext } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput } from '$lib/components/flows/types'
+	import type {
+		FlowEditorContext,
+		FlowInput,
+		FlowInputEditorState
+	} from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
 	import { OpenAPI, type FlowModule, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history'
@@ -82,7 +86,9 @@
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
-		simplifiedPoll: writable(false)
+		simplifiedPoll: writable(false),
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined)
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
@@ -100,7 +106,8 @@
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
 		insertButtonOpen: writable(false),
-		executionCount: writable(0)
+		executionCount: writable(0),
+		flowInputEditorState: writable<FlowInputEditorState | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -227,6 +234,8 @@
 			console.error('issue parsing new change:', code, e)
 		}
 	}
+
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -252,7 +261,7 @@
 			</div>
 
 			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-				<FlowPreviewButtons />
+				<FlowPreviewButtons bind:this={flowPreviewButtons} />
 			</div>
 			<Splitpanes horizontal class="h-full max-h-screen grow">
 				<Pane size={33}>
@@ -269,7 +278,18 @@
 					{/if}
 				</Pane>
 				<Pane size={67}>
-					<FlowEditorPanel noEditor />
+					<FlowEditorPanel
+						noEditor
+						on:applyArgs={(ev) => {
+							if (ev.detail.kind === 'preprocessor') {
+								$testStepStore['preprocessor'] = ev.detail.args ?? {}
+								$selectedIdStore = 'preprocessor'
+							} else {
+								$previewArgsStore = ev.detail.args ?? {}
+								flowPreviewButtons?.openPreview()
+							}
+						}}
+					/>
 				</Pane>
 			</Splitpanes>
 		</div>

@@ -1,151 +1,440 @@
 <script lang="ts">
-	import { Button, DrawerContent } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
+	import { ButtonType } from '$lib/components/common/button/model'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { copyFirstStepSchema } from '../flowStore'
 	import type { FlowEditorContext } from '../types'
-	import CapturePayload from './CapturePayload.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
 	import { sendUserToast } from '$lib/toast'
-	import SavedInputs from '$lib/components/SavedInputs.svelte'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
-	import AddProperty from '$lib/components/schema/AddProperty.svelte'
+	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
-
+	import HistoricInpts from '$lib/components/HistoricInpts.svelte'
+	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
+	import { CornerDownLeft, Pen, X, ChevronDown, Plus } from 'lucide-svelte'
+	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
+	import FlowInputEditor from './FlowInputEditor.svelte'
+	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
+	import { tick } from 'svelte'
+	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	export let noEditor: boolean
 	export let disabled: boolean
 
-	const { flowStore, flowStateStore, previewArgs, initialPath } =
+	const { flowStore, flowStateStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let capturePayload: CapturePayload
-	let inputLibraryDrawer: Drawer
-	let jsonPayload: Drawer
+	let payloadData: any | undefined = undefined
 	let pendingJson: string
-	let addProperty: AddProperty | undefined = undefined
+	let addProperty: AddPropertyV2 | undefined = undefined
+	let previewSchema: Record<string, any> | undefined = undefined
+	let previewArguments: any | undefined = undefined
+	let editOptionsOpen = false
+	let dropdownItems: Array<{
+		label: string
+		onClick: () => void
+		disabled?: boolean
+	}> = []
+	//const yOffset = 191
 
-	function importJson() {
-		const parsed = JSON.parse(pendingJson)
+	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
+	function updateEditPanelSize(size: number | undefined) {
+		if (!$flowInputEditorState) return
+		if (!size || size === 0) {
+			$flowInputEditorState.editPanelSize = undefined
+			return
+		}
+		$flowInputEditorState.editPanelSize = size
+	}
+	$: updateEditPanelSize(editPanelSize)
+
+	const getDropdownItems = () => {
+		return [
+			{
+				label: 'Input editor',
+				onClick: () => {
+					handleEditSchema('inputEditor')
+				},
+				disabled:
+					!$flowInputEditorState?.selectedTab ||
+					$flowInputEditorState?.selectedTab === 'inputEditor'
+			},
+			{
+				label: 'Json',
+				onClick: () => {
+					handleEditSchema('json')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'json'
+			},
+			{
+				label: "First step's inputs",
+				onClick: () => {
+					copyFirstStepSchema($flowStateStore, flowStore)
+				}
+			},
+			{
+				label: 'History',
+				onClick: () => {
+					handleEditSchema('history')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'history'
+			},
+			{
+				label: 'Saved inputs',
+				onClick: () => {
+					handleEditSchema('savedInputs')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'savedInputs'
+			},
+			{
+				label: 'Captures',
+				onClick: () => {
+					handleEditSchema('captures')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'captures'
+			}
+		].filter((item) => !item.disabled)
+	}
+
+	function handleEditSchema(editTab?: any) {
+		if (!$flowInputEditorState) {
+			return
+		}
+		if (editTab !== undefined) {
+			$flowInputEditorState.selectedTab = editTab
+		} else if ($flowInputEditorState.selectedTab === undefined) {
+			$flowInputEditorState.selectedTab = 'inputEditor'
+		} else {
+			$flowInputEditorState.selectedTab = undefined
+		}
+	}
+
+	function schemaFromPayload(payload: any) {
+		const parsed = JSON.parse(JSON.stringify(payload))
 
 		if (!parsed) {
-			sendUserToast('Invalid JSON', true)
+			sendUserToast('Invalid Schema', true)
 			return
 		}
 
-		$flowStore.schema = { required: [], properties: {}, ...convert(parsed) }
-
-		jsonPayload.closeDrawer()
+		return { required: [], properties: {}, ...convert(parsed) }
 	}
-	const yOffset = 191
+
+	let flowPreviewContent: FlowPreviewContent
+	let previewOpen = false
+
+	let runDisabled = false
+	function handleKeydown(event: KeyboardEvent) {
+		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+			runPreview()
+		}
+	}
+
+	function runPreview() {
+		if (!runDisabled) {
+			previewOpen = true
+			flowPreviewContent?.runPreview($previewArgs, undefined)
+		}
+	}
+
+	async function updateRunDisabled(editSchema: boolean) {
+		await tick()
+		runDisabled = editSchema
+	}
+	$: updateRunDisabled(!!$flowInputEditorState?.selectedTab)
+
+	function updatePreviewSchema(payloadData: any) {
+		previewSchema = undefined
+		previewArguments = undefined
+		if (!payloadData) {
+			updatePreviewArgs(undefined)
+			return
+		}
+		previewSchema = schemaFromPayload(payloadData)
+		previewArguments = payloadData
+		updatePreviewArgs(previewArguments)
+	}
+
+	$: updatePreviewSchema(payloadData)
+
+	function applySchemaAndArgs() {
+		if (!payloadData || !previewSchema || !previewArguments) {
+			return
+		}
+		$flowStore.schema = previewSchema
+		$previewArgs = previewArguments
+		previousArgs = previewArguments
+		payloadData = undefined
+		if ($flowInputEditorState) {
+			$flowInputEditorState.selectedTab = undefined
+		}
+	}
+
+	function applySchema() {
+		if (!payloadData) return
+		$flowStore.schema = schemaFromPayload(payloadData)
+		previewSchema = undefined
+		previewArguments = undefined
+		if ($flowInputEditorState) {
+			$flowInputEditorState.selectedTab = undefined
+		}
+	}
+
+	let previousArgs: Record<string, any> | undefined = undefined
+	function updatePreviewArgs(previewArguments: Record<string, any> | undefined) {
+		if (!previewArguments && previousArgs) {
+			$previewArgs = previousArgs
+		} else if (previewArguments) {
+			previousArgs = $previewArgs
+			$previewArgs = previewArguments
+		}
+	}
+	$: updatePreviewArgs(previewArguments)
+
+	let jsonValid = false
+	function updatePayloadFromJson(pendingJson: string) {
+		if (!pendingJson?.length) {
+			payloadData = undefined
+			updatePreviewSchema(undefined)
+			jsonValid = false
+			return
+		}
+		try {
+			const parsed = JSON.parse(pendingJson)
+			payloadData = parsed
+			updatePreviewSchema(parsed)
+			jsonValid = true
+		} catch (error) {
+			payloadData = undefined
+			updatePreviewSchema(undefined)
+			jsonValid = false
+		}
+	}
+	$: updatePayloadFromJson(pendingJson)
+
+	$: $flowInputEditorState, (dropdownItems = getDropdownItems())
+
+	let tabButtonWidth = 0
+
+	const TAB_TITLES: Record<string, string> = {
+		inputEditor: 'Input editor',
+		captures: 'Captures',
+		history: 'History',
+		savedInputs: 'Saved inputs',
+		json: 'JSON',
+		undefined: ''
+	}
 </script>
 
-<CapturePayload bind:this={capturePayload} />
+<!-- Add svelte:window to listen for keyboard events -->
+<svelte:window on:keydown={handleKeydown} />
+
+<Drawer bind:open={previewOpen} alwaysOpen size="75%">
+	<FlowPreviewContent
+		bind:this={flowPreviewContent}
+		open={previewOpen}
+		previewMode="whole"
+		on:close={() => {
+			previewOpen = false
+		}}
+	/>
+</Drawer>
 
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
-		<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
-			<div>Copy input's schema from</div>
-			<Button
-				color="dark"
-				size="xs"
-				on:click={() => {
-					capturePayload.openDrawer()
-				}}
-			>
-				A request
-			</Button>
-			<Button
-				color="dark"
-				size="xs"
-				on:click={() => {
-					jsonPayload.openDrawer()
-				}}
-			>
-				A JSON
-			</Button>
-			<Button
-				color="dark"
-				size="xs"
-				on:click={() => {
-					inputLibraryDrawer.openDrawer()
-				}}
-			>
-				Past runs/Input library
-			</Button>
-			<Button
-				color="dark"
-				size="xs"
-				disabled={$flowStore.value.modules.length === 0 ||
-					$flowStore.value.modules[0].value.type == 'identity'}
-				on:click={() => copyFirstStepSchema($flowStateStore, flowStore)}
-			>
-				First step's inputs
-			</Button>
-		</div>
-		<div class="p-4 border-b">
-			<AddProperty
+		<div class="py-2 px-4 h-full">
+			<EditableSchemaForm
 				bind:schema={$flowStore.schema}
-				bind:this={addProperty}
-				on:change={() => {
-					$flowStore = $flowStore
+				isFlowInput
+				on:edit={(e) => {
+					addProperty?.openDrawer(e.detail)
 				}}
-			/>
-		</div>
+				on:delete={(e) => {
+					addProperty?.handleDeleteArgument([e.detail])
+				}}
+				offset={undefined}
+				displayWebhookWarning
+				editTab={$flowInputEditorState?.selectedTab}
+				{previewSchema}
+				bind:args={$previewArgs}
+				bind:editPanelSize
+				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
+				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
+			>
+				<svelte:fragment slot="openEditTab">
+					<div
+						class={twMerge(
+							'flex flex-row divide-x rounded-md bg-surface overflow-hidden',
+							!!$flowInputEditorState?.selectedTab ? 'rounded-r-none' : '',
+							ButtonType.ColorVariants.blue.divider
+						)}
+					>
+						<button
+							on:click={() => {
+								handleEditSchema()
+							}}
+							title={!!$flowInputEditorState?.selectedTab
+								? 'Close input editor'
+								: 'Open input editor'}
+							class={ButtonType.ColorVariants.blue.contained}
+						>
+							<div class="p-2 center-center">
+								<svelte:component this={!!$flowInputEditorState?.selectedTab ? X : Pen} size={14} />
+							</div>
+						</button>
 
-		<EditableSchemaForm
-			bind:schema={$flowStore.schema}
-			isFlowInput
-			on:edit={(e) => {
-				addProperty?.openDrawer(e.detail)
-			}}
-			on:delete={(e) => {
-				addProperty?.handleDeleteArgument([e.detail])
-			}}
-			offset={yOffset}
-			displayWebhookWarning
-		/>
+						<ButtonDropDown
+							{dropdownItems}
+							closeOnClick={true}
+							bind:open={editOptionsOpen}
+							placement="bottom-end"
+						>
+							<div
+								class={twMerge(
+									'p-2 center-center hover:bg-surface-hover',
+									ButtonType.ColorVariants.blue.contained,
+									'flex flex-row items-center gap-2 rounded-br-md',
+									'transition-all duration-150 ease-in-out overflow-hidden whitespace-nowrap',
+									!!$flowInputEditorState?.selectedTab ? 'w-[120px]' : 'w-[30px]'
+								)}
+								bind:clientWidth={tabButtonWidth}
+							>
+								{#if !!$flowInputEditorState?.selectedTab}
+									<h2 class="text-xs">{TAB_TITLES[$flowInputEditorState?.selectedTab]}</h2>
+								{/if}
+								<ChevronDown size={16} />
+							</div>
+						</ButtonDropDown>
+					</div>
+				</svelte:fragment>
+				<svelte:fragment slot="addProperty">
+					{#if previewSchema && previewArguments}
+						<div
+							class={twMerge(
+								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs py-2 w-full flex justify-center rounded-md',
+								'text-blue-700 dark:text-blue-100'
+							)}
+						>
+							<span> Preview only, apply to confirm</span>
+						</div>
+					{:else}
+						<AddPropertyV2
+							bind:schema={$flowStore.schema}
+							bind:this={addProperty}
+							on:change={() => {
+								$flowStore = $flowStore
+							}}
+						>
+							<svelte:fragment slot="trigger">
+								<div
+									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+								>
+									<Plus size={14} />
+								</div>
+							</svelte:fragment>
+						</AddPropertyV2>
+					{/if}
+				</svelte:fragment>
+				<svelte:fragment slot="extraTab">
+					{#if $flowInputEditorState?.selectedTab === 'history'}
+						<FlowInputEditor
+							disabled={!payloadData}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
+						>
+							<HistoricInpts
+								scriptHash={null}
+								scriptPath={null}
+								flowPath={$pathStore}
+								on:select={(e) => {
+									payloadData = e.detail
+								}}
+							/>
+						</FlowInputEditor>
+					{:else if $flowInputEditorState?.selectedTab === 'captures'}
+						<FlowInputEditor
+							disabled={!payloadData}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
+						>
+							<svelete:fragment slot="action">
+								<div class="center-center">
+									<CaptureButton on:openTriggers small={true} />
+								</div>
+							</svelete:fragment>
+							<CapturesInputs
+								on:select={(e) => {
+									payloadData = e.detail
+								}}
+								scriptHash={null}
+								flowPath={$pathStore}
+								isFlow={true}
+							/>
+						</FlowInputEditor>
+					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
+						<FlowInputEditor
+							disabled={!payloadData}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
+						>
+							<svelete:fragment slot="header">
+								<Tooltip>Shared inputs are available to anyone with access to the script</Tooltip>
+							</svelete:fragment>
+							<SavedInputsPicker
+								flowPath={initialPath}
+								on:select={(e) => {
+									payloadData = e.detail
+								}}
+							/>
+						</FlowInputEditor>
+					{:else if $flowInputEditorState?.selectedTab === 'json'}
+						<FlowInputEditor
+							disabled={!pendingJson?.length || !jsonValid}
+							on:applySchemaAndArgs={applySchemaAndArgs}
+							on:applySchema={applySchema}
+							on:destroy={() => {
+								payloadData = undefined
+							}}
+						>
+							<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
+						</FlowInputEditor>
+					{/if}
+				</svelte:fragment>
+				<svelte:fragment slot="runButton">
+					<div class="w-full flex justify-end pr-5">
+						<Button
+							color="dark"
+							btnClasses="w-fit"
+							disabled={runDisabled}
+							size="xs"
+							shortCut={{ Icon: CornerDownLeft, hide: false }}
+							on:click={() => {
+								runPreview()
+							}}
+						>
+							Run
+						</Button>
+					</div>
+				</svelte:fragment>
+			</EditableSchemaForm>
+		</div>
 	{:else}
 		<div class="p-4 border-b">
 			<FlowInputViewer schema={$flowStore.schema} />
 		</div>
 	{/if}
 </FlowCard>
-
-<Drawer bind:this={jsonPayload} size="800px">
-	<DrawerContent
-		title="Input schema from JSON"
-		on:close={() => {
-			jsonPayload.closeDrawer()
-		}}
-		noPadding
-	>
-		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
-		<svelte:fragment slot="actions">
-			<Button size="sm" on:click={importJson}>Import</Button>
-		</svelte:fragment>
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={inputLibraryDrawer}>
-	<DrawerContent title="Input library {initialPath}" on:close={inputLibraryDrawer?.toggleDrawer}>
-		<SavedInputs
-			flowPath={initialPath}
-			isValid={true}
-			args={$previewArgs}
-			canSaveInputs={false}
-			on:selected_args={(e) => {
-				const parsed = JSON.parse(JSON.stringify(e.detail))
-
-				if (!parsed) {
-					sendUserToast('Invalid JSON', true)
-					return
-				}
-
-				$flowStore.schema = { required: [], properties: {}, ...convert(parsed) }
-				inputLibraryDrawer?.closeDrawer()
-			}}
-		/>
-	</DrawerContent>
-</Drawer>

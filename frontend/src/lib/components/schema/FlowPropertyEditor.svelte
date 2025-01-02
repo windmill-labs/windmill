@@ -363,7 +363,7 @@
 		</Label>
 	{/if}
 
-	<div class="flex flex-row gap-2">
+	<div class="flex flex-row gap-2 flex-wrap h-auto">
 		<Toggle
 			options={{ right: 'Required' }}
 			size="xs"
@@ -399,7 +399,7 @@
 		{/if}
 		<Toggle
 			options={{
-				right: 'Disabled',
+				right: 'Disableds',
 				rightTooltip: 'Do not let user modify this field'
 			}}
 			lightMode

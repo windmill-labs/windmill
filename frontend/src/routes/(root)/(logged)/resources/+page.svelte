@@ -278,7 +278,7 @@
 			name: rt.name,
 			schema: rt.schema as any,
 			description: rt.description ?? '',
-			formatExtension: rt.format_extension,
+			formatExtension: rt.format_extension
 		}
 		editResourceTypeDrawer.openDrawer?.()
 	}
@@ -436,14 +436,25 @@
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		<div>
-			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} formatExtension={resourceTypeViewerObj.formatExtension} /></h1>
+			<h1 class="mb-8 mt-4"
+				><IconedResourceType
+					name={resourceTypeViewerObj.rt}
+					formatExtension={resourceTypeViewerObj.formatExtension}
+				/></h1
+			>
 			<div class="py-2 box prose mb-8 text-secondary">
 				<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
 			</div>
 			{#if resourceTypeViewerObj.formatExtension}
-		<Alert type="info" title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})">
-						This resource type represents a plain text file with a <b>.{resourceTypeViewerObj.formatExtension}</b> extension. (e.g. <b>my_file.{resourceTypeViewerObj.formatExtension}</b>)
-		</Alert>
+				<Alert
+					type="info"
+					title="Plain text file resource (.{resourceTypeViewerObj.formatExtension})"
+				>
+					This resource type represents a plain text file with a <b
+						>.{resourceTypeViewerObj.formatExtension}</b
+					>
+					extension. (e.g. <b>my_file.{resourceTypeViewerObj.formatExtension}</b>)
+				</Alert>
 			{:else}
 				<SchemaViewer schema={resourceTypeViewerObj.schema} />
 			{/if}
@@ -486,11 +497,17 @@
 			<div>
 				{#if editResourceType.formatExtension}
 					<Alert type="info" title="Plain text file resource (.{editResourceType.formatExtension})">
-									This resource type represents a plain text file with a <b>.{editResourceType.formatExtension}</b> extension. (e.g. <b>my_file.{editResourceType.formatExtension}</b>). The schema only contains a `content` field and thus cannot be edited.
+						This resource type represents a plain text file with a <b
+							>.{editResourceType.formatExtension}</b
+						>
+						extension. (e.g. <b>my_file.{editResourceType.formatExtension}</b>). The schema only
+						contains a `content` field and thus cannot be edited.
 					</Alert>
 				{:else}
 					<div class="mb-1 font-semibold text-secondary">Schema</div>
-					<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+					<div class="flex flex-col gap-2">
+						<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
+					</div>
 				{/if}
 			</div>
 		</div>
@@ -751,7 +768,11 @@
 												}
 											}}
 										>
-											<IconedResourceType name={resource_type} after={true} formatExtension={resourceNameToFileExt(resource_type)}/>
+											<IconedResourceType
+												name={resource_type}
+												after={true}
+												formatExtension={resourceNameToFileExt(resource_type)}
+											/>
 										</a>
 									</Cell>
 									<Cell>

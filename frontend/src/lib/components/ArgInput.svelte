@@ -95,6 +95,7 @@
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
 	export let otherArgs: Record<string, any> = {}
+	export let lightHeader = false
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -344,6 +345,7 @@
 				{contentEncoding}
 				{format}
 				{simpleTooltip}
+				{lightHeader}
 			/>
 		{/if}
 

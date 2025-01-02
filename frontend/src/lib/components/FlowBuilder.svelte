@@ -44,7 +44,7 @@
 	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput } from './flows/types'
+	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import {
 		Calendar,
@@ -529,14 +529,20 @@
 		flowInputsStore: writable<FlowInput>({}),
 		customUi,
 		insertButtonOpen,
-		executionCount: writable(0)
+		executionCount: writable(0),
+		flowInputEditorState: writable<FlowInputEditorState | undefined>({
+			selectedTab: undefined,
+			editPanelSize: 0
+		})
 	})
 
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
-		simplifiedPoll
+		simplifiedPoll,
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined)
 	})
 
 	async function loadTriggers() {
@@ -1204,6 +1210,7 @@
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1415,7 +1422,7 @@
 							{abortController}
 						/>
 					{/if}
-					<FlowPreviewButtons />
+					<FlowPreviewButtons bind:this={flowPreviewButtons} />
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1480,6 +1487,15 @@
 						renderCount += 1
 					}}
 					{newFlow}
+					on:applyArgs={(ev) => {
+						if (ev.detail.kind === 'preprocessor') {
+							$testStepStore['preprocessor'] = ev.detail.args ?? {}
+							$selectedIdStore = 'preprocessor'
+						} else {
+							$previewArgsStore = ev.detail.args ?? {}
+							flowPreviewButtons?.openPreview()
+						}
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

@@ -33,7 +33,7 @@
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history'
-	import type { FlowEditorContext, FlowInput } from './flows/types'
+	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
@@ -488,7 +488,9 @@
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
-		simplifiedPoll: writable(false)
+		simplifiedPoll: writable(false),
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined)
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -506,6 +508,7 @@
 		customUi: {},
 		insertButtonOpen: writable(false),
 		executionCount: writable(0),
+		flowInputEditorState: writable<FlowInputEditorState | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -715,7 +718,19 @@
 					</Pane>
 					<Pane size={33}>
 						{#key reload}
-							<FlowEditorPanel enableAi noEditor />
+							<FlowEditorPanel
+								enableAi
+								noEditor
+								on:applyArgs={(ev) => {
+									if (ev.detail.kind === 'preprocessor') {
+										$testStepStore['preprocessor'] = ev.detail.args ?? {}
+										$selectedIdStore = 'preprocessor'
+									} else {
+										$previewArgsStore = ev.detail.args ?? {}
+										flowPreviewButtons?.openPreview()
+									}
+								}}
+							/>
 						{/key}
 					</Pane>
 				</Splitpanes>
