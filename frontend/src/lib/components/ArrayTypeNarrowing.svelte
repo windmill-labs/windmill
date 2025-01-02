@@ -42,7 +42,7 @@
 	}
 </script>
 
-{#if canEditResourceType}
+{#if itemsType?.type === 'resource' && canEditResourceType || itemsType?.type !== 'resource'}
 	<Label label="Items type">
 		<select
 			bind:value={selected}
