@@ -26,9 +26,8 @@ use crate::{
     users::fetch_api_authed_from_permissioned_as,
 };
 use axum::{
-    body::Body,
     extract::{Extension, Json, Path, Query},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     routing::{delete, get, post},
     Router,
 };
@@ -96,11 +95,11 @@ pub fn unauthed_service() -> Router {
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
 }
-pub fn global_service() -> Router {
-    Router::new()
-        .route("/hub/list", get(list_hub_apps))
-        .route("/hub/get/:id", get(get_hub_app_by_id))
-}
+// pub fn global_service() -> Router {
+//     Router::new()
+//         .route("/hub/list", get(list_hub_apps))
+//         .route("/hub/get/:id", get(get_hub_app_by_id))
+// }
 
 #[derive(FromRow, Deserialize, Serialize)]
 pub struct ListableApp {
@@ -119,12 +118,6 @@ pub struct ListableApp {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub raw_app: bool,
-}
-
-fn is_false(b: &bool) -> bool {
-    !b
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -247,7 +240,6 @@ pub struct CreateApp {
     pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
-    pub raw_app: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -258,7 +250,6 @@ pub struct EditApp {
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
-    pub raw_app: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -312,8 +303,7 @@ async fn list_apps(
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
-            "draft_only",
-            "app_version.raw_app",
+            "draft_only"
         ])
         .left()
         .join("favorite")
@@ -370,37 +360,6 @@ async fn list_apps(
     tx.commit().await?;
 
     Ok(Json(rows))
-}
-
-async fn get_raw_app_data(Path((w_id, version_id)): Path<(String, i64)>) -> Result<Response> {
-    let file_path = format!("/home/rfiszel/wmill/{}/{}", w_id, version_id);
-    let file = tokio::fs::File::open(file_path).await?;
-    let stream = tokio_util::io::ReaderStream::new(file);
-    let res = Response::builder().header(http::header::CONTENT_TYPE, "text/javascript");
-    Ok(res.body(Body::from_stream(stream)).unwrap())
-}
-
-async fn get_app_version(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<i64> {
-    let path = path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
-
-    let version_o = sqlx::query_scalar!(
-        "SELECT app.versions[array_upper(app.versions, 1)] as version FROM app
-            WHERE app.path = $1 AND app.workspace_id = $2",
-        path,
-        &w_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-    tx.commit().await?;
-
-    let version = not_found_if_none(version_o, "App", path)?;
-    Ok(Json(version))
 }
 
 async fn get_app(
@@ -821,13 +780,12 @@ async fn create_app(
 
     let v_id = sqlx::query_scalar!(
         "INSERT INTO app_version
-            (app_id, value, created_by, raw_app)
-            VALUES ($1, $2::text::json, $3, $4) RETURNING id",
+            (app_id, value, created_by)
+            VALUES ($1, $2::text::json, $3) RETURNING id",
         id,
         //to preserve key orders
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
-        app.raw_app.unwrap_or(false)
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1111,13 +1069,12 @@ async fn update_app(
 
         let v_id = sqlx::query_scalar!(
             "INSERT INTO app_version
-                (app_id, value, created_by, raw_app)
-                VALUES ($1, $2::text::json, $3, $4) RETURNING id",
+                (app_id, value, created_by)
+                VALUES ($1, $2::text::json, $3) RETURNING id",
             app_id,
             //to preserve key orders
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
-            ns.raw_app.unwrap_or(false)
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -1240,7 +1197,7 @@ fn digest(code: &str) -> String {
     format!("rawscript/{:x}", result)
 }
 
-fn get_on_behalf_details_from_policy_and_authed(
+async fn get_on_behalf_details_from_policy_and_authed(
     policy: &Policy,
     opt_authed: &Option<ApiAuthed>,
 ) -> Result<(String, String, String)> {
@@ -1418,7 +1375,7 @@ async fn execute_component(
     };
 
     let (username, permissioned_as, email) =
-        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed)?;
+        get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
     let (args, job_id) = build_args(
         policy,
@@ -1544,7 +1501,7 @@ async fn upload_s3_file_from_app(
         let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
         let (username, permissioned_as, email) =
-            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed)?;
+            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
         let on_behalf_authed = fetch_api_authed_from_permissioned_as(
             permissioned_as,

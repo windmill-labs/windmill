@@ -19,7 +19,7 @@
 	let cancelable: CancelablePromise<void>[] | undefined = undefined
 </script>
 
-{#if $runnableComponents[id] != undefined}
+{#if runnableComponents && $runnableComponents[id] != undefined}
 	{#if !runLoading}
 		<Button
 			loading={runLoading}
