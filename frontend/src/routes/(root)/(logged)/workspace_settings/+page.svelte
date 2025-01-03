@@ -1474,12 +1474,12 @@
 									<Alert type="warning" title="Script version mismatch">
 										The git sync version for this repository is not latest. Current: <a
 											target="_blank"
-											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/5813/versions"
+											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 											>{gitSyncRepository.script_path}</a
 										>, latest:
 										<a
 											target="_blank"
-											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/5813/versions"
+											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 											>{latestGitSyncHubScript}</a
 										>
 										<div class="flex mt-2">
