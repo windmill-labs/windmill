@@ -1785,7 +1785,7 @@ async fn download_s3_file_from_app(
 }
 
 #[cfg(not(feature = "parquet"))]
-async fn download_s3_file_from_app() -> Result<()> {
+async fn load_s3_file_image_preview_from_app() -> Result<()> {
     return Err(Error::BadRequest(
         "This endpoint requires the parquet feature to be enabled".to_string(),
     ));
