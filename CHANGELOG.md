@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.442.0](https://github.com/windmill-labs/windmill/compare/v1.441.2...v1.442.0) (2025-01-03)
+
+
+### Features
+
+* update git sync scripts with url redacted ([#5008](https://github.com/windmill-labs/windmill/issues/5008)) ([bbf7fd6](https://github.com/windmill-labs/windmill/commit/bbf7fd695b75403714eaa68764137a5fa560c92a))
+
+
+### Bug Fixes
+
+* **apps:** check for auth when executing as publisher ([#4979](https://github.com/windmill-labs/windmill/issues/4979)) ([f5c85d7](https://github.com/windmill-labs/windmill/commit/f5c85d7db994a269b63940a1445d1c2d659c3bc5))
+* **backend:** allow multiple files per field when using multipart ([#5002](https://github.com/windmill-labs/windmill/issues/5002)) ([383ecf8](https://github.com/windmill-labs/windmill/commit/383ecf846754d40ceaee256360a042d881984690))
+* handle `'flownode'` job kind where missing ([#4990](https://github.com/windmill-labs/windmill/issues/4990)) ([eeece84](https://github.com/windmill-labs/windmill/commit/eeece84a4b2f09cf50f7a04fac71912953f6e7f1))
+* **python:** Cancel and Start again within 1s caused module not found [v2] ([#5007](https://github.com/windmill-labs/windmill/issues/5007)) ([c998d2c](https://github.com/windmill-labs/windmill/commit/c998d2c8c50cc8ec38fb771bd55743fa3e651bcd))
+
 ## [1.441.2](https://github.com/windmill-labs/windmill/compare/v1.441.1...v1.441.2) (2024-12-27)
 
 
