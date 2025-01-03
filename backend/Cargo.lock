@@ -5318,6 +5318,7 @@ dependencies = [
  "num-traits",
  "rand 0.8.5",
  "regex",
+ "rust_decimal",
  "saturating",
  "serde",
  "serde_json",
