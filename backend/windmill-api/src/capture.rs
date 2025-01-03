@@ -99,6 +99,7 @@ impl fmt::Display for TriggerKind {
     }
 }
 
+#[cfg(feature = "http_trigger")]
 #[derive(Serialize, Deserialize)]
 struct HttpTriggerConfig {
     route_path: String,
@@ -132,6 +133,7 @@ pub struct WebsocketTriggerConfig {
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum TriggerConfig {
+    #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
     Websocket(WebsocketTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
