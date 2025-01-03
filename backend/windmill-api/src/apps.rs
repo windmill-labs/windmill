@@ -79,6 +79,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
         .route("/get/v/*id", get(get_app_by_id))
+        .route("/get_data/v/*id", get(get_raw_app_data))
         .route("/exists/*path", get(exists_app))
         .route("/update/*path", post(update_app))
         .route("/delete/*path", delete(delete_app))
@@ -372,36 +373,43 @@ async fn list_apps(
     Ok(Json(rows))
 }
 
-async fn get_raw_app_data(Path((w_id, version_id)): Path<(String, i64)>) -> Result<Response> {
+async fn get_raw_app_data(Path((w_id, version_id)): Path<(String, String)>) -> Result<Response> {
     let file_path = format!("/home/rfiszel/wmill/{}/{}", w_id, version_id);
     let file = tokio::fs::File::open(file_path).await?;
     let stream = tokio_util::io::ReaderStream::new(file);
-    let res = Response::builder().header(http::header::CONTENT_TYPE, "text/javascript");
+    let res = Response::builder().header(
+        http::header::CONTENT_TYPE,
+        if version_id.ends_with(".css") {
+            "text/css"
+        } else {
+            "text/javascript"
+        },
+    );
     Ok(res.body(Body::from_stream(stream)).unwrap())
 }
 
-async fn get_app_version(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<i64> {
-    let path = path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
+// async fn get_app_version(
+//     authed: ApiAuthed,
+//     Extension(user_db): Extension<UserDB>,
+//     Path((w_id, path)): Path<(String, StripPath)>,
+// ) -> JsonResult<i64> {
+//     let path = path.to_path();
+//     let mut tx = user_db.begin(&authed).await?;
 
-    let version_o = sqlx::query_scalar!(
-        "SELECT app.versions[array_upper(app.versions, 1)] as version FROM app
-            WHERE app.path = $1 AND app.workspace_id = $2",
-        path,
-        &w_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-    tx.commit().await?;
+//     let version_o = sqlx::query_scalar!(
+//         "SELECT app.versions[array_upper(app.versions, 1)] as version FROM app
+//             WHERE app.path = $1 AND app.workspace_id = $2",
+//         path,
+//         &w_id,
+//     )
+//     .fetch_optional(&mut *tx)
+//     .await?
+//     .flatten();
+//     tx.commit().await?;
 
-    let version = not_found_if_none(version_o, "App", path)?;
-    Ok(Json(version))
-}
+//     let version = not_found_if_none(version_o, "App", path)?;
+//     Ok(Json(version))
+// }
 
 async fn get_app(
     authed: ApiAuthed,

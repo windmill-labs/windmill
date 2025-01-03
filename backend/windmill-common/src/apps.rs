@@ -25,6 +25,10 @@ pub struct ListAppQuery {
 }
 
 #[derive(Deserialize)]
+pub struct AppFile {
+    pub code: String,
+}
+#[derive(Deserialize)]
 pub struct RawAppValue {
-    pub files: HashMap<String, String>,
+    pub files: HashMap<String, AppFile>,
 }

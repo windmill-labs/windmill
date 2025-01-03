@@ -49,6 +49,7 @@ use crate::{
     bun_executor::gen_bun_lockfile, deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
 };
+use crate::{get_common_bun_proc_envs, install_bun_lockfile};
 
 pub async fn update_script_dependency_map(
     job_id: &Uuid,
@@ -1544,7 +1545,8 @@ pub async fn handle_app_dependency_job(
             .execute(db)
             .await?;
 
-        if !raw_app {
+        if raw_app {
+            // tracing::error!("Raw app detected: {value:?}");
             let app_value = serde_json::from_value::<RawAppValue>(value)
                 .map_err(|e| Error::InternalErr(format!("Failed to parse raw app: {}", e)))?;
             upload_raw_app(
@@ -1556,6 +1558,7 @@ pub async fn handle_app_dependency_job(
                 db,
                 worker_name,
                 &mut Some(occupancy_metrics),
+                id,
             )
             .await?;
         }
@@ -1612,32 +1615,68 @@ async fn upload_raw_app(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    version: i64,
 ) -> Result<()> {
     for file in app_value.files.iter() {
-        write_file(&job_dir, file.0, file.1)?;
-        let mut cmd = tokio::process::Command::new("esbuild");
-        cmd.env_clear()
-            .args("--bundle --minify --sourcemap --outfile=dist/".split(' '))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let child = start_child_process(cmd, "esbuild").await?;
-
-        crate::handle_child::handle_child(
-            &job.id,
-            db,
-            mem_peak,
-            canceled_by,
-            child,
-            false,
-            worker_name,
-            &job.workspace_id,
-            "esbuild",
-            Some(30),
-            false,
-            occupancy_metrics,
-        )
-        .await?;
+        write_file(&job_dir, file.0, &file.1.code)?;
     }
+    let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
+
+    install_bun_lockfile(
+        mem_peak,
+        canceled_by,
+        &job.id,
+        &job.workspace_id,
+        Some(db),
+        job_dir,
+        worker_name,
+        common_bun_proc_envs,
+        false,
+        occupancy_metrics,
+    )
+    .await?;
+    let mut cmd = tokio::process::Command::new("esbuild");
+    cmd.current_dir(job_dir)
+        .env_clear()
+        .args("--bundle --minify --outdir=dist/ index.tsx".split(' '))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = start_child_process(cmd, "esbuild").await?;
+
+    crate::handle_child::handle_child(
+        &job.id,
+        db,
+        mem_peak,
+        canceled_by,
+        child,
+        false,
+        worker_name,
+        &job.workspace_id,
+        "esbuild",
+        Some(30),
+        false,
+        occupancy_metrics,
+    )
+    .await?;
+    let output_dir = format!("{}/dist", job_dir);
+    let target_dir = format!("/home/rfiszel/wmill/{}/{}", job.workspace_id, version);
+
+    tokio::fs::create_dir_all(&target_dir).await?;
+
+    tracing::info!("Copying files from {} to {}", output_dir, target_dir);
+
+    let index_ts = format!("{}/index.js", output_dir);
+    let index_css = format!("{}/index.css", output_dir);
+
+    if tokio::fs::metadata(&index_ts).await.is_ok() {
+        tokio::fs::copy(&index_ts, format!("{}/index.js", target_dir)).await?;
+    }
+
+    if tokio::fs::metadata(&index_css).await.is_ok() {
+        tokio::fs::copy(&index_css, format!("{}/index.css", target_dir)).await?;
+    }
+    // let file_path = format!("/home/rfiszel/wmill/{}/{}", job.workspace_id, version);
+
     Ok(())
 }
 

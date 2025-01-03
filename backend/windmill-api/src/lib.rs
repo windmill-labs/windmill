@@ -86,7 +86,6 @@ mod kafka_triggers_ee;
 pub mod oauth2_ee;
 mod oidc_ee;
 mod raw_apps;
-mod raw_apps_v2;
 mod resources;
 mod saml_ee;
 mod schedule;

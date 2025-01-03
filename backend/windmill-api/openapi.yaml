@@ -12918,6 +12918,8 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
+        raw_app:
+          type: boolean
       required:
         - id
         - workspace_id
