@@ -143,7 +143,7 @@ services:
     expose:
       - 3001
     volumes:
-      - lsp_cache:/root/.cache
+      - lsp_cache:/pyls/.cache
 
   multiplayer:
     image: ghcr.io/windmill-labs/windmill-multiplayer:latest

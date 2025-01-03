@@ -196,6 +196,21 @@ COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
 RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 777 /tmp/windmill
 
+# Create a non-root user 'windmill' with UID and GID 1000
+RUN addgroup --gid 1000 windmill && \
+    adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
+
+RUN cp -r /root/.cache /home/windmill/.cache
+
+RUN mkdir -p /tmp/windmill/logs && \
+    mkdir -p /tmp/windmill/search
+
+RUN chown -R windmill:windmill ${APP} && \
+     chown -R windmill:windmill /tmp/windmill && \
+     chown -R windmill:windmill /home/windmill/.cache
+
+USER root
+
 EXPOSE 8000
 
 CMD ["windmill"]
