@@ -313,7 +313,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Prometheus',
 			description:
-				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
+				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
