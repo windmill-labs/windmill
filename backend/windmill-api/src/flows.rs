@@ -740,6 +740,24 @@ async fn update_flow(
                 "Error updating flow due to deleting old flow: {e:#}"
             ))
         })?;
+
+        sqlx::query!(
+            "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS TRUE",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    
+        sqlx::query!(
+            "UPDATE capture SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS TRUE",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     let version = sqlx::query_scalar!(
@@ -1117,6 +1135,22 @@ async fn delete_flow_by_path(
 
     sqlx::query!(
         "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",
+        path,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
+        path,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
         path,
         &w_id
     )

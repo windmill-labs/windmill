@@ -48,7 +48,7 @@
 			{#if icon}
 				<svelte:component
 					this={icon}
-					size={14}
+					size={small ? 12 : 14}
 					color={$selected === value ? selectedColor : '#9CA3AF'}
 					{...iconProps}
 				/>
