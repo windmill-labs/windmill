@@ -19,7 +19,7 @@
         ];
       };
       buildInputs = with pkgs; [
-        openssl openssl.dev libxml2.dev xmlsec.dev libxslt.dev
+        openssl openssl.dev libxml2.dev xmlsec.dev libxslt.dev libtool
         rust nodejs
         postgresql
         pkg-config cmake
@@ -30,6 +30,21 @@
         xmlsec.dev
         libxslt.dev
       ]);
+      RUSTY_V8_ARCHIVE =
+        let
+          version = "130.0.1";
+          target = pkgs.hostPlatform.rust.rustcTarget;
+          sha256 = {
+            x86_64-linux = "sha256-qc25H3Aj2KRhsAZ+2SD1c4RmweVK07oW71opZXRuUoc=";
+            aarch64-linux = "sha256-qc25H3Aj2KRhsAZ+2SD1c4RmweVK07oW71opZXRuUoc=";
+            x86_64-darwin = pkgs.lib.fakeHash;
+            aarch64-darwin = "sha256-d1QTLt8gOUFxACes4oyIYgDF/srLOEk+5p5Oj1ECajQ=";
+          }.${system};
+        in pkgs.fetchurl {
+          name = "librusty_v8-${version}";
+          url = "https://github.com/denoland/rusty_v8/releases/download/v${version}/librusty_v8_release_${target}.a.gz";
+          inherit sha256;
+        };
     in {
       devShell = pkgs.mkShell {
         buildInputs = buildInputs ++ (with pkgs; [
@@ -45,7 +60,6 @@
           '')
           (pkgs.writeScriptBin "wm-build" ''
             cd ./frontend
-            echo $(pwd)
             npm install
             npm run ${if pkgs.stdenv.isDarwin then "generate-backend-client-mac" else "generate-backend-client"}
             npm run build $*
@@ -74,7 +88,7 @@
           '')
         ];
 
-        inherit PKG_CONFIG_PATH;
+        inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
         NODE_ENV = "development";
         NODE_OPTIONS = "--max-old-space-size=16384";
         DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
@@ -90,33 +104,41 @@
         CARGO_PATH = "${rust}/bin/cargo";
       };
       packages.default = self.packages.${system}.windmill;
-      packages.windmill-client = pkgs.stdenv.mkDerivation {
-        pname = "windmill-client";
+      packages.windmill-client = pkgs.buildNpmPackage {
+        name = "windmill-client";
         version = (pkgs.lib.strings.trim (builtins.readFile ./version.txt));
+      
+        src = pkgs.nix-gitignore.gitignoreSource [] ./frontend;
+        nativeBuildInputs = with pkgs; [ pkg-config ];
+        buildInputs = with pkgs; [ nodejs pixman cairo pango ];
+        doCheck = false;
 
-        src = ./.;
-        buildInputs = with pkgs; [ nodejs ];
+        npmDepsHash = "sha256-NXk9mnf74+/k0i3goqU8Zi/jr5b/bmW+HWRLJCI2CX8=";
+        npmBuild = "npm run build";
 
-        buildPhase = ''
-          export HOME=$(pwd)
-          npm config set strict-ssl false
-          cd frontend
-          npm install --verbose
+        postUnpack = ''
+          mkdir -p ./backend/windmill-api/
+          cp ${./backend/windmill-api/openapi.yaml} ./backend/windmill-api/openapi.yaml
+          cp ${./openflow.openapi.yaml} ./openflow.openapi.yaml
+        '';
+        preBuild = ''
           npm run ${if pkgs.stdenv.isDarwin then "generate-backend-client-mac" else "generate-backend-client"}
-          NODE_OPTIONS="--max-old-space-size=8192" npm run build
         '';
 
         installPhase = ''
           mkdir -p $out/build
-          cp -r build $out/build
+          cp -r build $out
         '';
+
+        NODE_OPTIONS = "--max-old-space-size=8192";
       };
       packages.windmill = pkgs.rustPlatform.buildRustPackage {
         pname = "windmill";
         version = (pkgs.lib.strings.trim (builtins.readFile ./version.txt));
 
         src = ./backend;
-        nativeBuildInputs = buildInputs;
+        nativeBuildInputs = buildInputs ++ [ self.packages.${system}.windmill-client pkgs.perl ];
+
 
         cargoLock = {
           lockFile = ./backend/Cargo.lock;
@@ -128,28 +150,16 @@
         };
 
         buildFeatures = [
-          "embedding" "parquet" "openidconnect" "jemalloc" "deno_core" "license" "http_trigger" "zip" "oauth2" "dind"
-          "php" "mysql" "mssql" "bigquery" "websocket" "python" "smtp" "csharp" "rust"
+          "enterprise" "enterprise_saml" "stripe" "embedding" "parquet" "prometheus"
+          "openidconnect" "cloud" "jemalloc" "tantivy" "deno_core" "license" "http_trigger"
+          "zip" "oauth2" "kafka" "otel" "dind" "php" "mysql" "mssql" "bigquery" "websocket"
+          "python" "smtp" "csharp" "static_frontend" "rust"
         ];
         doCheck = false;
 
-        inherit PKG_CONFIG_PATH;
+        inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
         SQLX_OFFLINE = true;
-        RUSTY_V8_ARCHIVE =
-          let
-            version = "130.0.1";
-            target = pkgs.hostPlatform.rust.rustcTarget;
-            sha256 = {
-              x86_64-linux = pkgs.lib.fakeHash;
-              aarch64-linux = pkgs.lib.fakeHash;
-              x86_64-darwin = pkgs.lib.fakeHash;
-              aarch64-darwin = "sha256-d1QTLt8gOUFxACes4oyIYgDF/srLOEk+5p5Oj1ECajQ=";
-            }.${system};
-          in pkgs.fetchurl {
-            name = "librusty_v8-${version}";
-            url = "https://github.com/denoland/rusty_v8/releases/download/v${version}/librusty_v8_release_${target}.a.gz";
-            inherit sha256;
-          };
+        FRONTEND_BUILD_DIR = "${self.packages.${system}.windmill-client}/build";
       };
     });
 }
