@@ -137,7 +137,7 @@ ORDER BY
     ORDINAL_POSITION;
 
 	`
-	} else if (resourceType === 'snowflake') {
+	} else if (resourceType === 'snowflake' || resourceType === 'snowflake_oauth') {
 		code = `
 		select COLUMN_NAME as field,
 		DATA_TYPE as DataType,
@@ -380,6 +380,30 @@ return schema
 		},
 		argName: 'database'
 	},
+	snowflake_oauth: {
+		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT, IS_NULLABLE from information_schema.columns where table_schema != 'INFORMATION_SCHEMA'`,
+		lang: 'snowflake',
+		processingFn: (rows) => {
+			const schema = {}
+			for (const row of rows) {
+				if (!(row.TABLE_SCHEMA in schema)) {
+					schema[row.TABLE_SCHEMA] = {}
+				}
+				if (!(row.TABLE_NAME in schema[row.TABLE_SCHEMA])) {
+					schema[row.TABLE_SCHEMA][row.TABLE_NAME] = {}
+				}
+				schema[row.TABLE_SCHEMA][row.TABLE_NAME][row.COLUMN_NAME] = {
+					type: row.DATA_TYPE,
+					required: row.IS_NULLABLE === 'YES'
+				}
+				if (row.COLUMN_DEFAULT !== null) {
+					schema[row.TABLE_SCHEMA][row.TABLE_NAME][row.COLUMN_NAME]['default'] = row.COLUMN_DEFAULT
+				}
+			}
+			return schema
+		},
+		argName: 'database'
+	},
 	ms_sql_server: {
 		argName: 'database',
 		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
@@ -560,6 +584,7 @@ export function getLanguageByResourceType(name: string): Preview['language'] {
 		mysql: 'mysql',
 		ms_sql_server: 'mssql',
 		snowflake: 'snowflake',
+		snowflake_oauth: 'snowflake',
 		bigquery: 'bigquery'
 	}
 	return language[name]
