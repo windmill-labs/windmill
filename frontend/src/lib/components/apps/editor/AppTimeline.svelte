@@ -1,18 +1,19 @@
 <script lang="ts">
 	import { debounce } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { onDestroy } from 'svelte'
 
 	import TimelineBar from '$lib/components/TimelineBar.svelte'
-	import type { AppViewerContext } from '../types'
+	import type { JobById } from '../types'
 
-	const { jobs, jobsById } = getContext<AppViewerContext>('AppViewerContext')
+	export let jobs: string[]
+	export let jobsById: Record<string, JobById>
 
 	let min: undefined | number = undefined
 	let max: undefined | number = undefined
 	let total: number | undefined = undefined
 
-	let debounced = debounce(() => computeItems($jobs), 30)
-	$: $jobs && $jobsById && debounced()
+	let debounced = debounce(() => computeItems(jobs), 30)
+	$: jobs && jobsById && debounced()
 
 	let items: Record<
 		string,
@@ -35,7 +36,7 @@
 			{ created_at?: number; started_at?: number; duration_ms?: number; id: string }[]
 		> = {}
 		jobs.forEach((k) => {
-			let v = $jobsById[k]
+			let v = jobsById[k]
 			if (v.created_at) {
 				if (!nmin) {
 					nmin = v.created_at

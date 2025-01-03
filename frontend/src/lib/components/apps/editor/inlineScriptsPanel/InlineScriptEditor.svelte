@@ -202,6 +202,7 @@
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
 		<InlineScriptEditorDrawer
+			{id}
 			appPath={$appPath}
 			bind:isOpen={drawerIsOpen}
 			{editor}

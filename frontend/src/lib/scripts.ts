@@ -5,7 +5,16 @@ import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'
 
 export function scriptLangToEditorLang(
-	lang: Script['language'] | 'bunnative' | 'frontend' | 'tsx' | 'text' | 'json' | undefined
+	lang:
+		| Script['language']
+		| 'bunnative'
+		| 'javascript'
+		| 'frontend'
+		| 'jsx'
+		| 'tsx'
+		| 'text'
+		| 'json'
+		| undefined
 ) {
 	if (lang == 'deno') {
 		return 'typescript'
@@ -15,6 +24,8 @@ export function scriptLangToEditorLang(
 		return 'typescript'
 	} else if (lang == 'text') {
 		return 'text'
+	} else if (lang == 'javascript' || lang == 'jsx') {
+		return 'javascript'
 	} else if (lang == 'postgresql') {
 		return 'sql'
 	} else if (lang == 'mysql') {

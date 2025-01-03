@@ -177,6 +177,7 @@
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 	import type { AiProviderTypes } from './copilot/lib'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import * as htmllang from '$lib/svelteMonarch'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -203,18 +204,17 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
 	export let small = false
-	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'json'
+	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'json' | undefined
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
-	export let files: Record<string, { code: string }> | undefined = {}
+	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
+	export let extraLib: string | undefined = undefined
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
 
 	let filePath = computePath(path)
 	$: filePath = computePath(path)
-
-	let models: Record<string, meditor.ITextModel> = {}
 
 	let initialPath: string | undefined = path
 
@@ -241,20 +241,29 @@
 	buildWorkerDefinition()
 
 	function computeUri(filePath: string, scriptLang: string | undefined) {
+		let file
+		if (filePath.includes('.')) {
+			file = filePath
+		} else {
+			file = `${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
+		}
+		if (file.startsWith('/')) {
+			file = file.slice(1)
+		}
 		return !['deno', 'go', 'python3'].includes(scriptLang ?? '')
-			? `file:///${filePath}.${scriptLang == 'tsx' ? 'tsx' : langToExt(lang)}`
-			: `file:///tmp/monaco/${filePath}.${langToExt(lang)}`
+			? `file:///${file}`
+			: `file:///tmp/monaco/${file}`
 	}
 
 	function computePath(path: string | undefined): string {
 		if (
 			['deno', 'go', 'python3'].includes(scriptLang ?? '') ||
 			path == '' ||
-			path == undefined ||
-			path.startsWith('/')
+			path == undefined //||path.startsWith('/')
 		) {
 			return randomHash()
 		} else {
+			console.log('path', path)
 			return path as string
 		}
 	}
@@ -263,15 +272,17 @@
 		if (editor) {
 			const uri = mUri.parse(path)
 			console.log('switching to file', path, lang)
-			if (models[path]) {
+			// vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(value))
+			let nmodel = meditor.getModel(uri)
+			if (nmodel) {
 				console.log('using existing model', path)
-				editor.setModel(models[path])
+				editor.setModel(nmodel)
 			} else {
 				console.log('creating model', path)
-				const model = meditor.createModel(value, lang, uri)
-				models[path] = model
-				editor.setModel(model)
+				nmodel = meditor.createModel(value, lang, uri)
+				editor.setModel(nmodel)
 			}
+			model = nmodel
 		}
 	}
 
@@ -1135,8 +1146,55 @@
 		}
 	}
 
+	$: files && model && onFileChanges()
+
+	let svelteRegistered = false
+	function onFileChanges() {
+		if (files && Object.keys(files).find((x) => x.endsWith('.svelte')) != undefined) {
+			if (!svelteRegistered) {
+				svelteRegistered = true
+				languages.register({
+					id: 'svelte',
+					extensions: ['.svelte'],
+					aliases: ['Svelte', 'svelte'],
+					mimetypes: ['application/svelte']
+				})
+				languages.setLanguageConfiguration('svelte', htmllang.conf as any)
+
+				languages.setMonarchTokensProvider('svelte', htmllang.language as any)
+			}
+		}
+		if (files && model) {
+			for (const [path, { code, readonly }] of Object.entries(files)) {
+				const luri = mUri.file(path)
+				console.log('checking file', model.uri.toString(), luri.toString())
+				if (luri.toString() != model.uri.toString()) {
+					let nmodel = meditor.getModel(luri)
+					if (nmodel == undefined) {
+						const lmodel = meditor.createModel(code, extToLang(path?.split('.')?.pop()!), luri)
+						if (readonly) {
+							lmodel.onDidChangeContent((evt) => {
+								// This will effectively undo any new edits
+								if (lmodel.getValue() != code && code) {
+									lmodel.setValue(code)
+								}
+							})
+						}
+					} else {
+						const lmodel = meditor.getModel(luri)
+						if (lmodel && code) {
+							lmodel.setValue(code)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	let timeoutModel: NodeJS.Timeout | undefined = undefined
 	async function loadMonaco() {
+		console.log('path', uri)
+
 		try {
 			console.log("Loading Monaco's language client")
 			await initializeVscode('editor')
@@ -1145,6 +1203,19 @@
 			console.log('error initializing services', e)
 		}
 
+		// vscode.languages.registerDefinitionProvider('*', {
+		// 	provideDefinition(document, position, token) {
+		// 		// Get the word under the cursor (this will be the import or function being clicked)
+		// 		const wordRange = document.getWordRangeAtPosition(position)
+		// 		const word = document.getText(wordRange)
+
+		// 		// Do something with the word (for example, log it or handle it)
+		// 		console.log('Clicked on import or symbol:', word)
+
+		// 		// Optionally, you can also return a definition location
+		// 		return null // If you don't want to override the default behavior
+		// 	}
+		// })
 		// console.log('bef ready')
 		// console.log('af ready')
 
@@ -1152,7 +1223,6 @@
 
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
-			models[path ?? ''] = model
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1163,17 +1233,7 @@
 		}
 		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
 
-		if (files) {
-			for (const [path, { code }] of Object.entries(files)) {
-				const luri = mUri.file(path)
-				if (luri.toString() != model.uri.toString()) {
-					if (!models[path] && meditor.getModel(luri) == undefined) {
-						const lmodel = meditor.createModel(code, extToLang(path?.split('.')?.pop()!), luri)
-						models[path] = lmodel
-					}
-				}
-			}
-		}
+		onFileChanges()
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
@@ -1194,7 +1254,7 @@
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
 				code = ncode
-				dispatch('change', code)
+				dispatch('change', ncode)
 			}, 500)
 
 			ataModel && clearTimeout(ataModel)
@@ -1235,7 +1295,6 @@
 				!websocketAlive.go &&
 				!websocketInterval
 			) {
-				console.log('reconnecting to language servers on focus')
 				reloadWebsocket()
 			}
 		})
@@ -1263,6 +1322,11 @@
 	}
 
 	async function setTypescriptExtraLibsATA() {
+		if (extraLib) {
+			const uri = mUri.parse('file:///extraLib.d.ts')
+			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
+		}
+		console.log('scriptLang ATA', scriptLang)
 		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
 			const hostname = getHostname()
 

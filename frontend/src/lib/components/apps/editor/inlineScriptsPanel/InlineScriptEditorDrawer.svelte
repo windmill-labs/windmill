@@ -10,6 +10,7 @@
 	export let inlineScript: InlineScript
 	export let editor: Editor | undefined = undefined
 	export let isOpen: boolean | undefined = undefined
+	export let id: string
 
 	export function openDrawer() {
 		scriptEditorDrawer.openDrawer?.()
@@ -31,7 +32,7 @@
 				noHistory
 				noSyncFromGithub
 				lang={inlineScript.language}
-				path={appPath + '/' + inlineScript.id + '_fullscreen'}
+				path={appPath + '/' + id + '_fullscreen'}
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}

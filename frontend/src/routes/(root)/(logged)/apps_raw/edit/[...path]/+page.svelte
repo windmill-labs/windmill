@@ -1,6 +1,5 @@
 <script lang="ts">
-	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import { AppService, type AppWithLastVersion, DraftService } from '$lib/gen'
+	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
@@ -8,12 +7,22 @@
 	import { goto } from '$lib/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import type { App } from '$lib/components/apps/types'
+	import type { HiddenRunnable } from '$lib/components/apps/types'
+	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 
-	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
+	let files: Record<string, { code: string }> | undefined = undefined
+	let runnables = {}
+	let newPath = ''
+	let lastVersion = 0
+	let policy: any = {}
+	let summary = ''
+
 	let savedApp:
 		| {
-				value: App
+				value: {
+					files: Record<string, { code: string }>
+					runnables: Record<string, HiddenRunnable>
+				}
 				draft?: any
 				path: string
 				summary: string
@@ -34,7 +43,17 @@
 			replaceState(url.toString(), $page.state)
 		}
 	})
-	const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
+
+	function extractRawApp(app: any) {
+		runnables = app.value.runnables
+		files = app.value.files
+		summary = app.summary
+		lastVersion = app.version
+		policy = app.policy
+		newPath = app.path
+	}
+
+	const initialState = nodraft ? undefined : localStorage.getItem(`rawapp-${$page.params.path}`)
 	let stateLoadedFromLocalStorage =
 		initialState != undefined ? decodeState(initialState) : undefined
 
@@ -46,22 +65,11 @@
 		const app_w_draft_ = structuredClone(app_w_draft)
 		savedApp = {
 			summary: app_w_draft_.summary,
-			value: app_w_draft_.value as App,
+			value: app_w_draft_.value as any,
 			path: app_w_draft_.path,
 			policy: app_w_draft_.policy,
 			draft_only: app_w_draft_.draft_only,
-			draft:
-				app_w_draft_.draft?.['summary'] !== undefined // backward compatibility for old drafts missing metadata
-					? app_w_draft_.draft
-					: app_w_draft_.draft
-					? {
-							summary: app_w_draft_.summary,
-							value: app_w_draft_.draft,
-							path: app_w_draft_.path,
-							policy: app_w_draft_.policy,
-							custom_path: app_w_draft_.custom_path
-					  }
-					: undefined,
+			draft: app_w_draft_.draft,
 			custom_path: app_w_draft_.custom_path
 		}
 
@@ -97,33 +105,23 @@
 					}
 				})
 			}
-
 			sendUserToast('App restored from browser storage', false, actions)
 			app_w_draft.value = stateLoadedFromLocalStorage
-			app = app_w_draft
+			files = app_w_draft.value.files as any
+			runnables = app_w_draft.value.runnables as any
+			redraw += 1
 		} else if (app_w_draft.draft) {
-			if (app_w_draft.summary !== undefined) {
-				// backward compatibility for old drafts missing metadata
-				app = {
-					...app_w_draft,
-					...app_w_draft.draft
-				}
-			} else {
-				app = {
-					...app_w_draft,
-					value: app_w_draft.draft as any
-				}
-			}
+			extractRawApp(app_w_draft.draft)
 
 			if (!app_w_draft.draft_only) {
 				const reloadAction = () => {
 					stateLoadedFromLocalStorage = undefined
-					app = app_w_draft
+					extractRawApp(app_w_draft)
 					redraw++
 				}
 
 				const deployed = cleanValueProperties(app_w_draft as Value)
-				const draft = cleanValueProperties(app ?? {})
+				const draft = cleanValueProperties({ files, runnables })
 				sendUserToast('app loaded from latest saved draft', false, [
 					{
 						label: 'Discard draft and load from latest deployed version',
@@ -145,7 +143,7 @@
 				])
 			}
 		} else {
-			app = app_w_draft
+			extractRawApp(app_w_draft)
 		}
 	}
 
@@ -188,14 +186,14 @@
 
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
-		app = ev.detail
-		const app_ = structuredClone(app!)
+		let prev = ev.detail
+		extractRawApp(prev)
 		savedApp = {
-			summary: app_.summary,
-			value: app_.value as App,
-			path: app_.path,
-			policy: app_.policy,
-			custom_path: app_.custom_path
+			summary: prev.summary,
+			value: structuredClone(prev.value),
+			path: prev.path,
+			policy: structuredClone(policy),
+			custom_path: prev.custom_path
 		}
 		redraw++
 	}
@@ -203,29 +201,26 @@
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 
-{#key redraw}
-	{#if app}
+{#if files}
+	{#key redraw}
 		<div class="h-screen">
-			<AppEditor
+			<RawAppEditor
 				on:savedNewAppPath={(event) => {
-					goto(`/apps/edit/${event.detail}`)
-					if (app) {
-						app.path = event.detail
-					}
+					goto(`/apps_raw/edit/${event.detail}`)
+					newPath = event.detail
 				}}
 				on:restore={onRestore}
-				summary={app.summary}
-				app={app.value}
-				newPath={app.path}
+				{files}
+				initRunnables={runnables}
+				{summary}
+				{newPath}
 				path={$page.params.path}
-				policy={app.policy}
+				{policy}
 				bind:savedApp
 				{diffDrawer}
-				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
+				version={lastVersion}
 				newApp={false}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
-				gotoFn={(path, opt) => goto(path, opt)}
 			/>
 		</div>
-	{/if}
-{/key}
+	{/key}
+{/if}

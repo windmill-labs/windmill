@@ -23,8 +23,7 @@
 		Pen,
 		Share,
 		Trash,
-		Clipboard,
-		Loader2
+		Clipboard
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
@@ -55,16 +54,14 @@
 </script>
 
 {#if menuOpen}
-	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte')}
-		<Loader2 class="animate-spin" />
-	{:then Module}
+	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte') then Module}
 		<Module.default on:change bind:this={appExport} />
 	{/await}
 	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}
 
 <Row
-	href={`${base}/apps/get/${app.path}`}
+	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
 	kind="app"
 	{marked}
 	path={app.path}
@@ -98,7 +95,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps/edit/{app.path}?nodraft=true"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -110,7 +107,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="{base}/apps/add?template={app.path}"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -157,7 +154,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/apps/add?template=${path}`,
+						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{

@@ -49,7 +49,9 @@ export function langToExt(lang: string): string {
 		case 'tsx':
 			return 'tsx'
 		case 'javascript':
-			return 'ts'
+			return 'js'
+		case 'jsx':
+			return 'js'
 		case 'bunnative':
 			return 'ts'
 		case 'json':
@@ -84,6 +86,8 @@ export function langToExt(lang: string): string {
 			return 'yml'
 		case 'csharp':
 			return 'cs'
+		case 'svelte':
+			return 'svelte'
 		default:
 			return 'unknown'
 	}
@@ -92,9 +96,13 @@ export function langToExt(lang: string): string {
 export function extToLang(ext: string) {
 	switch (ext) {
 		case 'tsx':
-			return 'tsx'
+			return 'typescript'
 		case 'ts':
 			return 'typescript'
+		case 'js':
+			return 'javascript'
+		case 'jsx':
+			return 'javascript'
 		case 'json':
 			return 'json'
 		case 'sql':
@@ -121,6 +129,8 @@ export function extToLang(ext: string) {
 			return 'ansible'
 		case 'cs':
 			return 'csharp'
+		case 'svelte':
+			return 'svelte'
 		default:
 			return 'unknown'
 	}

@@ -29,9 +29,7 @@
 		defaultScripts,
 		hubBaseUrlStore,
 		usedTriggerKinds,
-
 		devopsRole
-
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -289,7 +287,12 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $workspaceStore && $userStore && ($devopsRole || $userStore.is_admin)) {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			($devopsRole || $userStore.is_admin)
+		) {
 			mountModal = true
 			loadCriticalAlertsMuted()
 		}

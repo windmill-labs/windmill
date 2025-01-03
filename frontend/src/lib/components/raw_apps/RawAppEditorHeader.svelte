@@ -45,6 +45,8 @@
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import type { HiddenRunnable } from '../apps/types'
 	import type { Writable } from 'svelte/store'
+	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
+	import { addWmillClient } from './utils'
 
 	// async function hash(message) {
 	// 	try {
@@ -84,10 +86,14 @@
 	export let newPath: string = ''
 	export let appPath: string
 	export let runnables: Writable<Record<string, HiddenRunnable>>
-
-	$: app = { runnables: $runnables }
+	export let files: Record<string, { code: string }>
+	export let jobs: string[]
+	export let jobsById: Record<string, any>
 
 	let newEditedPath = ''
+
+	$: app = { runnables: $runnables, files: addWmillClient(files) }
+
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
@@ -168,6 +174,7 @@
 		// const ntriggerables: Record<string, TriggerableV2> = Object.fromEntries(
 		// 	allTriggers.filter(Boolean) as [string, TriggerableV2][]
 		// )
+
 		policy.triggerables_v2 = {}
 	}
 
@@ -219,7 +226,8 @@
 					summary: summary,
 					policy,
 					deployment_message: deploymentMsg,
-					custom_path: customPath
+					custom_path: customPath,
+					raw_app: true
 				}
 			})
 			savedApp = {
@@ -232,7 +240,7 @@
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
 			try {
-				localStorage.removeItem(`app-${path}`)
+				localStorage.removeItem(`rawapp-${path}`)
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
@@ -336,7 +344,7 @@
 		sendUserToast('App deployed successfully')
 		if (appPath !== npath) {
 			try {
-				localStorage.removeItem(`app-${appPath}`)
+				localStorage.removeItem(`rawapp-${appPath}`)
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
@@ -360,7 +368,7 @@
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: appPath,
-			requestBody: { policy }
+			requestBody: { policy, raw_app: true }
 		})
 		if (policy.execution_mode == 'anonymous') {
 			sendUserToast('App require no login to be accessed')
@@ -385,7 +393,8 @@
 					summary: summary,
 					policy,
 					draft_only: true,
-					custom_path: customPath
+					custom_path: customPath,
+					raw_app: true
 				}
 			})
 			await DraftService.createDraft({
@@ -511,7 +520,7 @@
 
 			sendUserToast('Draft saved')
 			try {
-				localStorage.removeItem(`app-${path}`)
+				localStorage.removeItem(`rawapp-${path}`)
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
@@ -657,6 +666,8 @@
 		}, 500)
 	}
 	$: customPath !== undefined && validateCustomPath(customPath)
+
+	let jobsDrawerOpen = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -691,7 +702,7 @@
 {#if appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
 		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			<Alert title="Require path" type="info">
+			<Alert bgClass="mb-4" title="Require path" type="info">
 				Choose a path to save the initial draft of the app.
 			</Alert>
 			<h3>Summary</h3>
@@ -973,6 +984,20 @@
 	</DrawerContent>
 </Drawer>
 
+<AppJobsDrawer
+	bind:open={jobsDrawerOpen}
+	on:clear={() => {
+		jobs = []
+	}}
+	on:clearErrors={() => {
+		console.log('todo clear errors')
+	}}
+	{jobs}
+	hasErrors={false}
+	{jobsById}
+	errorByComponent={{}}
+/>
+
 <div
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
 >
@@ -1039,7 +1064,7 @@
 		<div class="hidden md:inline relative overflow-visible">
 			<Button
 				on:click={() => {
-					sendUserToast('TODO')
+					jobsDrawerOpen = true
 				}}
 				color="light"
 				size="xs"
@@ -1049,6 +1074,9 @@
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
 					<div>Debug runs</div>
+
+					<div class="text-2xs text-tertiary">({jobs?.length > 99 ? '99+' : jobs?.length ?? 0})</div
+					>
 				</div>
 			</Button>
 		</div>

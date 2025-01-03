@@ -10,7 +10,10 @@
 	import { sendUserToast } from '$lib/toast'
 
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
-	import { writable } from 'svelte/store'
+	import type { HiddenRunnable } from '$lib/components/apps/types'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
+	import { react18Template, react19Template, svelte5Template, vueTemplate } from './templates'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
@@ -21,42 +24,10 @@
 		$importStore = undefined
 	}
 
-	const state = nodraft ? undefined : localStorage.getItem('app')
+	const state = nodraft ? undefined : localStorage.getItem('rawapp')
 
 	let summary = ''
-	let files: Record<string, { code: string }> = {
-		'/index.tsx': {
-			code: `import React from 'react';
-import { createRoot } from 'react-dom/client';
-
-const App = () => {
-  return <div style={{ width: "100%" }}><h1>Hello, Wooorldd!</h1>
-    <div style={{ width: "100%", height: "100%", background: "red" }}>BAR</div></div>;
-};
-
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);`
-		},
-		'/index.css': {
-			code: `
-body {
-	background: blue;
-}`
-		},
-		'/package.json': {
-			code: `{
-	"dependencies": {
-		"react": "18.3.1",
-		"react-dom": "18.3.1"
-	}
-}`
-		},
-		'/policy.json': {
-			code: 'foo'
-		}
-	}
-	let runnables = writable({})
-
+	let files: Record<string, { code: string }> = react19Template
 	afterNavigate(() => {
 		if (nodraft) {
 			let url = new URL($page.url.href)
@@ -72,11 +43,38 @@ body {
 		execution_mode: 'publisher'
 	}
 
+	let redraw = 0
+	let runnables: Record<string, HiddenRunnable> = {
+		a: {
+			name: 'a',
+			fields: {},
+			recomputeIds: [],
+			type: 'runnableByName',
+			inlineScript: {
+				content:
+					'// import * as wmill from "windmill-client"\n\nexport async function main(x: string) {\n  return x\n}\n',
+				language: 'bun',
+				schema: {
+					$schema: 'https://json-schema.org/draft/2020-12/schema',
+					properties: {
+						x: {
+							default: null,
+							description: '',
+							originalType: 'string',
+							type: 'string'
+						}
+					},
+					required: ['x'],
+					type: 'object'
+				}
+			}
+		}
+	}
 	loadApp()
 
 	function extractValue(value: any) {
 		files = value.files
-		runnables.set(value.runnables)
+		runnables = value.runnables
 	}
 	async function loadApp() {
 		if (importRaw) {
@@ -89,14 +87,17 @@ body {
 			} else {
 				extractValue(importRaw)
 			}
+			redraw = redraw + 1
+			console.log('importRaw', importRaw)
 		} else if (templatePath) {
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: templatePath
 			})
 			extractValue(template.value)
-
-			sendUserToast('App loaded from template')
+			redraw = redraw + 1
+			console.log('App loaded from template')
+			sendUserToast('App loaded from template path')
 			goto('?', { replaceState: true })
 		} else if (templateId) {
 			const template = await AppService.getAppByVersion({
@@ -104,21 +105,51 @@ body {
 				id: parseInt(templateId)
 			})
 			extractValue(template.value)
+			console.log('App loaded from template id')
 			sendUserToast('App loaded from template')
+			redraw = redraw + 1
 			goto('?', { replaceState: true })
 		} else if (!templatePath && state) {
+			console.log('App loaded from browser stored autosave')
 			sendUserToast('App restored from browser stored autosave', false, [
 				{
 					label: 'Start from blank',
 					callback: () => {
 						files = {}
-						runnables.set({})
+						runnables = {}
 					}
 				}
 			])
 			extractValue(decodeState(state))
+			redraw = redraw + 1
 		}
 	}
+
+	const templates = [
+		{
+			name: 'React 19',
+			icon: 'tsx',
+			files: undefined,
+			selected: true
+		},
+		{
+			name: 'React 18',
+			icon: 'tsx',
+			files: react18Template
+		},
+		{
+			name: 'Svelte 5',
+			icon: 'svelte',
+			files: svelte5Template
+		},
+		{
+			name: 'Vue 3',
+			icon: 'vue',
+			files: vueTemplate
+		}
+	]
+	let templatePicker = nodraft != null
+	let hide = false
 </script>
 
 <!-- <div class="h-screen">
@@ -138,12 +169,46 @@ body {
 			/>
 		{/key}
 	</div> -->
-<RawAppEditor
-	{files}
-	{runnables}
-	{policy}
-	path={''}
-	{summary}
-	newApp
-	appPath={`u/${$userStore?.username}/raw_app`}
-/>
+{#if templatePicker}
+	<Modal kind="X" open title="Templates">
+		<div class="flex flex-wrap gap-4 pb-4">
+			{#each templates as t}
+				<button
+					on:click={() => {
+						if (t.files) {
+							hide = true
+
+							files = t.files
+							redraw += 1
+							hide = false
+						}
+						templatePicker = false
+					}}
+					class="w-24 h-24 flex justify-between py-5 flex-col {t.selected
+						? 'bg-surface-selected'
+						: ''} hover:bg-surface-hover border rounded-lg"
+				>
+					<div class="w-full flex items-center justify-center">
+						<FileEditorIcon file={'.' + t.icon} />
+					</div>
+					<div class="center-center w-full">{t.name}</div>
+				</button>
+			{/each}
+		</div>
+	</Modal>
+{/if}
+{#if !hide}
+	{#key redraw}
+		<RawAppEditor
+			on:savedNewAppPath={(event) => {
+				goto(`/apps_raw/edit/${event.detail}`)
+			}}
+			{files}
+			initRunnables={runnables}
+			{policy}
+			path={''}
+			{summary}
+			newApp
+		/>
+	{/key}
+{/if}

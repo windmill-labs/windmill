@@ -32,7 +32,7 @@
 			noHistory
 			noSyncFromGithub
 			lang={runnable.inlineScript.language}
-			path={appPath + '/' + runnable.inlineScript.id}
+			path={appPath + '/' + id}
 			fixedOverflowWidgets={false}
 			bind:code={runnable.inlineScript.content}
 			bind:schema={runnable.inlineScript.schema}
