@@ -15,7 +15,7 @@ use tokio::{
     fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
     process::Command,
-    sync::{RwLock, Semaphore},
+    sync::Semaphore,
     task,
 };
 use uuid::Uuid;
