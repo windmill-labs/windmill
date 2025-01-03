@@ -511,7 +511,7 @@
 						<div>
 							<label for="refresh_index_period" class="block text-sm font-medium">
 								Refresh index period (s) <Tooltip>
-									The index will query new jobs peridically and write them on the index. This
+									The index will query new jobs periodically and write them on the index. This
 									setting sets that period.
 								</Tooltip></label
 							>
@@ -548,7 +548,7 @@
 						<h3>Service Logs Index</h3>
 						<div>
 							<label for="commit_log_max_batch_size" class="block text-sm font-medium"
-								>Commit max batch size Commit max batch size <Tooltip>
+								>Commit max batch size <Tooltip>
 									The max amount of documents per commit. In this case 1 document is one log file
 									representing all logs during 1 minute for a specific host. To optimize indexing
 									throughput, it is best to keep this as high as possible. However, especially when
