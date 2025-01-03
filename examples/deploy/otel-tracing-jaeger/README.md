@@ -17,7 +17,7 @@ docker-compose up -d
 
 ## Configuring Windmill to use Jaeger
 
-In the Windmill UI available at `http://localhost`, complete the initial setup and go to "Instances Settings" and "OTEL/Prom" tab and fill in the Jaeger endpoint and service name and toggle the Tracing option to send traces to Jaeger.
+In the Windmill UI available at `http://localhost`, complete the initial setup and go to "Instances Settings" and "OTEL/Prom" tab and fill in the Jaeger endpoint `jaeger:4317` and toggle the Tracing option to send traces to Jaeger.
 
 ## Open the Jaeger UI
 
