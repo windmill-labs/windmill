@@ -636,7 +636,7 @@ class Windmill:
         """
         Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
         
-        **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Suspend -> Form" functionality.
+        **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
         Learn more at: https://www.windmill.dev/docs/flows/flow_approval#form
 
         :param slack_resource_path: The path to the Slack resource in Windmill.
