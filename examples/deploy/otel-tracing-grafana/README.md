@@ -17,7 +17,7 @@ docker-compose up -d
 
 ## Configuring Windmill to use Tempo via OpenTelemetry Collector
 
-In the Windmill UI available at `http://localhost`, complete the initial setup and go to "Instances Settings" and "OTEL/Prom" tab and fill in the open telemetry collector endpoint and service name and toggle the Tracing option to send traces to the `otel-collector:4317` port.
+In the Windmill UI available at `http://localhost`, complete the initial setup and go to "Instances Settings" and "OTEL/Prom" tab and fill in the open telemetry collector endpoint and service name and toggle the "Tracing" and "Logging" options to send traces and logs to the `otel-collector:4317` port.
 
 ## Open the Tempo UI
 
