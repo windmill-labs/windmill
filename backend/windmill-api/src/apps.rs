@@ -38,6 +38,7 @@ use futures::future::{FutureExt, TryFutureExt};
 use hyper::StatusCode;
 #[cfg(feature = "parquet")]
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "parquet")]
 use object_store::{Attribute, Attributes};
@@ -198,7 +199,7 @@ pub type StaticFields = HashMap<String, Box<RawValue>>;
 pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
 pub type AllowUserResources = Vec<String>;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
     #[default]
@@ -1382,6 +1383,45 @@ async fn execute_component(
         }
     };
 
+    // Execution is publisher and an user is authenticated: check if the user is authorized to
+    // execute the app.
+    if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode, opt_authed.as_ref()) {
+        lazy_static! {
+            /// Cache for the permit to execute an app component.
+            static ref PERMIT_CACHE: cache::Cache<[u8; 32], bool> = cache::Cache::new(1000);
+        }
+
+        // Avoid allocation for the permit key using a sha256 hash of:
+        // - the user email,
+        // - the application path,
+        // - the workspace id.
+        let permit_key: [u8; 32] = [authed.email.as_bytes(), path.as_bytes(), &w_id.as_bytes()]
+            .iter()
+            .fold(Sha256::new(), |hasher, bytes| hasher.chain_update(bytes))
+            .finalize()
+            .into();
+        let permit_fut = PERMIT_CACHE.get_or_insert_async(&permit_key, async {
+            let mut tx = user_db.clone().begin(authed).await?;
+            // Permissions are checked by the database; just fetch a row from app using `user_db`:
+            let row = sqlx::query_scalar!(
+                "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2 LIMIT 1",
+                path,
+                &w_id,
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Result::Ok(row.is_some_and(|x| x.is_some()))
+        });
+
+        if !permit_fut.await? {
+            return Err(Error::NotAuthorized(format!(
+                "Missing read permissions on the `{}` app to execute `{}` runnable",
+                path, payload.component
+            )));
+        }
+    }
+
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
@@ -1408,7 +1448,7 @@ async fn execute_component(
         ),
         _ => unreachable!(),
     };
-    let tx = windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone());
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (uuid, tx) = push(
         &db,
