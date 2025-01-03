@@ -8,7 +8,6 @@ use serde_json::value::{RawValue, Value};
 
 use sqlx::types::Uuid;
 use std::{collections::HashMap, str::FromStr};
-use windmill_common::error::{self, Error};
 
 use regex::Regex;
 use reqwest::Client;
@@ -20,6 +19,8 @@ use crate::jobs::{
 };
 
 use windmill_common::{
+    cache,
+    error::{self, Error},
     jobs::JobKind,
     scripts::ScriptHash,
     variables::{build_crypt, decrypt_value_with_mc},
@@ -30,20 +31,28 @@ pub struct SlackFormData {
     payload: String,
 }
 
-#[derive(Deserialize, Debug, Serialize)]
-struct Container {
-    message_ts: String,
-    channel_id: String,
-}
-
 #[derive(Deserialize, Debug)]
 struct Payload {
     actions: Option<Vec<Action>>,
     view: Option<View>,
     trigger_id: Option<String>,
-    #[serde(rename = "type")]
-    r#type: String,
+    r#type: PayloadType,
     container: Option<Container>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+enum PayloadType {
+    ViewSubmission,
+    ViewClosed,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+struct Container {
+    message_ts: String,
+    channel_id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -53,9 +62,12 @@ struct View {
 }
 
 #[derive(Deserialize, Debug)]
-struct Action {
-    value: Option<String>,
-    action_id: String,
+#[serde(tag = "action_id")]
+enum Action {
+    #[serde(rename = "open_modal")]
+    OpenModal { value: String },
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Deserialize, Debug)]
@@ -98,14 +110,23 @@ struct Schema {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum FieldType {
+    Boolean,
+    String,
+    Number,
+    Integer,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 struct ResumeFormField {
-    #[serde(rename = "type")]
-    r#type: String,
+    r#type: FieldType,
     format: Option<String>,
     default: Option<serde_json::Value>,
     description: Option<String>,
     title: Option<String>,
-    #[serde(rename = "enum")]
     r#enum: Option<Vec<String>>,
     #[serde(rename = "enumLabels")]
     enum_labels: Option<HashMap<String, String>>,
@@ -119,17 +140,27 @@ pub struct QueryMessage {
 
 #[derive(Deserialize)]
 pub struct QueryResourcePath {
-    slack_resource_path: Option<String>,
+    slack_resource_path: String,
 }
 
 #[derive(Deserialize)]
 pub struct QueryChannelId {
-    channel_id: Option<String>,
+    channel_id: String,
 }
 
 #[derive(Deserialize)]
 pub struct QueryFlowStepId {
-    flow_step_id: Option<String>,
+    flow_step_id: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct QueryDefaultArgsJson {
+    default_args_json: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct QueryDynamicEnumJson {
+    dynamic_enum_json: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -140,6 +171,8 @@ struct ModalActionValue {
     approver: Option<String>,
     message: Option<String>,
     flow_step_id: Option<String>,
+    default_args_json: Option<String>,
+    dynamic_enum_json: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -147,6 +180,7 @@ struct PrivateMetadata {
     resume_url: String,
     resource_path: String,
     container: Container,
+    hide_cancel: Option<bool>,
 }
 
 pub async fn slack_app_callback_handler(
@@ -158,27 +192,20 @@ pub async fn slack_app_callback_handler(
     let payload: Payload = serde_json::from_str(&form_data.payload)?;
     tracing::debug!("Payload: {:#?}", payload);
 
-    match payload.r#type.as_str() {
-        "view_submission" => {
-            //print the container
-            handle_submission(authed, db, &payload, "resume").await?
-        }
-        "view_closed" => handle_submission(authed, db, &payload, "cancel").await?,
+    match payload.r#type {
+        PayloadType::ViewSubmission => handle_submission(authed, db, &payload, "resume").await?,
+        PayloadType::ViewClosed => handle_submission(authed, db, &payload, "cancel").await?,
         _ => {
-            if let Some(actions) = payload.actions.as_ref() {
+            if let Some(actions) = &payload.actions {
                 if let Some(action) = actions.first() {
-                    match action.action_id.as_str() {
-                        "open_modal" => {
+                    match action {
+                        Action::OpenModal { value } => {
                             let trigger_id = payload.trigger_id.as_deref().ok_or_else(|| {
-                                Error::BadRequest("No trigger_id found in payload.".to_string())
+                                Error::BadRequest("Missing trigger_id".to_string())
                             })?;
 
-                            let value_str = action.value.as_ref().ok_or_else(|| {
-                                Error::BadRequest("No action value found".to_string())
-                            })?;
-
-                            let parsed_value: ModalActionValue = serde_json::from_str(value_str)
-                                .map_err(|_| {
+                            let parsed_value: ModalActionValue =
+                                serde_json::from_str(value.as_str()).map_err(|_| {
                                     Error::BadRequest("Invalid JSON in action value".to_string())
                                 })?;
 
@@ -195,6 +222,31 @@ pub async fn slack_app_callback_handler(
                                 Error::BadRequest("No container found.".to_string())
                             })?;
 
+                            let default_args_json: Option<serde_json::Value> = parsed_value
+                                .default_args_json
+                                .as_deref()
+                                .map(|s| serde_json::from_str(s))
+                                .transpose()
+                                .map_err(|_| {
+                                    Error::BadRequest(
+                                        "Invalid JSON in default_args_json".to_string(),
+                                    )
+                                })?;
+
+                            let dynamic_enum_json: Option<serde_json::Value> = parsed_value
+                                .dynamic_enum_json
+                                .as_deref()
+                                .map(|s| serde_json::from_str(s))
+                                .transpose()
+                                .map_err(|_| {
+                                    Error::BadRequest(
+                                        "Invalid JSON in dynamic_enum_json".to_string(),
+                                    )
+                                })?;
+
+                            tracing::debug!("Default args json: {:#?}", default_args_json);
+                            tracing::debug!("Dynamic enum json: {:#?}", dynamic_enum_json);
+
                             open_modal_with_blocks(
                                 &client,
                                 slack_token.as_str(),
@@ -207,17 +259,19 @@ pub async fn slack_app_callback_handler(
                                 message,
                                 flow_step_id,
                                 container,
+                                default_args_json.as_ref(),
+                                dynamic_enum_json.as_ref(),
                             )
                             .await
-                            .map_err(|e| {
-                                windmill_common::error::Error::BadRequest(e.to_string())
-                            })?;
+                            .map_err(|e| Error::BadRequest(e.to_string()))?;
                         }
-                        _ => println!("Unknown action_id: {}", action.action_id),
+                        Action::Unknown => println!("Unknown action_id"),
                     }
+                } else {
+                    tracing::debug!("Unknown Slack Action!");
                 }
             } else {
-                tracing::debug!("Unkown Slack Action!");
+                tracing::debug!("Unknown Slack Action!");
             }
         }
     }
@@ -234,48 +288,22 @@ pub async fn request_slack_approval(
     Query(slack_resource_path): Query<QueryResourcePath>,
     Query(channel_id): Query<QueryChannelId>,
     Query(flow_step_id): Query<QueryFlowStepId>,
+    Query(default_args_json): Query<QueryDefaultArgsJson>,
+    Query(dynamic_enum_json): Query<QueryDynamicEnumJson>,
 ) -> Result<StatusCode, Error> {
-    let slack_resource_path = match slack_resource_path.slack_resource_path {
-        Some(path) => path,
-        None => {
-            return Err(windmill_common::error::Error::BadRequest(
-                "slack_resource_path is required".to_string(),
-            ))
-        }
-    };
-
-    let channel_id = match channel_id.channel_id {
-        Some(id) => id,
-        None => {
-            return Err(windmill_common::error::Error::BadRequest(
-                "Slack channel_id is required".to_string(),
-            ))
-        }
-    };
-
-    let flow_step_id = match flow_step_id.flow_step_id {
-        Some(id) => id,
-        None => {
-            return Err(windmill_common::error::Error::BadRequest(
-                "Slack flow_step_id is required".to_string(),
-            ))
-        }
-    };
+    let slack_resource_path = slack_resource_path.slack_resource_path;
+    let channel_id = channel_id.channel_id;
+    let flow_step_id = flow_step_id.flow_step_id;
 
     let slack_token = get_slack_token(&db, slack_resource_path.as_str(), &w_id).await?;
     let client = Client::new();
 
-    // Optional fields
-    let approver_str = approver.approver.as_deref();
-    let message_str = message.message.as_deref();
-
-    tracing::debug!("Approver: {:?}", approver_str);
-    tracing::debug!("Message: {:?}", message_str);
+    tracing::debug!("Approver: {:?}", approver.approver);
+    tracing::debug!("Message: {:?}", message.message);
     tracing::debug!("W ID: {:?}", w_id);
     tracing::debug!("Slack Resource Path: {:?}", slack_resource_path);
     tracing::debug!("Channel ID: {:?}", channel_id);
 
-    // Use approver_str and message_str in the function call
     send_slack_message(
         &client,
         slack_token.as_str(),
@@ -283,12 +311,14 @@ pub async fn request_slack_approval(
         &w_id,
         job_id,
         &slack_resource_path,
-        approver_str,
-        message_str,
+        approver.approver.as_deref(),
+        message.message.as_deref(),
         flow_step_id.as_str(),
+        default_args_json.default_args_json.as_ref(),
+        dynamic_enum_json.dynamic_enum_json.as_ref(),
     )
     .await
-    .map_err(|e| windmill_common::error::Error::BadRequest(e.to_string()))?;
+    .map_err(|e| Error::BadRequest(e.to_string()))?;
 
     Ok(StatusCode::OK)
 }
@@ -325,6 +355,12 @@ async fn handle_submission(
     let resume_url = private_metadata.resume_url;
     let resource_path = private_metadata.resource_path;
     let container: Container = private_metadata.container;
+    let hide_cancel = private_metadata.hide_cancel;
+
+    // If hide_cancel is true, we don't need to extract information from the private_metadata
+    if hide_cancel.unwrap_or(false) && action == "cancel" {
+        return Ok(());
+    }
 
     // Use regex to extract information from private_metadata
     let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>resume|cancel)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[a-fA-F0-9]+)(?:\?approver=(?P<approver>[^&]+))?").unwrap();
@@ -393,6 +429,8 @@ async fn transform_schemas(
     urls: &ResumeUrls,
     order: Option<&Vec<String>>,
     required: Option<&Vec<String>>,
+    default_args_json: Option<&serde_json::Value>,
+    dynamic_enum_json: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, Error> {
     tracing::debug!("Resume urls: {:#?}", urls);
 
@@ -408,7 +446,12 @@ async fn transform_schemas(
         for key in order.unwrap() {
             if let Some(schema) = properties.get(key) {
                 let is_required = required.unwrap().contains(key);
-                let input_block = create_input_block(key, schema, is_required);
+
+                let default_value = default_args_json.and_then(|json| json.get(key).cloned());
+                let dynamic_enum_value = dynamic_enum_json.and_then(|json| json.get(key).cloned());
+
+                let input_block =
+                    create_input_block(key, schema, is_required, default_value, dynamic_enum_value);
                 match input_block {
                     serde_json::Value::Array(arr) => blocks.extend(arr),
                     _ => blocks.push(input_block),
@@ -420,7 +463,13 @@ async fn transform_schemas(
     Ok(serde_json::Value::Array(blocks))
 }
 
-fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> serde_json::Value {
+fn create_input_block(
+    key: &str,
+    schema: &ResumeFormField,
+    required: bool,
+    default_value: Option<serde_json::Value>,
+    dynamic_enum_value: Option<serde_json::Value>,
+) -> serde_json::Value {
     let placeholder = schema
         .description
         .as_deref()
@@ -435,16 +484,20 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
     };
 
     // Handle boolean type
-    if schema.r#type == "boolean" {
-        let initial_value = schema
-            .default
+    if let FieldType::Boolean = schema.r#type {
+        let initial_value = default_value
             .as_ref()
-            .and_then(|default| default.as_bool())
+            .and_then(|v| v.as_bool())
+            .or_else(|| {
+                schema
+                    .default
+                    .as_ref()
+                    .and_then(|default| default.as_bool())
+            })
             .unwrap_or(false);
 
         let mut element = serde_json::json!({
             "type": "checkboxes",
-            "optional": !required,
             "options": [{
                 "text": {
                     "type": "plain_text",
@@ -471,6 +524,7 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
 
         return serde_json::json!({
             "type": "input",
+            "optional": !required,
             "element": element,
             "label": {
                 "type": "plain_text",
@@ -481,80 +535,102 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
     }
 
     // Handle date-time format
-    if schema.r#type == "string" && schema.format.as_deref() == Some("date-time") {
-        let now = chrono::Local::now();
-        let current_date = now.format("%Y-%m-%d").to_string();
-        let current_time = now.format("%H:%M").to_string();
+    if let FieldType::String = schema.r#type {
+        if schema.format.as_deref() == Some("date-time") {  
+            tracing::debug!("Date-time type");
+            let now = chrono::Local::now();
+            let current_date = now.format("%Y-%m-%d").to_string();
+            let current_time = now.format("%H:%M").to_string();
 
-        let (default_date, default_time) = if let Some(default) = &schema.default {
-            if let Ok(parsed_date) = chrono::DateTime::parse_from_rfc3339(default.as_str().unwrap())
-            {
-                (
-                    parsed_date.format("%Y-%m-%d").to_string(),
-                    parsed_date.format("%H:%M").to_string(),
-                )
-            } else {
-                (current_date.clone(), current_time.clone())
-            }
-        } else {
-            (current_date.clone(), current_time.clone())
-        };
+            let (default_date, default_time) = default_value
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|parsed_date| {
+                    (
+                        parsed_date.format("%Y-%m-%d").to_string(),
+                        parsed_date.format("%H:%M").to_string(),
+                    )
+                })
+                .or_else(|| {
+                    schema
+                        .default
+                        .as_ref()
+                        .and_then(|default| {
+                            chrono::DateTime::parse_from_rfc3339(default.as_str().unwrap()).ok()
+                        })
+                        .map(|parsed_date| {
+                            (
+                                parsed_date.format("%Y-%m-%d").to_string(),
+                                parsed_date.format("%H:%M").to_string(),
+                            )
+                        })
+                })
+                .unwrap_or((current_date.clone(), current_time.clone()));
 
-        return serde_json::json!([
-            {
-                "type": "input",
-                "optional": !required,
-                "element": {
-                    "type": "datepicker",
-                    "initial_date": &default_date,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "Select a date",
-                        "emoji": true
+            return serde_json::json!([
+                {
+                    "type": "input",
+                    "optional": !required,
+                    "element": {
+                        "type": "datepicker",
+                        "initial_date": &default_date,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select a date",
+                            "emoji": true
+                        },
+                        "action_id": format!("{}_date", key)
                     },
-                    "action_id": format!("{}_date", key)
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": title_with_required,
-                    "emoji": true
-                }
-            },
-            {
-                "type": "input",
-                "optional": !required,
-                "element": {
-                    "type": "timepicker",
-                    "initial_time": &default_time,
-                    "placeholder": {
+                    "label": {
                         "type": "plain_text",
-                        "text": "Select time",
+                        "text": title_with_required,
                         "emoji": true
-                    },
-                    "action_id": format!("{}_time", key)
+                    }
                 },
-                "label": {
-                    "type": "plain_text",
-                    "text": " ",
-                    "emoji": true
+                {
+                    "type": "input",
+                    "optional": !required,
+                    "element": {
+                        "type": "timepicker",
+                        "initial_time": &default_time,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select time",
+                            "emoji": true
+                        },
+                        "action_id": format!("{}_time", key)
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": " ",
+                        "emoji": true
+                    }
                 }
-            }
-        ]);
+            ]);
+        }
     }
 
     // Handle enum type
     if let Some(enums) = &schema.r#enum {
+        tracing::debug!("Enum type");
+        let enums = dynamic_enum_value
+            .as_ref()
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_else(|| enums.iter().map(|s| serde_json::json!(s)).collect());
+
         let initial_option = schema.default.as_ref().and_then(|default_value| {
             enums
                 .iter()
-                .find(|enum_value| enum_value == &default_value)
+                .find(|enum_value| enum_value == &&serde_json::json!(default_value))
                 .map(|enum_value| {
                     serde_json::json!({
                         "text": {
                             "type": "plain_text",
                             "text": schema.enum_labels.as_ref()
-                                .and_then(|labels| labels.get(enum_value))
-                                .unwrap_or(enum_value),
+                                .and_then(|labels| labels.get(enum_value.as_str().unwrap()))
+                                .unwrap_or(&enum_value.as_str().unwrap().to_string()),
                             "emoji": true
                         },
                         "value": enum_value
@@ -574,8 +650,8 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
                     "text": {
                         "type": "plain_text",
                         "text": schema.enum_labels.as_ref()
-                            .and_then(|labels| labels.get(enum_value))
-                            .unwrap_or(enum_value),
+                            .and_then(|labels| labels.get(enum_value.as_str().unwrap()))
+                            .unwrap_or(&enum_value.as_str().unwrap().to_string()),
                         "emoji": true
                     },
                     "value": enum_value
@@ -598,15 +674,16 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
                 "emoji": true
             }
         })
-    } else if schema.r#type == "number" || schema.r#type == "integer" {
+    } else if let FieldType::Number | FieldType::Integer = schema.r#type {
+        tracing::debug!("Number or integer type");
         // Handle number and integer types
-        let initial_value = schema
-            .default
+        let initial_value = default_value
             .as_ref()
-            .and_then(|default| default.as_f64())
+            .and_then(|v| v.as_f64())
+            .or_else(|| schema.default.as_ref().and_then(|default| default.as_f64()))
             .unwrap_or(0.0);
 
-        let action_id_suffix = if schema.r#type == "number" {
+        let action_id_suffix = if let FieldType::Number = schema.r#type {
             "_type_number"
         } else {
             "_type_integer"
@@ -627,11 +704,12 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
             }
         })
     } else {
+        tracing::debug!("Other type");
         // Handle other types as string
-        let initial_value = schema
-            .default
+        let initial_value = default_value
             .as_ref()
-            .and_then(|default| default.as_str())
+            .and_then(|v| v.as_str())
+            .or_else(|| schema.default.as_ref().and_then(|default| default.as_str()))
             .unwrap_or("");
 
         serde_json::json!({
@@ -640,7 +718,7 @@ fn create_input_block(key: &str, schema: &ResumeFormField, required: bool) -> se
             "element": {
                 "type": "plain_text_input",
                 "action_id": key,
-                "initial_value": initial_value
+                "initial_value": initial_value.to_string()
             },
             "label": {
                 "type": "plain_text",
@@ -787,6 +865,8 @@ async fn send_slack_message(
     approver: Option<&str>,
     message: Option<&str>,
     flow_step_id: &str,
+    default_args_json: Option<&serde_json::Value>,
+    dynamic_enum_json: Option<&serde_json::Value>,
 ) -> Result<StatusCode, Box<dyn std::error::Error>> {
     let url = "https://slack.com/api/chat.postMessage";
 
@@ -804,6 +884,14 @@ async fn send_slack_message(
 
     if let Some(message) = message {
         value["message"] = serde_json::json!(message);
+    }
+
+    if let Some(default_args_json) = default_args_json {
+        value["default_args_json"] = default_args_json.clone();
+    }
+
+    if let Some(dynamic_enum_json) = dynamic_enum_json {
+        value["dynamic_enum_json"] = dynamic_enum_json.clone();
     }
 
     let payload = serde_json::json!({
@@ -867,7 +955,9 @@ async fn get_modal_blocks(
     flow_step_id: Option<&str>,
     resource_path: &str,
     container: Container,
-) -> Result<axum::Json<serde_json::Value>, windmill_common::error::Error> {
+    default_args_json: Option<&serde_json::Value>,
+    dynamic_enum_json: Option<&serde_json::Value>,
+) -> Result<axum::Json<serde_json::Value>, Error> {
     let res = get_resume_urls_internal(
         axum::Extension(db.clone()),
         Path((w_id.to_string(), job_id, resume_id)),
@@ -879,12 +969,16 @@ async fn get_modal_blocks(
 
     tracing::debug!("Job ID: {:?}", job_id);
 
-    let (job_kind, script_hash, raw_flow, parent_job_id) = sqlx::query!(
+    let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
             queue.job_kind AS \"job_kind: JobKind\",
             queue.script_hash AS \"script_hash: ScriptHash\",
             queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-            completed_job.parent_job AS \"parent_job: Uuid\"
+            completed_job.parent_job AS \"parent_job: Uuid\",
+            completed_job.created_at AS \"created_at: chrono::NaiveDateTime\",
+            completed_job.created_by AS \"created_by!\",
+            queue.script_path,
+            queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
         FROM queue
         JOIN completed_job ON completed_job.parent_job = queue.id
         WHERE completed_job.id = $1 AND completed_job.workspace_id = $2
@@ -896,15 +990,13 @@ async fn get_modal_blocks(
     .await
     .map_err(|e| error::Error::BadRequest(e.to_string()))?
     .ok_or_else(|| error::Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
-    .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job))?;
+    .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
 
-    let flow_data = match windmill_common::cache::job::fetch_flow(&db, job_kind, script_hash).await
-    {
+    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await {
         Ok(data) => data,
         Err(_) => {
             if let Some(parent_job_id) = parent_job_id.as_ref() {
-                windmill_common::cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow)
-                    .await?
+                cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow).await?
             } else {
                 return Err(error::Error::BadRequest(
                     "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
@@ -918,6 +1010,7 @@ async fn get_modal_blocks(
     let module = flow_value.modules.iter().find(|m| m.id == flow_step_id);
 
     tracing::debug!("Module: {:#?}", module);
+
     let schema = module.and_then(|module| {
         module.suspend.as_ref().map(|suspend| ResumeFormRow {
             resume_form: suspend.resume_form.clone(),
@@ -925,13 +1018,35 @@ async fn get_modal_blocks(
         })
     });
 
-    let message_str =
-        message.unwrap_or("*A workflow has been suspended and is waiting for approval:*\n");
+    let args_str = args.map_or("None".to_string(), |a| a.get().to_string());
+    let parent_job_id_str = parent_job_id.map_or("None".to_string(), |id| id.to_string());
+    let script_path_str = script_path.as_deref().unwrap_or("None");
+
+    let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let fallback_message = format!(
+        "A workflow has been suspended and is waiting for approval:\n\n\
+        *Created by*: {created_by}\n\
+        *Created at*: {created_at_formatted}\n\
+        *Script path*: {script_path_str}\n\
+        *Args*: {args_str}\n\
+        *Flow ID*: {parent_job_id_str}\n\n"
+    );
+
+    let mut message_str: String = message.unwrap_or_else(|| fallback_message.as_str()).to_string();
 
     tracing::debug!("Schema: {:#?}", schema);
 
     if let Some(resume_schema) = schema {
         let hide_cancel = resume_schema.hide_cancel.unwrap_or(false);
+
+        // if hide cancel is false add note to message
+        if !hide_cancel {
+            message_str.push_str("\n\n*NOTE*: closing this modal will cancel the workflow.\n\n");
+        }
+
+        // Convert message_str back to &str when needed
+        let message_str_ref: &str = &message_str;
 
         if let Some(schema_obj) = resume_schema.resume_form {
             let inner_schema: ResumeSchema =
@@ -944,11 +1059,13 @@ async fn get_modal_blocks(
                 })?;
 
             let blocks = transform_schemas(
-                message_str,
+                message_str_ref,
                 Some(&inner_schema.schema.properties),
                 &urls,
                 Some(&inner_schema.schema.order),
                 Some(&inner_schema.schema.required),
+                default_args_json,
+                dynamic_enum_json,
             )
             .await?;
 
@@ -963,7 +1080,16 @@ async fn get_modal_blocks(
             )));
         } else {
             tracing::debug!("No suspend form found!");
-            let blocks = transform_schemas(message_str, None, &urls, None, None).await?;
+            let blocks = transform_schemas(
+                message_str_ref,
+                None,
+                &urls,
+                None,
+                None,
+                default_args_json,
+                dynamic_enum_json,
+            )
+            .await?;
             return Ok(axum::Json(construct_payload(
                 blocks,
                 hide_cancel,
@@ -1001,7 +1127,7 @@ fn construct_payload(
             "type": "plain_text",
             "text": "Resume Workflow"
         },
-        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container }).to_string(),
+        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel }).to_string(),
     });
 
     if !hide_cancel {
@@ -1029,6 +1155,8 @@ async fn open_modal_with_blocks(
     message: Option<&str>,
     flow_step_id: Option<&str>,
     container: Container,
+    default_args_json: Option<&serde_json::Value>,
+    dynamic_enum_json: Option<&serde_json::Value>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resume_id = rand::random::<u32>();
     let blocks_json = match get_modal_blocks(
@@ -1042,6 +1170,8 @@ async fn open_modal_with_blocks(
         flow_step_id,
         resource_path,
         container,
+        default_args_json,
+        dynamic_enum_json,
     )
     .await
     {
