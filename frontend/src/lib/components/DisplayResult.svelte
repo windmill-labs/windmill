@@ -663,7 +663,7 @@
 							{/if}
 						</div>
 						{#if typeof result?.s3 === 'string'}
-							{#if result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv')}
+							{#if !appPath && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
 								{#key result.s3}
 									<ParqetTableRenderer
 										disable_download={result?.disable_download}
@@ -677,7 +677,7 @@
 									<img
 										alt="preview rendered"
 										class="w-auto h-full"
-										src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+										src={`/api/w/${workspaceId}/${appPath ? 'apps_u/load_image_preview/' + appPath : 'job_helpers/load_image_preview'}?file_key=${result.s3}` +
 											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
@@ -685,7 +685,7 @@
 								<div class="h-96 mt-2 border">
 									<PdfViewer
 										allowFullscreen
-										source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+										source={`/api/w/${workspaceId}/${appPath ? 'apps_u/load_image_preview/' + appPath : 'job_helpers/load_image_preview'}?file_key=${result.s3}` +
 											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
