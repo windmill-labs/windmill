@@ -68,7 +68,6 @@
 						{disabled}
 						startIcon={{ icon: Save }}
 						on:click={() => {
-							console.log('saveTrigger', args)
 							dispatch('saveTrigger', {
 								config: args
 							})

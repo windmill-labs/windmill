@@ -98,6 +98,11 @@
 				topics: [''],
 				group_id: `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
 			}
+		} else if (captureType === 'http') {
+			args = {
+				route_path: '',
+				http_method: 'post'
+			}
 		} else {
 			args = {}
 		}
@@ -199,11 +204,10 @@
 		/>
 	{:else if captureType === 'http'}
 		<RouteEditorConfigSection
-			{path}
-			{isFlow}
 			{showCapture}
 			can_write={true}
-			bind:args
+			bind:route_path={args.route_path}
+			bind:http_method={args.http_method}
 			headless
 			{captureInfo}
 			bind:captureTable

@@ -547,7 +547,7 @@
 			</div>
 		</svelte:fragment>
 
-		<svelte:fragment slot="email">
+		<svelte:fragment slot="emails">
 			<div class="p-2">
 				<EmailTriggerPanel
 					bind:token

@@ -17,16 +17,14 @@
 	import CaptureTable from './CaptureTable.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 
-	export let args: Record<string, any> = { route_path: '', http_method: 'get' }
 	export let dirtyRoutePath: boolean = false
+	export let route_path = ''
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
 	export let showCapture = false
 	export let initialRoutePath: string = ''
-	export let isFlow = false
-	export let path: string = ''
 	export let headless: boolean = false
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
@@ -55,38 +53,22 @@
 			workspace: $workspaceStore!,
 			requestBody: {
 				route_path,
-				http_method
+				http_method: method
 			}
 		})
 	}
 
-	function getHttpRoute(route_path: string | undefined, capture: boolean) {
-		if (capture) {
-			return `${$page.url.origin}/api/w/${$workspaceStore}/capture_u/http/${
-				isFlow ? 'flow' : 'script'
-			}/${path.replaceAll('/', '.')}/${route_path ?? ''}`
-		} else {
-			return `${$page.url.origin}${base}/api/r/${
-				isCloudHosted() ? $workspaceStore + '/' : ''
-			}${route_path}`
-		}
+	function getHttpRoute(route_path: string | undefined) {
+		return `${$page.url.origin}${base}/api/r/${
+			isCloudHosted() ? $workspaceStore + '/' : ''
+		}${route_path}`
 	}
 
 	$: validateRoute(route_path, http_method)
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path, showCapture)
-
-	$: showCapture && (http_method = 'post')
-
-	export let route_path = ''
-
-	function updateArgs(route_path: string, http_method: string) {
-		args && ((args.route_path = route_path), (args.http_method = http_method))
-	}
-
-	$: updateArgs(route_path, http_method)
+	$: fullRoute = getHttpRoute(route_path)
 </script>
 
 <div>
