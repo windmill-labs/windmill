@@ -35,7 +35,6 @@ use windmill_common::variables::get_secret_value_as_admin;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
-    static ref BUSY_VENV_P: RwLock<HashSet<String>> = RwLock::new(HashSet::new());
 
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
@@ -1484,8 +1483,7 @@ pub async fn handle_python_reqs(
             "{py_prefix}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
-        if metadata(&venv_p).await.is_ok() && !BUSY_VENV_P.read().await.contains(&venv_p) {
-            BUSY_VENV_P.write().await.insert(venv_p.clone());
+        if metadata(&venv_p).await.is_ok() {
             req_paths.push(venv_p);
             in_cache.push(req.to_string());
         } else {
@@ -1881,9 +1879,8 @@ pub async fn handle_python_reqs(
                 );
             }
         } else {
-            req_paths.push(venv_p.clone());
+            req_paths.push(venv_p);
         }
-        BUSY_VENV_P.write().await.remove(&venv_p);
     }
 
     if has_work {
