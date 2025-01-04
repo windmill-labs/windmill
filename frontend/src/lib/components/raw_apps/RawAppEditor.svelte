@@ -457,7 +457,6 @@ export function getJob(id: string): Promise<Job>
 								onPackageJsonChange()
 							}}
 							on:change={() => {
-								console.log('bar')
 								timeout && clearTimeout(timeout)
 								timeout = setTimeout(() => {
 									onContentChange()
