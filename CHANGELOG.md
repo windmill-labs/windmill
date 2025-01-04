@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.443.0](https://github.com/windmill-labs/windmill/compare/v1.442.0...v1.443.0) (2025-01-04)
+
+
+### Features
+
+* allow s3 file download/preview from inside apps ([#5004](https://github.com/windmill-labs/windmill/issues/5004)) ([0c19171](https://github.com/windmill-labs/windmill/commit/0c19171f579cdd5d2753bd58dcc87b326cb6c09e))
+
 ## [1.442.0](https://github.com/windmill-labs/windmill/compare/v1.441.2...v1.442.0) (2025-01-03)
 
 
