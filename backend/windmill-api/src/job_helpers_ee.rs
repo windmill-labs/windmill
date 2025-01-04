@@ -18,8 +18,23 @@ use bytes::Bytes;
 #[cfg(feature = "parquet")]
 use futures::Stream;
 
+#[cfg(feature = "parquet")]
+use axum::response::Response;
+#[cfg(feature = "parquet")]
+use serde::Deserialize;
+
 #[derive(Serialize)]
 pub struct UploadFileResponse {
+    pub file_key: String,
+}
+
+#[derive(Deserialize)]
+pub struct LoadImagePreviewQuery {
+    pub file_key: String,
+}
+
+#[derive(Deserialize)]
+pub struct DownloadFileQuery {
     pub file_key: String,
 }
 
@@ -78,6 +93,33 @@ pub async fn upload_file_internal(
     _stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
     _options: PutMultipartOpts,
 ) -> error::Result<()> {
+    Err(error::Error::InternalErr(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
+
+#[cfg(feature = "parquet")]
+pub async fn download_s3_file_internal(
+    _authed: ApiAuthed,
+    _db: &DB,
+    _user_db: Option<UserDB>,
+    _token: &str,
+    _w_id: &str,
+    _query: DownloadFileQuery,
+) -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
+
+#[cfg(feature = "parquet")]
+pub async fn load_image_preview_internal(
+    _authed: ApiAuthed,
+    _db: &DB,
+    _token: &str,
+    _w_id: &str,
+    _query: LoadImagePreviewQuery,
+) -> error::Result<Response> {
     Err(error::Error::InternalErr(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))

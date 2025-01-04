@@ -24,7 +24,7 @@
 	export let configuration: RichConfigurations
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
-	const { app, worldStore, componentControl, workspace } =
+	const { app, worldStore, componentControl, workspace, appPath } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let result: any = undefined
@@ -96,6 +96,7 @@
 				{result}
 				{requireHtmlApproval}
 				disableExpand={resolvedConfig?.hideDetails}
+				appPath={$appPath}
 			/>
 		</div>
 	</div>
