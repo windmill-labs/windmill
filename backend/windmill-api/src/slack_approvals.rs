@@ -160,7 +160,7 @@ pub struct QueryDefaultArgsJson {
 
 #[derive(Deserialize, Debug)]
 pub struct QueryDynamicEnumJson {
-    dynamic_enum_json: Option<serde_json::Value>,
+    dynamic_enums_json: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -172,7 +172,7 @@ struct ModalActionValue {
     message: Option<String>,
     flow_step_id: Option<String>,
     default_args_json: Option<String>,
-    dynamic_enum_json: Option<String>,
+    dynamic_enums_json: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -233,19 +233,19 @@ pub async fn slack_app_callback_handler(
                                     )
                                 })?;
 
-                            let dynamic_enum_json: Option<serde_json::Value> = parsed_value
-                                .dynamic_enum_json
+                            let dynamic_enums_json: Option<serde_json::Value> = parsed_value
+                                .dynamic_enums_json
                                 .as_deref()
                                 .map(|s| serde_json::from_str(s))
                                 .transpose()
                                 .map_err(|_| {
                                     Error::BadRequest(
-                                        "Invalid JSON in dynamic_enum_json".to_string(),
+                                        "Invalid JSON in dynamic_enums_json".to_string(),
                                     )
                                 })?;
 
                             tracing::debug!("Default args json: {:#?}", default_args_json);
-                            tracing::debug!("Dynamic enum json: {:#?}", dynamic_enum_json);
+                            tracing::debug!("Dynamic enum json: {:#?}", dynamic_enums_json);
 
                             open_modal_with_blocks(
                                 &client,
@@ -260,7 +260,7 @@ pub async fn slack_app_callback_handler(
                                 flow_step_id,
                                 container,
                                 default_args_json.as_ref(),
-                                dynamic_enum_json.as_ref(),
+                                dynamic_enums_json.as_ref(),
                             )
                             .await
                             .map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -289,7 +289,7 @@ pub async fn request_slack_approval(
     Query(channel_id): Query<QueryChannelId>,
     Query(flow_step_id): Query<QueryFlowStepId>,
     Query(default_args_json): Query<QueryDefaultArgsJson>,
-    Query(dynamic_enum_json): Query<QueryDynamicEnumJson>,
+    Query(dynamic_enums_json): Query<QueryDynamicEnumJson>,
 ) -> Result<StatusCode, Error> {
     let slack_resource_path = slack_resource_path.slack_resource_path;
     let channel_id = channel_id.channel_id;
@@ -315,7 +315,7 @@ pub async fn request_slack_approval(
         message.message.as_deref(),
         flow_step_id.as_str(),
         default_args_json.default_args_json.as_ref(),
-        dynamic_enum_json.dynamic_enum_json.as_ref(),
+        dynamic_enums_json.dynamic_enums_json.as_ref(),
     )
     .await
     .map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -430,7 +430,7 @@ async fn transform_schemas(
     order: Option<&Vec<String>>,
     required: Option<&Vec<String>>,
     default_args_json: Option<&serde_json::Value>,
-    dynamic_enum_json: Option<&serde_json::Value>,
+    dynamic_enums_json: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, Error> {
     tracing::debug!("Resume urls: {:#?}", urls);
 
@@ -448,10 +448,10 @@ async fn transform_schemas(
                 let is_required = required.unwrap().contains(key);
 
                 let default_value = default_args_json.and_then(|json| json.get(key).cloned());
-                let dynamic_enum_value = dynamic_enum_json.and_then(|json| json.get(key).cloned());
+                let dynamic_enums_value = dynamic_enums_json.and_then(|json| json.get(key).cloned());
 
                 let input_block =
-                    create_input_block(key, schema, is_required, default_value, dynamic_enum_value);
+                    create_input_block(key, schema, is_required, default_value, dynamic_enums_value);
                 match input_block {
                     serde_json::Value::Array(arr) => blocks.extend(arr),
                     _ => blocks.push(input_block),
@@ -468,7 +468,7 @@ fn create_input_block(
     schema: &ResumeFormField,
     required: bool,
     default_value: Option<serde_json::Value>,
-    dynamic_enum_value: Option<serde_json::Value>,
+    dynamic_enums_value: Option<serde_json::Value>,
 ) -> serde_json::Value {
     let placeholder = schema
         .description
@@ -614,7 +614,7 @@ fn create_input_block(
     // Handle enum type
     if let Some(enums) = &schema.r#enum {
         tracing::debug!("Enum type");
-        let enums = dynamic_enum_value
+        let enums = dynamic_enums_value
             .as_ref()
             .and_then(|v| v.as_array())
             .cloned()
@@ -866,7 +866,7 @@ async fn send_slack_message(
     message: Option<&str>,
     flow_step_id: &str,
     default_args_json: Option<&serde_json::Value>,
-    dynamic_enum_json: Option<&serde_json::Value>,
+    dynamic_enums_json: Option<&serde_json::Value>,
 ) -> Result<StatusCode, Box<dyn std::error::Error>> {
     let url = "https://slack.com/api/chat.postMessage";
 
@@ -890,8 +890,8 @@ async fn send_slack_message(
         value["default_args_json"] = default_args_json.clone();
     }
 
-    if let Some(dynamic_enum_json) = dynamic_enum_json {
-        value["dynamic_enum_json"] = dynamic_enum_json.clone();
+    if let Some(dynamic_enums_json) = dynamic_enums_json {
+        value["dynamic_enums_json"] = dynamic_enums_json.clone();
     }
 
     let payload = serde_json::json!({
@@ -956,7 +956,7 @@ async fn get_modal_blocks(
     resource_path: &str,
     container: Container,
     default_args_json: Option<&serde_json::Value>,
-    dynamic_enum_json: Option<&serde_json::Value>,
+    dynamic_enums_json: Option<&serde_json::Value>,
 ) -> Result<axum::Json<serde_json::Value>, Error> {
     let res = get_resume_urls_internal(
         axum::Extension(db.clone()),
@@ -1065,7 +1065,7 @@ async fn get_modal_blocks(
                 Some(&inner_schema.schema.order),
                 Some(&inner_schema.schema.required),
                 default_args_json,
-                dynamic_enum_json,
+                dynamic_enums_json,
             )
             .await?;
 
@@ -1087,7 +1087,7 @@ async fn get_modal_blocks(
                 None,
                 None,
                 default_args_json,
-                dynamic_enum_json,
+                dynamic_enums_json,
             )
             .await?;
             return Ok(axum::Json(construct_payload(
@@ -1156,7 +1156,7 @@ async fn open_modal_with_blocks(
     flow_step_id: Option<&str>,
     container: Container,
     default_args_json: Option<&serde_json::Value>,
-    dynamic_enum_json: Option<&serde_json::Value>,
+    dynamic_enums_json: Option<&serde_json::Value>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resume_id = rand::random::<u32>();
     let blocks_json = match get_modal_blocks(
@@ -1171,7 +1171,7 @@ async fn open_modal_with_blocks(
         resource_path,
         container,
         default_args_json,
-        dynamic_enum_json,
+        dynamic_enums_json,
     )
     .await
     {
