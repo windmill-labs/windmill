@@ -9,9 +9,9 @@
 	// 	// type BundlerState,
 	// 	type SandpackClient
 	// } from '@codesandbox/sandpack-client'
-	import { SandpackRuntime } from '@codesandbox/sandpack-client/clients/runtime'
+	// import { SandpackRuntime } from '@codesandbox/sandpack-client/clients/runtime'
 
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
@@ -19,15 +19,16 @@
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
 	import { type Policy, type Preview } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
-	import { capitalize, encodeState } from '$lib/utils'
+	import { capitalize, encodeState, sendUserToast } from '$lib/utils'
 
 	import { schemaToTsType } from '$lib/schema'
-	import { addWmillClient } from './utils'
+	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
-	import { FilePlus, Pencil, TrashIcon } from 'lucide-svelte'
+	import { ChevronDown, ChevronUp, FilePlus, Pencil, TrashIcon } from 'lucide-svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import EsbuildBundler from './EsbuildBundler.svelte'
 
 	export let files: Record<string, { code: string }>
 	export let initRunnables: Record<string, HiddenRunnable>
@@ -78,9 +79,20 @@
 	}
 
 	let iframe: HTMLIFrameElement | undefined = undefined
+	let popup: WindowProxy | null = null // @hmr:keep
 
 	let activeFile = defaultActiveFile(files)
-	console.log('activeFile', activeFile)
+
+	let logsDiv: HTMLDivElement | undefined = undefined
+	let logsCollapsed = false
+
+	$: logs && logsDiv && scrollToBottom()
+
+	function scrollToBottom() {
+		setTimeout(() => {
+			logsDiv?.scrollTo(0, logsDiv.scrollHeight)
+		}, 100)
+	}
 
 	function defaultActiveFile(files: Record<string, any>) {
 		let fileKeys = Object.keys(files)
@@ -90,12 +102,6 @@
 
 	let jobs: string[] = []
 	let jobsById: Record<string, JobById> = {}
-
-	let client: SandpackRuntime | undefined = undefined
-	// let bundlerState: BundlerState | undefined = undefined
-	onMount(async () => {
-		setSandpack()
-	})
 
 	function hiddenRunnableToTsType(runnable: HiddenRunnable) {
 		if (runnable.type == 'runnableByName') {
@@ -144,13 +150,13 @@ export type Job = {
  * Execute a job and wait for it to complete and return the completed job
  * @param id
  */
-export function waitJob(id: string): Promise<Job>
+export function waitJob(id: string): Promise<Job> {}
 
 /**
  * Get a job by id and return immediately with the current state of the job
  * @param id
  */
-export function getJob(id: string): Promise<Job>
+export function getJob(id: string): Promise<Job> {}
 `
 	}
 
@@ -168,43 +174,8 @@ export function getJob(id: string): Promise<Job>
 		}
 	}
 
-	function setSandpack() {
-		if (iframe) {
-			client = new SandpackRuntime(
-				iframe,
-				{
-					files: addWmillClient(files),
-					entry: '/index.tsx',
-					dependencies: {
-						react: '18.3.1',
-						'react-dom': '18.3.1'
-					}
-				},
-				{
-					// bundlerURL: 'https://pub-f18889636e7746afadfd4e1bcc73fac5.r2.dev/index.html',
-					// bundlerURL: '/sandpack/index.html',
-					// bundlerURL: 'http://localhost:3002/sandpack/index.html',
-
-					bundlerURL: window.origin.toString() + '/sandpack/index.html',
-					showOpenInCodeSandbox: false
-					// customNpmRegistries: [
-					// 	{
-					// 		limitToScopes: false,
-					// 		registryUrl: 'http://localhost:4873/',
-					// 		enabledScopes: ['*'],
-					// 		proxyEnabled: false
-					// 	}
-					// ]
-				}
-			)
-			client.listen((msg) => {
-				console.log('Message from sandbox', msg)
-			})
-		}
-	}
-
 	onDestroy(() => {
-		client?.destroy()
+		popup?.close()
 	})
 
 	function getLangOfExt(path: string) {
@@ -221,10 +192,7 @@ export function getJob(id: string): Promise<Job>
 		let pkg = JSON.parse(files['/package.json'].code)
 		let dependencies: Record<string, string> =
 			typeof pkg.dependencies == 'object' ? pkg?.dependencies : {}
-		client?.updateSandbox({
-			files: addWmillClient(files),
-			dependencies
-		})
+
 		const ataDeps = Object.entries(dependencies).map(([name, version]) => ({
 			raw: name,
 			module: name,
@@ -233,22 +201,6 @@ export function getJob(id: string): Promise<Job>
 		editor?.fetchPackageDeps(ataDeps)
 	}
 
-	function onContentChange() {
-		console.log('content change', activeFile)
-		if (activeFile == '/package.json') {
-			onPackageJsonChange()
-			return
-		}
-		updateSandbox()
-	}
-
-	function updateSandbox() {
-		console.log('updating sandbox')
-
-		client?.updateSandbox({
-			files: addWmillClient(files)
-		})
-	}
 	function onActiveFileChange() {
 		console.log('active file change', activeFile)
 		if (activeFile != WMILL_TS) {
@@ -260,7 +212,6 @@ export function getJob(id: string): Promise<Job>
 		}
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
 	let name = ''
 	let creatingNewFile = false
 
@@ -275,11 +226,14 @@ export function getJob(id: string): Promise<Job>
 
 	function editFile(newFileName: string) {
 		newFileName = '/' + newFileName
+		if (newFileName == editingFile) {
+			editingFile = undefined
+			return
+		}
 		files[newFileName] = files[activeFile]
 		delete files[activeFile]
 		activeFile = newFileName
 		editingFile = undefined
-		updateSandbox()
 	}
 
 	let appPanelSize = 70
@@ -297,8 +251,54 @@ export function getJob(id: string): Promise<Job>
 		if (ext == 'js' || ext == 'jsx') return 'jsx'
 		return ext as Preview['language'] | 'json'
 	}
+	let bundler: EsbuildBundler | undefined = undefined
+	let logs = ''
+
+	function sendPreview(window: Window | null, css: string, js: string) {
+		window?.postMessage({ type: 'preview', css: css, js: js }, '*')
+	}
+	function setPopupWindow(css: string, js: string) {
+		if (!popup || popup?.closed) {
+			popup = window.open('/app-preview.html', '_blank')
+		}
+		if (popup) {
+			sendPreview(popup, css, js)
+			popup.addEventListener('load', () => {
+				sendPreview(popup, css, js)
+			})
+		} else {
+			sendUserToast('Could not open popup window', true)
+		}
+	}
+
+	let lastBuild: { js: string; css: string } | undefined = undefined
+	function onBuild(js: string, css: string) {
+		lastBuild = { js, css }
+		console.log('onBuild')
+		if (iframe) {
+			let wd = iframe.contentWindow
+			sendPreview(wd, css, js)
+			iframe.addEventListener('load', () => {
+				sendPreview(wd, css, js)
+			})
+		}
+		if (false) {
+			setPopupWindow(css, js)
+		}
+	}
 </script>
 
+<EsbuildBundler
+	on:build={(e) => {
+		onBuild(e.detail.js, e.detail.css)
+	}}
+	on:buildFailed={(e) => {
+		sendUserToast('Build failed', true)
+	}}
+	bind:logs
+	{files}
+	bind:this={bundler}
+/>
 <ConfirmationModal
 	open={deletingFile != undefined}
 	on:confirmed={() => {
@@ -306,7 +306,6 @@ export function getJob(id: string): Promise<Job>
 			delete files[deletingFile]
 			files = files
 			activeFile = Object.keys(files)[0]
-			updateSandbox()
 		}
 		deletingFile = undefined
 	}}
@@ -326,7 +325,7 @@ export function getJob(id: string): Promise<Job>
 	runnables={$runnables}
 	{path}
 />
-<div class="h-full flex flex-col">
+<div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
 	<RawAppEditorHeader
 		bind:jobs
 		bind:jobsById
@@ -342,10 +341,10 @@ export function getJob(id: string): Promise<Job>
 		{files}
 		{runnables}
 	/>
-	<Splitpanes id="o2" horizontal class="!overflow-visible grow">
+	<Splitpanes id="o2" horizontal class="grow">
 		<Pane bind:size={appPanelSize}>
-			<div class="flex h-full overflow-hidden">
-				<div class="flex text-xs max-w-36 min-w-32 flex-col text-secondary">
+			<div class="flex h-full relative">
+				<div class="flex text-xs max-w-36 min-w-32 flex-col text-secondary overflow-auto">
 					{#if creatingNewFile}
 						<!-- svelte-ignore a11y-autofocus -->
 						<input
@@ -422,10 +421,12 @@ export function getJob(id: string): Promise<Job>
 						{:else}
 							<button
 								title={file.substring(1)}
-								class="hover:text-primary inline-flex gap-1 text-left truncate {activeFile == file
+								class="hover:text-primary inline-flex min-h-6 gap-1 text-left truncate {activeFile ==
+								file
 									? 'font-bold text-primary bg-surface-selected'
 									: ''} hover:underline hover:bg-surface-hover rounded pl-2 pr-1 py-1"
 								on:click={() => {
+									files[activeFile] = { code: editor?.getCode() ?? '' }
 									activeFile = file
 								}}
 							>
@@ -435,7 +436,7 @@ export function getJob(id: string): Promise<Job>
 						{/if}
 					{/each}
 				</div>
-				<div class="w-full grid grid-cols-2">
+				<div class="w-full grid grid-cols-2 max-h-full">
 					{#if activeFile == WMILL_TS}
 						<Editor
 							lang={getLangOfExt(activeFile)}
@@ -447,6 +448,7 @@ export function getJob(id: string): Promise<Job>
 						/>
 					{:else}
 						<Editor
+							class="min-h-0"
 							lang={getLangOfExt(activeFile)}
 							path={activeFile}
 							scriptLang={extToScriptLang(activeFile.split('.').pop() ?? 'tsx')}
@@ -457,31 +459,48 @@ export function getJob(id: string): Promise<Job>
 								onPackageJsonChange()
 							}}
 							on:change={() => {
-								timeout && clearTimeout(timeout)
-								timeout = setTimeout(() => {
-									onContentChange()
-								}, 500)
+								bundler?.onContentChange(activeFile)
 							}}
+							changeTimeout={2000}
 						/>
 					{/if}
-					<div class="h-full w-full relative">
+					<div class="h-full max-h-full min-h-32 w-full relative">
 						<button
-							class="absolute top-0 right-0 z-50"
+							class="absolute top-0 right-0"
 							on:click={() => {
-								// client?.updateOptions({})
-								client?.destroy()
-								setSandpack()
+								lastBuild && onBuild(lastBuild.js, lastBuild.css)
 							}}>reload</button
 						>
 						<!-- svelte-ignore a11y-missing-attribute -->
-						<iframe class="min-h-screen w-full bg-white" bind:this={iframe} />
+						<iframe bind:this={iframe} src="/app-preview.html" class="h-full w-full" />
 					</div>
 				</div>
-			</div>
-		</Pane>
+				<div
+					class="p-1 text-2xs border rounded rounded-tl-md rounded-rl-none rounded-bl-none rounded-br-none text-secondary absolute right-0 bottom-0 max-w-[500px] w-full {logsCollapsed
+						? 'h-6'
+						: 'max-h-60 h-full'} bg-surface-secondary"
+				>
+					<div bind:this={logsDiv} class="h-full w-full overflow-auto">
+						{#if !logsCollapsed}
+							<pre>{logs}</pre>
+						{/if}
+					</div>
+					<div>
+						<button
+							class="bg-surface-secondary absolute flex items-center gap-2 top-0 left-0 w-full text-md -mt-0.5 px-2 text-left"
+							on:click={() => {
+								logsCollapsed = !logsCollapsed
+							}}
+							>Logs {#if logsCollapsed}<ChevronUp />{:else}<ChevronDown />{/if}
+							<div class="text-tertiary">({logs.split('\n').length})</div></button
+						>
+					</div>
+				</div></div
+			></Pane
+		>
 		<Pane>
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="flex h-full w-full overflow-x-visible">
+			<div class="flex h-full w-full">
 				<RawAppInlineScriptsPanel
 					appPath={path}
 					bind:selectedRunnable
@@ -494,6 +513,3 @@ export function getJob(id: string): Promise<Job>
 		</Pane>
 	</Splitpanes>
 </div>
-
-<style>
-</style>

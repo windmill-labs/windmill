@@ -1617,7 +1617,13 @@ async fn upload_raw_app(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     version: i64,
 ) -> Result<()> {
+    let mut entrypoint = "index.ts";
     for file in app_value.files.iter() {
+        if file.0 == "index.tsx" {
+            entrypoint = "index.tsx";
+        } else if file.0 == "index.js" {
+            entrypoint = "index.js";
+        }
         write_file(&job_dir, file.0, &file.1.code)?;
     }
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
@@ -1636,9 +1642,13 @@ async fn upload_raw_app(
     )
     .await?;
     let mut cmd = tokio::process::Command::new("esbuild");
+    let mut args = "--bundle --minify --outdir=dist/"
+        .split(' ')
+        .collect::<Vec<_>>();
+    args.push(entrypoint);
     cmd.current_dir(job_dir)
         .env_clear()
-        .args("--bundle --minify --outdir=dist/ index.tsx".split(' '))
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let child = start_child_process(cmd, "esbuild").await?;

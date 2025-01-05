@@ -54,7 +54,7 @@
 		noSyntaxValidation: false,
 
 		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
+		diagnosticCodesToIgnore: [1108, 7006, 7034, 7019, 7005]
 	})
 
 	languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -178,6 +178,7 @@
 	import type { AiProviderTypes } from './copilot/lib'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import * as htmllang from '$lib/svelteMonarch'
+	import { conf, language } from '$lib/vueMonarch'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -204,11 +205,12 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let useWebsockets: boolean = true
 	export let small = false
-	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'json' | undefined
+	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
 	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
 	export let extraLib: string | undefined = undefined
+	export let changeTimeout: number = 500
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
@@ -283,6 +285,7 @@
 				editor.setModel(nmodel)
 			}
 			model = nmodel
+			setTypescriptExtraLibsATA()
 		}
 	}
 
@@ -1149,6 +1152,7 @@
 	$: files && model && onFileChanges()
 
 	let svelteRegistered = false
+	let vueRegistered = false
 	function onFileChanges() {
 		if (files && Object.keys(files).find((x) => x.endsWith('.svelte')) != undefined) {
 			if (!svelteRegistered) {
@@ -1164,12 +1168,28 @@
 				languages.setMonarchTokensProvider('svelte', htmllang.language as any)
 			}
 		}
+
+		if (files && Object.keys(files).find((x) => x.endsWith('.vue')) != undefined) {
+			if (!vueRegistered) {
+				vueRegistered = true
+				languages.register({
+					id: 'vue',
+					extensions: ['.vue'],
+					aliases: ['Vue', 'Vue'],
+					mimetypes: ['application/svelte']
+				})
+				languages.setLanguageConfiguration('vue', conf as any)
+
+				languages.setMonarchTokensProvider('vue', language as any)
+			}
+		}
+
 		if (files && model) {
 			for (const [path, { code, readonly }] of Object.entries(files)) {
 				const luri = mUri.file(path)
-				console.log('checking file', model.uri.toString(), luri.toString())
 				if (luri.toString() != model.uri.toString()) {
 					let nmodel = meditor.getModel(luri)
+
 					if (nmodel == undefined) {
 						const lmodel = meditor.createModel(code, extToLang(path?.split('.')?.pop()!), luri)
 						if (readonly) {
@@ -1255,7 +1275,7 @@
 				let ncode = getCode()
 				code = ncode
 				dispatch('change', ncode)
-			}, 500)
+			}, changeTimeout)
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
@@ -1326,7 +1346,6 @@
 			const uri = mUri.parse('file:///extraLib.d.ts')
 			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
-		console.log('scriptLang ATA', scriptLang)
 		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
 			const hostname = getHostname()
 

@@ -46,7 +46,7 @@
 	import type { HiddenRunnable } from '../apps/types'
 	import type { Writable } from 'svelte/store'
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
-	import { addWmillClient } from './utils'
+	import { wmillTs } from './utils'
 
 	// async function hash(message) {
 	// 	try {
@@ -92,7 +92,7 @@
 
 	let newEditedPath = ''
 
-	$: app = { runnables: $runnables, files: addWmillClient(files) }
+	$: app = { runnables: $runnables, files: { ...files, '/wmill.ts': { code: wmillTs } } }
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -175,6 +175,11 @@
 		// 	allTriggers.filter(Boolean) as [string, TriggerableV2][]
 		// )
 
+		policy.execution_mode = 'publisher'
+		policy.on_behalf_of_email = $userStore?.email
+		policy.on_behalf_of = $userStore?.username.includes('@')
+			? $userStore?.username
+			: `u/${$userStore?.username}`
 		policy.triggerables_v2 = {}
 	}
 
@@ -999,7 +1004,7 @@
 />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
+	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10"
 >
 	<div class="flex flex-row gap-2 items-center">
 		<Summary bind:value={summary} />

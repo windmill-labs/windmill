@@ -2,11 +2,7 @@ export type RawApp = {
 	files: string[]
 }
 
-export function addWmillClient(files: Record<string, { code: string }>) {
-	return {
-		...files,
-		'/wmill.ts': {
-			code: `
+export const wmillTs = `
 let reqs = {}
 
 function doRequest(type: string, o: object) {
@@ -60,9 +56,6 @@ window.addEventListener('message', (e) => {
 		}
 	}
 })`
-		}
-	}
-}
 
 export function htmlContent(workspace: string, version: number) {
 	return `

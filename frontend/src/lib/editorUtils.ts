@@ -88,6 +88,8 @@ export function langToExt(lang: string): string {
 			return 'cs'
 		case 'svelte':
 			return 'svelte'
+		case 'vue':
+			return 'vue'
 		default:
 			return 'unknown'
 	}
@@ -131,6 +133,8 @@ export function extToLang(ext: string) {
 			return 'csharp'
 		case 'svelte':
 			return 'svelte'
+		case 'vue':
+			return 'vue'
 		default:
 			return 'unknown'
 	}
