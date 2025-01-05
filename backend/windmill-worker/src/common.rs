@@ -948,7 +948,7 @@ pub async fn clean_cache() -> error::Result<()> {
 }
 
 lazy_static::lazy_static! {
-    static ref RE_FLOW_ROOT: Regex = Regex::new(r"(?i)(.*?)(?:/branchone-\d+/|/branchall-\d+/|/loop-\d+/)").unwrap();
+    static ref RE_FLOW_ROOT: Regex = Regex::new(r"(?i)(.*?)(?:/branchone-\d+/|/branchall-\d+/|/loop-\d+|/forloop-\d+/)").unwrap();
 
 }
 
