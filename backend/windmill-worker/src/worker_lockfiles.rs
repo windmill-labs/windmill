@@ -1619,9 +1619,9 @@ async fn upload_raw_app(
 ) -> Result<()> {
     let mut entrypoint = "index.ts";
     for file in app_value.files.iter() {
-        if file.0 == "index.tsx" {
+        if file.0 == "/index.tsx" {
             entrypoint = "index.tsx";
-        } else if file.0 == "index.js" {
+        } else if file.0 == "/index.js" {
             entrypoint = "index.js";
         }
         write_file(&job_dir, file.0, &file.1.code)?;
