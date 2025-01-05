@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.441.2
+  version: 1.443.0
   title: Windmill API
 
   contact:
@@ -6973,6 +6973,16 @@ paths:
         - name: flow_step_id
           in: query
           required: true
+          schema:
+            type: string
+        - name: default_args_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: dynamic_enums_json
+          in: query
+          required: false
           schema:
             type: string
       responses:
