@@ -1510,15 +1510,11 @@ pub async fn handle_flow(
         && flow_job.script_path.is_some()
         && status.step == 0
     {
-        let mut tx = db.begin().await?;
-
         let schedule_path = flow_job.schedule_path.as_ref().unwrap();
 
-        let schedule = get_schedule_opt(&mut tx, &flow_job.workspace_id, schedule_path)
+        let schedule = get_schedule_opt(db, &flow_job.workspace_id, schedule_path)
             .warn_after_seconds(5)
             .await?;
-
-        tx.commit().await?;
 
         if let Some(schedule) = schedule {
             if let Err(err) = handle_maybe_scheduled_job(
