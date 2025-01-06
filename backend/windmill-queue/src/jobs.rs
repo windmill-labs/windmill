@@ -900,11 +900,14 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     #[cfg(feature = "enterprise")]
     if !success {
-        async fn has_failure_module(db: &Pool<Postgres>, job_id: Uuid) -> bool {
-            sqlx::query_scalar!("SELECT raw_flow->'failure_module' != 'null'::jsonb FROM job WHERE id = $1", job_id)
+        async fn has_failure_module(db: &Pool<Postgres>, job: &QueuedJob) -> bool {
+            if let Ok(flow) = cache::job::fetch_flow(db, job.job_kind, job.script_hash).await {
+                return flow.value().failure_module.is_some();
+            }
+            sqlx::query_scalar!("SELECT raw_flow->'failure_module' != 'null'::jsonb FROM job WHERE id = $1", job.id)
                 .fetch_one(db)
                 .or_else(|_|
-                    sqlx::query_scalar!("SELECT raw_flow->'failure_module' != 'null'::jsonb FROM completed_job WHERE id = $1", job_id)
+                    sqlx::query_scalar!("SELECT raw_flow->'failure_module' != 'null'::jsonb FROM completed_job WHERE id = $1", job.id)
                         .fetch_one(db)
                 )
                 .await
@@ -952,7 +955,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         } else if !_skip_downstream_error_handlers
             && (matches!(queued_job.job_kind, JobKind::Script)
                 || matches!(queued_job.job_kind, JobKind::Flow)
-                    && !has_failure_module(db, _job_id).await)
+                    && !has_failure_module(db, queued_job).await)
             && queued_job.parent_job.is_none()
         {
             let result = serde_json::from_str(
