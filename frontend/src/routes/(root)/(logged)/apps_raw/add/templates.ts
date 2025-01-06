@@ -489,7 +489,6 @@ button.active {
 }
 </style>`
 
-
 const appReactRouter = `
 import React, { useState, useEffect } from 'react';
 
@@ -542,10 +541,10 @@ const App = () => {
           <button
             key={tab.id}
             onClick={() => updateHash(tab.id)}
-            className={`px-4 py-2 border rounded-md cursor-pointer
-              ${currentTab === tab.id 
+            className={\`px-4 py-2 border rounded-md cursor-pointer
+              $\{currentTab === tab.id 
                 ? 'bg-green-500 text-white border-green-500' 
-                : 'bg-white border-gray-300 hover:bg-gray-50'}`}
+                : 'bg-white border-gray-300 hover:bg-gray-50'}\`}
           >
             {tab.name}
           </button>
@@ -563,10 +562,12 @@ const App = () => {
                 <button
                   key={sort}
                   onClick={() => updateHash(currentTab, sort)}
-                  className={`px-4 py-2 border rounded-md cursor-pointer
-                    ${currentSort === sort 
-                      ? 'bg-green-500 text-white border-green-500' 
-                      : 'bg-white border-gray-300 hover:bg-gray-50'}`}
+                  className={\`px-4 py-2 border rounded-md cursor-pointer
+                    $\{
+											currentSort === sort
+												? 'bg-green-500 text-white border-green-500'
+												: 'bg-white border-gray-300 hover:bg-gray-50'
+										}\`}
                 >
                   {sort}
                 </button>
@@ -599,5 +600,5 @@ const App = () => {
   );
 };
 
-export default App;
+export default App
 `
