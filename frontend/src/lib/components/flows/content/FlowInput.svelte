@@ -300,14 +300,16 @@
 									ButtonType.ColorVariants.blue.contained,
 									'flex flex-row items-center gap-2 rounded-br-md',
 									'transition-all duration-150 ease-in-out overflow-hidden whitespace-nowrap',
-									!!$flowInputEditorState?.selectedTab ? 'w-[120px]' : 'w-[30px]'
+									!!$flowInputEditorState?.selectedTab ? 'w-[120px] px-3' : 'w-[30px]'
 								)}
 								bind:clientWidth={tabButtonWidth}
 							>
-								{#if !!$flowInputEditorState?.selectedTab}
-									<h2 class="text-xs">{TAB_TITLES[$flowInputEditorState?.selectedTab]}</h2>
-								{/if}
-								<ChevronDown size={16} />
+								<div class="flex flex-row items-center gap-2 justify-between w-full">
+									{#if !!$flowInputEditorState?.selectedTab}
+										<h2 class="text-xs">{TAB_TITLES[$flowInputEditorState?.selectedTab]}</h2>
+									{/if}
+									<ChevronDown size={14} />
+								</div>
 							</div>
 						</ButtonDropDown>
 					</div>
