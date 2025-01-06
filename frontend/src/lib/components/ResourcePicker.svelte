@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnectDrawer.svelte'
@@ -23,6 +23,15 @@
 	export let showSchemaExplorer = false
 	export let selectFirst = false
 	export let expressOAuthSetup = false
+	export let defaultValues: Record<string, any> | undefined = undefined
+
+	onMount(() => {
+		setTimeout(() => {
+			if (Object.keys(defaultValues ?? {}).length > 0 && resourceType) {
+				resourceEditor?.initNew?.(resourceType, defaultValues)
+			}
+		}, 500)
+	})
 
 	let valueSelect =
 		initialValue || value
@@ -47,12 +56,19 @@
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
-			const nc = (
-				await ResourceService.listResource({
-					workspace: $workspaceStore!,
-					resourceType
-				})
+			const resourceTypesToQuery =
+				resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]
+
+			const resources = await Promise.all(
+				resourceTypesToQuery.map((rt) =>
+					ResourceService.listResource({
+						workspace: $workspaceStore!,
+						resourceType: rt
+					})
+				)
 			)
+			const nc = resources
+				.flat()
 				.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
 				.map((x) => ({
 					value: x.path,
@@ -178,7 +194,7 @@
 					{disabled}
 					color="light"
 					variant="border"
-					size="sm"
+					size="xs"
 					on:click={() => appConnect?.open?.(resourceType)}
 					startIcon={{ icon: Plus }}
 					iconOnly={collection?.length > 0}

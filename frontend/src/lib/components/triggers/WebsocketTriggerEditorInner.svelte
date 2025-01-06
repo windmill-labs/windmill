@@ -24,8 +24,7 @@
 	import { fade } from 'svelte/transition'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import type { Schema } from '$lib/common'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -38,7 +37,6 @@
 	let path: string = ''
 	let pathError = ''
 	let url = ''
-	let urlError = ''
 	let dirtyUrl = false
 	let enabled = false
 	let filters: {
@@ -46,7 +44,7 @@
 		value: any
 	}[] = []
 	let initial_messages: WebsocketTriggerInitialMessage[] = []
-	let url_runnable_args: Record<string, any> = {}
+	let url_runnable_args: Record<string, any> | undefined = {}
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
@@ -72,14 +70,18 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		fixedScriptPath_?: string,
+		defaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			url = ''
+			url = defaultValues?.url ?? ''
 			dirtyUrl = false
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
@@ -88,7 +90,7 @@
 			initialPath = ''
 			filters = []
 			initial_messages = []
-			url_runnable_args = {}
+			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 		} finally {
 			drawerLoading = false
@@ -108,7 +110,7 @@
 		url = s.url
 		enabled = s.enabled
 		filters = s.filters
-		initial_messages = s.initial_messages
+		initial_messages = s.initial_messages ?? []
 		url_runnable_args = s.url_runnable_args
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
@@ -146,35 +148,6 @@
 		.map((v) => ('runnable_result' in v ? v.runnable_result : undefined))
 		.filter((v): v is { path: string; is_flow: boolean; args: ScriptArgs } => !!v)
 	$: loadInitialMessageRunnableSchemas(initialMessageRunnables)
-
-	let urlRunnableSchema: Schema | undefined = emptySchema()
-	async function loadUrlRunnableSchema(url: string) {
-		if (url.startsWith('$')) {
-			const path = url.split(':')[1]
-			if (path && path.length > 0) {
-				try {
-					let scriptOrFlow: Script | Flow = url.startsWith('$flow:')
-						? await FlowService.getFlowByPath({
-								workspace: $workspaceStore!,
-								path: url.split(':')[1]
-						  })
-						: await ScriptService.getScriptByPath({
-								workspace: $workspaceStore!,
-								path: url.split(':')[1]
-						  })
-					urlRunnableSchema = scriptOrFlow.schema as Schema
-				} catch (err) {
-					sendUserToast(
-						`Could not query runnable schema for ${url.startsWith('$flow:') ? 'flow' : 'script'} ${
-							url.split(':')[1]
-						}: ${err}`,
-						true
-					)
-				}
-			}
-		}
-	}
-	$: loadUrlRunnableSchema(url)
 
 	$: invalidInitialMessages = initial_messages.some((v) => {
 		if ('runnable_result' in v) {
@@ -222,25 +195,7 @@
 		drawer.closeDrawer()
 	}
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
-	function validateUrl(url: string) {
-		urlError = ''
-		if (validateTimeout) {
-			clearTimeout(validateTimeout)
-		}
-		validateTimeout = setTimeout(() => {
-			console.log('validating ' + url)
-			if (url.startsWith('$')) {
-				if (/^(\$script|\$flow):[^\s]+$/.test(url) === false) {
-					urlError = 'Invalid runnable path'
-				}
-			} else if (/^(ws:|wss:)\/\/[^\s]+$/.test(url) === false) {
-				urlError = 'Invalid websocket URL'
-			}
-			validateTimeout = undefined
-		}, 500)
-	}
-	$: validateUrl(url)
+	let isValid = false
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -277,7 +232,7 @@
 					<Button
 						startIcon={{ icon: Save }}
 						disabled={pathError != '' ||
-							urlError != '' ||
+							!isValid ||
 							invalidInitialMessages ||
 							emptyString(script_path) ||
 							!can_write}
@@ -314,92 +269,13 @@
 					</Label>
 				</div>
 
-				<Section label="Websocket">
-					<div class="mb-2">
-						<ToggleButtonGroup
-							selected={url.startsWith('$') ? 'runnable' : 'static'}
-							on:selected={(ev) => {
-								url = ev.detail === 'runnable' ? '$script:' : ''
-								url_runnable_args = {}
-							}}
-						>
-							<ToggleButton value="static" label="Static URL" />
-							<ToggleButton value="runnable" label="Runnable result as URL" />
-						</ToggleButtonGroup>
-					</div>
-					{#if url.startsWith('$')}
-						<div class="flex flex-col w-full gap-4">
-							<div class="block grow w-full">
-								<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-									<div>
-										Runnable
-										<Required required={true} />
-									</div>
-								</div>
-								<ScriptPicker
-									allowFlow={true}
-									itemKind={url.startsWith('$flow:') ? 'flow' : 'script'}
-									initialPath={url.split(':')[1] ?? ''}
-									on:select={(ev) => {
-										dirtyUrl = true
-										const { path, itemKind } = ev.detail
-										url = `$${itemKind}:${path ?? ''}`
-									}}
-								/>
-								<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-									{dirtyUrl ? urlError : ''}
-								</div>
-							</div>
-						</div>
-
-						{#if url.split(':')[1]?.length > 0}
-							{#if urlRunnableSchema}
-								<p class="font-semibold text-sm mt-4 mb-2">Arguments</p>
-								{#await import('$lib/components/SchemaForm.svelte')}
-									<Loader2 class="animate-spin mt-2" />
-								{:then Module}
-									<Module.default
-										schema={urlRunnableSchema}
-										bind:args={url_runnable_args}
-										shouldHideNoInputs
-										class="text-xs"
-									/>
-								{/await}
-								{#if urlRunnableSchema.properties && Object.keys(urlRunnableSchema.properties).length === 0}
-									<div class="text-xs texg-gray-700">This runnable takes no arguments</div>
-								{/if}
-							{:else}
-								<Loader2 class="animate-spin mt-2" />
-							{/if}
-						{/if}
-					{:else}
-						<div class="flex flex-col w-full gap-4">
-							<label class="block grow w-full">
-								<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-									<div>
-										URL
-										<Required required={true} />
-									</div>
-								</div>
-								<input
-									type="text"
-									autocomplete="off"
-									bind:value={url}
-									disabled={!can_write}
-									on:input={() => {
-										dirtyUrl = true
-									}}
-									class={urlError === ''
-										? ''
-										: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-								/>
-								<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-									{dirtyUrl ? urlError : ''}
-								</div>
-							</label>
-						</div>
-					{/if}
-				</Section>
+				<WebsocketEditorConfigSection
+					bind:url
+					bind:url_runnable_args
+					{dirtyUrl}
+					{can_write}
+					bind:isValid
+				/>
 
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
