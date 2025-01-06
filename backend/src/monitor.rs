@@ -1268,6 +1268,12 @@ pub async fn monitor_db(
         update_min_version(db).await;
     };
 
+    let missing_schedule_f = async {
+        if let Err(err) = missing_schedule(db).await {
+            tracing::error!("Error checking missing schedule: {:?}", err);
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -1277,6 +1283,7 @@ pub async fn monitor_db(
         jobs_waiting_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,
+        missing_schedule_f
     );
 }
 
@@ -1821,5 +1828,26 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let mut l = JWT_SECRET.write().await;
     *l = jwt_secret;
 
+    Ok(())
+}
+
+pub async fn missing_schedule(db: &DB) -> error::Result<()> {
+    use windmill_common::schedule::Schedule;
+    use windmill_queue::schedule::push_scheduled_job;
+
+    // find schedules that are enabled but w/o a corresponding job in the queue.
+    let schedules = sqlx::query_as::<_, Schedule>(
+        r#"SELECT s.* FROM schedule s WHERE enabled = true AND NOT EXISTS (
+            SELECT 1 FROM queue WHERE workspace_id = s.workspace_id AND schedule_path = s.path
+        )"#,
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut tx = db.begin().await?;
+    for schedule in schedules {
+        tx = push_scheduled_job(db, tx, &schedule, None).await?;
+    }
+    tx.commit().await?;
     Ok(())
 }

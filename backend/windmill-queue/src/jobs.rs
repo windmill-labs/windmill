@@ -708,19 +708,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         _skip_downstream_error_handlers = schedule.ws_error_handler_muted;
                     }
 
-                    // script or flow that failed on start and might not have been rescheduled
-                    let schedule_next_tick = !queued_job.is_flow()
-                        || {
-                            let flow_status = queued_job.parse_flow_status();
-                            flow_status.is_some_and(|fs| {
-                            fs.step == 0
-                            && fs.modules.get(0).is_some_and(|m| {
-                                matches!(m, FlowStatusModule::WaitingForPriorSteps { .. }) || matches!(m, FlowStatusModule::Failure { job, ..} if job == &Uuid::nil())
-                            })
-                        })
-                        };
-
-                    if schedule_next_tick {
+                    // script only, flow schedules are handled in `handle_flow`.
+                    if !queued_job.is_flow() {
                         if let Err(err) = handle_maybe_scheduled_job(
                             db,
                             queued_job,
