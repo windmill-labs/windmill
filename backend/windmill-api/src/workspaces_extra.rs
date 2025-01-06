@@ -104,6 +104,14 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
+        "UPDATE capture_config SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
         "UPDATE completed_job SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -394,6 +402,9 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
     sqlx::query!("DELETE FROM capture WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!("DELETE FROM capture_config WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
     sqlx::query!("DELETE FROM draft WHERE workspace_id = $1", &w_id)

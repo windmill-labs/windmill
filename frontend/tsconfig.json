@@ -31,6 +31,6 @@
 		"strict": true,
 		"types": []
 	},
-	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"],
+	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte", "src/lib/components/triggers/TriggersEditorSectionsvelte"],
 	"extends": "./.svelte-kit/tsconfig.json"
 }
