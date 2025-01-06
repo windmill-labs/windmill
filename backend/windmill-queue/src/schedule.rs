@@ -9,7 +9,7 @@
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
-use sqlx::{query_scalar, Postgres, Transaction};
+use sqlx::{query_scalar, PgExecutor, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
 use windmill_common::db::Authed;
@@ -245,7 +245,7 @@ pub async fn push_scheduled_job<'c>(
 }
 
 pub async fn get_schedule_opt<'c>(
-    db: &mut Transaction<'c, Postgres>,
+    e: impl PgExecutor<'c>,
     w_id: &str,
     path: &str,
 ) -> Result<Option<Schedule>> {
@@ -254,7 +254,7 @@ pub async fn get_schedule_opt<'c>(
     )
     .bind(path)
     .bind(w_id)
-    .fetch_optional(&mut **db)
+    .fetch_optional(e)
     .await?;
     Ok(schedule_opt)
 }

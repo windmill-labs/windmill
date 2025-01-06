@@ -438,7 +438,7 @@ async fn get_schedule(
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut tx, &w_id, path).await?;
+    let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
     tx.commit().await?;
     Ok(Json(schedule))
