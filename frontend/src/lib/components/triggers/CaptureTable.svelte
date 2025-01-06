@@ -23,7 +23,7 @@
 	export let hasPreprocessor = false
 	export let canHavePreprocessor = false
 	export let isFlow = false
-	export let captureType: CaptureTriggerKind | undefined = 'webhook'
+	export let captureType: CaptureTriggerKind | undefined = undefined
 	export let headless = false
 	export let addButton = false
 	export let hideCapturesWhenEmpty = false
@@ -78,7 +78,7 @@
 
 {#if captures.length > 0 || !hideCapturesWhenEmpty}
 	<Label
-		label="Captures"
+		label="Trigger tests"
 		{headless}
 		class={twMerge(
 			'flex flex-col h-full divide-y gap-1',
@@ -121,7 +121,7 @@
 		<div class="flex flex-col gap-1 pt-2 grow overflow-y-auto">
 			{#if captures.length === 0}
 				<div class="text-xs text-secondary">
-					{!captureType ? 'No captures yet' : `No ${captureType} captures yet`}
+					{`No ${captureType ?? 'trigger'} tests yet`}
 				</div>
 			{:else}
 				{#each captures as capture}

@@ -14,7 +14,7 @@
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 	import HistoricInpts from '$lib/components/HistoricInpts.svelte'
 	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
-	import { CornerDownLeft, Pen, X, ChevronDown, Plus } from 'lucide-svelte'
+	import { CornerDownLeft, Pen, ChevronRight, ChevronDown, Plus } from 'lucide-svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
@@ -65,6 +65,20 @@
 					$flowInputEditorState?.selectedTab === 'inputEditor'
 			},
 			{
+				label: 'Trigger tests',
+				onClick: () => {
+					handleEditSchema('captures')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'captures'
+			},
+			{
+				label: 'History',
+				onClick: () => {
+					handleEditSchema('history')
+				},
+				disabled: $flowInputEditorState?.selectedTab === 'history'
+			},
+			{
 				label: 'Json',
 				onClick: () => {
 					handleEditSchema('json')
@@ -78,25 +92,11 @@
 				}
 			},
 			{
-				label: 'History',
-				onClick: () => {
-					handleEditSchema('history')
-				},
-				disabled: $flowInputEditorState?.selectedTab === 'history'
-			},
-			{
 				label: 'Saved inputs',
 				onClick: () => {
 					handleEditSchema('savedInputs')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'savedInputs'
-			},
-			{
-				label: 'Captures',
-				onClick: () => {
-					handleEditSchema('captures')
-				},
-				disabled: $flowInputEditorState?.selectedTab === 'captures'
 			}
 		].filter((item) => !item.disabled)
 	}
@@ -223,7 +223,7 @@
 
 	const TAB_TITLES: Record<string, string> = {
 		inputEditor: 'Input editor',
-		captures: 'Captures',
+		captures: 'Trigger tests',
 		history: 'History',
 		savedInputs: 'Saved inputs',
 		json: 'JSON',
@@ -284,7 +284,10 @@
 							class={ButtonType.ColorVariants.blue.contained}
 						>
 							<div class="p-2 center-center">
-								<svelte:component this={!!$flowInputEditorState?.selectedTab ? X : Pen} size={14} />
+								<svelte:component
+									this={!!$flowInputEditorState?.selectedTab ? ChevronRight : Pen}
+									size={14}
+								/>
 							</div>
 						</button>
 

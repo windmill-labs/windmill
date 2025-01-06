@@ -75,7 +75,7 @@
 
 <div class="flex flex-col gap-1 grow overflow-y-auto">
 	{#if captures.length === 0}
-		<div class="text-xs text-secondary">No captures yet</div>
+		<div class="text-xs text-secondary">No trigger tests yet</div>
 	{:else}
 		<DataTable
 			size="xs"

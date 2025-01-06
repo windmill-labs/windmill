@@ -38,7 +38,7 @@
 	})
 </script>
 
-<div transition:slide class="pb-4">
+<div transition:slide class="pb-12">
 	<div class="border p-4 rounded-lg">
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex flex-row items-center justify-start gap-1">

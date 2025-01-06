@@ -1,14 +1,13 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Button } from '$lib/components/common'
-	import { Webhook, Route, Unplug, Mail } from 'lucide-svelte'
+	import { Webhook, Route, Unplug, Mail, Plus } from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
-	import RoundIconButton from '../common/button/RoundIconButton.svelte'
 
 	export let small = false
 
@@ -28,16 +27,26 @@
 <Popover closeButton={false} bind:open={isOpen}>
 	<svelte:fragment slot="trigger">
 		{#if small}
-			<RoundIconButton>
-				<CaptureIcon size={18} />
-			</RoundIconButton>
+			<Button
+				color="light"
+				size="xs"
+				variant="border"
+				wrapperClasses="h-full"
+				nonCaptureEvent
+				title="Test trigger"
+			>
+				<div class="flex flex-row items-center gap-1">
+					<CaptureIcon />
+					<Plus size={10} class="text-red" />
+				</div>
+			</Button>
 		{:else}
 			<Button
 				color="dark"
 				btnClasses="rounded-l-none"
 				wrapperClasses="h-full"
 				nonCaptureEvent
-				title="Capture"
+				title="Test trigger"
 			>
 				<CaptureIcon />
 			</Button>

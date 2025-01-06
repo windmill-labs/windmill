@@ -93,7 +93,7 @@
 		<Tab value="logs" size="xs">Logs & Result</Tab>
 		<Tab value="history" size="xs">History</Tab>
 		{#if showCaptures}
-			<Tab value="captures" size="xs">Captures</Tab>
+			<Tab value="captures" size="xs">Trigger tests</Tab>
 		{/if}
 
 		<svelte:fragment slot="content">
