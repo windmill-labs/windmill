@@ -29,7 +29,7 @@
 	<svelte:fragment slot="trigger">
 		{#if small}
 			<RoundIconButton>
-				<CaptureIcon />
+				<CaptureIcon size={18} />
 			</RoundIconButton>
 		{:else}
 			<Button

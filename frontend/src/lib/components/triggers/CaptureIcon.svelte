@@ -1,12 +1,16 @@
 <script>
 	import { ScanIcon } from 'lucide-svelte'
+
+	export let size = 14
 </script>
 
 <div class="relative">
-	<ScanIcon size="14" />
+	<ScanIcon {size} />
 	<div class="absolute inset-0 flex items-center justify-center">
 		<svg
 			class="text-red-500"
+			width={size}
+			height={size}
 			viewBox="0 0 24 24"
 			fill="currentColor"
 			xmlns="http://www.w3.org/2000/svg"
