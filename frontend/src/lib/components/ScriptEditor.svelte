@@ -428,7 +428,7 @@
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 					<Pane size={33}>
-						<div class="px-2">
+						<div class="px-4">
 							<div class="break-words relative font-sans">
 								{#key argsRender}
 									<SchemaForm

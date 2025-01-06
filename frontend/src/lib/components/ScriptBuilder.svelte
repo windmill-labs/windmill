@@ -1248,7 +1248,7 @@
 								{/if}
 							</div>
 						</TabContent>
-						<TabContent value="ui" class="h-full py-2">
+						<TabContent value="ui" class="h-full p-4">
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
 						<TabContent value="triggers">
