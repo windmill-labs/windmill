@@ -700,7 +700,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 let script_path = queued_job.script_path.as_ref().unwrap();
 
                 let schedule =
-                    get_schedule_opt(&mut tx, &queued_job.workspace_id, schedule_path).await?;
+                    get_schedule_opt(&mut *tx, &queued_job.workspace_id, schedule_path).await?;
 
                 if let Some(schedule) = schedule {
                     #[cfg(feature = "enterprise")]
