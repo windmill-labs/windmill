@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.444.0](https://github.com/windmill-labs/windmill/compare/v1.443.0...v1.444.0) (2025-01-06)
+
+
+### Features
+
+* captures ([#4807](https://github.com/windmill-labs/windmill/issues/4807)) ([01c6f84](https://github.com/windmill-labs/windmill/commit/01c6f845206b70a37163b8e67ff769cd5ad181ce))
+
+
+### Bug Fixes
+
+* **backend:** fix `has_failure_module` only looking for `raw_flow` ([#5018](https://github.com/windmill-labs/windmill/issues/5018)) ([abf63a6](https://github.com/windmill-labs/windmill/commit/abf63a6560817cfd392d3df7a74ba937255cb507))
+* recognize `forloop-&lt;n&gt;` in `use_flow_root_path` ([#5016](https://github.com/windmill-labs/windmill/issues/5016)) ([3eaef46](https://github.com/windmill-labs/windmill/commit/3eaef46a4fac92951e15a8e2177dbd25227c7250))
+
 ## [1.443.0](https://github.com/windmill-labs/windmill/compare/v1.442.0...v1.443.0) (2025-01-04)
 
 
