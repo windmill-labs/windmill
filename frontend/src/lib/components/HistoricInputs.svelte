@@ -83,6 +83,12 @@
 		selected = undefined
 		dispatch('select', undefined)
 	})
+
+	async function getPropPickerElements(): Promise<HTMLElement[]> {
+		return Array.from(
+			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
+		) as HTMLElement[]
+	}
 </script>
 
 <JobLoader
@@ -107,7 +113,7 @@
 
 <div
 	class="h-full w-full flex flex-col gap-4"
-	use:clickOutside
+	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 	on:click_outside={() => {
 		selected = undefined
 		dispatch('select', undefined)

@@ -132,6 +132,12 @@
 		websocket: Unplug,
 		kafka: KafkaIcon
 	}
+
+	async function getPropPickerElements(): Promise<HTMLElement[]> {
+		return Array.from(
+			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
+		) as HTMLElement[]
+	}
 </script>
 
 {#if captures.length > 0 || !hideCapturesWhenEmpty}
@@ -172,7 +178,7 @@
 
 		<div
 			class={twMerge('grow min-h-0', captures.length > 7 ? 'h-[300px]' : 'h-auto')}
-			use:clickOutside
+			use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 			on:click_outside={() => {
 				selected = undefined
 				dispatch('select', undefined)

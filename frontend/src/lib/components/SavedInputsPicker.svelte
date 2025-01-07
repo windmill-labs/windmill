@@ -147,11 +147,17 @@
 		selectedArgs = undefined
 		dispatch('select', undefined)
 	})
+
+	async function getPropPickerElements(): Promise<HTMLElement[]> {
+		return Array.from(
+			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
+		) as HTMLElement[]
+	}
 </script>
 
 <div
 	class="w-full flex flex-col gap-1 h-full overflow-y-auto p"
-	use:clickOutside
+	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 	on:click_outside={() => {
 		selectedInput = null
 		selectedArgs = undefined

@@ -81,8 +81,6 @@
 
 	$: showCapture && (http_method = 'post')
 
-	export let route_path = ''
-
 	function updateArgs(route_path: string, http_method: string) {
 		args && ((args.route_path = route_path), (args.http_method = http_method))
 	}

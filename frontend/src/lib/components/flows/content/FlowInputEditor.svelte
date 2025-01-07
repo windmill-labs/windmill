@@ -49,7 +49,7 @@
 			<slot name="header" />
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			<div class="flex flex-row gap-2">
+			<div class="flex flex-row gap-2 data-schema-picker">
 				<slot name="action" />
 				<Button
 					size="xs2"
