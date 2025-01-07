@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { Info, Trash2, Plus } from 'lucide-svelte'
+	import { Info, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -14,7 +14,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import type { Capture } from '$lib/gen'
-	import { captureTriggerKindToTriggerKind } from '../triggers'
+	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import { DataTable } from '../table/index'
 	import { sendUserToast } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
@@ -143,21 +143,10 @@
 {#if captures.length > 0 || !hideCapturesWhenEmpty}
 	<Label label="Trigger tests" {headless} class="h-full flex flex-col gap-1">
 		<svelte:fragment slot="header">
-			{#if addButton && captureType !== undefined}
-				<Button
-					size="xs2"
-					color="light"
-					variant="contained"
-					iconOnly
-					startIcon={{ icon: Plus }}
-					on:click={() => {
-						captureType &&
-							dispatch('openTriggers', {
-								kind: captureTriggerKindToTriggerKind(captureType),
-								config: {}
-							})
-					}}
-				/>
+			{#if addButton}
+				<div class="inline-block">
+					<CaptureButton small={true} on:openTriggers />
+				</div>
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="action">

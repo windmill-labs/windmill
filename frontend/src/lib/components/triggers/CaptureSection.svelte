@@ -71,9 +71,13 @@
 						variant="border"
 						{disabled}
 						color="light"
-						startIcon={{ icon: captureInfo.active ? CircleStop : CaptureIcon }}
 						btnClasses={captureInfo.active ? 'text-blue-500 hover:text-blue-500' : ''}
 					>
+						{#if captureInfo.active}
+							<CircleStop />
+						{:else}
+							<CaptureIcon variant="redDot" />
+						{/if}
 						{captureInfo.active ? 'Stop' : 'Start capturing'}
 					</Button>
 				</AnimatedButton>

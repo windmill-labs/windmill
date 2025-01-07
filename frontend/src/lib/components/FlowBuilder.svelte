@@ -490,7 +490,7 @@
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 	const history = initHistory($flowStore)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
-
+	const captureOn = writable<boolean>(false)
 	$: initialPath && ($pathStore = initialPath)
 
 	const testStepStore = writable<Record<string, any>>({})
@@ -542,7 +542,7 @@
 		triggersCount,
 		simplifiedPoll,
 		defaultValues: writable(undefined),
-		captureOn: writable(undefined)
+		captureOn
 	})
 
 	async function loadTriggers() {
@@ -1421,7 +1421,13 @@
 							{abortController}
 						/>
 					{/if}
-					<FlowPreviewButtons />
+					<FlowPreviewButtons
+						on:openTriggers={(e) => {
+							select('triggers')
+							selectTrigger(e.detail.kind)
+							captureOn.set(true)
+						}}
+					/>
 					<Button
 						loading={loadingDraft}
 						size="xs"
