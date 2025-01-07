@@ -29,7 +29,7 @@
 					}}
 				>
 					<div class="flex flex-row items-center gap-2">
-						<svelte:component this={item.icon} />
+						<svelte:component this={item.icon} size={14} />
 						<p class="text-xs text-secondary">{item.label}</p>
 					</div>
 				</button>

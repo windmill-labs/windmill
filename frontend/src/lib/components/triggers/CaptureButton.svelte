@@ -36,7 +36,7 @@
 				title="Test trigger"
 			>
 				<div class="flex flex-row items-center gap-1">
-					<CaptureIcon />
+					<CaptureIcon variant="redDot" />
 					<Plus size={10} class="text-red" />
 				</div>
 			</Button>
@@ -48,7 +48,7 @@
 				nonCaptureEvent
 				title="Test trigger"
 			>
-				<CaptureIcon />
+				<CaptureIcon variant="redDot" />
 			</Button>
 		{/if}
 	</svelte:fragment>

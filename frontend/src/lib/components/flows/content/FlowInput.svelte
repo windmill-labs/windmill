@@ -14,7 +14,18 @@
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 	import HistoricInputs from '$lib/components/HistoricInputs.svelte'
 	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
-	import { CornerDownLeft, Pen, ChevronRight, ChevronDown, Plus } from 'lucide-svelte'
+	import {
+		CornerDownLeft,
+		Pen,
+		ChevronRight,
+		ChevronDown,
+		Plus,
+		History,
+		Braces,
+		Code,
+		Save
+	} from 'lucide-svelte'
+	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
@@ -60,41 +71,47 @@
 				},
 				disabled:
 					!$flowInputEditorState?.selectedTab ||
-					$flowInputEditorState?.selectedTab === 'inputEditor'
+					$flowInputEditorState?.selectedTab === 'inputEditor',
+				icon: Pen
 			},
 			{
 				label: 'Trigger tests',
 				onClick: () => {
 					handleEditSchema('captures')
 				},
-				disabled: $flowInputEditorState?.selectedTab === 'captures'
+				disabled: $flowInputEditorState?.selectedTab === 'captures',
+				icon: CaptureIcon
 			},
 			{
 				label: 'History',
 				onClick: () => {
 					handleEditSchema('history')
 				},
-				disabled: $flowInputEditorState?.selectedTab === 'history'
+				disabled: $flowInputEditorState?.selectedTab === 'history',
+				icon: History
 			},
 			{
 				label: 'Json',
 				onClick: () => {
 					handleEditSchema('json')
 				},
-				disabled: $flowInputEditorState?.selectedTab === 'json'
+				disabled: $flowInputEditorState?.selectedTab === 'json',
+				icon: Braces
 			},
 			{
 				label: "First step's inputs",
 				onClick: () => {
 					copyFirstStepSchema($flowStateStore, flowStore)
-				}
+				},
+				icon: Code
 			},
 			{
 				label: 'Saved inputs',
 				onClick: () => {
 					handleEditSchema('savedInputs')
 				},
-				disabled: $flowInputEditorState?.selectedTab === 'savedInputs'
+				disabled: $flowInputEditorState?.selectedTab === 'savedInputs',
+				icon: Save
 			}
 		].filter((item) => !item.disabled)
 	}
