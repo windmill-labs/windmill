@@ -7,6 +7,8 @@
 	import JobLoader from './runs/JobLoader.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
+	import { clickOutside } from '$lib/utils'
+
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
@@ -103,7 +105,14 @@
 	perPage={5}
 />
 
-<div class="h-full w-full flex flex-col gap-4">
+<div
+	class="h-full w-full flex flex-col gap-4"
+	use:clickOutside
+	on:click_outside={() => {
+		selected = undefined
+		dispatch('select', undefined)
+	}}
+>
 	<div class="grow-0">
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading && (jobs == undefined || jobs?.length == 0)}

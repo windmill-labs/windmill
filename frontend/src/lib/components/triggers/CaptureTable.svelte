@@ -19,6 +19,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
+	import { clickOutside } from '$lib/utils'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -169,7 +170,14 @@
 			{/if}
 		</svelte:fragment>
 
-		<div class={twMerge('grow min-h-0', captures.length > 7 ? 'h-[300px]' : 'h-auto')}>
+		<div
+			class={twMerge('grow min-h-0', captures.length > 7 ? 'h-[300px]' : 'h-auto')}
+			use:clickOutside
+			on:click_outside={() => {
+				selected = undefined
+				dispatch('select', undefined)
+			}}
+		>
 			{#if captures.length === 0}
 				<div class="text-xs text-secondary">
 					{`No ${captureType ?? 'trigger'} tests yet`}

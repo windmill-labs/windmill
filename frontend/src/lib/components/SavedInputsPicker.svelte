@@ -10,6 +10,8 @@
 	import DataTable from './table/DataTable.svelte'
 	import { Row, Cell } from './table/index'
 	import { twMerge } from 'tailwind-merge'
+	import { clickOutside } from '$lib/utils'
+
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
@@ -147,7 +149,15 @@
 	})
 </script>
 
-<div class="w-full flex flex-col gap-1 h-full overflow-y-auto p">
+<div
+	class="w-full flex flex-col gap-1 h-full overflow-y-auto p"
+	use:clickOutside
+	on:click_outside={() => {
+		selectedInput = null
+		selectedArgs = undefined
+		dispatch('select', undefined)
+	}}
+>
 	{#if savedInputs === undefined}
 		<Skeleton layout={[[8]]} />
 	{:else if savedInputs?.length > 0}
