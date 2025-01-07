@@ -107,7 +107,11 @@
 		customUi: {},
 		insertButtonOpen: writable(false),
 		executionCount: writable(0),
-		flowInputEditorState: writable<FlowInputEditorState | undefined>(undefined)
+		flowInputEditorState: writable<FlowInputEditorState>({
+			selectedTab: undefined,
+			editPanelSize: undefined,
+			payloadData: undefined
+		})
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
