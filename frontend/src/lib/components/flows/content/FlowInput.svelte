@@ -151,7 +151,7 @@
 
 	function runPreview() {
 		previewOpen = true
-		flowPreviewContent?.runPreview($previewArgs, undefined)
+		flowPreviewContent?.test()
 	}
 
 	function updatePreviewSchemaAndArgs(payloadData: any) {
@@ -171,7 +171,6 @@
 		}
 		$flowStore.schema = previewSchema
 		previousArgs = $previewArgs
-		payloadData = undefined
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
@@ -179,7 +178,6 @@
 
 	function applySchema() {
 		$flowStore.schema = previewSchema
-		payloadData = undefined
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
@@ -360,7 +358,7 @@
 								scriptPath={null}
 								flowPath={$pathStore}
 								on:select={(e) => {
-									payloadData = e.detail
+									payloadData = e.detail ?? undefined
 								}}
 							/>
 						</FlowInputEditor>
@@ -380,7 +378,7 @@
 							</svelete:fragment>
 							<CapturesInputs
 								on:select={(e) => {
-									payloadData = e.detail
+									payloadData = e.detail ?? undefined
 								}}
 								flowPath={$pathStore}
 							/>
@@ -400,7 +398,7 @@
 							<SavedInputsPicker
 								flowPath={initialPath}
 								on:select={(e) => {
-									payloadData = e.detail
+									payloadData = e.detail ?? undefined
 								}}
 							/>
 						</FlowInputEditor>
