@@ -19,8 +19,16 @@
 	export let newFlow = false
 	export let disabledFlowInputs = false
 
-	const { selectedId, flowStore, flowStateStore, flowInputsStore, pathStore, initialPath } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		selectedId,
+		flowStore,
+		flowStateStore,
+		flowInputsStore,
+		pathStore,
+		initialPath,
+		previewArgs,
+		flowInputEditorState
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { selectedTrigger, defaultValues, captureOn } = getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
@@ -72,13 +80,6 @@
 			captureOn.set(true)
 		}}
 		on:applyArgs
-		on:updateSchema={(e) => {
-			const { schema, redirect } = e.detail
-			$flowStore.schema = schema
-			if (redirect) {
-				$selectedId = 'Input'
-			}
-		}}
 	/>
 {:else if $selectedId === 'Result'}
 	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
@@ -97,6 +98,25 @@
 				subkind: 'preprocessor'
 			})
 			$selectedId = 'preprocessor'
+		}}
+		on:updateSchema={(e) => {
+			console.log('dbg update schema', e.detail)
+			const { schema, redirect, args } = e.detail
+			$flowStore.schema = schema
+			if (args) {
+				$previewArgs = args
+			}
+			if (redirect) {
+				$selectedId = 'Input'
+				if (!$flowInputEditorState) {
+					$flowInputEditorState = {
+						selectedTab: 'captures',
+						editPanelSize: 50
+					}
+				} else {
+					$flowInputEditorState.selectedTab = 'captures'
+				}
+			}
 		}}
 		currentPath={$pathStore}
 		{initialPath}

@@ -1210,7 +1210,6 @@
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
-	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1422,7 +1421,7 @@
 							{abortController}
 						/>
 					{/if}
-					<FlowPreviewButtons bind:this={flowPreviewButtons} />
+					<FlowPreviewButtons />
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1488,12 +1487,10 @@
 					}}
 					{newFlow}
 					on:applyArgs={(ev) => {
+						console.log('dbg apply args', ev.detail)
 						if (ev.detail.kind === 'preprocessor') {
 							$testStepStore['preprocessor'] = ev.detail.args ?? {}
 							$selectedIdStore = 'preprocessor'
-						} else {
-							$previewArgsStore = ev.detail.args ?? {}
-							flowPreviewButtons?.openPreview()
 						}
 					}}
 				/>

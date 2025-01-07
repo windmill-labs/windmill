@@ -1256,7 +1256,7 @@
 								on:applyArgs={applyArgs}
 								on:addPreprocessor={addPreprocessor}
 								on:exitTriggers={() => {
-									captureTable?.refreshCaptures()
+									captureTable?.loadCaptures(true)
 								}}
 								{initialPath}
 								schema={script.schema}

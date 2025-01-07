@@ -22,13 +22,16 @@
 	import type { CaptureTriggerKind } from '$lib/gen'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import Tooltip from '../Tooltip.svelte'
-
+	import { convert } from '@redocly/json-to-json-schema'
+	import { sendUserToast } from '$lib/toast'
 	export let disabled: boolean
 	export let captureType: CaptureTriggerKind
 	export let captureInfo: CaptureInfo
 	export let captureTable: CaptureTable | undefined
+
 	const dispatch = createEventDispatcher<{
 		captureToggle: undefined
+		updateSchema: { schema: any; redirect: boolean; args: any }
 	}>()
 
 	onDestroy(() => {
@@ -36,6 +39,25 @@
 			dispatch('captureToggle')
 		}
 	})
+
+	function handleUpdateSchema(e: any) {
+		dispatch('updateSchema', {
+			schema: schemaFromPayload(e.detail.payloadData),
+			redirect: e.detail.redirect,
+			args: e.detail.args ? e.detail.payloadData : undefined
+		})
+	}
+
+	function schemaFromPayload(payload: any) {
+		const parsed = JSON.parse(JSON.stringify(payload))
+
+		if (!parsed) {
+			sendUserToast('Invalid Schema', true)
+			return
+		}
+
+		return { required: [], properties: {}, ...convert(parsed) }
+	}
 </script>
 
 <div transition:slide class="pb-12">
@@ -89,9 +111,9 @@
 			path={captureInfo.path}
 			canEdit={true}
 			on:applyArgs
-			on:updateSchema
+			on:updateSchema={handleUpdateSchema}
 			on:addPreprocessor
-			maxHeight={300}
+			captureActive={captureInfo.active}
 		/>
 	</div>
 </div>

@@ -71,6 +71,7 @@
 				{hasPreprocessor}
 				on:applyArgs
 				on:addPreprocessor
+				on:updateSchema
 				{newItem}
 			/>
 		{:else}

@@ -7,7 +7,6 @@
 	import Section from '../Section.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { type CaptureTriggerKind } from '$lib/gen'
-	import type { FlowEditorContext } from '../flows/types'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import TriggersWrapper from './TriggersWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -36,9 +35,6 @@
 	let args: Record<string, any> = {}
 
 	const dispatch = createEventDispatcher()
-
-	const { flowStore, selectedId, flowInputEditorState } =
-		getContext<FlowEditorContext>('FlowEditorContext') || {}
 </script>
 
 <Section label={captureTypeLabels[triggerType]}>
@@ -102,21 +98,7 @@
 			{canHavePreprocessor}
 			on:applyArgs
 			on:addPreprocessor
-			on:updateSchema={(e) => {
-				const { schema, redirect } = e.detail
-				$flowStore.schema = schema
-				if (redirect) {
-					$selectedId = 'Input'
-					if (!$flowInputEditorState) {
-						$flowInputEditorState = {
-							selectedTab: 'captures',
-							editPanelSize: 50
-						}
-					} else {
-						$flowInputEditorState.selectedTab = 'captures'
-					}
-				}
-			}}
+			on:updateSchema
 			on:saveTrigger
 			bind:args
 			{data}

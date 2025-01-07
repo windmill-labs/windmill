@@ -12,7 +12,7 @@
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
-	import HistoricInpts from '$lib/components/HistoricInpts.svelte'
+	import HistoricInputs from '$lib/components/HistoricInputs.svelte'
 	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
 	import { CornerDownLeft, Pen, ChevronRight, ChevronDown, Plus } from 'lucide-svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
@@ -21,7 +21,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
-	import { tick } from 'svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -33,7 +32,6 @@
 	let pendingJson: string
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
-	let previewArguments: any | undefined = undefined
 	let editOptionsOpen = false
 	let dropdownItems: Array<{
 		label: string
@@ -128,7 +126,6 @@
 	let flowPreviewContent: FlowPreviewContent
 	let previewOpen = false
 
-	let runDisabled = false
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 			runPreview()
@@ -136,39 +133,27 @@
 	}
 
 	function runPreview() {
-		if (!runDisabled) {
-			previewOpen = true
-			flowPreviewContent?.runPreview($previewArgs, undefined)
-		}
+		previewOpen = true
+		flowPreviewContent?.runPreview($previewArgs, undefined)
 	}
 
-	async function updateRunDisabled(editSchema: boolean) {
-		await tick()
-		runDisabled = editSchema
-	}
-	$: updateRunDisabled(!!$flowInputEditorState?.selectedTab)
-
-	function updatePreviewSchema(payloadData: any) {
-		previewSchema = undefined
-		previewArguments = undefined
+	function updatePreviewSchemaAndArgs(payloadData: any) {
 		if (!payloadData) {
 			updatePreviewArgs(undefined)
+			previewSchema = undefined
 			return
 		}
 		previewSchema = schemaFromPayload(payloadData)
-		previewArguments = payloadData
-		updatePreviewArgs(previewArguments)
+		updatePreviewArgs(payloadData)
 	}
-
-	$: updatePreviewSchema(payloadData)
+	$: updatePreviewSchemaAndArgs(payloadData)
 
 	function applySchemaAndArgs() {
-		if (!payloadData || !previewSchema || !previewArguments) {
+		if (!previewSchema) {
 			return
 		}
 		$flowStore.schema = previewSchema
-		$previewArgs = previewArguments
-		previousArgs = previewArguments
+		previousArgs = $previewArgs
 		payloadData = undefined
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
@@ -176,10 +161,8 @@
 	}
 
 	function applySchema() {
-		if (!payloadData) return
-		$flowStore.schema = schemaFromPayload(payloadData)
-		previewSchema = undefined
-		previewArguments = undefined
+		$flowStore.schema = previewSchema
+		payloadData = undefined
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
@@ -187,31 +170,31 @@
 
 	let previousArgs: Record<string, any> | undefined = undefined
 	function updatePreviewArgs(previewArguments: Record<string, any> | undefined) {
-		if (!previewArguments && previousArgs) {
-			$previewArgs = previousArgs
-		} else if (previewArguments) {
+		if (previewArguments) {
 			previousArgs = $previewArgs
 			$previewArgs = previewArguments
+		} else if (!previewArguments && previousArgs) {
+			$previewArgs = previousArgs
+			previousArgs = undefined
 		}
 	}
-	$: updatePreviewArgs(previewArguments)
 
 	let jsonValid = false
 	function updatePayloadFromJson(pendingJson: string) {
 		if (!pendingJson?.length) {
 			payloadData = undefined
-			updatePreviewSchema(undefined)
+			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 			return
 		}
 		try {
 			const parsed = JSON.parse(pendingJson)
 			payloadData = parsed
-			updatePreviewSchema(parsed)
+			updatePreviewSchemaAndArgs(parsed)
 			jsonValid = true
 		} catch (error) {
 			payloadData = undefined
-			updatePreviewSchema(undefined)
+			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 		}
 	}
@@ -318,7 +301,7 @@
 					</div>
 				</svelte:fragment>
 				<svelte:fragment slot="addProperty">
-					{#if previewSchema && previewArguments}
+					{#if !!previewSchema}
 						<div
 							class={twMerge(
 								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs py-2 w-full flex justify-center rounded-md',
@@ -355,7 +338,7 @@
 								payloadData = undefined
 							}}
 						>
-							<HistoricInpts
+							<HistoricInputs
 								scriptHash={null}
 								scriptPath={null}
 								flowPath={$pathStore}
@@ -382,9 +365,7 @@
 								on:select={(e) => {
 									payloadData = e.detail
 								}}
-								scriptHash={null}
 								flowPath={$pathStore}
-								isFlow={true}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
@@ -424,7 +405,7 @@
 						<Button
 							color="dark"
 							btnClasses="w-fit"
-							disabled={runDisabled}
+							disabled={!!previewSchema}
 							size="xs"
 							shortCut={{ Icon: CornerDownLeft, hide: false }}
 							on:click={() => {

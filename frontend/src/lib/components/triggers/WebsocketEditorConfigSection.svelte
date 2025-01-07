@@ -21,7 +21,6 @@
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean = false
-
 	let areRunnableArgsValid: boolean = true
 
 	let urlRunnableSchema: Schema | undefined = undefined

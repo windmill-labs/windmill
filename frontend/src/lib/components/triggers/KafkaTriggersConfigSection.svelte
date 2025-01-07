@@ -8,6 +8,7 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import CaptureSection, { type CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
+
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}

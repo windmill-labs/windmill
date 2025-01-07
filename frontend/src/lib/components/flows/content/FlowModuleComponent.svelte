@@ -13,7 +13,7 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { afterUpdate, getContext, tick } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -87,9 +87,6 @@
 	let advancedSelected = 'retries'
 	let advancedRuntimeSelected = 'concurrency'
 	let s3Kind = 's3_client'
-	let wrapper: HTMLDivElement
-	let panes: HTMLElement
-	let totalTopGap = 0
 	let validCode = true
 	let width = 1200
 
@@ -176,15 +173,6 @@
 		advancedSelected = subtab
 	}
 
-	afterUpdate(() => {
-		totalTopGap = 0
-		if (!(wrapper && panes)) return
-
-		const wrapperTop = wrapper.getBoundingClientRect().top
-		const panesTop = panes.getBoundingClientRect().top
-		totalTopGap = panesTop - wrapperTop
-	})
-
 	let forceReload = 0
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
@@ -222,7 +210,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 {#if flowModule.value}
-	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
+	<div class="h-full" bind:clientWidth={width}>
 		<FlowCard
 			on:reload={() => {
 				forceReload++
@@ -296,12 +284,7 @@
 				</div>
 			{/if}
 
-			<div
-				bind:this={panes}
-				class="h-full"
-				style="max-height: calc(100% - {totalTopGap}px) !important;"
-				id="flow-editor-editor"
-			>
+			<div class="h-full" id="flow-editor-editor">
 				<Splitpanes horizontal>
 					<Pane bind:size={editorPanelSize} minSize={20}>
 						{#if flowModule.value.type === 'rawscript'}

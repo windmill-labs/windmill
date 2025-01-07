@@ -54,6 +54,7 @@
 						<WebhooksPanel
 							on:applyArgs
 							on:addPreprocessor
+							on:updateSchema
 							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 							path={currentPath}
 							{hash}
@@ -71,6 +72,7 @@
 						<EmailTriggerPanel
 							on:applyArgs
 							on:addPreprocessor
+							on:updateSchema
 							token=""
 							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 							path={currentPath}
@@ -86,10 +88,13 @@
 						<RoutesPanel
 							on:applyArgs
 							on:addPreprocessor
+							on:updateSchema
 							{newItem}
 							path={currentPath}
 							{isFlow}
 							isEditor={true}
+							{canHavePreprocessor}
+							{hasPreprocessor}
 						/>
 					</div>
 				{:else if $selectedTrigger === 'websockets'}
@@ -97,6 +102,7 @@
 						<WebsocketTriggersPanel
 							on:applyArgs
 							on:addPreprocessor
+							on:updateSchema
 							{newItem}
 							path={currentPath}
 							{isFlow}
@@ -110,6 +116,7 @@
 						<KafkaTriggersPanel
 							on:applyArgs
 							on:addPreprocessor
+							on:updateSchema
 							{newItem}
 							path={currentPath}
 							{isFlow}

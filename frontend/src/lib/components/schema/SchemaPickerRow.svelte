@@ -98,9 +98,8 @@
 				<ObjectViewer json={payloadData} />
 			</svelte:fragment>
 		</CustomPopover>
-		{#if hovering}
-			<slot name="extra" />
-		{/if}
+
+		<slot name="extra" />
 	</Cell>
 </Row>
 

@@ -14,10 +14,12 @@
 	const dispatch = createEventDispatcher()
 	const perPage = 10
 
-	let previousInputs: Input[] | undefined = undefined
+	let previousInputs: Input[] = []
 	let jobs: Job[] = []
 	let loading: boolean = false
 	let hasMoreCurrentRuns = false
+	let hasMorePreviousRuns = false
+	let page = 1
 
 	$: runnableId = scriptHash || scriptPath || flowPath || undefined
 
@@ -31,15 +33,24 @@
 		: undefined
 
 	let hasAlreadyFailed = false
-	async function loadInputHistory() {
+	async function loadInputHistory(refresh = false) {
+		hasMorePreviousRuns = false
+		if (refresh) {
+			previousInputs = []
+			page = 1
+			return loadInputHistory(false)
+		}
 		try {
-			previousInputs = await InputService.getInputHistory({
+			const newInputs = await InputService.getInputHistory({
 				workspace: $workspaceStore!,
 				runnableId,
 				runnableType,
 				page,
 				perPage
 			})
+			previousInputs = [...previousInputs, ...newInputs]
+			hasMorePreviousRuns = previousInputs ? previousInputs.length === perPage * page : false
+			page++
 		} catch (e) {
 			console.error(e)
 			if (hasAlreadyFailed) return
@@ -70,19 +81,6 @@
 		selected = undefined
 		dispatch('select', undefined)
 	})
-
-	$: hasMorePreviousRuns = previousInputs ? previousInputs.length === perPage : false
-
-	let page = 1
-	function goToNextPage() {
-		page++
-		loadInputHistory()
-	}
-
-	function goToPreviousPage() {
-		page--
-		loadInputHistory()
-	}
 </script>
 
 <JobLoader
@@ -105,16 +103,9 @@
 	perPage={5}
 />
 
-<div class="h-full">
-	<div class="w-full flex flex-col gap-4">
-		<DataTable
-			size="xs"
-			on:next={goToNextPage}
-			on:previous={goToPreviousPage}
-			bind:currentPage={page}
-			hasMore={hasMoreCurrentRuns}
-			tableFixed={true}
-		>
+<div class="h-full w-full flex flex-col gap-4">
+	<div class="grow-0">
+		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading && (jobs == undefined || jobs?.length == 0)}
 				<div class="text-center text-tertiary text-xs py-2">Loading current runs...</div>
 			{:else if jobs?.length > 0}
@@ -143,13 +134,13 @@
 				<div class="text-center text-tertiary text-xs py-2">No running runs</div>
 			{/if}
 		</DataTable>
+	</div>
 
+	<div class="min-h-0 grow">
 		<DataTable
 			size="xs"
-			paginated={page > 1 || (previousInputs && previousInputs.length > 0)}
-			on:next={goToNextPage}
-			on:previous={goToPreviousPage}
-			bind:currentPage={page}
+			on:loadMore={() => loadInputHistory()}
+			infiniteScroll
 			hasMore={hasMorePreviousRuns}
 			tableFixed={true}
 		>
@@ -171,7 +162,7 @@
 						/>
 					{/each}
 				</tbody>
-			{:else if page > 1}
+			{:else if page > 2}
 				<div class="text-center text-tertiary text-xs py-2">No more previous Runs</div>
 			{:else}
 				<div class="text-center text-tertiary text-xs py-2">No previous Runs</div>

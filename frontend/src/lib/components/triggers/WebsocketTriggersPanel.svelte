@@ -79,6 +79,7 @@
 				wsTriggerEditor?.openNew(isFlow, path, e.detail.config)
 			}}
 			on:addPreprocessor
+			on:updateSchema
 			cloudDisabled={false}
 			triggerType="websocket"
 			{isFlow}

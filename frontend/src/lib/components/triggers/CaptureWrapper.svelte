@@ -81,9 +81,9 @@
 				})
 				await getCaptureConfigs()
 			}
-			captureTable?.refreshCaptures()
 			i++
 			await sleep(1000)
+			captureTable?.loadCaptures(true)
 		}
 	}
 
