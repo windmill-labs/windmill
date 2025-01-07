@@ -1487,7 +1487,6 @@
 					}}
 					{newFlow}
 					on:applyArgs={(ev) => {
-						console.log('dbg apply args', ev.detail)
 						if (ev.detail.kind === 'preprocessor') {
 							$testStepStore['preprocessor'] = ev.detail.args ?? {}
 							$selectedIdStore = 'preprocessor'

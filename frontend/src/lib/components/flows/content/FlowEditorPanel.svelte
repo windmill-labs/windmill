@@ -100,7 +100,6 @@
 			$selectedId = 'preprocessor'
 		}}
 		on:updateSchema={(e) => {
-			console.log('dbg update schema', e.detail)
 			const { schema, redirect, args } = e.detail
 			$flowStore.schema = schema
 			if (args) {
