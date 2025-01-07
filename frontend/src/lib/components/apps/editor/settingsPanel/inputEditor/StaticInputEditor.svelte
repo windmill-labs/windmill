@@ -73,7 +73,7 @@
 			<IconSelectInput bind:value={componentInput.value} />
 		{:else if fieldType === 'tab-select'}
 			<TabSelectInput bind:componentInput />
-		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'bigquery'].includes(subFieldType)}
+		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'snowflake_oauth', 'bigquery'].includes(subFieldType)}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {

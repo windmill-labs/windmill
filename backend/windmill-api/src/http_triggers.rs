@@ -77,7 +77,7 @@ pub fn workspaced_service() -> Router {
 #[derive(Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
-enum HttpMethod {
+pub enum HttpMethod {
     Get,
     Post,
     Put,

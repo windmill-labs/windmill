@@ -56,12 +56,19 @@
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
-			const nc = (
-				await ResourceService.listResource({
-					workspace: $workspaceStore!,
-					resourceType
-				})
+			const resourceTypesToQuery =
+				resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]
+
+			const resources = await Promise.all(
+				resourceTypesToQuery.map((rt) =>
+					ResourceService.listResource({
+						workspace: $workspaceStore!,
+						resourceType: rt
+					})
+				)
 			)
+			const nc = resources
+				.flat()
 				.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
 				.map((x) => ({
 					value: x.path,

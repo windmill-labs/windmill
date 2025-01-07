@@ -33,7 +33,7 @@ use windmill_common::{
 use windmill_queue::{PushArgs, PushArgsOwned};
 
 #[cfg(feature = "http_trigger")]
-use crate::http_triggers::build_http_trigger_extra;
+use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaResourceSecurity;
 use crate::{
@@ -99,9 +99,11 @@ impl fmt::Display for TriggerKind {
     }
 }
 
+#[cfg(feature = "http_trigger")]
 #[derive(Serialize, Deserialize)]
 struct HttpTriggerConfig {
     route_path: String,
+    http_method: HttpMethod,
 }
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -131,6 +133,7 @@ pub struct WebsocketTriggerConfig {
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum TriggerConfig {
+    #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
     Websocket(WebsocketTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]

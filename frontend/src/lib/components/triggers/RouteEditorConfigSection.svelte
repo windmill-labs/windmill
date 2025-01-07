@@ -19,6 +19,7 @@
 
 	export let args: Record<string, any> = { route_path: '', http_method: 'get' }
 	export let dirtyRoutePath: boolean = false
+	export let route_path = ''
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
@@ -55,7 +56,7 @@
 			workspace: $workspaceStore!,
 			requestBody: {
 				route_path,
-				http_method
+				http_method: method
 			}
 		})
 	}

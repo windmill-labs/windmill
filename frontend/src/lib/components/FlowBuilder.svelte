@@ -1210,6 +1210,7 @@
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1421,7 +1422,7 @@
 							{abortController}
 						/>
 					{/if}
-					<FlowPreviewButtons />
+					<FlowPreviewButtons bind:this={flowPreviewButtons} />
 					<Button
 						loading={loadingDraft}
 						size="xs"
