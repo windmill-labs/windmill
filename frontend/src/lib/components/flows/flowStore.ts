@@ -1,6 +1,7 @@
 import type { Flow, OpenFlow } from '$lib/gen'
 import { writable, type Writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
+import { sendUserToast } from '$lib/toast'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -29,8 +30,12 @@ export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writa
 						expr: `flow_input.${key}`
 					}
 				})
+				return flow
 			}
+			sendUserToast('Only scripts can be used as a input schema', true)
+			return flow
 		}
+		sendUserToast('No first step found', true)
 		return flow
 	})
 }
