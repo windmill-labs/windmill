@@ -39,10 +39,10 @@
 	const { flowStore, flowStateStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let payloadData: any | undefined = undefined
 	let pendingJson: string
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
+	let previewArguments: Record<string, any> | undefined = $previewArgs
 	let editOptionsOpen = false
 	let dropdownItems: Array<{
 		label: string
@@ -137,6 +137,16 @@
 			return
 		}
 
+		if (Object.keys(parsed).length === 0) {
+			return {
+				required: [],
+				properties: {},
+				type: 'object',
+				additionalProperties: false,
+				order: []
+			}
+		}
+
 		return { required: [], properties: {}, ...convert(parsed) }
 	}
 
@@ -150,27 +160,32 @@
 	}
 
 	function runPreview() {
+		if (previewArguments) {
+			$previewArgs = previewArguments
+		}
 		previewOpen = true
 		flowPreviewContent?.test()
 	}
 
 	function updatePreviewSchemaAndArgs(payloadData: any) {
 		if (!payloadData) {
-			updatePreviewArgs(undefined)
+			updatePreviewArguments(undefined)
 			previewSchema = undefined
 			return
 		}
 		previewSchema = schemaFromPayload(payloadData)
-		updatePreviewArgs(payloadData)
+		updatePreviewArguments(payloadData)
 	}
-	$: updatePreviewSchemaAndArgs(payloadData)
+	$: updatePreviewSchemaAndArgs($flowInputEditorState.payloadData)
 
 	function applySchemaAndArgs() {
 		if (!previewSchema) {
 			return
 		}
 		$flowStore.schema = previewSchema
-		previousArgs = $previewArgs
+		if (previewArguments) {
+			$previewArgs = previewArguments
+		}
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
@@ -183,32 +198,33 @@
 		}
 	}
 
-	let previousArgs: Record<string, any> | undefined = undefined
-	function updatePreviewArgs(previewArguments: Record<string, any> | undefined) {
-		if (previewArguments) {
-			previousArgs = $previewArgs
-			$previewArgs = previewArguments
-		} else if (!previewArguments && previousArgs) {
-			$previewArgs = previousArgs
-			previousArgs = undefined
+	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
+		if (!payloadData) {
+			previewArguments = $previewArgs
+			return
 		}
+		previewArguments = payloadData
 	}
 
 	let jsonValid = false
 	function updatePayloadFromJson(pendingJson: string) {
+		if ($flowInputEditorState?.selectedTab !== 'json') {
+			pendingJson = ''
+			return
+		}
 		if (!pendingJson?.length) {
-			payloadData = undefined
+			$flowInputEditorState.payloadData = undefined
 			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 			return
 		}
 		try {
 			const parsed = JSON.parse(pendingJson)
-			payloadData = parsed
+			$flowInputEditorState.payloadData = parsed
 			updatePreviewSchemaAndArgs(parsed)
 			jsonValid = true
 		} catch (error) {
-			payloadData = undefined
+			$flowInputEditorState.payloadData = undefined
 			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 		}
@@ -259,7 +275,7 @@
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}
-				bind:args={$previewArgs}
+				bind:args={previewArguments}
 				bind:editPanelSize
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
@@ -346,11 +362,11 @@
 				<svelte:fragment slot="extraTab">
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
-							disabled={!payloadData}
+							disabled={!$flowInputEditorState.payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								$flowInputEditorState.payloadData = undefined
 							}}
 						>
 							<HistoricInputs
@@ -358,17 +374,17 @@
 								scriptPath={null}
 								flowPath={$pathStore}
 								on:select={(e) => {
-									payloadData = e.detail ?? undefined
+									$flowInputEditorState.payloadData = e.detail ?? undefined
 								}}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
-							disabled={!payloadData}
+							disabled={!$flowInputEditorState.payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								$flowInputEditorState.payloadData = undefined
 							}}
 						>
 							<svelete:fragment slot="action">
@@ -378,18 +394,18 @@
 							</svelete:fragment>
 							<CapturesInputs
 								on:select={(e) => {
-									payloadData = e.detail ?? undefined
+									$flowInputEditorState.payloadData = e.detail ?? undefined
 								}}
 								flowPath={$pathStore}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
-							disabled={!payloadData}
+							disabled={!$flowInputEditorState.payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								$flowInputEditorState.payloadData = undefined
 							}}
 						>
 							<svelete:fragment slot="header">
@@ -398,7 +414,7 @@
 							<SavedInputsPicker
 								flowPath={initialPath}
 								on:select={(e) => {
-									payloadData = e.detail ?? undefined
+									$flowInputEditorState.payloadData = e.detail ?? undefined
 								}}
 							/>
 						</FlowInputEditor>
@@ -408,7 +424,8 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								$flowInputEditorState.payloadData = undefined
+								pendingJson = ''
 							}}
 						>
 							<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />

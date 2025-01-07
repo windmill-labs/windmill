@@ -46,8 +46,8 @@
 					on:click={() => {
 						$captureOn = !$captureOn
 					}}
-					variant="contained"
-					color="dark"
+					variant="border"
+					color="light"
 					endIcon={{
 						icon: ChevronDown,
 						classes: twMerge('transition', $captureOn ? 'rotate-180' : '')
@@ -100,6 +100,7 @@
 			on:addPreprocessor
 			on:updateSchema
 			on:saveTrigger
+			on:testWithArgs
 			bind:args
 			{data}
 			showCapture={$captureOn}

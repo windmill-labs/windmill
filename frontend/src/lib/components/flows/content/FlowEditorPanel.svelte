@@ -100,23 +100,17 @@
 			$selectedId = 'preprocessor'
 		}}
 		on:updateSchema={(e) => {
-			const { schema, redirect, args } = e.detail
-			$flowStore.schema = schema
-			if (args) {
-				$previewArgs = args
+			const { payloadData, redirect } = e.detail
+			if (payloadData) {
+				$previewArgs = JSON.parse(JSON.stringify(payloadData))
 			}
 			if (redirect) {
 				$selectedId = 'Input'
-				if (!$flowInputEditorState) {
-					$flowInputEditorState = {
-						selectedTab: 'captures',
-						editPanelSize: 50
-					}
-				} else {
-					$flowInputEditorState.selectedTab = 'captures'
-				}
+				$flowInputEditorState.selectedTab = 'captures'
+				$flowInputEditorState.payloadData = payloadData
 			}
 		}}
+		on:testWithArgs
 		currentPath={$pathStore}
 		{initialPath}
 		schema={$flowStore.schema}

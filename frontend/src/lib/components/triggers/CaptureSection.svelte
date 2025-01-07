@@ -22,8 +22,6 @@
 	import type { CaptureTriggerKind } from '$lib/gen'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { convert } from '@redocly/json-to-json-schema'
-	import { sendUserToast } from '$lib/toast'
 	export let disabled: boolean
 	export let captureType: CaptureTriggerKind
 	export let captureInfo: CaptureInfo
@@ -31,7 +29,7 @@
 
 	const dispatch = createEventDispatcher<{
 		captureToggle: undefined
-		updateSchema: { schema: any; redirect: boolean; args: any }
+		updateSchema: { payloadData: Record<string, any>; redirect: boolean }
 	}>()
 
 	onDestroy(() => {
@@ -42,21 +40,9 @@
 
 	function handleUpdateSchema(e: any) {
 		dispatch('updateSchema', {
-			schema: schemaFromPayload(e.detail.payloadData),
-			redirect: e.detail.redirect,
-			args: e.detail.args ? e.detail.payloadData : undefined
+			payloadData: e.detail.payloadData,
+			redirect: e.detail.redirect
 		})
-	}
-
-	function schemaFromPayload(payload: any) {
-		const parsed = JSON.parse(JSON.stringify(payload))
-
-		if (!parsed) {
-			sendUserToast('Invalid Schema', true)
-			return
-		}
-
-		return { required: [], properties: {}, ...convert(parsed) }
 	}
 </script>
 
@@ -117,6 +103,7 @@
 			on:applyArgs
 			on:updateSchema={handleUpdateSchema}
 			on:addPreprocessor
+			on:testWithArgs
 			captureActive={captureInfo.active}
 		/>
 	</div>

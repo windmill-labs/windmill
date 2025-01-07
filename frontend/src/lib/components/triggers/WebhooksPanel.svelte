@@ -42,6 +42,7 @@
 		on:addPreprocessor
 		on:refreshCaptures
 		on:updateSchema
+		on:testWithArgs
 		cloudDisabled={false}
 		triggerType="webhook"
 		{isFlow}

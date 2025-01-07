@@ -74,6 +74,7 @@
 			on:applyArgs
 			on:updateSchema
 			on:addPreprocessor
+			on:testWithArgs
 		>
 			<Label label="Email address">
 				<ClipboardPanel content={captureEmail} disabled={!captureInfo.active} />

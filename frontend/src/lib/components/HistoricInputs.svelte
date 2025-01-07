@@ -115,8 +115,10 @@
 	class="h-full w-full flex flex-col gap-4"
 	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 	on:click_outside={() => {
-		selected = undefined
-		dispatch('select', undefined)
+		if (selected) {
+			selected = undefined
+			dispatch('select', undefined)
+		}
 	}}
 >
 	<div class="grow-0">

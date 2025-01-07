@@ -60,7 +60,9 @@
 					hovering && 'border-surface'
 				)}
 				on:click={() => {
-					copyToClipboard(JSON.stringify(payloadData))
+					if (selected) {
+						copyToClipboard(JSON.stringify(payloadData))
+					}
 				}}
 				on:mouseenter={() => {
 					hovering = true

@@ -69,6 +69,7 @@
 			args?: boolean
 		}
 		select: any
+		testWithArgs: any
 	}>()
 
 	let hasAlreadyFailed = false
@@ -112,17 +113,21 @@
 
 	function handleSelect(capture: Capture) {
 		if (selected === capture.id) {
-			selected = undefined
-			dispatch('select', undefined)
+			deselect()
 		} else {
 			selected = capture.id
 			dispatch('select', capture.payload)
 		}
 	}
 
-	onDestroy(() => {
+	function deselect() {
+		if (!selected) return
 		selected = undefined
 		dispatch('select', undefined)
+	}
+
+	onDestroy(() => {
+		deselect()
 	})
 
 	const captureKindToIcon: Record<string, any> = {
@@ -169,8 +174,7 @@
 			class={twMerge('grow min-h-0', captures.length > 7 ? 'h-[300px]' : 'h-auto')}
 			use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 			on:click_outside={() => {
-				selected = undefined
-				dispatch('select', undefined)
+				deselect()
 			}}
 		>
 			{#if captures.length === 0}
@@ -259,11 +263,12 @@
 													color="dark"
 													dropdownItems={[
 														{
-															label: 'Apply schema only',
+															label: 'Use as input schema',
 															onClick: () => {
 																dispatch('updateSchema', {
 																	payloadData,
-																	redirect: true
+																	redirect: true,
+																	args: true
 																})
 															},
 															disabled: !isFlow || testKind !== 'main'
@@ -271,11 +276,7 @@
 													].filter((item) => !item.disabled)}
 													on:click={() => {
 														if (isFlow && testKind === 'main') {
-															dispatch('updateSchema', {
-																payloadData,
-																redirect: true,
-																args: true
-															})
+															dispatch('testWithArgs', payloadData)
 														} else {
 															dispatch('applyArgs', {
 																kind: testKind,
@@ -285,7 +286,7 @@
 													}}
 													disabled={testKind === 'preprocessor' && !hasPreprocessor}
 												>
-													{isFlow && testKind === 'main' ? 'Apply schema and args' : 'Apply args'}
+													{isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
 												</Button>
 											{/if}
 										</div>

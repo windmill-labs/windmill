@@ -72,6 +72,7 @@
 				on:applyArgs
 				on:addPreprocessor
 				on:updateSchema
+				on:testWithArgs
 				{newItem}
 			/>
 		{:else}

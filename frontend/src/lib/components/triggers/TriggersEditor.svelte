@@ -55,6 +55,7 @@
 							on:applyArgs
 							on:addPreprocessor
 							on:updateSchema
+							on:testWithArgs
 							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 							path={currentPath}
 							{hash}
@@ -73,6 +74,7 @@
 							on:applyArgs
 							on:addPreprocessor
 							on:updateSchema
+							on:testWithArgs
 							token=""
 							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 							path={currentPath}
@@ -89,6 +91,7 @@
 							on:applyArgs
 							on:addPreprocessor
 							on:updateSchema
+							on:testWithArgs
 							{newItem}
 							path={currentPath}
 							{isFlow}
@@ -103,6 +106,7 @@
 							on:applyArgs
 							on:addPreprocessor
 							on:updateSchema
+							on:testWithArgs
 							{newItem}
 							path={currentPath}
 							{isFlow}
@@ -117,6 +121,7 @@
 							on:applyArgs
 							on:addPreprocessor
 							on:updateSchema
+							on:testWithArgs
 							{newItem}
 							path={currentPath}
 							{isFlow}

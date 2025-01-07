@@ -80,6 +80,7 @@
 			}}
 			on:addPreprocessor
 			on:updateSchema
+			on:testWithArgs
 			cloudDisabled={false}
 			triggerType="websocket"
 			{isFlow}

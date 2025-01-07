@@ -2,28 +2,12 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { CornerDownLeft } from 'lucide-svelte'
+	import { CornerDownLeft, Save } from 'lucide-svelte'
 
 	export let name: string = ''
 	export let disabled = false
 
 	const dispatch = createEventDispatcher()
-
-	const dropdownItems: Array<{
-		label: string
-		onClick: () => void
-	}> = [
-		{
-			label: 'Apply schema only',
-			onClick: () => {
-				applySchema()
-			}
-		}
-	]
-
-	function applySchema() {
-		dispatch('applySchema')
-	}
 
 	function applySchemaAndArgs() {
 		dispatch('applySchemaAndArgs')
@@ -55,9 +39,9 @@
 					size="xs2"
 					color="dark"
 					{disabled}
-					{dropdownItems}
 					shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
-					on:click={applySchemaAndArgs}>Apply</Button
+					startIcon={{ icon: Save }}
+					on:click={applySchemaAndArgs}>Update schema</Button
 				>
 			</div>
 		</svelte:fragment>

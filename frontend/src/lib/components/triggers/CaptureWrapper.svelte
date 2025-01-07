@@ -178,6 +178,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'webhook'}
 		<WebhooksConfigSection
@@ -196,6 +197,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'http'}
 		<RouteEditorConfigSection
@@ -213,6 +215,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'email'}
 		<EmailTriggerConfigSection
@@ -231,6 +234,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'kafka'}
 		<KafkaTriggersConfigSection
@@ -246,6 +250,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{/if}
 </div>

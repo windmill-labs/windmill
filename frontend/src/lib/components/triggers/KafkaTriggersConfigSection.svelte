@@ -160,6 +160,7 @@
 			on:applyArgs
 			on:updateSchema
 			on:addPreprocessor
+			on:testWithArgs
 			bind:captureTable
 		/>
 	{/if}

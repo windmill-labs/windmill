@@ -155,7 +155,7 @@
 
 <Drawer bind:this={captureLibraryDrawer}>
 	<DrawerContent
-		title="Capture library {initialPath}"
+		title="Trigger tests library {initialPath}"
 		on:close={captureLibraryDrawer?.toggleDrawer}
 	>
 		<div class="h-full flex flex-col gap-2">

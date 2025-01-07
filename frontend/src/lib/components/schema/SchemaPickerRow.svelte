@@ -89,7 +89,9 @@
 					hovering && 'border-surface'
 				)}
 				on:click={() => {
-					copyToClipboard(JSON.stringify(payloadData))
+					if (selected) {
+						copyToClipboard(JSON.stringify(payloadData))
+					}
 				}}
 			>
 				{JSON.stringify(payloadData)}

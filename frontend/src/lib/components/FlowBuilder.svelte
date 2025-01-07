@@ -491,6 +491,11 @@
 	const history = initHistory($flowStore)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)
+	const flowInputEditorStateStore = writable<FlowInputEditorState>({
+		selectedTab: undefined,
+		editPanelSize: 0,
+		payloadData: undefined
+	})
 	$: initialPath && ($pathStore = initialPath)
 
 	const testStepStore = writable<Record<string, any>>({})
@@ -530,10 +535,7 @@
 		customUi,
 		insertButtonOpen,
 		executionCount: writable(0),
-		flowInputEditorState: writable<FlowInputEditorState | undefined>({
-			selectedTab: undefined,
-			editPanelSize: 0
-		})
+		flowInputEditorState: flowInputEditorStateStore
 	})
 
 	setContext<TriggerContext>('TriggerContext', {
@@ -1210,6 +1212,8 @@
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
+
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1427,6 +1431,7 @@
 							selectTrigger(e.detail.kind)
 							captureOn.set(true)
 						}}
+						bind:this={flowPreviewButtons}
 					/>
 					<Button
 						loading={loadingDraft}
@@ -1497,6 +1502,10 @@
 							$testStepStore['preprocessor'] = ev.detail.args ?? {}
 							$selectedIdStore = 'preprocessor'
 						}
+					}}
+					on:testWithArgs={(e) => {
+						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
+						flowPreviewButtons?.openPreview()
 					}}
 				/>
 			{:else}

@@ -28,6 +28,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 export type FlowInputEditorState = {
 	selectedTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' | undefined
 	editPanelSize: number | undefined
+	payloadData: Record<string, any> | undefined
 }
 
 export type FlowEditorContext = {
@@ -38,7 +39,7 @@ export type FlowEditorContext = {
 	history: History<OpenFlow>
 	pathStore: Writable<string>
 	flowStore: Writable<ExtendedOpenFlow>
-	flowInputEditorState: Writable<FlowInputEditorState | undefined>
+	flowInputEditorState: Writable<FlowInputEditorState>
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void
