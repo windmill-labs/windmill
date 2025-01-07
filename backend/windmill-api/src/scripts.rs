@@ -671,6 +671,24 @@ async fn create_script_internal<'c>(
         .execute(&mut *tx)
         .await?;
 
+        sqlx::query!(
+            "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
+            ns.path,
+            p_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    
+        sqlx::query!(
+            "UPDATE capture SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
+            ns.path,
+            p_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
         let mut schedulables = sqlx::query_as::<_, Schedule>(
             "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS false RETURNING *")
             .bind(&ns.path)
@@ -1474,6 +1492,22 @@ async fn delete_script_by_path(
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
         path,
         w_id
     )

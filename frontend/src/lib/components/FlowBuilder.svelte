@@ -537,7 +537,9 @@
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
-		simplifiedPoll
+		simplifiedPoll,
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined)
 	})
 
 	async function loadTriggers() {
@@ -1205,6 +1207,7 @@
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1416,7 +1419,7 @@
 							{abortController}
 						/>
 					{/if}
-					<FlowPreviewButtons />
+					<FlowPreviewButtons bind:this={flowPreviewButtons} />
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1481,6 +1484,15 @@
 						renderCount += 1
 					}}
 					{newFlow}
+					on:applyArgs={(ev) => {
+						if (ev.detail.kind === 'preprocessor') {
+							$testStepStore['preprocessor'] = ev.detail.args ?? {}
+							$selectedIdStore = 'preprocessor'
+						} else {
+							$previewArgsStore = ev.detail.args ?? {}
+							flowPreviewButtons?.openPreview()
+						}
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

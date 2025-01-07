@@ -1,0 +1,245 @@
+version: "3.7"
+
+services:
+  db:
+    deploy:
+      # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
+      replicas: 1
+    image: postgres:16
+    shm_size: 1g
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    expose:
+      - 5432
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  windmill_server:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    expose:
+      - 8000
+      - 2525
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=server
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_logs:/tmp/windmill/logs
+
+  windmill_worker:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
+          # for GB, use syntax '2Gi'
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=default
+    depends_on:
+      db:
+        condition: service_healthy
+    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+    volumes:
+      # mount the docker socket to allow to run docker containers from within the workers
+      - /var/run/docker.sock:/var/run/docker.sock
+      - worker_dependency_cache:/tmp/windmill/cache
+      - worker_logs:/tmp/windmill/logs
+
+  ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
+  windmill_worker_native:
+    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
+          # for GB, use syntax '2Gi'
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=native
+      - NUM_WORKERS=8
+      - SLEEP_QUEUE=200
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_logs:/tmp/windmill/logs
+  # This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
+  # windmill_worker_reports:
+  #   image: ${WM_IMAGE}
+  #   pull_policy: always
+  #   deploy:
+  #     replicas: 1
+  #     resources:
+  #       limits:
+  #         cpus: "1"
+  #         memory: 2048M
+  #         # for GB, use syntax '2Gi'
+  #   restart: unless-stopped
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - MODE=worker
+  #     - WORKER_GROUP=reports
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+  #   volumes:
+  #     # mount the docker socket to allow to run docker containers from within the workers
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - worker_dependency_cache:/tmp/windmill/cache
+  #     - worker_logs:/tmp/windmill/logs
+
+  # The indexer powers full-text job and log search, an EE feature.
+  windmill_indexer:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 0 # set to 1 to enable full-text job and log search
+    restart: unless-stopped
+    expose:
+      - 8001
+    environment:
+      - PORT=8001
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=indexer
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - windmill_index:/tmp/windmill/search
+      - worker_logs:/tmp/windmill/logs
+
+  lsp:
+    image: ghcr.io/windmill-labs/windmill-lsp:latest
+    pull_policy: always
+    restart: unless-stopped
+    expose:
+      - 3001
+    volumes:
+      - lsp_cache:/root/.cache
+
+  multiplayer:
+    image: ghcr.io/windmill-labs/windmill-multiplayer:latest
+    deploy:
+      replicas: 0 # Set to 1 to enable multiplayer, only available on Enterprise Edition
+    restart: unless-stopped
+    expose:
+      - 3002
+
+  caddy:
+    image: ghcr.io/windmill-labs/caddy-l4:latest
+    restart: unless-stopped
+    # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      # - ./certs:/certs # Provide custom certificate files like cert.pem and key.pem to enable HTTPS - See the corresponding section in the Caddyfile
+    ports:
+      # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
+      - 80:80
+      - 25:25
+      # - 443:443 # Uncomment to enable HTTPS handling by Caddy
+    environment:
+      - BASE_URL=":80"
+      # - BASE_URL=":443" # uncomment and comment line above to enable HTTPS via custom certificate and key files
+      # - BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
+
+  #  Grafana OpenTelemetry Example
+  #  https://windmill.dev/docs/misc/guides/otel#setting-up-grafana
+  init:
+    image: &tempoImage grafana/tempo:latest
+    user: root
+    entrypoint:
+      - "chown"
+      - "10001:10001"
+      - "/var/tempo"
+    volumes:
+      - tempo-data:/var/tempo
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    expose:
+      - 4317
+    volumes:
+      - ./otel-config.yaml:/etc/otel/config.yaml
+    command: ["--config=/etc/otel/config.yaml"]
+
+  tempo:
+    image: *tempoImage
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo.yaml
+      - tempo-data:/var/tempo
+    expose:
+      - 3200
+      - 4317
+    depends_on:
+      - init
+
+  loki:
+    image: grafana/loki:latest
+    expose:
+      - 3100
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus.yaml
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+      - --enable-feature=native-histograms
+    volumes:
+      - ./prometheus-config.yaml:/etc/prometheus.yaml
+    expose:
+      - 9090
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    volumes:
+      - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor metricsSummary
+      - GF_INSTALL_PLUGINS=https://storage.googleapis.com/integration-artifacts/grafana-exploretraces-app/grafana-exploretraces-app-latest.zip;grafana-traces-app
+    ports:
+      - "3000:3000"
+      
+volumes:
+  db_data: null
+  worker_dependency_cache: null
+  worker_logs: null
+  windmill_index: null
+  lsp_cache: null
+  tempo-data: null

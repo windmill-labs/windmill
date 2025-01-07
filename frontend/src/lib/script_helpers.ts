@@ -569,7 +569,7 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-const BUN_PREPROCESSOR_MODULE_CODE = `
+export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
 		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'database',
@@ -599,7 +599,7 @@ export async function preprocessor(
 	/* your other args */ 
 ) {
 	return {
-		// return the args to be passed to the flow
+		// return the args to be passed to the runnable
 	}
 }
 `
@@ -634,7 +634,7 @@ export async function preprocessor(
 	/* your other args */ 
 ) {
 	return {
-		// return the args to be passed to the flow
+		// return the args to be passed to the runnable
 	}
 }
 `
@@ -666,7 +666,7 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 
 class Http(TypedDict):
 	route: str # The route path, e.g. "/users/:id"
@@ -695,7 +695,7 @@ def preprocessor(
 	# your other args
 ):
 	return {
-		# return the args to be passed to the flow
+		# return the args to be passed to the runnable
 	}
 `
 

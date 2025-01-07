@@ -9,10 +9,14 @@
 		drawer?.openEdit(ePath, isFlow)
 	}
 
-	export async function openNew(is_flow: boolean, initial_script_path?: string) {
+	export async function openNew(
+		is_flow: boolean,
+		initial_script_path?: string,
+		defaultValues?: Record<string, any>
+	) {
 		open = true
 		await tick()
-		drawer?.openNew(is_flow, initial_script_path)
+		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
 	let drawer: KafkaTriggerEditorInner

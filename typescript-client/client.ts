@@ -852,13 +852,50 @@ interface SlackApprovalOptions {
   channelId: string;
   message?: string;
   approver?: string;
+  defaultArgsJson?: Record<string, any>;
+  dynamicEnumsJson?: Record<string, any>;
 }
 
+/**
+ * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
+ *
+ * **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form** 
+ * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+ *
+ * @param {Object} options - The configuration options for the Slack approval request.
+ * @param {string} options.slackResourcePath - The path to the Slack resource in Windmill.
+ * @param {string} options.channelId - The Slack channel ID where the approval request will be sent.
+ * @param {string} [options.message] - Optional custom message to include in the Slack approval request.
+ * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+ * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+ * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * 
+ * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
+ * 
+ * @throws {Error} If the function is not called within a flow or flow preview.
+ * @throws {Error} If the `JobService.getSlackApprovalPayload` call fails.
+ * 
+ * **Usage Example:**
+ * ```typescript
+ * await requestInteractiveSlackApproval({
+ *   slackResourcePath: "/u/alex/my_slack_resource",
+ *   channelId: "admins-slack-channel",
+ *   message: "Please approve this request",
+ *   approver: "approver123",
+ *   defaultArgsJson: { key1: "value1", key2: 42 },
+ *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ * });
+ * ```
+ * 
+ * **Note:** This function requires execution within a Windmill flow or flow preview. 
+ */
 export async function requestInteractiveSlackApproval({
   slackResourcePath,
   channelId,
   message,
   approver,
+  defaultArgsJson,
+  dynamicEnumsJson,
 }: SlackApprovalOptions): Promise<void> {
   const workspace = getWorkspace();
   const flowJobId = getEnv("WM_FLOW_JOB_ID");
@@ -881,6 +918,8 @@ export async function requestInteractiveSlackApproval({
     slackResourcePath: string;
     channelId: string;
     flowStepId: string;
+    defaultArgsJson?: string;
+    dynamicEnumsJson?: string;
   } = {
     slackResourcePath,
     channelId,
@@ -892,6 +931,14 @@ export async function requestInteractiveSlackApproval({
   }
   if (approver) {
     params.approver = approver;
+  }
+
+  if (defaultArgsJson) {
+    params.defaultArgsJson = JSON.stringify(defaultArgsJson);
+  }
+
+  if (dynamicEnumsJson) {
+    params.dynamicEnumsJson = JSON.stringify(dynamicEnumsJson);
   }
 
   await JobService.getSlackApprovalPayload({

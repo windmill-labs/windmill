@@ -251,9 +251,6 @@ pub async fn run_server(
         }
     }
 
-    // #[cfg(feature = "kafka")]
-    // start_listening().await;
-
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
         {
@@ -434,7 +431,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/w/:workspace_id/capture_u",
-                    capture::global_service().layer(cors.clone()),
+                    capture::workspaced_unauthed_service().layer(cors.clone()),
                 )
                 .nest(
                     "/auth",

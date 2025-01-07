@@ -4,7 +4,6 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import { copyFirstStepSchema } from '../flowStore'
 	import type { FlowEditorContext } from '../types'
-	import CapturePayload from './CapturePayload.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
@@ -20,7 +19,6 @@
 	const { flowStore, flowStateStore, previewArgs, initialPath } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let capturePayload: CapturePayload
 	let inputLibraryDrawer: Drawer
 	let jsonPayload: Drawer
 	let pendingJson: string
@@ -41,21 +39,10 @@
 	const yOffset = 191
 </script>
 
-<CapturePayload bind:this={capturePayload} />
-
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
 		<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
-			<div>Copy input's schema from</div>
-			<Button
-				color="dark"
-				size="xs"
-				on:click={() => {
-					capturePayload.openDrawer()
-				}}
-			>
-				A request
-			</Button>
+			<div class="text-sm">Copy input's schema from</div>
 			<Button
 				color="dark"
 				size="xs"

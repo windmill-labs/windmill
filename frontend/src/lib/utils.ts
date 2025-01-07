@@ -614,8 +614,8 @@ export function addWhitespaceBeforeCapitals(word?: string): string {
 	return word.replace(/([A-Z])/g, ' $1').trim()
 }
 
-export function isObject(obj: any) {
-	return obj != null && typeof obj === 'object'
+export function isObject(obj: any): obj is Record<string, any> {
+	return obj != null && typeof obj === 'object' && !Array.isArray(obj)
 }
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
