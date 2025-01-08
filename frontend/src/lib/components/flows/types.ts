@@ -26,7 +26,14 @@ export type ExtendedOpenFlow = OpenFlow & {
 }
 
 export type FlowInputEditorState = {
-	selectedTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' | undefined
+	selectedTab:
+		| 'inputEditor'
+		| 'history'
+		| 'savedInputs'
+		| 'json'
+		| 'captures'
+		| 'firstStepInputs'
+		| undefined
 	editPanelSize: number | undefined
 	payloadData: Record<string, any> | undefined
 }

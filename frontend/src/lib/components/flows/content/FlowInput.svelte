@@ -3,7 +3,6 @@
 	import { ButtonType } from '$lib/components/common/button/model'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import { copyFirstStepSchema } from '../flowStore'
 	import type { FlowEditorContext } from '../types'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -14,6 +13,7 @@
 	import FlowInputViewer from '$lib/components/FlowInputViewer.svelte'
 	import HistoricInputs from '$lib/components/HistoricInputs.svelte'
 	import SavedInputsPicker from '$lib/components/SavedInputsPicker.svelte'
+	import FirstStepInputs from '$lib/components/FirstStepInputs.svelte'
 	import {
 		CornerDownLeft,
 		Pen,
@@ -39,7 +39,7 @@
 	export let noEditor: boolean
 	export let disabled: boolean
 
-	const { flowStore, flowStateStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
+	const { flowStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let pendingJson: string
@@ -104,7 +104,7 @@
 			{
 				label: "First step's inputs",
 				onClick: () => {
-					copyFirstStepSchema($flowStateStore, flowStore)
+					handleEditSchema('firstStepInputs')
 				},
 				icon: Code
 			},
@@ -244,8 +244,11 @@
 		history: 'History',
 		savedInputs: 'Saved inputs',
 		json: 'JSON',
+		firstStepInputs: 'First step',
 		undefined: ''
 	}
+
+	let connectFirstNode: () => void = () => {}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -437,6 +440,28 @@
 							}}
 						>
 							<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
+						</FlowInputEditor>
+					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
+						<FlowInputEditor
+							disabled={!previewSchema}
+							on:applySchemaAndArgs={() => {
+								applySchemaAndArgs()
+								connectFirstNode()
+							}}
+							on:applySchema={applySchema}
+							on:destroy={() => {
+								$flowInputEditorState.payloadData = undefined
+								pendingJson = ''
+							}}
+						>
+							<FirstStepInputs
+								on:connectFirstNode={({ detail }) => {
+									connectFirstNode = detail.connectFirstNode
+								}}
+								on:select={(e) => {
+									previewSchema = e.detail ?? undefined
+								}}
+							/>
 						</FlowInputEditor>
 					{/if}
 				</svelte:fragment>

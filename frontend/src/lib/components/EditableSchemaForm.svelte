@@ -39,7 +39,14 @@
 	export let lightweightMode: boolean = false
 	export let displayWebhookWarning: boolean = false
 	export let dndType: string | undefined = undefined
-	export let editTab: 'inputEditor' | 'history' | 'savedInputs' | 'json' | 'captures' | undefined
+	export let editTab:
+		| 'inputEditor'
+		| 'history'
+		| 'savedInputs'
+		| 'json'
+		| 'captures'
+		| 'firstStepInputs'
+		| undefined
 	export let previewSchema: Record<string, any> | undefined = undefined
 	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
@@ -274,7 +281,7 @@
 		{#if editPanelSize > 0}
 			<Pane
 				bind:size={editPanelSize}
-				minSize={noPreview ? 100 : 35}
+				minSize={noPreview ? 100 : 50}
 				class={twMerge('border rounded-md', pannelButtonWidth > 0 ? 'rounded-tl-none' : '')}
 			>
 				{#if editTab !== 'inputEditor'}

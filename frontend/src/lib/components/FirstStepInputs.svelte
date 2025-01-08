@@ -1,0 +1,122 @@
+<script lang="ts">
+	import { createEventDispatcher, onDestroy, getContext } from 'svelte'
+	import { getFirstStepSchema } from '$lib/components/flows/flowStore'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { twMerge } from 'tailwind-merge'
+	import { clickOutside } from '$lib/utils'
+	import { Alert } from '$lib/components/common'
+	import FlowModuleSchemaItemViewer from '$lib/components/flows/map/FlowModuleSchemaItemViewer.svelte'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import { prettyLanguage } from '$lib/common'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import { Building } from 'lucide-svelte'
+	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const dispatch = createEventDispatcher()
+	let schema: Record<string, any> | undefined = undefined
+
+	let error: string | undefined = undefined
+	let mod: any | undefined = undefined
+	async function loadSchema() {
+		try {
+			const res = await getFirstStepSchema($flowStateStore, flowStore)
+			schema = res.schema
+			mod = res.mod
+			dispatch('connectFirstNode', { connectFirstNode: res.connectFirstNode })
+		} catch (e) {
+			error = e
+		}
+	}
+	loadSchema()
+
+	function handleClick() {
+		selected = !selected
+		dispatch('select', selected ? schema : undefined)
+	}
+
+	onDestroy(() => {
+		selected = false
+		dispatch('select', undefined)
+	})
+
+	let selected: boolean = false
+
+	async function getPropPickerElements(): Promise<HTMLElement[]> {
+		return Array.from(
+			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
+		) as HTMLElement[]
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && selected) {
+			selected = false
+			dispatch('select', undefined)
+		}
+	}
+
+	let firstUpdate = true
+	$: if (schema && !selected && firstUpdate) {
+		firstUpdate = false
+		setTimeout(() => {
+			selected = true
+			dispatch('select', schema)
+		}, 200)
+	}
+</script>
+
+<svelte:window on:keydown={handleKeydown} />
+
+<div class="h-full">
+	{#if schema && mod}
+		<button
+			class={twMerge(
+				'w-full shadow-md rounded-sm',
+				selected ? 'bg-surface-selected' : 'hover:bg-surface-hover'
+			)}
+			disabled={!schema}
+			on:click={handleClick}
+			use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
+			on:click_outside={() => {
+				if (selected) {
+					selected = false
+					dispatch('select', undefined)
+				}
+			}}
+		>
+			<FlowModuleSchemaItemViewer
+				on:click={handleClick}
+				deletable={false}
+				id={mod.id}
+				label={mod.summary ||
+					(`path` in mod.value ? mod.value.path : undefined) ||
+					(mod.value.type === 'rawscript'
+						? `Inline ${prettyLanguage(mod.value.language)}`
+						: 'To be defined')}
+				path={`path` in mod.value && mod.summary ? mod.value.path : ''}
+			>
+				<div slot="icon">
+					{#if mod.value.type === 'rawscript'}
+						<LanguageIcon lang={mod.value.language} width={16} height={16} />
+					{:else if mod.value.type === 'script'}
+						{#if mod.value.path.startsWith('hub/')}
+							<div>
+								<IconedResourceType
+									width="20px"
+									height="20px"
+									name={mod.value.path.split('/')[2]}
+									silent={true}
+								/>
+							</div>
+						{:else}
+							<Building size={14} />
+						{/if}
+					{/if}
+				</div>
+			</FlowModuleSchemaItemViewer>
+		</button>
+	{:else}
+		<Alert type="warning" title="Cannot load first step's inputs">
+			{error}
+		</Alert>
+	{/if}
+</div>
