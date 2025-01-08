@@ -5,7 +5,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
 	import CustomPopover from '../CustomPopover.svelte'
-	import { Webhook, Route, Unplug, Mail } from 'lucide-svelte'
+	import { Webhook, Route, Unplug, Mail, Play } from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import { isObject } from '$lib/utils'
 	import { createEventDispatcher, onDestroy } from 'svelte'
@@ -303,8 +303,12 @@
 														}
 													}}
 													disabled={testKind === 'preprocessor' && !hasPreprocessor}
+													title={isFlow && testKind === 'main'
+														? 'Test flow with args'
+														: 'Apply args to preprocessor'}
+													startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 												>
-													{isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
+													{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
 												</Button>
 											{/if}
 										</div>
