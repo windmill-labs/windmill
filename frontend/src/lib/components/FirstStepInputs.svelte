@@ -115,7 +115,7 @@
 			</FlowModuleSchemaItemViewer>
 		</button>
 	{:else}
-		<Alert type="warning" title="Cannot load first step's inputs">
+		<Alert type="warning" title="Cannot load first step's inputs" size="xs">
 			{error}
 		</Alert>
 	{/if}
