@@ -238,7 +238,7 @@
 	<Splitpanes class="splitter-hidden w-full">
 		{#if !noPreview}
 			<Pane bind:size={inputPanelSize} minSize={20}>
-				<div class="flex flex-col pr-2">
+				<div class="flex flex-col pr-2 gap-2">
 					<div class="w-full justify-left pr-2">
 						<div style={`width: calc(100% - ${pannelButtonWidth - pannelExtraButtonWidth}px);`}>
 							<slot name="addProperty" />
