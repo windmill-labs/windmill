@@ -37,10 +37,19 @@
 	let codeCompletionEnabled = true
 	let checking = false
 
+	let workspaceColor: string | null = null
+	let colorEnabled = false
+
+	function generateRandomColor() {
+		const randomColor = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+		workspaceColor = randomColor;
+	}
+
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
 
 	$: validateName(id)
 	$: errorUser = validateUsername(username)
+	$: colorEnabled && !workspaceColor && generateRandomColor()
 
 	async function validateName(id: string): Promise<void> {
 		checking = true
@@ -60,6 +69,7 @@
 			requestBody: {
 				id,
 				name,
+				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 				username: automateUsernameCreation ? undefined : username
 			}
 		})
@@ -185,6 +195,16 @@
 			<span class="text-red-500 text-xs">{errorId}</span>
 		{/if}
 		<input type="text" bind:value={id} class:input-error={errorId != ''} />
+	</label>
+	<label class="block pb-4">
+		<span class="text-secondary text-sm">Workspace color</span>
+		<span class="ml-5 text-tertiary text-xs">Color to identify the current workspace</span>
+		<div class="flex items-center gap-2">
+			<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
+			{#if colorEnabled}<input class="w-10" type="color" bind:value={workspaceColor} disabled={!colorEnabled} />{/if}
+			<input type="text" class="w-24 text-sm" bind:value={workspaceColor} disabled={!colorEnabled} />
+			<Button on:click={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>
+		</div>
 	</label>
 	{#if !automateUsernameCreation}
 		<label class="block pb-4">
