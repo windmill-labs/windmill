@@ -3,29 +3,46 @@ import { initServices } from 'monaco-languageclient/vscode/services'
 // import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override'
 import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
+import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+import { ConsoleLogger } from 'monaco-languageclient/tools'
+import { LogLevel } from 'vscode'
 
 export let isInitialized = false
 export let isInitializing = false
 
-export async function initializeVscode(caller?: string) {
+export async function initializeVscode(caller?: string, htmlContainer?: HTMLElement) {
 	if (!isInitialized && !isInitializing) {
 		console.log(`Initializing vscode-api from ${caller ?? 'unknown'}`)
 		isInitializing = true
 
 		try {
 			// init vscode-api
-			await initServices({
-				serviceConfig: {
-					userServices: {
-						// ...getThemeServiceOverride(),
-						// ...getTextmateServiceOverride()
-						...getMonarchServiceOverride()
-					},
-					debugLogging: true,
-					enableExtHostWorker: false
+			// await initServices({
+			// 	serviceConfig: {
+			// 		userServices: {
+			// 			// ...getThemeServiceOverride(),
+			// 			// ...getTextmateServiceOverride()
+			// 			...getMonarchServiceOverride()
+			// 		},
+			// 		debugLogging: true,
+			// 		enableExtHostWorker: false
+			// 	}
+			// })
+			const logger = new ConsoleLogger(LogLevel.Debug)
+			await initServices(
+				{
+					serviceOverrides: {
+						...getMonarchServiceOverride(),
+						...getConfigurationServiceOverride()
+					}
+				},
+				{
+					htmlContainer,
+					logger
 				}
-			})
+			)
+
 			isInitialized = true
 			meditor.defineTheme('nord', {
 				base: 'vs-dark',

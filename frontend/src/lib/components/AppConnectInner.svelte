@@ -108,7 +108,12 @@
 
 	async function loadConnects() {
 		if (!connects) {
-			connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+			try {
+				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+			} catch (e) {
+				sendUserToast('Error loading connects', true)
+				connects = []
+			}
 		}
 	}
 

@@ -86,13 +86,13 @@
 	export let newPath: string = ''
 	export let appPath: string
 	export let runnables: Writable<Record<string, HiddenRunnable>>
-	export let files: Record<string, { code: string }>
+	export let files: Record<string, string>
 	export let jobs: string[]
 	export let jobsById: Record<string, any>
 
 	let newEditedPath = ''
 
-	$: app = { runnables: $runnables, files: { ...files, '/wmill.ts': { code: wmillTs } } }
+	$: app = { runnables: $runnables, files: { ...files, '/wmill.ts': wmillTs } }
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -558,31 +558,6 @@
 
 	$: saveDrawerOpen && compareVersions()
 
-	let lock = false
-	function onKeyDown(event: KeyboardEvent) {
-		if (lock) return
-
-		let classes = event.target?.['className']
-		if (
-			(typeof classes === 'string' && classes.includes('inputarea')) ||
-			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
-		) {
-			return
-		}
-
-		lock = true
-
-		switch (event.key) {
-			case 's':
-				if (event.ctrlKey || event.metaKey) {
-					saveDraft()
-					event.preventDefault()
-				}
-				break
-		}
-		lock = false
-	}
-
 	let dirtyPath = false
 	let path: Path | undefined = undefined
 
@@ -674,8 +649,6 @@
 
 	let jobsDrawerOpen = false
 </script>
-
-<svelte:window on:keydown={onKeyDown} />
 
 <UnsavedConfirmationModal
 	{diffDrawer}

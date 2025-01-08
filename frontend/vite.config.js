@@ -43,19 +43,20 @@ const config = {
 		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
-			'@codingame/monaco-vscode-standalone-languages',
-			'monaco-graphql',
-			'monaco-editor-wrapper'
+			'@codingame/monaco-vscode-standalone-languages'
 		],
 		esbuildOptions: {
 			plugins: [importMetaUrlPlugin]
 		}
 	},
+	worker: {
+		format: 'es'
+	},
 	resolve: {
 		alias: {
 			path: 'path-browserify',
-			'vscode/vscode/vs/editor/contrib/hover/browser/hover':
-				'vscode/vscode/vs/editor/contrib/hover/browser/hoverController'
+			'monaco-editor/esm/vs/editor/contrib/hover/browser/hover':
+				'vscode/vscode/vs/editor/contrib/hover/browser/hoverContribution'
 		},
 		dedupe: ['vscode', 'monaco-editor']
 	},

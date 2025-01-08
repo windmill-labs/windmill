@@ -7,22 +7,6 @@
 
 	languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
 
-	// languages.typescript.javascriptDefaults.setModeConfiguration({
-	// 	completionItems: true,
-	// 	hovers: true,
-	// 	documentSymbols: true,
-	// 	definitions: true,
-	// 	references: true,
-	// 	documentHighlights: true,
-	// 	rename: true,
-	// 	diagnostics: true,
-	// 	documentRangeFormattingEdits: true,
-	// 	signatureHelp: true,
-	// 	onTypeFormattingEdits: true,
-	// 	codeActions: true,
-	// 	inlayHints: true
-	// })
-
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: true,
 		hovers: true,
@@ -85,21 +69,6 @@
 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
 		jsx: languages.typescript.JsxEmit.React
 	})
-
-	// languages.typescript.javascriptDefaults.setCompilerOptions({
-	// 	target: languages.typescript.ScriptTarget.Latest,
-	// 	allowNonTsExtensions: true,
-	// 	noSemanticValidation: false,
-	// 	noSyntaxValidation: false,
-	// 	allowImportingTsExtensions: true,
-	// 	checkJs: true,
-	// 	allowJs: true,
-	// 	noUnusedParameters: true,
-	// 	noUnusedLocals: true,
-	// 	strict: true,
-	// 	noLib: true,
-	// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	// })
 </script>
 
 <script lang="ts">
@@ -123,6 +92,8 @@
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
+	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
+
 	import { MonacoBinding } from 'y-monaco'
 	import {
 		dbSchemas,
@@ -142,13 +113,14 @@
 		extToLang
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
-	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeVscode } from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
+	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+
 	import { sleep } from '$lib/utils'
 	import { editorCodeCompletion } from '$lib/components/copilot/completion'
 	import {
@@ -160,7 +132,6 @@
 		type IRange,
 		type IDisposable
 	} from 'monaco-editor'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
 	import EditorTheme from './EditorTheme.svelte'
 	import {
@@ -751,6 +722,7 @@
 					documentSelector: [lang],
 					errorHandler: {
 						error: () => ({ action: ErrorAction.Continue }),
+
 						closed: () => ({
 							action: CloseAction.Restart
 						})
@@ -777,11 +749,7 @@
 						}
 					}
 				},
-				connectionProvider: {
-					get: () => {
-						return Promise.resolve(transports)
-					}
-				}
+				messageTransports: transports
 			})
 			return client
 		}
@@ -1217,7 +1185,7 @@
 
 		try {
 			console.log("Loading Monaco's language client")
-			await initializeVscode('editor')
+			await initializeVscode('editor', divEl!)
 			console.log('done loading Monaco and vscode')
 		} catch (e) {
 			console.log('error initializing services', e)

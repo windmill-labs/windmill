@@ -1624,7 +1624,7 @@ async fn upload_raw_app(
         } else if file.0 == "/index.js" {
             entrypoint = "index.js";
         }
-        write_file(&job_dir, file.0, &file.1.code)?;
+        write_file(&job_dir, file.0, &file.1)?;
     }
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 

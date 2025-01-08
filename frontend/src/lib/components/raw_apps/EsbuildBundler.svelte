@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte'
 	import type { InstalledPackage } from './npm_install'
-	export let files: Record<string, { code: string }>
 
+	export let files: Record<string, string>
 	export let logs: string = ''
 
 	import NpmInstall from './NpmInstall.svelte'
 	import { wmillTs } from './utils'
 
-	let installed: InstalledPackage[] | undefined = []
+	export let installed: InstalledPackage[] | undefined = []
 	let npm_install: NpmInstall | undefined = undefined
 
 	const dispatch = createEventDispatcher()
@@ -25,6 +25,7 @@
 	export function onContentChange(activeFile: string) {
 		if (activeFile == '/package.json') {
 			updatePackageJson()
+			build('/index.ts')
 		} else {
 			build(activeFile)
 		}
@@ -60,7 +61,7 @@
 		// svelte-lsp error: seems cannot use local variable whose name is the same as imported store
 		let input = {}
 		Object.keys(files).forEach((path) => {
-			input[path] = files[path].code
+			input[path] = files[path]
 		})
 		input['/wmill.ts'] = wmillTs
 
@@ -87,8 +88,9 @@
 	}
 
 	async function updatePackageJson() {
-		installed = await npm_install?.parsePackageJson(files?.['/package.json']?.code, true)
+		installed = await npm_install?.parsePackageJson(files?.['/package.json'], true)
 		console.log('install done', installed)
+		dispatch('install', installed)
 		// const reactPkgJson = fs.read(cwd + '/package-lock.json', 'utf-8')
 
 		// console.log({ reactPkgJson })

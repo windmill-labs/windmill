@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 
 const root = createRoot(document.getElementById('root')!);
-root.render(</App>);
+root.render(<App/>);
 `
 
 const appTsx = `import React from 'react'
@@ -69,94 +69,54 @@ const indexCss = `body {
 const policyJson = 'foo'
 
 export const react19Template = {
-	'/index.tsx': {
-		code: reactIndex
-	},
-	'/App.tsx': {
-		code: appTsx
-	},
-	'/index.css': {
-		code: indexCss
-	},
-	'/package.json': {
-		code: `{
+	'/index.tsx': reactIndex,
+	'/App.tsx': appTsx,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "react": "19.0.0",
         "react-dom": "19.0.0"
     }
-}`
-	},
-	'/policy.json': {
-		code: policyJson
-	}
+}`,
+	'/policy.json': policyJson
 }
 
 export const react18Template = {
-	'/index.tsx': {
-		code: reactIndex
-	},
-	'/App.tsx': {
-		code: appTsx
-	},
-	'/index.css': {
-		code: indexCss
-	},
-	'/package.json': {
-		code: `{
+	'/index.tsx': reactIndex,
+	'/App.tsx': appTsx,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "react": "18.3.1",
         "react-dom": "18.3.1"
     }
-}`
-	},
-	'/policy.json': {
-		code: policyJson
-	}
+}`,
+	'/policy.json': policyJson
 }
 
 export const svelte5Template = {
-	'/index.ts': {
-		code: indexSvelte
-	},
-	'/App.svelte': {
-		code: appSvelte
-	},
-	'/index.css': {
-		code: indexCss
-	},
-	'/package.json': {
-		code: `{
+	'/index.ts': indexSvelte,
+	'/App.svelte': appSvelte,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "svelte": "5.16.1"
     }
-}`
-	},
-	'/policy.json': {
-		code: policyJson
-	}
+}`,
+	'/policy.json': policyJson
 }
 
 export const vueTemplate = {
-	'/index.ts': {
-		code: indexVue
-	},
-	'/App.vue': {
-		code: appVue
-	},
-	'/index.css': {
-		code: indexCss
-	},
-	'/package.json': {
-		code: `{
+	'/index.ts': indexVue,
+	'/App.vue': appVue,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "core-js": "3.26.1",
         "vue": "3.5.13"
     }
-}`
-	},
-	'/policy.json': {
-		code: policyJson
-	}
+}`,
+	'/policy.json': policyJson
 }
 
 const appVueRouter = `

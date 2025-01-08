@@ -2,8 +2,8 @@
 	import { versionRangeToVersion } from '$lib/ata'
 	// import { animateTo } from '$lib/components/apps/editor/appUtils'
 
-	import Editor from '$lib/components/Editor.svelte'
-	import { extToLang } from '$lib/editorUtils'
+	// import Editor from '$lib/components/Editor.svelte'
+	// import { extToLang } from '$lib/editorUtils'
 	// import {
 	// 	loadSandpackClient,
 	// 	// type BundlerState,
@@ -29,8 +29,12 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import EsbuildBundler from './EsbuildBundler.svelte'
+	import RawAppCodeEditor from './RawAppCodeEditor.svelte'
+	import Toggle from '../Toggle.svelte'
+	import { wmillTs } from './utils'
+	import type { InstalledPackage } from './npm_install'
 
-	export let files: Record<string, { code: string }>
+	export let files: Record<string, string>
 	export let initRunnables: Record<string, HiddenRunnable>
 	export let newApp: boolean
 	export let policy: Policy
@@ -52,7 +56,7 @@
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let version: number | undefined = undefined
 
-	let editor: Editor | undefined = undefined
+	// let editor: Editor | undefined = undefined
 
 	let runnables = writable(initRunnables)
 
@@ -189,7 +193,7 @@ export function getJob(id: string): Promise<Job> {}
 	}
 
 	function onPackageJsonChange() {
-		let pkg = JSON.parse(files['/package.json'].code)
+		let pkg = JSON.parse(files['/package.json'])
 		let dependencies: Record<string, string> =
 			typeof pkg.dependencies == 'object' ? pkg?.dependencies : {}
 
@@ -198,17 +202,17 @@ export function getJob(id: string): Promise<Job> {}
 			module: name,
 			version: versionRangeToVersion(version)
 		}))
-		editor?.fetchPackageDeps(ataDeps)
+		// editor?.fetchPackageDeps(ataDeps)
 	}
 
 	function onActiveFileChange() {
 		console.log('active file change', activeFile)
 		if (activeFile != WMILL_TS) {
-			editor?.switchToFile(
-				activeFile,
-				files[activeFile].code,
-				extToLang(activeFile.split('.').pop()!)
-			)
+			// editor?.switchToFile(
+			// 	activeFile,
+			// 	files[activeFile].code,
+			// 	extToLang(activeFile.split('.').pop()!)
+			// )
 		}
 	}
 
@@ -219,7 +223,7 @@ export function getJob(id: string): Promise<Job> {}
 
 	function createNewFile(newFileName: string) {
 		newFileName = '/' + newFileName
-		files = { ...files, [newFileName]: { code: '' } }
+		files = { ...files, [newFileName]: '' }
 		activeFile = newFileName
 		creatingNewFile = false
 	}
@@ -286,6 +290,9 @@ export function getJob(id: string): Promise<Job> {}
 			setPopupWindow(css, js)
 		}
 	}
+
+	let visible = true
+	let installed: InstalledPackage[] = []
 </script>
 
 <EsbuildBundler
@@ -294,6 +301,10 @@ export function getJob(id: string): Promise<Job> {}
 	}}
 	on:buildFailed={(e) => {
 		sendUserToast('Build failed', true)
+	}}
+	on:install={(e) => {
+		installed = e.detail
+		// npm_install(e.detail.name, e.detail.spec)
 	}}
 	bind:logs
 	{files}
@@ -344,58 +355,9 @@ export function getJob(id: string): Promise<Job> {}
 	<Splitpanes id="o2" horizontal class="grow">
 		<Pane bind:size={appPanelSize}>
 			<div class="flex h-full relative">
-				<div class="flex text-xs max-w-36 min-w-32 flex-col text-secondary overflow-auto">
-					{#if creatingNewFile}
-						<!-- svelte-ignore a11y-autofocus -->
-						<input
-							autofocus
-							type="text"
-							class="py-0"
-							placeholder="file name"
-							bind:value={name}
-							on:keypress={(e) => {
-								if (e.key == 'Enter') {
-									createNewFile(name)
-								} else if (e.key == 'Escape') {
-									creatingNewFile = false
-								}
-							}}
-							on:blur={() => {
-								createNewFile(name)
-							}}
-						/>
-					{:else}
-						<div class="flex">
-							<button
-								title="New File"
-								class="hover:text-primary text-left grow hover:underline hover:bg-surface-hover pl-2 pr-1 py-1"
-								on:click={() => {
-									name = ''
-
-									creatingNewFile = true
-								}}><FilePlus size={16} /></button
-							>
-							<button
-								disabled={activeFile == undefined || activeFile == WMILL_TS}
-								title="Rename"
-								class="hover:text-primary rounded text-left hover:underline hover:bg-surface-hover py-1 px-1"
-								on:click={() => {
-									name = activeFile.substring(1)
-									editingFile = activeFile
-								}}><Pencil size={16} /></button
-							>
-							<button
-								disabled={activeFile == undefined || activeFile == WMILL_TS}
-								title="Delete"
-								class="hover:text-primary rounded text-left hover:underline hover:bg-surface-hover py-1 px-1"
-								on:click={() => {
-									deletingFile = activeFile
-								}}><TrashIcon size={16} /></button
-							>
-						</div>
-					{/if}
-					{#each Object.keys(files).concat(WMILL_TS).sort() as file}
-						{#if editingFile == file}
+				{#if false}
+					<div class="flex text-xs max-w-36 min-w-32 flex-col text-secondary overflow-auto">
+						{#if creatingNewFile}
 							<!-- svelte-ignore a11y-autofocus -->
 							<input
 								autofocus
@@ -405,39 +367,91 @@ export function getJob(id: string): Promise<Job> {}
 								bind:value={name}
 								on:keypress={(e) => {
 									if (e.key == 'Enter') {
-										editFile(name)
+										createNewFile(name)
 									} else if (e.key == 'Escape') {
-										editingFile = undefined
+										creatingNewFile = false
 									}
 								}}
 								on:blur={() => {
-									if (editingFile == '') {
-										editingFile = undefined
-									} else {
-										editFile(name)
-									}
+									createNewFile(name)
 								}}
 							/>
 						{:else}
-							<button
-								title={file.substring(1)}
-								class="hover:text-primary inline-flex min-h-6 gap-1 text-left truncate {activeFile ==
-								file
-									? 'font-bold text-primary bg-surface-selected'
-									: ''} hover:underline hover:bg-surface-hover rounded pl-2 pr-1 py-1"
-								on:click={() => {
-									files[activeFile] = { code: editor?.getCode() ?? '' }
-									activeFile = file
-								}}
-							>
-								<span class="w-4 min-w-4"><FileEditorIcon {file} /></span>
-								<span class="truncate">{file.substring(1)}</span></button
-							>
+							<div class="flex">
+								<button
+									title="New File"
+									class="hover:text-primary text-left grow hover:underline hover:bg-surface-hover pl-2 pr-1 py-1"
+									on:click={() => {
+										name = ''
+
+										creatingNewFile = true
+									}}><FilePlus size={16} /></button
+								>
+								<button
+									disabled={activeFile == undefined || activeFile == WMILL_TS}
+									title="Rename"
+									class="hover:text-primary rounded text-left hover:underline hover:bg-surface-hover py-1 px-1"
+									on:click={() => {
+										name = activeFile.substring(1)
+										editingFile = activeFile
+									}}><Pencil size={16} /></button
+								>
+								<button
+									disabled={activeFile == undefined || activeFile == WMILL_TS}
+									title="Delete"
+									class="hover:text-primary rounded text-left hover:underline hover:bg-surface-hover py-1 px-1"
+									on:click={() => {
+										deletingFile = activeFile
+									}}><TrashIcon size={16} /></button
+								>
+							</div>
 						{/if}
-					{/each}
-				</div>
-				<div class="w-full grid grid-cols-2 max-h-full">
-					{#if activeFile == WMILL_TS}
+						{#each Object.keys(files).concat(WMILL_TS).sort() as file}
+							{#if editingFile == file}
+								<!-- svelte-ignore a11y-autofocus -->
+								<input
+									autofocus
+									type="text"
+									class="py-0"
+									placeholder="file name"
+									bind:value={name}
+									on:keypress={(e) => {
+										if (e.key == 'Enter') {
+											editFile(name)
+										} else if (e.key == 'Escape') {
+											editingFile = undefined
+										}
+									}}
+									on:blur={() => {
+										if (editingFile == '') {
+											editingFile = undefined
+										} else {
+											editFile(name)
+										}
+									}}
+								/>
+							{:else}
+								<button
+									title={file.substring(1)}
+									class="hover:text-primary inline-flex min-h-6 gap-1 text-left truncate {activeFile ==
+									file
+										? 'font-bold text-primary bg-surface-selected'
+										: ''} hover:underline hover:bg-surface-hover rounded pl-2 pr-1 py-1"
+									on:click={() => {
+										// files[activeFile] = { code: editor?.getCode() ?? '' }
+										activeFile = file
+									}}
+								>
+									<span class="w-4 min-w-4"><FileEditorIcon {file} /></span>
+									<span class="truncate">{file.substring(1)}</span></button
+								>
+							{/if}
+						{/each}
+					</div>
+				{/if}
+				<Splitpanes class="grow">
+					<Pane size={50}>
+						<!-- {#if activeFile == WMILL_TS}
 						<Editor
 							lang={getLangOfExt(activeFile)}
 							path={activeFile}
@@ -463,18 +477,37 @@ export function getJob(id: string): Promise<Job> {}
 							}}
 							changeTimeout={2000}
 						/>
-					{/if}
-					<div class="h-full max-h-full min-h-32 w-full relative">
-						<button
-							class="absolute top-0 right-0"
-							on:click={() => {
-								lastBuild && onBuild(lastBuild.js, lastBuild.css)
-							}}>reload</button
-						>
-						<!-- svelte-ignore a11y-missing-attribute -->
-						<iframe bind:this={iframe} src="/app-preview.html" class="h-full w-full" />
-					</div>
-				</div>
+					{/if} -->
+						<div class="absolute top-0 z-10 left-0">
+							<Toggle bind:checked={visible} />
+						</div>
+						{#if visible}
+							<RawAppCodeEditor
+								user_files={files}
+								node_modules={Object.fromEntries(
+									installed.flatMap((e) =>
+										e.files.map((f) => ['/node_modules/' + e.name + '/' + f.path, f.content])
+									)
+								)}
+								wmill_ts={genWmillTs($runnables)}
+							/>
+						{:else}
+							<div>i</div>
+						{/if}
+					</Pane>
+					<Pane size={50}>
+						<div class="h-full max-h-full min-h-32 w-full relative">
+							<button
+								class="absolute top-0 right-0"
+								on:click={() => {
+									lastBuild && onBuild(lastBuild.js, lastBuild.css)
+								}}>reload</button
+							>
+							<!-- svelte-ignore a11y-missing-attribute -->
+							<iframe bind:this={iframe} src="/app-preview.html" class="h-full w-full" />
+						</div></Pane
+					>
+				</Splitpanes>
 				<div
 					class="p-1 text-2xs border rounded rounded-tl-md rounded-rl-none rounded-bl-none rounded-br-none text-secondary absolute right-0 bottom-0 max-w-[500px] w-full {logsCollapsed
 						? 'h-6'
