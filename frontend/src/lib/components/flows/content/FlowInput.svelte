@@ -23,7 +23,8 @@
 		History,
 		Braces,
 		Code,
-		Save
+		Save,
+		X
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
@@ -33,6 +34,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
+	import RoundIconButton from '$lib/components/common/button/RoundIconButton.svelte'
+
 	export let noEditor: boolean
 	export let disabled: boolean
 
@@ -335,11 +338,16 @@
 					{#if !!previewSchema}
 						<div
 							class={twMerge(
-								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs py-2 w-full flex justify-center rounded-md',
-								'text-blue-700 dark:text-blue-100'
+								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs p-2 w-full flex flex-row gap-2 items-center justify-center rounded-md',
+								'text-blue-700 dark:text-blue-100',
+								'relative'
 							)}
 						>
-							<span> Preview only, apply to confirm</span>
+							<span> Preview only, save to update input schema</span>
+							<div class="opacity-60"><CornerDownLeft size={14} /></div>
+							<div class="flex flex-row gap-2 absolute right-2">
+								<RoundIconButton><X size={12} /></RoundIconButton>
+							</div>
 						</div>
 					{:else}
 						<AddPropertyV2

@@ -89,7 +89,16 @@
 			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
 		) as HTMLElement[]
 	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && selected) {
+			selected = undefined
+			dispatch('select', undefined)
+		}
+	}
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 <JobLoader
 	bind:jobs

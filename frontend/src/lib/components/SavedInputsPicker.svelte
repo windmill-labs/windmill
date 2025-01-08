@@ -153,7 +153,17 @@
 			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
 		) as HTMLElement[]
 	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && selectedInput) {
+			selectedInput = null
+			selectedArgs = undefined
+			dispatch('select', undefined)
+		}
+	}
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 <div
 	class="w-full flex flex-col gap-1 h-full overflow-y-auto p"

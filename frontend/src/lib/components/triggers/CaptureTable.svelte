@@ -143,7 +143,15 @@
 			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
 		) as HTMLElement[]
 	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && selected) {
+			deselect()
+		}
+	}
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 {#if captures.length > 0 || !hideCapturesWhenEmpty}
 	<Label label="Trigger tests" {headless} class="h-full flex flex-col gap-1">
