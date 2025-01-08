@@ -291,7 +291,7 @@
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled}
-						<div class="w-full p-2 flex justify-end">
+						<div class="w-full p-3 flex justify-end">
 							<Toggle
 								bind:checked={jsonView}
 								label="JSON View"

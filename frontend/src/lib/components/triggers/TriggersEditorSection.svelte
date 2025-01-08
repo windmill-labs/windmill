@@ -40,14 +40,12 @@
 	let init = false
 	$: updateShowCapture(!!$captureOn)
 	function updateShowCapture(show: boolean) {
-		if (!init) return
-		showCapture = show
+		if (show && !init) {
+			$captureOn = undefined
+			showCapture = true
+			init = true
+		}
 	}
-
-	setTimeout(() => {
-		init = true
-		updateShowCapture(!!$captureOn)
-	}, 300)
 </script>
 
 <Section label={captureTypeLabels[triggerType]}>
@@ -57,13 +55,13 @@
 				<Button
 					size="xs2"
 					on:click={() => {
-						$captureOn = !$captureOn
+						showCapture = !showCapture
 					}}
 					variant="border"
 					color="light"
 					endIcon={{
 						icon: ChevronDown,
-						classes: twMerge('transition', $captureOn ? 'rotate-180' : '')
+						classes: twMerge('transition', showCapture ? 'rotate-180' : '')
 					}}
 				>
 					Test trigger
