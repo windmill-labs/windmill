@@ -1,4 +1,4 @@
-use std::{collections::HashMap, pin::Pin};
+use std::{collections::HashMap, pin::Pin, str::FromStr};
 
 use crate::{
     database_triggers::{
@@ -70,16 +70,15 @@ pub struct PostgresSimpleClient(Client);
 impl PostgresSimpleClient {
     async fn new(database: &Database) -> Result<Self, Error> {
         let mut config = Config::new();
-
         config
-            .dbname(&database.db_name)
+            .dbname(&database.dbname)
             .host(&database.host)
             .port(database.port)
-            .user(&database.username)
+            .user(&database.user)
             .replication_mode(rust_postgres::config::ReplicationMode::Logical);
 
-        if let Some(password) = &database.password {
-            config.password(password);
+        if !database.password.is_empty() {
+            config.password(&database.password);
         }
 
         let (client, connection) = config.connect(NoTls).await.map_err(Error::Postgres)?;

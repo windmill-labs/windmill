@@ -1,6 +1,9 @@
-use std::collections::{
-    hash_map::Entry::{Occupied, Vacant},
-    HashMap,
+use std::{
+    collections::{
+        hash_map::Entry::{Occupied, Vacant},
+        HashMap,
+    },
+    str::FromStr,
 };
 
 use axum::{
@@ -14,7 +17,7 @@ use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{
-    postgres::{types::Oid, PgConnectOptions},
+    postgres::{types::Oid, PgConnectOptions, PgSslMode},
     Connection, FromRow, PgConnection, QueryBuilder,
 };
 use windmill_audit::{audit_ee::audit_log, ActionKind};
@@ -35,11 +38,13 @@ use crate::{
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct Database {
-    pub username: String,
-    pub password: Option<String>,
+    pub user: String,
+    pub password: String,
     pub host: String,
     pub port: u16,
-    pub db_name: String,
+    pub dbname: String,
+    pub sslmode: String,
+    pub root_certificate_pem: String,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -99,14 +104,26 @@ pub struct NewDatabaseTrigger {
 
 async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Error> {
     let options = {
+        let sslmode = if !db.sslmode.is_empty() {
+            PgSslMode::from_str(&db.sslmode)?
+        } else {
+            PgSslMode::Prefer
+        };
         let options = PgConnectOptions::new()
             .host(&db.host)
-            .database(&db.db_name)
+            .database(&db.dbname)
             .port(db.port)
-            .username(&db.username);
+            .ssl_mode(sslmode)
+            .username(&db.user);
 
-        if let Some(password) = &db.password {
-            options.password(password)
+        let options = if !db.root_certificate_pem.is_empty() {
+            options.ssl_root_cert_from_pem(db.root_certificate_pem.as_bytes().to_vec())
+        } else {
+            options
+        };
+
+        if !db.password.is_empty() {
+            options.password(&db.password)
         } else {
             options
         }
@@ -219,9 +236,8 @@ pub async fn get_database_resource(
         .await
         .map_err(Error::SqlErr)?;
 
-    if resource.value.password.is_some() {
-        let password = get_variable_or_self(resource.value.password.unwrap(), db, w_id).await?;
-        resource.value.password = Some(password)
+    if !resource.value.password.is_empty() {
+        resource.value.password = get_variable_or_self(resource.value.password, db, w_id).await?;
     }
 
     Ok(resource.value)
@@ -1112,6 +1128,8 @@ pub async fn get_template_script(
     Path(w_id): Path<String>,
     Json(template_script): Json<TemplateScript>,
 ) -> error::Result<String> {
+    use windmill_common::error::Error;
+
     let TemplateScript { database_resource_path, relations, language } = template_script;
     if relations.is_none() {
         return Err(error::Error::BadRequest(
@@ -1121,29 +1139,9 @@ pub async fn get_template_script(
 
     let resource = get_resource::<Database>(&db, &database_resource_path, &w_id)
         .await
-        .map_err(|_| {
-            windmill_common::error::Error::NotFound("Database resource do not exist".to_string())
-        })?;
+        .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
 
-    let Database { username, password, host, port, db_name } = resource.value;
-
-    let options = {
-        let options = PgConnectOptions::new()
-            .port(port)
-            .database(&db_name)
-            .username(&username)
-            .host(&host);
-        if let Some(password_path) = password {
-            let password = get_variable_or_self(password_path, &db, &w_id).await?;
-            options.password(&password)
-        } else {
-            options
-        }
-    };
-
-    let mut pg_connection = PgConnection::connect_with(&options)
-        .await
-        .map_err(|e| error::Error::ConnectingToDatabase(e.to_string()))?;
+    let mut pg_connection = get_raw_postgres_connection(&resource.value).await?;
 
     #[derive(Debug, FromRow, Deserialize)]
     struct ColumnInfo {

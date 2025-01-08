@@ -266,7 +266,7 @@
 						Pick a database to connect to <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
-						<ResourcePicker bind:value={database_resource_path} resourceType={'database'} />
+						<ResourcePicker bind:value={database_resource_path} resourceType={'postgresql'} />
 					</div>
 				</Section>
 
