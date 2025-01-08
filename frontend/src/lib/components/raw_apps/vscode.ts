@@ -10,6 +10,7 @@ import getLifecycleServiceOverride from '@codingame/monaco-vscode-lifecycle-serv
 import getExplorerServiceOverride from '@codingame/monaco-vscode-explorer-service-override'
 import getSearchServiceOverride from '@codingame/monaco-vscode-search-service-override'
 import { useWorkerFactory } from 'monaco-editor-wrapper/workerFactory'
+import getStatusBarServiceOverride from '@codingame/monaco-vscode-view-status-bar-service-override'
 
 import {
 	RegisteredFileSystemProvider,
@@ -61,16 +62,6 @@ export const configureMonacoWorkers = (logger?: any) => {
 					new Worker(new URL('monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url), {
 						type: 'module'
 					}),
-				css: () => {
-					return new Worker(new URL('monaco-editor-wrapper/workers/module/css', import.meta.url), {
-						type: 'module'
-					})
-				},
-				// typescript: () => {
-				// 	return new Worker(new URL('monaco-editor-wrapper/workers/module/ts', import.meta.url), {
-				// 		type: 'module'
-				// 	})
-				// },
 				TextMateWorker: () =>
 					new Worker(
 						new URL('@codingame/monaco-vscode-textmate-service-override/worker', import.meta.url),
@@ -93,6 +84,7 @@ export const runApplicationPlayground = async (
 	sidebar,
 	editors,
 	panel,
+	statusBar,
 	node_modules
 ) => {
 	const workspaceFile = vscode.Uri.file('/.vscode/workspace.code-workspace')
@@ -107,12 +99,9 @@ export const runApplicationPlayground = async (
 				part: 'workbench.parts.sidebar',
 				element: sidebar
 			},
-			// {
-			// 	part: 'workbench.parts.auxiliarybar',
-			// 	element: auxiliaryBar
-			// },
 			{ part: 'workbench.parts.editor', element: editors },
-			{ part: 'workbench.parts.panel', element: panel }
+			{ part: 'workbench.parts.panel', element: panel },
+			{ part: 'workbench.parts.statusbar', element: statusBar }
 		]) {
 			attachPart(config.part as Parts, config.element)
 		}
@@ -128,6 +117,8 @@ export const runApplicationPlayground = async (
 				...getConfigurationServiceOverride(),
 				...getKeybindingsServiceOverride(),
 				...getLifecycleServiceOverride(),
+				...getStatusBarServiceOverride(),
+
 				// ...getBannerServiceOverride(),
 				// ...getTitleBarServiceOverride(),
 				// ...getModelServiceOverride(),
@@ -205,8 +196,12 @@ export const runApplicationPlayground = async (
 		'/.vscode/settings.json': JSON.stringify(
 			{
 				'files.exclude': {
-					'.vscode/': true,
+					'.vscode/': false,
 					node_modules: false
+				},
+				'files.associations': {
+					'*.tsx': 'typescript',
+					'*.ts': 'typescript'
 				}
 			},
 			null,

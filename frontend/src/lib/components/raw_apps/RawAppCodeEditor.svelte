@@ -3,10 +3,12 @@
 	import '@codingame/monaco-vscode-css-default-extension'
 	import '@codingame/monaco-vscode-json-default-extension'
 	import '@codingame/monaco-vscode-html-default-extension'
-	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-css-language-features-default-extension'
 
+	// import '@codingame/monaco-vscode-standalone-css-language-features'
+
+	// import '@codingame/monaco-vscode-standalone-languages'
 	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
 	import '@codingame/monaco-vscode-typescript-basics-default-extension'
 	import '@codingame/monaco-vscode-typescript-language-features-default-extension'
 
@@ -17,7 +19,6 @@
 	import { runApplicationPlayground } from './vscode'
 	import { MonacoEditorLanguageClientWrapper } from 'monaco-editor-wrapper'
 	import { IFileService, StandaloneServices } from 'vscode/services'
-	import '@codingame/monaco-vscode-standalone-css-language-features'
 
 	import { initFile } from '@codingame/monaco-vscode-files-service-override'
 	import { Uri } from 'vscode'
@@ -32,9 +33,47 @@
 	let sidebar
 	let editors
 	let panel
+	let statusBar
 
 	let mounted = false
 	const wrapper = new MonacoEditorLanguageClientWrapper() // @hmr:keep
+
+	// languages.typescript.typescriptDefaults.setCompilerOptions({
+	// 	target: languages.typescript.ScriptTarget.Latest,
+	// 	allowNonTsExtensions: true,
+	// 	noSemanticValidation: false,
+	// 	noSyntaxValidation: false,
+	// 	completionItems: true,
+	// 	hovers: true,
+	// 	documentSymbols: true,
+	// 	definitions: true,
+	// 	references: true,
+	// 	documentHighlights: true,
+	// 	rename: true,
+	// 	diagnostics: true,
+	// 	documentRangeFormattingEdits: true,
+	// 	signatureHelp: true,
+	// 	onTypeFormattingEdits: true,
+	// 	codeActions: true,
+	// 	inlayHints: true,
+	// 	checkJs: true,
+	// 	allowJs: true,
+	// 	noUnusedLocals: true,
+	// 	strict: true,
+	// 	noLib: false,
+	// 	allowImportingTsExtensions: true,
+	// 	allowSyntheticDefaultImports: true,
+	// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
+	// 	jsx: languages.typescript.JsxEmit.React
+	// })
+
+	// languages.getLanguages().forEach((lang) => {
+	// 	console.log('lang', lang)
+	// 	if (lang.id === 'typescript') {
+	// 		console.log('lang', lang)
+	// 		lang.extensions = ['.ts', '.tsx']
+	// 	}
+	// })
 
 	let readOnlyProvider: ReadOnlyMemoryFileSystemProvider | undefined = undefined
 	onMount(async () => {
@@ -57,6 +96,7 @@
 				sidebar,
 				editors,
 				panel,
+				statusBar,
 				node_modules
 			)
 			updateReadOnlyFile()
@@ -88,8 +128,8 @@
 	})
 </script>
 
-<div class="h-full w-full relative">
-	{#if !mounted}
+<div class="h-full w-full overflow-hidden relative">
+	{#if !mounted && false}
 		<div class="h-full w-full absolute top-0 left-0 bg-surface-secondary center-center z-20">
 			<div class="flex gap-2">
 				Loading editor <Loader2 class="animate-spin" />
@@ -108,6 +148,7 @@
 			</div>
 		</div>
 		<div id="panel-vscode" bind:this={panel} />
+		<div id="statusBar" bind:this={statusBar} />
 	</div>
 </div>
 
@@ -149,7 +190,7 @@
 	#editors-vscode {
 		position: relative;
 		min-width: 0;
-		height: 95%;
+		height: 100%;
 		border: 1px solid var(--vscode-editorWidget-border);
 	}
 
@@ -165,7 +206,7 @@
 	}
 
 	#workbench-container-vscode {
-		height: 95vh;
+		height: 100%;
 		display: flex;
 		flex-direction: column;
 	}
