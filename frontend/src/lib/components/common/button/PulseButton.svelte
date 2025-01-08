@@ -1,46 +1,51 @@
 <script>
-	export let pulseDuration = 1000
+	export let pulseDuration = 2
+	export let numberOfPulses = 3
+	export let scale = 1.2
 
-	let pulseCount = 0
 	let isPulsing = false
+	let pulseCount = 1
 
 	export function triggerPulse(count) {
-		pulseCount = count
+		if (pulseCount < 1) return
 		if (!isPulsing) {
+			pulseCount = count
 			isPulsing = true
-			startPulse()
-		}
-	}
-
-	function startPulse() {
-		const interval = setInterval(() => {
-			if (pulseCount <= 0) {
-				clearInterval(interval)
+			setTimeout(() => {
 				isPulsing = false
-			} else {
-				pulseCount--
-			}
-		}, pulseDuration)
+			}, pulseDuration * count * 1000)
+		}
 	}
 </script>
 
 <div class="relative">
-	<div
-		class={`pulse ${pulseCount > 0 ? 'active' : ''}`}
-		style={`--pulse-duration: ${pulseDuration}ms`}
-	/>
-	<slot />
+	<div>
+		<slot />
+	</div>
+	{#each Array(numberOfPulses) as _, i}
+		<div
+			class:deactivate={isPulsing}
+			style={`--pulse-duration: ${pulseDuration}s; --i:${i}; --scale:${scale}; --number-of-pulses:${numberOfPulses}; --pulse-count:${pulseCount};`}
+		>
+			<div class="pulse" class:active={isPulsing} />
+		</div>
+	{/each}
 </div>
 
 <style>
+	.relative {
+		position: relative;
+		display: inline-block;
+	}
+
 	.pulse {
 		position: absolute;
 		top: 50%;
 		left: 50%;
 		width: 100%;
 		height: 100%;
-		background: radial-gradient(circle, rgba(0, 98, 255, 0.4) 0%, transparent 100%);
-		border-radius: 50%;
+		background: rgb(81, 151, 255);
+		border-radius: 8px;
 		transform: translate(-50%, -50%) scale(1);
 		z-index: 0;
 		pointer-events: none;
@@ -48,18 +53,29 @@
 	}
 
 	.pulse.active {
-		animation: pulse var(--pulse-duration) ease-in infinite;
+		animation: pulse var(--pulse-duration) ease-out infinite;
+		animation-delay: calc(var(--i) * var(--pulse-duration) / var(--number-of-pulses));
 		opacity: 1;
 	}
 
-	@keyframes pulse {
+	.deactivate {
+		animation: fade calc(var(--pulse-duration) * 0.3) ease-out;
+		animation-delay: calc(var(--pulse-duration) * var(--pulse-count) - var(--pulse-duration) * 0.2);
+		opacity: 1;
+	}
+
+	@keyframes fade {
 		0% {
-			transform: translate(-50%, -50%) scale(1);
 			opacity: 0.8;
 		}
-
 		100% {
-			transform: translate(-50%, -50%) scale(4);
+			opacity: 0;
+		}
+	}
+
+	@keyframes pulse {
+		100% {
+			transform: translate(-50%, -50%) scale(var(--scale));
 			opacity: 0;
 		}
 	}

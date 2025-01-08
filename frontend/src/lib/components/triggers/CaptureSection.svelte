@@ -49,14 +49,14 @@
 		})
 	}
 
-	let openingDuration = 500
+	let openingDuration = 400
 	let pulseButton: PulseButton | undefined
 	function updateShowCaptureHint(show: boolean | undefined) {
 		if (show) {
 			$showCaptureHint = false
 			setTimeout(() => {
 				pulseButton?.triggerPulse(1)
-			}, openingDuration + 200)
+			}, 300)
 		}
 	}
 	$: updateShowCaptureHint($showCaptureHint)
@@ -66,7 +66,7 @@
 	<div class="border p-4 rounded-lg">
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex flex-row items-center justify-start gap-1">
-				<PulseButton bind:this={pulseButton} pulseDuration={500}>
+				<PulseButton bind:this={pulseButton} numberOfPulses={1} pulseDuration={1}>
 					<AnimatedButton animate={captureInfo.active} baseRadius="6px" wrapperClasses="ml-[-2px]">
 						<Button
 							size="xs2"
