@@ -1024,7 +1024,7 @@ async fn get_modal_blocks(
 
     let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
 
-    let fallback_message = format!(
+    let mut message_str = format!(
         "A workflow has been suspended and is waiting for approval:\n\n\
         *Created by*: {created_by}\n\
         *Created at*: {created_at_formatted}\n\
@@ -1033,7 +1033,10 @@ async fn get_modal_blocks(
         *Flow ID*: {parent_job_id_str}\n\n"
     );
 
-    let mut message_str: String = message.unwrap_or_else(|| fallback_message.as_str()).to_string();
+    // Append custom message if provided
+    if let Some(msg) = message {
+        message_str.push_str(msg);
+    }
 
     tracing::debug!("Schema: {:#?}", schema);
 
