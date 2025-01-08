@@ -147,13 +147,15 @@
 	const triggerDefaultValuesStore = writable<Record<string, any> | undefined>(undefined)
 
 	const captureOn = writable<boolean | undefined>(undefined)
+	const showCaptureHint = writable<boolean | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
 		defaultValues: triggerDefaultValuesStore,
-		captureOn: captureOn
+		captureOn: captureOn,
+		showCaptureHint: showCaptureHint
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']

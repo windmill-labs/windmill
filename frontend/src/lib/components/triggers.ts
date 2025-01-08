@@ -16,6 +16,7 @@ export type TriggerContext = {
 	simplifiedPoll: Writable<boolean | undefined>
 	defaultValues: Writable<Record<string, any> | undefined>
 	captureOn: Writable<boolean | undefined>
+	showCaptureHint: Writable<boolean | undefined>
 }
 
 export function setScheduledPollSchedule(

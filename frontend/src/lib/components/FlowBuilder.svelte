@@ -491,6 +491,7 @@
 	const history = initHistory($flowStore)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 	const captureOn = writable<boolean>(false)
+	const showCaptureHint = writable<boolean | undefined>(undefined)
 	const flowInputEditorStateStore = writable<FlowInputEditorState>({
 		selectedTab: undefined,
 		editPanelSize: 0,
@@ -544,7 +545,8 @@
 		triggersCount,
 		simplifiedPoll,
 		defaultValues: writable(undefined),
-		captureOn
+		captureOn,
+		showCaptureHint
 	})
 
 	async function loadTriggers() {
@@ -1430,6 +1432,7 @@
 							select('triggers')
 							selectTrigger(e.detail.kind)
 							captureOn.set(true)
+							showCaptureHint.set(true)
 						}}
 						bind:this={flowPreviewButtons}
 					/>

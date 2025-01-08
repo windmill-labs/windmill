@@ -76,7 +76,6 @@
 
 	let hasAlreadyFailed = false
 	export async function loadCaptures(refresh?: boolean) {
-		console.log('dbg: loadCaptures', refresh)
 		hasMore = false
 
 		try {
@@ -125,7 +124,6 @@
 	}
 
 	function deselect() {
-		if (!selected) return
 		selected = undefined
 		dispatch('select', undefined)
 	}
@@ -153,6 +151,8 @@
 			deselect()
 		}
 	}
+
+	let firstClick = true
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -186,6 +186,10 @@
 			class={twMerge('grow min-h-0', captures.length > 7 ? 'h-[300px]' : 'h-auto')}
 			use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 			on:click_outside={() => {
+				if (firstClick) {
+					firstClick = false
+					return
+				}
 				deselect()
 			}}
 		>
@@ -292,7 +296,6 @@
 														if (isFlow && testKind === 'main') {
 															dispatch('testWithArgs', payloadData)
 														} else {
-															console.log('dbg: applyArgs from table', payloadData)
 															dispatch('applyArgs', {
 																kind: testKind,
 																args: payloadData

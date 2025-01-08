@@ -88,7 +88,8 @@
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
 		defaultValues: writable(undefined),
-		captureOn: writable(undefined)
+		captureOn: writable(undefined),
+		showCaptureHint: writable(undefined)
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
