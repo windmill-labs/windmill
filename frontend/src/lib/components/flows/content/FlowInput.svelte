@@ -45,6 +45,7 @@
 	let pendingJson: string
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
+	let payloadData: Record<string, any> | undefined = undefined
 	let previewArguments: Record<string, any> | undefined = $previewArgs
 	let editOptionsOpen = false
 	let dropdownItems: Array<{
@@ -179,7 +180,7 @@
 		previewSchema = schemaFromPayload(payloadData)
 		updatePreviewArguments(payloadData)
 	}
-	$: updatePreviewSchemaAndArgs($flowInputEditorState.payloadData)
+	$: updatePreviewSchemaAndArgs(payloadData)
 
 	function applySchemaAndArgs() {
 		if (!previewSchema) {
@@ -216,18 +217,18 @@
 			return
 		}
 		if (!pendingJson?.length) {
-			$flowInputEditorState.payloadData = undefined
+			payloadData = undefined
 			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 			return
 		}
 		try {
 			const parsed = JSON.parse(pendingJson)
-			$flowInputEditorState.payloadData = parsed
+			payloadData = parsed
 			updatePreviewSchemaAndArgs(parsed)
 			jsonValid = true
 		} catch (error) {
-			$flowInputEditorState.payloadData = undefined
+			payloadData = undefined
 			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 		}
@@ -249,6 +250,13 @@
 	}
 
 	let connectFirstNode: () => void = () => {}
+
+	let init = false
+	$: if ($flowInputEditorState.payloadData && !init) {
+		init = true
+		payloadData = $flowInputEditorState.payloadData
+		$flowInputEditorState.payloadData = undefined
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -373,11 +381,11 @@
 				<svelte:fragment slot="extraTab">
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
-							disabled={!$flowInputEditorState.payloadData}
+							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								$flowInputEditorState.payloadData = undefined
+								payloadData = undefined
 							}}
 						>
 							<HistoricInputs
@@ -385,17 +393,17 @@
 								scriptPath={null}
 								flowPath={$pathStore}
 								on:select={(e) => {
-									$flowInputEditorState.payloadData = e.detail ?? undefined
+									payloadData = e.detail ?? undefined
 								}}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
-							disabled={!$flowInputEditorState.payloadData}
+							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								$flowInputEditorState.payloadData = undefined
+								payloadData = undefined
 							}}
 						>
 							<svelete:fragment slot="action">
@@ -405,18 +413,18 @@
 							</svelete:fragment>
 							<CapturesInputs
 								on:select={(e) => {
-									$flowInputEditorState.payloadData = e.detail ?? undefined
+									payloadData = e.detail ?? undefined
 								}}
 								flowPath={$pathStore}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
-							disabled={!$flowInputEditorState.payloadData}
+							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								$flowInputEditorState.payloadData = undefined
+								payloadData = undefined
 							}}
 						>
 							<svelete:fragment slot="header">
@@ -425,7 +433,7 @@
 							<SavedInputsPicker
 								flowPath={initialPath}
 								on:select={(e) => {
-									$flowInputEditorState.payloadData = e.detail ?? undefined
+									payloadData = e.detail ?? undefined
 								}}
 							/>
 						</FlowInputEditor>
@@ -435,7 +443,7 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								$flowInputEditorState.payloadData = undefined
+								payloadData = undefined
 								pendingJson = ''
 							}}
 						>
@@ -450,8 +458,7 @@
 							}}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								$flowInputEditorState.payloadData = undefined
-								pendingJson = ''
+								payloadData = undefined
 							}}
 						>
 							<FirstStepInputs

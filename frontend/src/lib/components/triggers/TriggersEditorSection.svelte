@@ -35,6 +35,19 @@
 	let args: Record<string, any> = {}
 
 	const dispatch = createEventDispatcher()
+
+	let showCapture = false
+	let init = false
+	$: updateShowCapture(!!$captureOn)
+	function updateShowCapture(show: boolean) {
+		if (!init) return
+		showCapture = show
+	}
+
+	setTimeout(() => {
+		init = true
+		updateShowCapture(!!$captureOn)
+	}, 300)
 </script>
 
 <Section label={captureTypeLabels[triggerType]}>
@@ -103,7 +116,7 @@
 			on:testWithArgs
 			bind:args
 			{data}
-			showCapture={$captureOn}
+			{showCapture}
 		/>
 	{:else}
 		<TriggersWrapper {path} {isFlow} {triggerType} {cloudDisabled} {args} {data} />
