@@ -54,6 +54,8 @@
 			day: 'numeric'
 		}).format(date)
 	}
+
+	$: hovering ? dispatch('hover', true) : dispatch('hover', false)
 </script>
 
 <Row

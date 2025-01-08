@@ -31,8 +31,10 @@
 	export let hideCapturesWhenEmpty = false
 	export let canEdit = false
 	export let captureActive = false
+
 	let captures: Capture[] = []
 	let selected: number | undefined = undefined
+	let hovered: number | undefined = undefined
 	let testKind: 'preprocessor' | 'main' = 'main'
 	let hasMore = false
 	let page = 1
@@ -74,6 +76,7 @@
 
 	let hasAlreadyFailed = false
 	export async function loadCaptures(refresh?: boolean) {
+		console.log('dbg: loadCaptures', refresh)
 		hasMore = false
 
 		try {
@@ -94,6 +97,7 @@
 			} else {
 				if (refresh) {
 					captures = newCaptures
+					page = 1
 				} else {
 					captures = [...captures, ...newCaptures]
 				}
@@ -215,16 +219,16 @@
 											...payload,
 											...triggerExtra
 									  }
-									: payload}
+									: { ...payload }}
 							{@const captureIcon = captureKindToIcon[capture.trigger_kind]}
 							<SchemaPickerRow
 								date={capture.created_at}
 								{payloadData}
 								on:updateSchema
-								on:applyArgs
 								on:addPreprocessor
 								on:select={() => handleSelect(capture)}
 								selected={selected === capture.id}
+								on:hover={(e) => (hovered = e.detail ? capture.id : undefined)}
 							>
 								<svelte:fragment slot="start">
 									<div class="center-center">
@@ -268,7 +272,9 @@
 											{:else}
 												<Button
 													size="xs2"
-													color="dark"
+													color={hovered === capture.id || selected === capture.id
+														? 'dark'
+														: 'light'}
 													dropdownItems={[
 														{
 															label: 'Use as input schema',
@@ -286,6 +292,7 @@
 														if (isFlow && testKind === 'main') {
 															dispatch('testWithArgs', payloadData)
 														} else {
+															console.log('dbg: applyArgs from table', payloadData)
 															dispatch('applyArgs', {
 																kind: testKind,
 																args: payloadData

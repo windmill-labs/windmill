@@ -59,12 +59,14 @@
 						color="light"
 						btnClasses={captureInfo.active ? 'text-blue-500 hover:text-blue-500' : ''}
 					>
-						{#if captureInfo.active}
-							<CircleStop />
-						{:else}
-							<CaptureIcon variant="redDot" />
-						{/if}
-						{captureInfo.active ? 'Stop' : 'Start capturing'}
+						<div class="flex flex-row items-center gap-1 w-28 justify-center">
+							{#if captureInfo.active}
+								<CircleStop size={14} />
+							{:else}
+								<CaptureIcon variant="redDot" size={14} />
+							{/if}
+							{captureInfo.active ? 'Stop' : 'Start capturing'}
+						</div>
 					</Button>
 				</AnimatedButton>
 
