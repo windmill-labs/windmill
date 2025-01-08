@@ -8,8 +8,10 @@
 	let drawer: Drawer
 	let canSave = true
 	let resource_type: string | undefined = undefined
+	let defaultValues: Record<string, any> | undefined = undefined
 
-	let resourceEditor: { editResource: () => void } | undefined = undefined
+	let resourceEditor: { editResource: () => void; createResource: () => void } | undefined =
+		undefined
 
 	let path: string | undefined = undefined
 
@@ -21,16 +23,27 @@
 		drawer.openDrawer?.()
 	}
 
-	export async function initNew(resourceType: string): Promise<void> {
+	export async function initNew(
+		resourceType: string,
+		nDefaultValues?: Record<string, any>
+	): Promise<void> {
 		newResource = true
 		path = undefined
 		resource_type = resourceType
+		defaultValues = nDefaultValues
 		drawer.openDrawer?.()
 	}
+
+	let mode: 'edit' | 'new' = newResource ? 'new' : 'edit'
+
+	$: path ? (mode = 'edit') : (mode = 'new')
 </script>
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title={path ? 'Edit ' + path : 'Add a resource'} on:close={drawer.closeDrawer}>
+	<DrawerContent
+		title={mode == 'edit' ? 'Edit ' + path : 'Add a resourcee'}
+		on:close={drawer.closeDrawer}
+	>
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
@@ -38,6 +51,7 @@
 				{newResource}
 				{path}
 				{resource_type}
+				{defaultValues}
 				on:refresh
 				bind:this={resourceEditor}
 				bind:canSave
@@ -47,7 +61,11 @@
 			<Button
 				startIcon={{ icon: Save }}
 				on:click={() => {
-					resourceEditor?.editResource()
+					if (mode == 'edit') {
+						resourceEditor?.editResource()
+					} else {
+						resourceEditor?.createResource()
+					}
 					drawer.closeDrawer()
 				}}
 				disabled={!canSave}

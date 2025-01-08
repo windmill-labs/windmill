@@ -46,7 +46,7 @@
 		background: inherit;
 		z-index: 1;
 		overflow: hidden;
-		padding: var(--margin-width, 2px);
+		padding: var(--margin-width, 1px);
 	}
 
 	/* Circular gradient */

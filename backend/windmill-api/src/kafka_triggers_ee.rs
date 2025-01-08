@@ -1,5 +1,9 @@
 use crate::db::DB;
 use axum::Router;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct KafkaResourceSecurity {}
 
 pub fn workspaced_service() -> Router {
     Router::new()

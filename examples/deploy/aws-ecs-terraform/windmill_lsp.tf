@@ -47,7 +47,7 @@ resource "aws_ecs_task_definition" "windmill_cluster_windmill_lsp_td" {
 
   volume {
     name      = "lsp_cache"
-    host_path = "/root/.cache"
+    host_path = "/pyls/.cache"
   }
 }
 

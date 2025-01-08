@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.444.0](https://github.com/windmill-labs/windmill/compare/v1.443.0...v1.444.0) (2025-01-06)
+
+
+### Features
+
+* captures ([#4807](https://github.com/windmill-labs/windmill/issues/4807)) ([01c6f84](https://github.com/windmill-labs/windmill/commit/01c6f845206b70a37163b8e67ff769cd5ad181ce))
+
+
+### Bug Fixes
+
+* **backend:** fix `has_failure_module` only looking for `raw_flow` ([#5018](https://github.com/windmill-labs/windmill/issues/5018)) ([abf63a6](https://github.com/windmill-labs/windmill/commit/abf63a6560817cfd392d3df7a74ba937255cb507))
+* recognize `forloop-&lt;n&gt;` in `use_flow_root_path` ([#5016](https://github.com/windmill-labs/windmill/issues/5016)) ([3eaef46](https://github.com/windmill-labs/windmill/commit/3eaef46a4fac92951e15a8e2177dbd25227c7250))
+
+## [1.443.0](https://github.com/windmill-labs/windmill/compare/v1.442.0...v1.443.0) (2025-01-04)
+
+
+### Features
+
+* allow s3 file download/preview from inside apps ([#5004](https://github.com/windmill-labs/windmill/issues/5004)) ([0c19171](https://github.com/windmill-labs/windmill/commit/0c19171f579cdd5d2753bd58dcc87b326cb6c09e))
+
+## [1.442.0](https://github.com/windmill-labs/windmill/compare/v1.441.2...v1.442.0) (2025-01-03)
+
+
+### Features
+
+* update git sync scripts with url redacted ([#5008](https://github.com/windmill-labs/windmill/issues/5008)) ([bbf7fd6](https://github.com/windmill-labs/windmill/commit/bbf7fd695b75403714eaa68764137a5fa560c92a))
+
+
+### Bug Fixes
+
+* **apps:** check for auth when executing as publisher ([#4979](https://github.com/windmill-labs/windmill/issues/4979)) ([f5c85d7](https://github.com/windmill-labs/windmill/commit/f5c85d7db994a269b63940a1445d1c2d659c3bc5))
+* **backend:** allow multiple files per field when using multipart ([#5002](https://github.com/windmill-labs/windmill/issues/5002)) ([383ecf8](https://github.com/windmill-labs/windmill/commit/383ecf846754d40ceaee256360a042d881984690))
+* handle `'flownode'` job kind where missing ([#4990](https://github.com/windmill-labs/windmill/issues/4990)) ([eeece84](https://github.com/windmill-labs/windmill/commit/eeece84a4b2f09cf50f7a04fac71912953f6e7f1))
+* **python:** Cancel and Start again within 1s caused module not found [v2] ([#5007](https://github.com/windmill-labs/windmill/issues/5007)) ([c998d2c](https://github.com/windmill-labs/windmill/commit/c998d2c8c50cc8ec38fb771bd55743fa3e651bcd))
+
+## [1.441.2](https://github.com/windmill-labs/windmill/compare/v1.441.1...v1.441.2) (2024-12-27)
+
+
+### Bug Fixes
+
+* **backend:** fix zombies left by the bash executor ([#4985](https://github.com/windmill-labs/windmill/issues/4985)) ([8db69ce](https://github.com/windmill-labs/windmill/commit/8db69ce15e25601d0ac2ac98b1e45c0c01c11967))
+
 ## [1.441.1](https://github.com/windmill-labs/windmill/compare/v1.441.0...v1.441.1) (2024-12-24)
 
 
