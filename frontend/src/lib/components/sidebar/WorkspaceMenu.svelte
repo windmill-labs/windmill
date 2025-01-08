@@ -24,6 +24,7 @@
 
 	export let isCollapsed: boolean = false
 
+	// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 	export let strictWorkspaceSelect = false
 
 	async function toggleSwitchWorkspace(id: string) {

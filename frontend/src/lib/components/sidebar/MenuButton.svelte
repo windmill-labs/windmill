@@ -27,11 +27,11 @@
 				lightMode
 					? 'text-primary hover:bg-surface-hover '
 					: 'hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
-				color ? 'border-2' : '',
+				color ? 'border-4' : '',
 				'transition-all',
 				$$props.class
 			)}
-			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 2px);` : ''}
+			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 4px);` : ''}
 			title={label}
 		>
 			{#if icon}
