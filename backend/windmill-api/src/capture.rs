@@ -36,10 +36,11 @@ use windmill_queue::{PushArgs, PushArgsOwned};
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaResourceSecurity;
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+use crate::nats_triggers_ee::NatsResourceAuth;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
-    nats_triggers_ee::NatsResourceAuth,
     users::fetch_api_authed,
 };
 
