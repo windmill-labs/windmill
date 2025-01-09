@@ -9,7 +9,7 @@
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
 	import { HttpTriggerService } from '$lib/gen'
-	import { page } from '$app/stores'
+	// import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import type { CaptureInfo } from './CaptureSection.svelte'
@@ -59,7 +59,7 @@
 	}
 
 	function getHttpRoute(route_path: string | undefined) {
-		return `${$page.url.origin}${base}/api/r/${
+		return `${location.origin}${base}/api/r/${
 			isCloudHosted() ? $workspaceStore + '/' : ''
 		}${route_path}`
 	}

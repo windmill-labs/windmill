@@ -106,6 +106,7 @@ pub fn workspaced_service() -> Router {
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/change_workspace_name", post(change_workspace_name))
+        .route("/change_workspace_color", post(change_workspace_color))
         .route(
             "/change_workspace_id",
             post(crate::workspaces_extra::change_workspace_id),
@@ -158,6 +159,7 @@ struct Workspace {
     owner: String,
     deleted: bool,
     premium: bool,
+    color: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -186,6 +188,7 @@ pub struct WorkspaceSettings {
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
     pub mute_critical_alerts: Option<bool>,
+    pub color: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -263,6 +266,7 @@ struct CreateWorkspace {
     id: String,
     name: String,
     username: Option<String>,
+    color: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -282,6 +286,7 @@ struct UserWorkspace {
     pub id: String,
     pub name: String,
     pub username: String,
+    pub color: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -376,8 +381,11 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.* FROM workspace, usr WHERE usr.workspace_id = workspace.id AND \
-         usr.email = $1 AND deleted = false",
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
+         FROM workspace
+         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+         JOIN usr ON usr.workspace_id = workspace.id
+         WHERE usr.email = $1 AND workspace.deleted = false",
         authed.email
     )
     .fetch_all(&mut *tx)
@@ -1331,7 +1339,10 @@ async fn list_workspaces_as_super_admin(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT * FROM workspace LIMIT $1 OFFSET $2",
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
+         FROM workspace
+         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+         LIMIT $1 OFFSET $2",
         per_page as i32,
         offset as i32
     )
@@ -1348,9 +1359,11 @@ async fn user_workspaces(
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
-        "SELECT workspace.id, workspace.name, usr.username
-     FROM workspace, usr WHERE usr.workspace_id = workspace.id AND usr.email = $1 AND deleted = \
-         false",
+        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color
+         FROM workspace
+         JOIN usr ON usr.workspace_id = workspace.id
+         JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id
+         WHERE usr.email = $1 AND workspace.deleted = false",
         email
     )
     .fetch_all(&mut *tx)
@@ -1430,9 +1443,10 @@ async fn create_workspace(
     .await?;
     sqlx::query!(
         "INSERT INTO workspace_settings
-            (workspace_id)
-            VALUES ($1)",
-        nw.id
+            (workspace_id, color)
+            VALUES ($1, $2)",
+        nw.id,
+        nw.color,
     )
     .execute(&mut *tx)
     .await?;
@@ -1943,6 +1957,11 @@ struct ChangeWorkspaceName {
     new_name: String,
 }
 
+#[derive(Deserialize)]
+struct ChangeWorkspaceColor {
+    color: Option<String>,
+}
+
 async fn change_workspace_name(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -1975,6 +1994,32 @@ async fn change_workspace_name(
     tx.commit().await?;
 
     Ok(format!("updated workspace name to {}", &rw.new_name))
+}
+
+async fn change_workspace_color(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
+    Json(rw): Json<ChangeWorkspaceColor>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET color = $1 WHERE workspace_id = $2",
+        rw.color,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "updated workspace color to {}",
+        rw.color.as_deref().unwrap_or("no color")
+    ))
 }
 
 async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
