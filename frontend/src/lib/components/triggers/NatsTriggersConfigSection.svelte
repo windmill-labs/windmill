@@ -1,0 +1,287 @@
+<script lang="ts">
+	import ResourcePicker from '../ResourcePicker.svelte'
+	import { Boxes } from 'lucide-svelte'
+	import Section from '$lib/components/Section.svelte'
+	import Subsection from '$lib/components/Subsection.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import SchemaForm from '../SchemaForm.svelte'
+	import CaptureSection, { type CaptureInfo } from './CaptureSection.svelte'
+	import CaptureTable from './CaptureTable.svelte'
+	import { workspaceStore } from '$lib/stores'
+	export let defaultValues: Record<string, any> | undefined = undefined
+	export let headless: boolean = false
+	export let args: Record<string, any> = {}
+	export let staticInputDisabled: boolean = true
+	export let showCapture: boolean = false
+	export let captureInfo: CaptureInfo | undefined = undefined
+	export let captureTable: CaptureTable | undefined = undefined
+	export let isValid: boolean = false
+	export let path: string
+	let selected: 'resource' | 'static' = staticInputDisabled ? 'resource' : 'static'
+
+	const connnectionSchema = {
+		$schema: 'http://json-schema.org/draft-07/schema#',
+		type: 'object',
+		properties: {
+			servers: {
+				type: 'array',
+				items: {
+					type: 'string'
+				},
+				title: 'Servers',
+				default: ['']
+			},
+			require_tls: {
+				type: 'boolean',
+				title: 'Require TLS',
+				default: false
+			},
+			auth: {
+				type: 'object',
+				title: 'Authentication',
+				default: {
+					label: 'NO_AUTH'
+				},
+				oneOf: [
+					{
+						type: 'object',
+						title: 'NO_AUTH',
+						properties: {
+							label: {
+								enum: ['NO_AUTH'],
+								type: 'string'
+							}
+						}
+					},
+					{
+						type: 'object',
+						order: ['token'],
+						title: 'TOKEN',
+						required: ['token'],
+						properties: {
+							label: {
+								enum: ['TOKEN'],
+								type: 'string'
+							},
+							token: {
+								type: 'string',
+								password: true
+							}
+						}
+					},
+					{
+						type: 'object',
+						title: 'USER_PASSWORD',
+						required: ['user', 'password'],
+						properties: {
+							label: {
+								enum: ['USER_PASSWORD'],
+								type: 'string'
+							},
+							user: {
+								type: 'string'
+							},
+							password: {
+								type: 'string',
+								password: true
+							}
+						}
+					},
+					{
+						type: 'object',
+						order: ['nkey'],
+						title: 'NKEY',
+						required: ['nkey'],
+						properties: {
+							label: {
+								enum: ['NKEY'],
+								type: 'string'
+							},
+							seed: {
+								type: 'string',
+								password: true
+							}
+						}
+					},
+					{
+						type: 'object',
+						title: 'JWT',
+						required: ['jwt', 'seed'],
+						properties: {
+							label: {
+								enum: ['JWT'],
+								type: 'string'
+							},
+							jwt: {
+								type: 'string',
+								password: true
+							},
+							seed: {
+								type: 'string',
+								password: true
+							}
+						}
+					}
+				]
+			}
+		},
+		required: ['servers', 'auth', 'require_tls']
+	}
+
+	const argsSchema = {
+		$schema: 'http://json-schema.org/draft-07/schema#',
+		type: 'object',
+		properties: {
+			subjects: {
+				type: 'array',
+				items: {
+					type: 'string'
+				},
+				nullable: false,
+				title: 'Subjects',
+				default: [''],
+				description:
+					'The subjects to listen to. If not using JetStream, only one subject is supported.'
+			},
+			use_jetstream: {
+				type: 'boolean',
+				title: 'Use JetStream',
+				default: false,
+				description: 'Whether to use JetStream (durable push-consumer)'
+			},
+			stream_name: {
+				type: 'string',
+				title: 'Stream name',
+				pattern: '^[a-zA-Z0-9-_]+$',
+				customErrorMessage: 'Invalid stream name',
+				showExpr: 'fields.use_jetstream',
+				description:
+					'Required if using JetStream. If the stream already exists, it will be updated to include the specified subjects. Otherwise, it will be created.'
+			},
+			consumer_name: {
+				type: 'string',
+				title: 'Consumer name',
+				pattern: '^[a-zA-Z0-9-_]+$',
+				customErrorMessage: 'Invalid consumer name',
+				showExpr: 'fields.use_jetstream',
+				description:
+					'Required is using JetStream. If a consumer already exists, it will be overwritten. The consumer name needs to be unique as it is also used as the deliver subject.'
+			}
+		},
+		required: ['subjects', 'use_jetstream', 'stream_name', 'consumer_name']
+	}
+
+	let connectionValid = false
+	let otherArgsValid = false
+	let globalError = ''
+
+	$: globalError =
+		!args.use_jetstream && args.subjects && args.subjects.length > 1
+			? 'Only one subject is supported if not using JetStream.'
+			: ''
+
+	$: isValid =
+		(selected === 'resource'
+			? !!args.nats_resource_path
+			: connectionValid &&
+			  args.servers &&
+			  args.servers.length > 0 &&
+			  args.servers.every((b) => b.length > 0) &&
+			  args.require_tls !== undefined &&
+			  args.require_tls !== null) &&
+		otherArgsValid &&
+		args.subjects &&
+		args.subjects.length > 0 &&
+		args.subjects.every((b) => /^[a-zA-Z0-9-_.*>]+$/.test(b)) &&
+		globalError === ''
+
+	$: usingResource = !!args.nats_resource_path
+	$: usingResource && (selected = 'resource')
+
+	function setStreamAndConsumerNames() {
+		if (!args.stream_name) {
+			args.stream_name = `windmill_stream-${$workspaceStore}-${path.replaceAll('/', '__')}`
+		}
+		if (!args.consumer_name) {
+			args.consumer_name = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
+		}
+	}
+	$: useJetStream = args.use_jetstream
+	$: useJetStream && setStreamAndConsumerNames()
+</script>
+
+<div>
+	{#if showCapture && captureInfo}
+		<CaptureSection
+			captureType="nats"
+			disabled={!isValid}
+			{captureInfo}
+			on:captureToggle
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			bind:captureTable
+		/>
+	{/if}
+	<Section label="NATS" {headless}>
+		<div class="flex flex-col w-full gap-4">
+			<div class="block grow w-full">
+				<Subsection label="Connection">
+					<svelte:fragment slot="header">
+						{#if !staticInputDisabled}
+							<ToggleButtonGroup
+								bind:selected
+								class="h-full"
+								on:selected={(ev) => {
+									if (ev.detail === 'static') {
+										delete args.nats_resource_path
+										args.require_tls = false
+										args.servers = ['']
+										args.auth = {
+											label: 'NO_AUTH'
+										}
+									} else {
+										delete args.servers
+										delete args.auth
+										delete args.require_tls
+									}
+								}}
+							>
+								<ToggleButton value="static" label="Static" small={true} />
+								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} />
+							</ToggleButtonGroup>
+						{/if}
+					</svelte:fragment>
+
+					{#if selected === 'resource'}
+						<ResourcePicker
+							resourceType="nats"
+							bind:value={args.nats_resource_path}
+							{defaultValues}
+						/>
+					{:else}
+						<SchemaForm
+							schema={connnectionSchema}
+							bind:args
+							bind:isValid={connectionValid}
+							lightHeader={true}
+						/>
+					{/if}
+				</Subsection>
+			</div>
+
+			<div class="block grow w-full">
+				<Subsection headless={true}>
+					<SchemaForm
+						schema={argsSchema}
+						bind:args
+						bind:isValid={otherArgsValid}
+						lightHeader={true}
+					/>
+				</Subsection>
+				<span class="text-xs text-red-500">{globalError}</span>
+			</div>
+		</div>
+	</Section>
+</div>
