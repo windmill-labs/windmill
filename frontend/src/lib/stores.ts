@@ -63,6 +63,7 @@ export const userWorkspaces: Readable<
 		id: string
 		name: string
 		username: string
+		color: string | null
 	}>
 > = derived([usersWorkspaceStore, superadmin], ([store, superadmin]) => {
 	const originalWorkspaces = store?.workspaces ?? []
@@ -72,7 +73,8 @@ export const userWorkspaces: Readable<
 			{
 				id: 'admins',
 				name: 'Admins',
-				username: 'superadmin'
+				username: 'superadmin',
+				color: null
 			}
 		]
 	} else {
