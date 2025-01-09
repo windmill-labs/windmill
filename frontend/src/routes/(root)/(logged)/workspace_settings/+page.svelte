@@ -56,6 +56,7 @@
 	import { fade } from 'svelte/transition'
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
+	import ChangeWorkspaceColor from '$lib/components/settings/ChangeWorkspaceColor.svelte'
 	import {
 		convertBackendSettingsToFrontendSettings,
 		convertFrontendToBackendSetting,
@@ -818,6 +819,7 @@
 			<div class="flex flex-col gap-10">
 				<ChangeWorkspaceName />
 				<ChangeWorkspaceId />
+				<ChangeWorkspaceColor />
 			</div>
 
 			<PageHeader title="Export workspace" primary={false} />
