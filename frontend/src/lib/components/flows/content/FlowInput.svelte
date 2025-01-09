@@ -30,7 +30,6 @@
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
@@ -427,14 +426,12 @@
 								payloadData = undefined
 							}}
 						>
-							<svelete:fragment slot="header">
-								<Tooltip>Shared inputs are available to anyone with access to the script</Tooltip>
-							</svelete:fragment>
 							<SavedInputsPicker
 								flowPath={initialPath}
 								on:select={(e) => {
 									payloadData = e.detail ?? undefined
 								}}
+								previewArgs={previewArguments}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}

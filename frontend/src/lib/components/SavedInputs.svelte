@@ -4,22 +4,22 @@
 		InputService,
 		type Input,
 		type RunnableType,
-		type CreateInput,
 		type Job,
 		JobService
 	} from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { base } from '$lib/base'
-	import { classNames, displayDate, displayDateOnly, sendUserToast } from '$lib/utils.js'
+	import { classNames, displayDateOnly, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import { ArrowLeftIcon, Edit, ExternalLink, Save, X } from 'lucide-svelte'
+	import { ArrowLeftIcon, Edit, ExternalLink, X } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import JobLoader from './runs/JobLoader.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
+	import SaveInputsButton from './SaveInputsButton.svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
@@ -40,7 +40,6 @@
 	let selectedInput: Input | null
 	let jobs: Job[] = []
 	let loading: boolean = false
-	let savingInputs = false
 	const dispatch = createEventDispatcher()
 
 	$: runnableId = scriptHash || scriptPath || flowPath || undefined
@@ -78,38 +77,6 @@
 			runnableType,
 			perPage: 10
 		})
-	}
-
-	async function saveInput(args: object) {
-		savingInputs = true
-
-		const requestBody: CreateInput = {
-			name: 'Saved ' + displayDate(new Date()),
-			args: args as any
-		}
-
-		try {
-			let id = await InputService.createInput({
-				workspace: $workspaceStore!,
-				runnableId,
-				runnableType,
-				requestBody
-			})
-
-			const input = {
-				id,
-				created_by: '',
-				created_at: new Date().toISOString(),
-				is_public: false,
-				...requestBody
-			}
-			savedInputs = [input, ...(savedInputs ?? [])]
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Failed to save Input: ${err}`, true)
-		}
-
-		savingInputs = false
 	}
 
 	async function updateInput(input: EditableInput) {
@@ -207,16 +174,15 @@
 						></span
 					>
 					{#if canSaveInputs}
-						<Button
-							on:click={() => saveInput(args)}
+						<SaveInputsButton
+							{args}
 							disabled={!isValid}
-							loading={savingInputs}
-							startIcon={{ icon: Save }}
-							color="light"
-							size="xs"
-						>
-							<span>Save Current Input</span>
-						</Button>
+							{runnableId}
+							{runnableType}
+							on:update={() => {
+								loadSavedInputs()
+							}}
+						/>
 					{/if}
 				</div>
 
