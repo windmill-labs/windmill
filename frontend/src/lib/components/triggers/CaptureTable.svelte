@@ -158,7 +158,7 @@
 <svelte:window on:keydown={handleKeydown} />
 
 {#if captures.length > 0 || !hideCapturesWhenEmpty}
-	<Label label="Trigger tests" {headless} class="h-full flex flex-col gap-1">
+	<Label label="Trigger captures" {headless} class="h-full flex flex-col gap-1">
 		<svelte:fragment slot="header">
 			{#if addButton}
 				<div class="inline-block">
@@ -194,7 +194,7 @@
 			}}
 		>
 			{#if captures.length === 0}
-				<div class="text-xs text-secondary">
+				<div class="text-xs text-secondary text-center">
 					{`No ${captureType ?? 'trigger'} tests yet`}
 				</div>
 			{:else}

@@ -157,7 +157,7 @@
 					{/if}
 				</tbody>
 			{:else}
-				<div class="text-center text-tertiary text-xs py-2">No running runs</div>
+				<div class="text-center text-tertiary text-xs py-2">No job currently running</div>
 			{/if}
 		</DataTable>
 	</div>

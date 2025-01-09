@@ -78,7 +78,7 @@
 				icon: Pen
 			},
 			{
-				label: 'Trigger tests',
+				label: 'Trigger captures',
 				onClick: () => {
 					handleEditSchema('captures')
 				},
@@ -94,7 +94,7 @@
 				icon: History
 			},
 			{
-				label: 'Json',
+				label: 'Json payload',
 				onClick: () => {
 					handleEditSchema('json')
 				},
@@ -240,7 +240,7 @@
 
 	const TAB_TITLES: Record<string, string> = {
 		inputEditor: 'Input editor',
-		captures: 'Trigger tests',
+		captures: 'Captures',
 		history: 'History',
 		savedInputs: 'Saved inputs',
 		json: 'JSON',
@@ -328,13 +328,13 @@
 								class={twMerge(
 									'p-2 center-center hover:bg-surface-hover',
 									ButtonType.ColorVariants.blue.contained,
-									'flex flex-row items-center gap-2 rounded-br-md',
+									'flex flex-row items-center rounded-br-md',
 									'transition-all duration-150 ease-in-out overflow-hidden whitespace-nowrap',
-									!!$flowInputEditorState?.selectedTab ? 'w-[120px] px-3' : 'w-[30px]'
+									!!$flowInputEditorState?.selectedTab ? 'w-[120px] px-3' : 'w-[52px]'
 								)}
 								bind:clientWidth={tabButtonWidth}
 							>
-								<div class="flex flex-row items-center gap-2 justify-between w-full">
+								<div class="flex flex-row items-center gap-1 justify-between w-full">
 									{#if !!$flowInputEditorState?.selectedTab}
 										<h2 class="text-xs">{TAB_TITLES[$flowInputEditorState?.selectedTab]}</h2>
 									{/if}

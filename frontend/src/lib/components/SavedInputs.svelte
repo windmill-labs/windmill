@@ -351,7 +351,7 @@
 							>
 						{/if}
 					{:else}
-						<div class="text-left text-tertiary text-xs">No running runs</div>
+						<div class="text-left text-tertiary text-xs">No job currently running</div>
 					{/if}
 				</div>
 
