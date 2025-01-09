@@ -202,7 +202,6 @@
 				{hasMore}
 				tableFixed={true}
 				on:loadMore={() => {
-					console.log('dbg load more')
 					loadSavedInputs()
 				}}
 			>
