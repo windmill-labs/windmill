@@ -73,6 +73,7 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let extraLib: string = ''
+	export let placeholder: string = ''
 
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
@@ -104,6 +105,12 @@
 		if (editor) {
 			editor.setValue(ncode)
 		}
+	}
+
+	let placeholderVisible = false
+	function updatePlaceholderVisibility(value: string) {
+		console.log('dbg updatePlaceholderVisibility', value)
+		placeholderVisible = value.trim() === ''
 	}
 
 	export function format() {
@@ -302,6 +309,13 @@
 			$tailwindClassesLoaded = true
 			addTailwindClassCompletions()
 		}
+
+		if (placeholder) {
+			editor.onDidChangeModelContent(() => {
+				const value = editor.getValue()
+				updatePlaceholderVisibility(value)
+			})
+		}
 	}
 
 	function addCSSClassCompletions() {
@@ -417,6 +431,8 @@
 			editor.focus()
 		}
 	}
+
+	updatePlaceholderVisibility(code)
 </script>
 
 <EditorTheme />
@@ -431,9 +447,20 @@
 {/if}
 <div
 	bind:this={divEl}
-	class="{$$props.class ?? ''} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	class="relative {$$props.class ?? ''} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
 	bind:clientWidth={width}
-/>
+>
+	{#if placeholder}
+		<div
+			id="placeholder"
+			class="absolute left-[30px] text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+				? ''
+				: 'hidden'}"
+		>
+			{@html placeholder}
+		</div>
+	{/if}
+</div>
 {#if allowVim && $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
 {/if}

@@ -210,19 +210,15 @@
 	}
 
 	let jsonValid = false
-	function updatePayloadFromJson(pendingJson: string) {
-		if ($flowInputEditorState?.selectedTab !== 'json') {
-			pendingJson = ''
-			return
-		}
-		if (!pendingJson?.length) {
+	function updatePayloadFromJson(jsonInput: string) {
+		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
 			payloadData = undefined
 			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 			return
 		}
 		try {
-			const parsed = JSON.parse(pendingJson)
+			const parsed = JSON.parse(jsonInput)
 			payloadData = parsed
 			updatePreviewSchemaAndArgs(parsed)
 			jsonValid = true
@@ -232,7 +228,6 @@
 			jsonValid = false
 		}
 	}
-	$: updatePayloadFromJson(pendingJson)
 
 	$: $flowInputEditorState, (dropdownItems = getDropdownItems())
 
@@ -256,6 +251,8 @@
 		payloadData = $flowInputEditorState.payloadData
 		$flowInputEditorState.payloadData = undefined
 	}
+
+	let preventEnter = false
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -330,7 +327,7 @@
 									ButtonType.ColorVariants.blue.contained,
 									'flex flex-row items-center rounded-br-md',
 									'transition-all duration-150 ease-in-out overflow-hidden whitespace-nowrap',
-									!!$flowInputEditorState?.selectedTab ? 'w-[120px] px-3' : 'w-[52px]'
+									!!$flowInputEditorState?.selectedTab ? 'w-[122px] px-3' : 'w-[30px]'
 								)}
 								bind:clientWidth={tabButtonWidth}
 							>
@@ -436,15 +433,35 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
 						<FlowInputEditor
-							disabled={!pendingJson?.length || !jsonValid}
+							{preventEnter}
+							disabled={!jsonValid}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
 								payloadData = undefined
-								pendingJson = ''
 							}}
 						>
-							<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
+							<SimpleEditor
+								on:focus={() => {
+									preventEnter = true
+									updatePayloadFromJson(pendingJson)
+								}}
+								on:blur={async () => {
+									preventEnter = false
+									setTimeout(() => {
+										if (payloadData) {
+											updatePayloadFromJson('')
+										}
+									}, 100)
+								}}
+								on:change={(e) => {
+									updatePayloadFromJson(e.detail.code)
+								}}
+								bind:code={pendingJson}
+								lang="json"
+								class="h-full"
+								placeholder={'Write a JSON payload. The input schema will be inferred.<br/><br/>Example:<br/><br/>{<br/>  "foo": "12"<br/>}'}
+							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
 						<FlowInputEditor

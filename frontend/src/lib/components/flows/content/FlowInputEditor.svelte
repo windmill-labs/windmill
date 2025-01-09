@@ -6,6 +6,7 @@
 
 	export let name: string = ''
 	export let disabled = false
+	export let preventEnter = false
 
 	const dispatch = createEventDispatcher()
 
@@ -20,7 +21,7 @@
 
 <svelte:window
 	on:keydown={(e) => {
-		if (e.key === 'Enter') {
+		if (e.key === 'Enter' && !preventEnter) {
 			applySchemaAndArgs()
 			e.preventDefault()
 		}
