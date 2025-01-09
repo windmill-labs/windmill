@@ -39,6 +39,7 @@ export type InputType =
 	| 'ms_sql_server'
 	| 'snowflake'
 	| 'bigquery'
+	| 'oracledb'
 	| 'app-path'
 
 // Connection to an output of another component
@@ -225,6 +226,7 @@ export type AppInput =
 	| AppInputSpec<'resource', string, 'ms_sql_server'>
 	| AppInputSpec<'resource', string, 'snowflake'>
 	| AppInputSpec<'resource', string, 'bigquery'>
+	| AppInputSpec<'resource', string, 'oracledb'>
 	| AppInputSpec<'array', object[], 'number-tuple'>
 	| AppInputSpec<'app-path', string>
 

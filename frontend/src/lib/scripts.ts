@@ -21,6 +21,8 @@ export function scriptLangToEditorLang(
 		return 'sql'
 	} else if (lang == 'bigquery') {
 		return 'sql'
+	} else if (lang == 'oracledb') {
+		return 'sql'
 	} else if (lang == 'snowflake') {
 		return 'sql'
 	} else if (lang == 'mssql') {
@@ -111,6 +113,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['postgresql', 'PostgreSQL'],
 	['mysql', 'MySQL'],
 	['bigquery', 'BigQuery'],
+	['oracledb', 'OracleDB'],
 	['snowflake', 'Snowflake'],
 	['mssql', 'MS SQL Server'],
 	['graphql', 'GraphQL'],

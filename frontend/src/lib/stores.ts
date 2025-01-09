@@ -108,7 +108,7 @@ type SQLBaseSchema = {
 }
 
 export interface SQLSchema {
-	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql'
+	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql' | 'oracledb'
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string

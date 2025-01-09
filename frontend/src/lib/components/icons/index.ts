@@ -162,6 +162,7 @@ export const APP_TO_ICON_COMPONENT = {
 	shopify: ShopifyIcon,
 	typeform: TypeformIcon,
 	bigquery: BigQueryIcon,
+	oracledb: OracleDBIcon,
 	graphql: GraphqlIcon,
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
