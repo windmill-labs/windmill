@@ -28,7 +28,7 @@
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
-	let workspaces: { id: string; name: string; username: string }[] | undefined = undefined
+	let workspaces: { id: string; name: string; username: string; color?: string | null }[] | undefined = undefined
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -190,11 +190,18 @@
 			<label class="block pb-2">
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border
-				shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
+					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
 					on:click={async () => {
 						speakFriendAndEnterWorkspace(workspace.id)
 					}}
-					><span class="font-mono">{workspace.id}</span> - {workspace.name} as
+				>
+					{#if workspace.color}
+						<span
+						class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
+						style="background-color: {workspace.color}"
+						></span>
+					{/if}
+					<span class="font-mono">{workspace.id}</span> - {workspace.name} as
 					<span class="font-mono">{workspace.username}</span>
 					{#if workspace['deleted']}
 						<span class="text-red-500"> (archived)</span>
