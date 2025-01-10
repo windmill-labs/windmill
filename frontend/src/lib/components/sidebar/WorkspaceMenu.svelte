@@ -20,10 +20,11 @@
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { isCloudHosted } from '$lib/cloud'
 	import { initAllAiWorkspace } from '../copilot/lib'
+	import { twMerge } from 'tailwind-merge'
 
 	export let isCollapsed: boolean = false
 
-	 // When used outside of the side bar, where links to workspace settings and such don't make as much sense.
+	// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 	export let strictWorkspaceSelect = false
 
 	async function toggleSwitchWorkspace(id: string) {
@@ -55,7 +56,13 @@
 
 <Menu>
 	<div slot="trigger">
-		<MenuButton class="!text-xs" icon={Building} label={$workspaceStore ?? ''} {isCollapsed} />
+		<MenuButton
+			class="!text-xs"
+			icon={Building}
+			label={$workspaceStore ?? ''}
+			{isCollapsed}
+			color={$userWorkspaces.find((w) => w.id === $workspaceStore)?.color}
+		/>
 	</div>
 
 	<div class="divide-y" role="none">
@@ -63,17 +70,29 @@
 			{#each $userWorkspaces as workspace}
 				<MenuItem>
 					<button
-						class="text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5
-						{$workspaceStore === workspace.id
-							? 'cursor-default bg-surface-selected'
-							: 'cursor-pointer hover:bg-surface-hover'}"
+						class={twMerge(
+							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
+							$workspaceStore === workspace.id
+								? 'cursor-default bg-surface-selected'
+								: 'cursor-pointer hover:bg-surface-hover'
+						)}
 						on:click={async () => {
 							await toggleSwitchWorkspace(workspace.id)
 						}}
 					>
-						<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
-						<div class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left">
-							{workspace.id}
+						<div class="flex items-center justify-between">
+							<div>
+								<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
+								<div class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left">
+									{workspace.id}
+								</div>
+							</div>
+							{#if workspace.color}
+								<div
+									class="w-5 h-5 mr-2 rounded border border-gray-300 dark:border-gray-600"
+									style="background-color: {workspace.color}"
+								></div>
+							{/if}
 						</div>
 					</button>
 				</MenuItem>
@@ -93,19 +112,19 @@
 			</div>
 		{/if}
 		{#if !strictWorkspaceSelect}
-		<div class="py-1" role="none">
-			<a
-				href="{base}/user/workspaces"
-				on:click={() => {
-					localStorage.removeItem('workspace')
-				}}
-				class="text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
-				role="menuitem"
-				tabindex="-1"
-			>
-				All workspaces
-			</a>
-		</div>
+			<div class="py-1" role="none">
+				<a
+					href="{base}/user/workspaces"
+					on:click={() => {
+						localStorage.removeItem('workspace')
+					}}
+					class="text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+					role="menuitem"
+					tabindex="-1"
+				>
+					All workspaces
+				</a>
+			</div>
 		{/if}
 		{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect}
 			<div class="py-1" role="none">

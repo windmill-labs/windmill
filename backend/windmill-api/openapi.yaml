@@ -1576,6 +1576,30 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/change_workspace_color:
+    post:
+      summary: change workspace id
+      operationId: changeWorkspaceColor
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                color:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/users/whois/{username}:
     get:
       summary: whois
@@ -1722,6 +1746,8 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDefaultScripts"
                   mute_critical_alerts:
                     type: boolean
+                  color:
+                    type: string
                 required:
                   - code_completion_enabled
                   - automatic_billing
@@ -13056,10 +13082,13 @@ components:
                 type: string
               username:
                 type: string
+              color:
+                type: string
             required:
               - id
               - name
               - username
+              - color
       required:
         - email
         - workspaces
@@ -13072,6 +13101,8 @@ components:
         name:
           type: string
         username:
+          type: string
+        color:
           type: string
       required:
         - id
@@ -13087,6 +13118,8 @@ components:
         owner:
           type: string
         domain:
+          type: string
+        color:
           type: string
       required:
         - id
