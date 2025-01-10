@@ -35,118 +35,122 @@
 
 <FlowCard {noEditor} title="Triggers">
 	{#if !$simplifiedPoll}
-		<Tabs bind:selected={$selectedTrigger}>
-			<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
-			<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
-			<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
-			<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
-			<Tab value="kafka" selectedClass="text-primary text-sm font-semibold">Kafka</Tab>
-			<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
-			{#if isFlow}
-				<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
-					>Scheduled Poll</Tab
-				>
-			{/if}
-
-			<svelte:fragment slot="content">
-				{#if $selectedTrigger === 'webhooks'}
-					<div class="p-4">
-						<WebhooksPanel
-							on:applyArgs
-							on:addPreprocessor
-							on:updateSchema
-							on:testWithArgs
-							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-							path={currentPath}
-							{hash}
-							{isFlow}
-							args={{}}
-							token=""
-							{newItem}
-							isEditor={true}
-							{canHavePreprocessor}
-							{hasPreprocessor}
-						/>
-					</div>
-				{:else if $selectedTrigger === 'emails'}
-					<div class="p-4">
-						<EmailTriggerPanel
-							on:applyArgs
-							on:addPreprocessor
-							on:updateSchema
-							on:testWithArgs
-							token=""
-							scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-							path={currentPath}
-							{isFlow}
-							isEditor={true}
-							{canHavePreprocessor}
-							{hasPreprocessor}
-							{newItem}
-						/>
-					</div>
-				{:else if $selectedTrigger === 'routes'}
-					<div class="p-4">
-						<RoutesPanel
-							on:applyArgs
-							on:addPreprocessor
-							on:updateSchema
-							on:testWithArgs
-							{newItem}
-							path={currentPath}
-							{isFlow}
-							isEditor={true}
-							{canHavePreprocessor}
-							{hasPreprocessor}
-						/>
-					</div>
-				{:else if $selectedTrigger === 'websockets'}
-					<div class="p-4">
-						<WebsocketTriggersPanel
-							on:applyArgs
-							on:addPreprocessor
-							on:updateSchema
-							on:testWithArgs
-							{newItem}
-							path={currentPath}
-							{isFlow}
-							isEditor={true}
-							{canHavePreprocessor}
-							{hasPreprocessor}
-						/>
-					</div>
-				{:else if $selectedTrigger === 'kafka'}
-					<div class="p-4">
-						<KafkaTriggersPanel
-							on:applyArgs
-							on:addPreprocessor
-							on:updateSchema
-							on:testWithArgs
-							{newItem}
-							path={currentPath}
-							{isFlow}
-							isEditor={true}
-							{canHavePreprocessor}
-							{hasPreprocessor}
-						/>
-					</div>
-				{:else if $selectedTrigger === 'schedules'}
-					<div class="p-4">
-						<RunPageSchedules
-							{schema}
-							{isFlow}
-							path={initialPath}
-							{newItem}
-							can_write={canWrite(currentPath, {}, $userStore)}
-						/>
-					</div>
-				{:else if $selectedTrigger === 'scheduledPoll'}
-					<div class="p-4">
-						<ScheduledPollPanel />
-					</div>
+		<div class="h-full flex flex-col">
+			<Tabs bind:selected={$selectedTrigger} wrapperClass="overflow-hidden shrink-0">
+				<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
+				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
+				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
+				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
+				<Tab value="kafka" selectedClass="text-primary text-sm font-semibold">Kafka</Tab>
+				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
+				{#if isFlow}
+					<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
+						>Scheduled Poll</Tab
+					>
 				{/if}
-			</svelte:fragment>
-		</Tabs>
+
+				<svelte:fragment slot="content">
+					<div class="min-h-0 grow overflow-y-auto">
+						{#if $selectedTrigger === 'webhooks'}
+							<div class="p-4">
+								<WebhooksPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+									path={currentPath}
+									{hash}
+									{isFlow}
+									args={{}}
+									token=""
+									{newItem}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'emails'}
+							<div class="p-4">
+								<EmailTriggerPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									token=""
+									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+									{newItem}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'routes'}
+							<div class="p-4">
+								<RoutesPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									{newItem}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'websockets'}
+							<div class="p-4">
+								<WebsocketTriggersPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									{newItem}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'kafka'}
+							<div class="p-4">
+								<KafkaTriggersPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									{newItem}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'schedules'}
+							<div class="p-4">
+								<RunPageSchedules
+									{schema}
+									{isFlow}
+									path={initialPath}
+									{newItem}
+									can_write={canWrite(currentPath, {}, $userStore)}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'scheduledPoll'}
+							<div class="p-4">
+								<ScheduledPollPanel />
+							</div>
+						{/if}
+					</div>
+				</svelte:fragment>
+			</Tabs>
+		</div>
 	{:else}
 		<div class="px-4 pb-2">
 			<RunPageSchedules

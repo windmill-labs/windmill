@@ -139,6 +139,14 @@
 		}
 	}
 
+	function handleError(error: { type: string; error: any }) {
+		if (error.type === 'delete') {
+			sendUserToast(`Failed to delete capture: ${error.error}`, true)
+		} else if (error.type === 'load') {
+			sendUserToast(`Failed to load captures: ${error.error}`, true)
+		}
+	}
+
 	$: path && (infiniteList && initLoadCaptures(), (draft = false))
 </script>
 
@@ -192,7 +200,7 @@
 				bind:this={infiniteList}
 				selectedItemId={selected}
 				bind:isEmpty
-				on:error={(e) => sendUserToast(`Failed to load saved inputs: ${e.detail}`, true)}
+				on:error={(e) => handleError(e.detail)}
 				on:select={(e) => handleSelect(e.detail)}
 				bind:length={capturesLength}
 			>
@@ -290,8 +298,8 @@
 
 								<Button
 									size="xs2"
-									color="red"
-									variant="border"
+									color="light"
+									variant="contained"
 									iconOnly
 									startIcon={{ icon: Trash2 }}
 									disabled={captureActive}
@@ -299,7 +307,7 @@
 									on:click={() => {
 										infiniteList?.deleteItem(item.id)
 									}}
-									btnClasses="border-0"
+									btnClasses="hover:text-white hover:bg-red-500 text-red-500"
 								/>
 							{/if}
 						</svelte:fragment>

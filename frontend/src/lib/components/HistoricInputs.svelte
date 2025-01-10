@@ -104,7 +104,7 @@
 		}
 	}
 
-	function handleError(e: any) {
+	function handleError(e: { type: string; error: any }) {
 		if (e.type === 'load') {
 			sendUserToast(`Failed to load input history: ${e.error}`, true)
 		}

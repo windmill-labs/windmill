@@ -416,6 +416,7 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
+							{preventEnter}
 							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
@@ -427,6 +428,9 @@
 								flowPath={initialPath}
 								on:select={(e) => {
 									payloadData = e.detail ?? undefined
+								}}
+								on:isEditing={(e) => {
+									preventEnter = e.detail
 								}}
 								previewArgs={previewArguments}
 							/>

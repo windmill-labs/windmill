@@ -63,11 +63,11 @@
 			initLoad = true
 			isEmpty = items.length === 0
 			length = items.length
-		} catch (e) {
-			console.error(e)
+		} catch (err) {
+			console.error(err)
 			if (hasAlreadyFailed) return
 			hasAlreadyFailed = true
-			dispatch('error', { type: 'load', error: e })
+			dispatch('error', { type: 'load', error: err })
 		} finally {
 			loading = false
 		}
@@ -86,7 +86,7 @@
 				loadData('refresh')
 			}, 300)
 		} catch (err) {
-			dispatch('error', err)
+			dispatch('error', { type: 'delete', error: err })
 		}
 	}
 

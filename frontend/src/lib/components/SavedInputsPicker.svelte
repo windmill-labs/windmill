@@ -4,13 +4,14 @@
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { Edit, X, Save } from 'lucide-svelte'
+	import { Edit, Trash2, Save } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
 	import { clickOutside } from '$lib/utils'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import InfiniteList from './InfiniteList.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let flowPath: string | null = null
 	export let previewArgs: any = undefined
@@ -25,6 +26,7 @@
 	let infiniteList: InfiniteList | null = null
 	let draft = true
 	let selectedInput: string | null = null
+	let isEditing: EditableInput | null = null
 
 	const dispatch = createEventDispatcher()
 
@@ -32,7 +34,8 @@
 	let runnableType: RunnableType | undefined = undefined
 	$: runnableType = flowPath ? 'FlowPath' : undefined
 
-	async function updateInput(input: EditableInput) {
+	async function updateInput(input: EditableInput | null) {
+		if (!input) return
 		input.isSaving = true
 
 		try {
@@ -114,10 +117,31 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && selectedInput) {
+		if (event.key === 'Escape' && isEditing) {
+			setEditing(null)
+		} else if (event.key === 'Escape' && selectedInput) {
 			selectedInput = null
 			selectedArgs = undefined
 			dispatch('select', undefined)
+		}
+
+		if (event.key === 'Enter' && isEditing) {
+			updateInput(isEditing).then(() => {
+				setEditing(null)
+			})
+		}
+	}
+
+	function setEditing(input: EditableInput | null) {
+		isEditing = input
+		dispatch('isEditing', !!input)
+	}
+
+	function handleError(error: { type: string; error: any }) {
+		if (error.type === 'delete') {
+			sendUserToast(`Failed to delete saved input: ${error.error}`, true)
+		} else if (error.type === 'load') {
+			sendUserToast(`Failed to load saved inputs: ${error.error}`, true)
 		}
 	}
 
@@ -161,7 +185,7 @@
 			<InfiniteList
 				bind:this={infiniteList}
 				selectedItemId={selectedInput}
-				on:error={(e) => sendUserToast(`Failed to load saved inputs: ${e.detail}`, true)}
+				on:error={(e) => handleError(e.detail)}
 				on:select={(e) => handleSelect(e.detail)}
 			>
 				<svelte:fragment slot="columns">
@@ -181,16 +205,15 @@
 							class="w-full flex items-center text-sm justify-between gap-4 px-4 text-left transition-all"
 						>
 							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0 p-1">
-								{#if item.isEditing}
+								{#if isEditing && isEditing.id === item.id}
 									<form
 										on:submit={() => {
-											updateInput(item)
-											item.isEditing = false
-											item.isSaving = false
+											updateInput(isEditing)
+											setEditing(null)
 										}}
 										class="w-full"
 									>
-										<input type="text" value={item.name} class="text-secondary" />
+										<input type="text" bind:value={isEditing.name} class="text-secondary" />
 									</form>
 								{:else}
 									<small
@@ -201,21 +224,21 @@
 								{/if}
 								{#if item.created_by == $userStore?.username || $userStore?.is_admin || $userStore?.is_super_admin}
 									<div class="items-center flex gap-2">
-										{#if !item.isEditing}
+										{#if !isEditing || isEditing?.id !== item.id}
 											<div class="group-hover:block hidden -my-2">
 												<Toggle
 													size="xs"
 													options={{ right: 'shared' }}
 													checked={item.is_public}
-													on:change={() => {
-														updateInput(item)
+													on:change={(e) => {
+														updateInput({ ...item, is_public: e.detail })
 													}}
 												/>
 											</div>
 										{/if}
 
 										<Button
-											loading={item.isSaving}
+											loading={isEditing?.id === item.id && isEditing?.isSaving}
 											color="light"
 											size="xs"
 											variant="border"
@@ -223,26 +246,30 @@
 											btnClasses={'group-hover:block hidden -my-2'}
 											on:click={(e) => {
 												e.stopPropagation()
-												item.isEditing = !item.isEditing
-												if (!item.isEditing) {
-													updateInput(item)
-													item.isSaving = false
+												if (isEditing?.id === item.id) {
+													updateInput(isEditing)
+													setEditing(null)
+												} else {
+													setEditing(item)
 												}
 											}}
 										>
 											<Edit class="w-4 h-4" />
 										</Button>
 										<Button
-											color="red"
+											color="light"
 											size="xs"
 											spacingSize="xs2"
-											variant="border"
-											btnClasses={item.isEditing ? 'block' : 'group-hover:block hidden -my-2'}
+											variant="contained"
+											btnClasses={twMerge(
+												isEditing?.id === item.id ? 'block' : 'group-hover:block hidden -my-2',
+												'hover:text-white hover:bg-red-500 text-red-500'
+											)}
 											on:click={() => {
 												infiniteList?.deleteItem(item.id)
 											}}
 										>
-											<X class="w-4 h-4" />
+											<Trash2 class="w-4 h-4" />
 										</Button>
 									</div>
 								{:else}
