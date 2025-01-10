@@ -477,7 +477,6 @@
 										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
 										isFlow={false}
 										path={path ?? ''}
-										hideCapturesWhenEmpty={false}
 										canEdit={true}
 										on:applyArgs
 										on:updateSchema

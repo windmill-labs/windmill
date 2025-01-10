@@ -23,7 +23,7 @@
 	}
 
 	let infiniteList: InfiniteList | null = null
-
+	let draft = true
 	let selectedInput: string | null = null
 
 	const dispatch = createEventDispatcher()
@@ -52,11 +52,8 @@
 		input.isSaving = false
 	}
 
-	let draft = true
-	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
-	let deleteInputFn: ((id: string) => Promise<any>) | undefined = undefined
 	function initLoadInputs() {
-		loadInputsPageFn = async (page: number, perPage: number) => {
+		const loadInputsPageFn = async (page: number, perPage: number) => {
 			return await InputService.listInputs({
 				workspace: $workspaceStore!,
 				runnableId,
@@ -65,16 +62,16 @@
 				perPage
 			})
 		}
+		infiniteList?.setLoader(loadInputsPageFn)
 
-		deleteInputFn = async (id: string) => {
+		const deleteInputFn = async (id: string) => {
 			await InputService.deleteInput({
 				workspace: $workspaceStore!,
 				input: id
 			})
 		}
-		draft = false
+		infiniteList?.setDeleteItemFn(deleteInputFn)
 	}
-	$: $workspaceStore && flowPath && initLoadInputs()
 
 	async function loadLargeArgs(
 		id: string | undefined,
@@ -123,6 +120,8 @@
 			dispatch('select', undefined)
 		}
 	}
+
+	$: $workspaceStore && flowPath && (infiniteList && initLoadInputs(), (draft = false))
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -151,7 +150,7 @@
 				args={previewArgs ?? {}}
 				disabled={!previewArgs || !flowPath}
 				on:update={() => {
-					infiniteList?.loadData(true)
+					infiniteList?.loadData('refresh')
 				}}
 				showTooltip={true}
 			/>
@@ -161,8 +160,6 @@
 		{#if !draft}
 			<InfiniteList
 				bind:this={infiniteList}
-				loadInputs={loadInputsPageFn}
-				deleteItemFn={deleteInputFn}
 				selectedItemId={selectedInput}
 				on:error={(e) => sendUserToast(`Failed to load saved inputs: ${e.detail}`, true)}
 				on:select={(e) => handleSelect(e.detail)}

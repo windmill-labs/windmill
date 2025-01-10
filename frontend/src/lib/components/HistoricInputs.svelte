@@ -32,7 +32,6 @@
 		? 'FlowPath'
 		: undefined
 
-	let draft = true
 	let runnableId: string | undefined = undefined
 	function initLoadInputs() {
 		runnableId = scriptHash || scriptPath || flowPath || undefined
@@ -57,10 +56,8 @@
 			)
 			return inputsWithPayload
 		}
-
-		draft = false
+		infiniteList?.setLoader(loadInputsPageFn)
 	}
-	$: $workspaceStore && (scriptHash || scriptPath || flowPath) && initLoadInputs()
 
 	function handleSelected(data: any) {
 		if (selected === data.id) {
@@ -117,10 +114,12 @@
 
 	function refresh() {
 		if (infiniteList) {
-			infiniteList.loadData(true)
+			infiniteList.loadData('refresh')
 		}
 	}
+
 	$: !loading && refresh()
+	$: $workspaceStore && (scriptHash || scriptPath || flowPath) && infiniteList && initLoadInputs()
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -190,7 +189,6 @@
 	<div class="min-h-0 grow">
 		<InfiniteList
 			bind:this={infiniteList}
-			loadInputs={loadInputsPageFn}
 			selectedItemId={selected}
 			on:error={(e) => handleError(e.detail)}
 			on:select={(e) => handleSelected(e.detail)}

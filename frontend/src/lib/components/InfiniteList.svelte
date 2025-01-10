@@ -6,25 +6,25 @@
 	import { twMerge } from 'tailwind-merge'
 	const dispatch = createEventDispatcher()
 
-	export let loadInputs: ((page: number, perPage: number) => Promise<any[]>) | undefined = undefined
-	export let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
 	export let loading = false
 	export let items: any[] | undefined = undefined
 	export let selectedItemId: any | undefined = undefined
-
+	export let isEmpty: boolean = true
 	let hasMore = false
 	let page = 1
 	let perPage = 10
-
 	let hasAlreadyFailed = false
 	let hovered: any | undefined = undefined
 	let initLoad = false
-	export async function loadData(refresh = false) {
+	let loadInputs: ((page: number, perPage: number) => Promise<any[]>) | undefined = undefined
+	let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
+
+	export async function loadData(loadOption: 'refresh' | 'forceRefresh' | 'loadMore' = 'loadMore') {
 		if (!loadInputs) return
 		loading = true
 		hasMore = hasMore
 
-		if (hasMore && !refresh) {
+		if (hasMore && loadOption === 'loadMore') {
 			page++
 		}
 
@@ -32,7 +32,7 @@
 			const newItems = await loadInputs(1, page * perPage)
 
 			if (
-				refresh &&
+				loadOption === 'refresh' &&
 				items &&
 				items?.length > 0 &&
 				newItems.length === items?.length &&
@@ -59,6 +59,7 @@
 			page = Math.floor(items.length / perPage) + 1
 			hasMore = items.length === perPage * (page - 1)
 			initLoad = true
+			isEmpty = items.length === 0
 		} catch (e) {
 			console.error(e)
 			if (hasAlreadyFailed) return
@@ -79,17 +80,20 @@
 				if (selectedItemId === id) {
 					selectedItemId = null
 				}
-				loadData(true)
+				loadData('refresh')
 			}, 300)
 		} catch (err) {
 			dispatch('error', err)
 		}
 	}
 
-	$: {
-		if (loadInputs) {
-			loadData(true)
-		}
+	export async function setLoader(loader: (page: number, perPage: number) => Promise<any[]>) {
+		loadInputs = loader
+		loadData('forceRefresh')
+	}
+
+	export async function setDeleteItemFn(fn: (id: any) => Promise<any>) {
+		deleteItemFn = fn
 	}
 </script>
 
