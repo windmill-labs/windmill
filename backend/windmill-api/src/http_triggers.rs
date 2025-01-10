@@ -85,14 +85,16 @@ pub enum HttpMethod {
     Patch,
 }
 
-impl From<HttpMethod> for http::Method {
-    fn from(method: HttpMethod) -> Self {
+impl TryFrom<&http::Method> for HttpMethod {
+    type Error = error::Error;
+    fn try_from(method: &http::Method) -> Result<Self, Self::Error> {
         match method {
-            HttpMethod::Get => http::Method::GET,
-            HttpMethod::Post => http::Method::POST,
-            HttpMethod::Put => http::Method::PUT,
-            HttpMethod::Delete => http::Method::DELETE,
-            HttpMethod::Patch => http::Method::PATCH,
+            &http::Method::GET => Ok(HttpMethod::Get),
+            &http::Method::POST => Ok(HttpMethod::Post),
+            &http::Method::PUT => Ok(HttpMethod::Put),
+            &http::Method::DELETE => Ok(HttpMethod::Delete),
+            &http::Method::PATCH => Ok(HttpMethod::Patch),
+            _ => Err(error::Error::BadRequest("Invalid HTTP method".to_string())),
         }
     }
 }
@@ -417,7 +419,6 @@ struct TriggerRoute {
     requires_auth: bool,
     edited_by: String,
     email: String,
-    http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
 }
 
@@ -427,7 +428,9 @@ async fn get_http_route_trigger(
     token: Option<&String>,
     db: &DB,
     user_db: UserDB,
+    method: &http::Method,
 ) -> error::Result<(TriggerRoute, String, HashMap<String, String>, ApiAuthed)> {
+    let http_method: HttpMethod = method.try_into()?;
     let (mut triggers, route_path) = if *CLOUD_HOSTED {
         let mut splitted = route_path.split("/");
         let w_id = splitted.next().ok_or_else(|| {
@@ -436,8 +439,9 @@ async fn get_http_route_trigger(
         let route_path = StripPath(splitted.collect::<Vec<_>>().join("/"));
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _", static_asset_config as "static_asset_config: _" FROM http_trigger WHERE workspace_id = $1"#,
-            w_id
+            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, static_asset_config as "static_asset_config: _" FROM http_trigger WHERE workspace_id = $1 AND http_method = $2"#,
+            w_id,
+            http_method as HttpMethod
         )
         .fetch_all(db)
         .await?;
@@ -445,7 +449,8 @@ async fn get_http_route_trigger(
     } else {
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, http_method as "http_method: _", static_asset_config as "static_asset_config: _" FROM http_trigger"#,
+            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, static_asset_config as "static_asset_config: _" FROM http_trigger WHERE http_method = $1"#,
+            http_method as HttpMethod
         )
         .fetch_all(db)
         .await?;
@@ -567,6 +572,7 @@ async fn route_job(
         token.as_ref(),
         &db,
         user_db.clone(),
+        &method,
     )
     .await
     {
@@ -678,15 +684,10 @@ async fn route_job(
         )
         .await,
     );
-    let http_method = http::Method::from(trigger.http_method);
-
-    if http_method != method {
-        return error::Error::BadRequest("Invalid HTTP method".to_string()).into_response();
-    }
 
     let label_prefix = Some(format!(
         "http-{}-{}-",
-        http_method.as_str().to_lowercase(),
+        method.as_str().to_lowercase(),
         trigger.route_path
     ));
 
