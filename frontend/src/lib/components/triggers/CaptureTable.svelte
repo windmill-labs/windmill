@@ -17,7 +17,7 @@
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import InfiniteList from '../InfiniteList.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import SchemaPickerRowV2 from '$lib/components/schema/SchemaPickerRowV2.svelte'
+	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import { clickOutside } from '$lib/utils'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 
@@ -203,7 +203,7 @@
 					</svelte:fragment>
 					<svelte:fragment let:item let:hover>
 						{@const captureIcon = captureKindToIcon[item.trigger_kind]}
-						<SchemaPickerRowV2
+						<SchemaPickerRow
 							date={item.created_at}
 							payloadData={item.payload}
 							selected={selected === item.id}
@@ -301,7 +301,7 @@
 									/>
 								{/if}
 							</svelte:fragment>
-						</SchemaPickerRowV2>
+						</SchemaPickerRow>
 					</svelte:fragment>
 					<svelte:fragment slot="empty">
 						<div class="text-center text-xs text-tertiary">No captures yet</div>

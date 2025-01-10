@@ -1,5 +1,5 @@
 <script lang="ts">
-	import SchemaPickerRowV2 from './SchemaPickerRowV2.svelte'
+	import SchemaPickerRow from './SchemaPickerRow.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 	import { base } from '$lib/base'
@@ -10,7 +10,7 @@
 	export let hovering = false
 </script>
 
-<SchemaPickerRowV2 {payloadData} date={job.created_at} {selected} {hovering}>
+<SchemaPickerRow {payloadData} date={job.created_at} {selected} {hovering}>
 	<svelte:fragment slot="start">
 		<div class="center-center">
 			<div
@@ -31,4 +31,4 @@
 			</a>
 		</div>
 	</svelte:fragment>
-</SchemaPickerRowV2>
+</SchemaPickerRow>

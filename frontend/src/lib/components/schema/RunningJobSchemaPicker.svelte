@@ -1,5 +1,5 @@
 <script lang="ts">
-	import SchemaPickerRowV2 from './SchemaPickerRowV2.svelte'
+	import SchemaPickerRow from './SchemaPickerRow.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import { JobService } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores'
@@ -47,7 +47,7 @@
 		)}
 		on:hover={(e) => (hovering = e.detail ? true : false)}
 	>
-		<SchemaPickerRowV2 {payloadData} date={job.created_at} {selected} {hovering}>
+		<SchemaPickerRow {payloadData} date={job.created_at} {selected} {hovering}>
 			<svelte:fragment slot="start">
 				<div class="center-center">
 					<div class="rounded-full w-2 h-2 bg-orange-400 animate-pulse" title="Running" />
@@ -65,6 +65,6 @@
 					</a>
 				</div>
 			</svelte:fragment>
-		</SchemaPickerRowV2>
+		</SchemaPickerRow>
 	</Row>
 {/if}
