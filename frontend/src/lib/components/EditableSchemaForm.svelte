@@ -144,13 +144,15 @@
 		}
 	}
 
-	$: if (opened && schema.properties[opened]) {
+	$: opened && updateSelected(schema.properties[opened])
+	function updateSelected(property: any) {
+		if (!property) return
 		selected = opened
-			? schema.properties[opened].type !== 'object'
-				? schema.properties[opened].type
-				: schema.properties[opened].format === 'resource-s3_object'
+			? property.type !== 'object'
+				? property.type
+				: property.format === 'resource-s3_object'
 				? 'S3'
-				: schema.properties[opened].oneOf && schema.properties[opened].oneOf.length >= 2
+				: property.oneOf && property.oneOf.length >= 2
 				? 'oneOf'
 				: 'object'
 			: ''
@@ -222,6 +224,7 @@
 	function updatePanelSizes(editSize: number, inputSize: number) {
 		editPanelSize = editSize
 		inputPanelSize = inputSize
+		dispatch('editPanelSizeChanged', editSize)
 	}
 	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 

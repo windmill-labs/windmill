@@ -52,7 +52,6 @@
 		onClick: () => void
 		disabled?: boolean
 	}> = []
-	//const yOffset = 191
 
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
 	function updateEditPanelSize(size: number | undefined) {
@@ -170,16 +169,16 @@
 		flowPreviewContent?.test()
 	}
 
-	function updatePreviewSchemaAndArgs(payloadData: any) {
-		if (!payloadData) {
+	function updatePreviewSchemaAndArgs(payload: any) {
+		payloadData = payload
+		if (!payload) {
 			updatePreviewArguments(undefined)
 			previewSchema = undefined
 			return
 		}
-		previewSchema = schemaFromPayload(payloadData)
-		updatePreviewArguments(payloadData)
+		previewSchema = schemaFromPayload(payload)
+		updatePreviewArguments(payload)
 	}
-	$: updatePreviewSchemaAndArgs(payloadData)
 
 	function applySchemaAndArgs() {
 		if (!previewSchema) {
@@ -212,24 +211,19 @@
 	let jsonValid = false
 	function updatePayloadFromJson(jsonInput: string) {
 		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
-			payloadData = undefined
 			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 			return
 		}
 		try {
 			const parsed = JSON.parse(jsonInput)
-			payloadData = parsed
 			updatePreviewSchemaAndArgs(parsed)
 			jsonValid = true
 		} catch (error) {
-			payloadData = undefined
 			updatePreviewSchemaAndArgs(undefined)
 			jsonValid = false
 		}
 	}
-
-	$: $flowInputEditorState, (dropdownItems = getDropdownItems())
 
 	let tabButtonWidth = 0
 
@@ -246,11 +240,14 @@
 	let connectFirstNode: () => void = () => {}
 
 	let init = false
-	$: if ($flowInputEditorState.payloadData && !init) {
-		init = true
-		payloadData = $flowInputEditorState.payloadData
-		$flowInputEditorState.payloadData = undefined
+	function initPayloadData() {
+		if ($flowInputEditorState.payloadData && !init) {
+			init = true
+			updatePreviewSchemaAndArgs($flowInputEditorState.payloadData)
+			$flowInputEditorState.payloadData = undefined
+		}
 	}
+	$: $flowInputEditorState && ((dropdownItems = getDropdownItems()), initPayloadData())
 
 	let preventEnter = false
 </script>
@@ -380,7 +377,7 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								updatePreviewSchemaAndArgs(undefined)
 							}}
 						>
 							<HistoricInputs
@@ -388,7 +385,7 @@
 								scriptPath={null}
 								flowPath={$pathStore}
 								on:select={(e) => {
-									payloadData = e.detail ?? undefined
+									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
 							/>
 						</FlowInputEditor>
@@ -398,7 +395,7 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								updatePreviewSchemaAndArgs(undefined)
 							}}
 						>
 							<svelete:fragment slot="action">
@@ -408,7 +405,7 @@
 							</svelete:fragment>
 							<CapturesInputs
 								on:select={(e) => {
-									payloadData = e.detail ?? undefined
+									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
 								flowPath={$pathStore}
 							/>
@@ -420,13 +417,13 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								updatePreviewSchemaAndArgs(undefined)
 							}}
 						>
 							<SavedInputsPicker
 								flowPath={initialPath}
 								on:select={(e) => {
-									payloadData = e.detail ?? undefined
+									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
 								on:isEditing={(e) => {
 									preventEnter = e.detail
@@ -441,7 +438,7 @@
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								updatePreviewSchemaAndArgs(undefined)
 							}}
 						>
 							<SimpleEditor
@@ -475,7 +472,7 @@
 							}}
 							on:applySchema={applySchema}
 							on:destroy={() => {
-								payloadData = undefined
+								updatePreviewSchemaAndArgs(undefined)
 							}}
 						>
 							<FirstStepInputs

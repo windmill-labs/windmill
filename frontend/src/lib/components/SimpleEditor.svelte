@@ -452,7 +452,7 @@
 	{#if placeholder}
 		<div
 			id="placeholder"
-			class="absolute left-[30px] text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+			class="absolute left-[24px] text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
 				? ''
 				: 'hidden'}"
 		>
