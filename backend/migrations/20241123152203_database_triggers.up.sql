@@ -1,5 +1,4 @@
 -- Add up migration script here
-CREATE TYPE transaction AS ENUM ('Insert', 'Update', 'Delete');
 CREATE TABLE database_trigger(
     path VARCHAR(255) NOT NULL,
     script_path VARCHAR(255) NOT NULL,
@@ -16,5 +15,7 @@ CREATE TABLE database_trigger(
     replication_slot_name VARCHAR(255) NOT NULL,
     publication_name VARCHAR(255) NOT NULL,
     enabled BOOLEAN NOT NULL,
-    CONSTRAINT PK_database_trigger PRIMARY KEY (path,workspace_id)
+    CONSTRAINT PK_database_trigger PRIMARY KEY (path,workspace_id),
+    CONSTRAINT fk_database_trigger_workspace FOREIGN KEY (workspace_id)
+        REFERENCES workspace(id) ON DELETE CASCADE
 );

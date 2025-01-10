@@ -2,7 +2,6 @@ use std::{collections::HashMap, pin::Pin};
 
 use crate::{
     database_triggers::{
-        handler::get_database_resource,
         relation::RelationConverter,
         replication_message::{
             LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
@@ -19,7 +18,7 @@ use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
 use serde_json::to_value;
-use windmill_common::{worker::to_raw_value, INSTANCE_NAME};
+use windmill_common::{variables::get_variable_or_self, worker::to_raw_value, INSTANCE_NAME};
 
 use super::{
     handler::{Database, DatabaseTrigger},
@@ -210,13 +209,32 @@ async fn listen_to_transactions(
     db: DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<(), Error> {
-    let resource = get_database_resource(
-        &db,
+    let resource = sqlx::query_scalar!(
+        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
         &database_trigger.database_resource_path,
-        &database_trigger.workspace_id,
+        &database_trigger.workspace_id
     )
+    .fetch_optional(&db)
     .await
-    .map_err(Error::Common)?;
+    .map_err(|e| Error::Common(windmill_common::error::Error::SqlErr(e)))?
+    .flatten();
+
+    let mut resource = match resource {
+        Some(resource) => serde_json::from_value::<Database>(resource)
+            .map_err(|e| Error::Common(windmill_common::error::Error::SerdeJson(e)))?,
+        None => {
+            return {
+                Err(Error::Common(windmill_common::error::Error::NotFound(
+                    "Database resource do not exist".to_string(),
+                )))
+            }
+        }
+    };
+
+    resource.password =
+        get_variable_or_self(resource.password, &db, &database_trigger.workspace_id)
+            .await
+            .map_err(Error::Common)?;
 
     let client = PostgresSimpleClient::new(&resource).await?;
 

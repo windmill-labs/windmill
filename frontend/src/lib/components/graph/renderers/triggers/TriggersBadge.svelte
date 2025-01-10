@@ -23,9 +23,10 @@
 		| 'webhooks'
 		| 'schedules'
 		| 'routes'
-		| 'websockets' | 'database'
+		| 'websockets'
 		| 'kafka'
 		| 'emails'
+		| 'database'
 	)[] = ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'database', 'emails']
 	const dispatch = createEventDispatcher()
 

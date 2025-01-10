@@ -59,6 +59,7 @@ mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
+#[cfg(feature = "database")]
 mod database_triggers;
 mod db;
 mod drafts;
@@ -287,8 +288,11 @@ pub async fn run_server(
             let kafka_killpill_rx = rx.resubscribe();
             kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
         }
-        let db_killpill_rx = rx.resubscribe();
-        database_triggers::start_database(db.clone(), db_killpill_rx).await;
+        #[cfg(feature = "database")]
+        {
+            let db_killpill_rx = rx.resubscribe();
+            database_triggers::start_database(db.clone(), db_killpill_rx).await;
+        }
     }
 
     // build our application with a route
@@ -358,10 +362,15 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/kafka_triggers", kafka_triggers_service)
-                        .nest(
-                            "/database_triggers",
-                            database_triggers::workspaced_service(),
-                        ),
+                        .nest("/database_triggers", {
+                            #[cfg(feature = "database")]
+                            {
+                                database_triggers::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "database"))]
+                            Router::new()
+                        }),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

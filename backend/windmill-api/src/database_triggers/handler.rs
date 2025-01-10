@@ -25,15 +25,14 @@ use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult},
-    resource::get_resource,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
-    variables::get_variable_or_self,
     worker::CLOUD_HOSTED,
 };
 
 use crate::{
     database_triggers::mapper::{Mapper, MappingInfo},
     db::{ApiAuthed, DB},
+    resources::get_resource_value_interpolated_internal,
 };
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
@@ -228,19 +227,36 @@ pub struct DatabaseTrigger {
 }
 
 pub async fn get_database_resource(
+    authed: ApiAuthed,
+    user_db: UserDB,
     db: &DB,
     database_resource_path: &str,
     w_id: &str,
 ) -> Result<Database, Error> {
-    let mut resource = get_resource::<Database>(db, database_resource_path, w_id)
-        .await
-        .map_err(Error::SqlErr)?;
+    let resource = get_resource_value_interpolated_internal(
+        &authed,
+        Some(user_db),
+        &db,
+        &w_id,
+        &database_resource_path,
+        None,
+        "",
+    )
+    .await
+    .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
 
-    if !resource.value.password.is_empty() {
-        resource.value.password = get_variable_or_self(resource.value.password, db, w_id).await?;
-    }
+    let resource = match resource {
+        Some(resource) => serde_json::from_value::<Database>(resource).map_err(Error::SerdeJson)?,
+        None => {
+            return {
+                Err(Error::NotFound(
+                    "Database resource do not exist".to_string(),
+                ))
+            }
+        }
+    };
 
-    Ok(resource.value)
+    Ok(resource)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -453,10 +469,13 @@ pub struct SlotList {
 }
 
 pub async fn list_slot_name(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
 ) -> error::Result<Json<Vec<SlotList>>> {
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
@@ -485,11 +504,14 @@ pub struct Slot {
 }
 
 pub async fn create_slot(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> error::Result<String> {
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
@@ -508,11 +530,14 @@ pub async fn create_slot(
 }
 
 pub async fn drop_slot_name(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> error::Result<String> {
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
@@ -527,10 +552,13 @@ struct PublicationName {
 }
 
 pub async fn list_database_publication(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
 ) -> error::Result<Json<Vec<String>>> {
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
@@ -550,10 +578,13 @@ pub async fn list_database_publication(
 }
 
 pub async fn get_publication_info(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
 ) -> error::Result<Json<PublicationData>> {
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
@@ -649,13 +680,16 @@ async fn new_publication(
 }
 
 pub async fn create_publication(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> error::Result<String> {
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
 
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
@@ -686,10 +720,14 @@ async fn drop_publication(
 }
 
 pub async fn delete_publication(
-    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
 ) -> error::Result<String> {
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
+
     let mut connection = get_raw_postgres_connection(&database).await?;
 
     drop_publication(&publication_name, &mut connection).await?;
@@ -701,12 +739,16 @@ pub async fn delete_publication(
 }
 
 pub async fn alter_publication(
-    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> error::Result<String> {
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
-    let database = get_database_resource(&db, &database_resource_path, &w_id).await?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
+
     let mut connection = get_raw_postgres_connection(&database).await?;
 
     let (all_table, _) =
@@ -1124,6 +1166,8 @@ pub async fn set_enabled(
 }
 
 pub async fn get_template_script(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(template_script): Json<TemplateScript>,
@@ -1132,16 +1176,15 @@ pub async fn get_template_script(
 
     let TemplateScript { database_resource_path, relations, language } = template_script;
     if relations.is_none() {
-        return Err(error::Error::BadRequest(
+        return Err(Error::BadRequest(
             "You must at least choose schema to fetch table from".to_string(),
         ));
     }
 
-    let resource = get_resource::<Database>(&db, &database_resource_path, &w_id)
-        .await
-        .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
 
-    let mut pg_connection = get_raw_postgres_connection(&resource.value).await?;
+    let mut pg_connection = get_raw_postgres_connection(&database).await?;
 
     #[derive(Debug, FromRow, Deserialize)]
     struct ColumnInfo {

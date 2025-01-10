@@ -8005,7 +8005,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/get-template-script:
+  /w/{workspace}/database_triggers/get_template_script:
     post:
       summary: get template script
       operationId: getTemplateScript
