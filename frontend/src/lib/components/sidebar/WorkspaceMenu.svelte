@@ -80,7 +80,7 @@
 							await toggleSwitchWorkspace(workspace.id)
 						}}
 					>
-						<div class="flex items-center justify-between">
+						<div class="flex items-center justify-between min-w-0 w-full">
 							<div>
 								<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
 								<div class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left">
