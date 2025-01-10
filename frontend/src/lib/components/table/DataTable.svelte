@@ -85,11 +85,7 @@
 	bind:clientHeight={tableHeight}
 >
 	<List justify="between" gap="none" hFull={true}>
-		<div
-			class="w-full overflow-auto min-h-0 grow"
-			bind:this={tableContainer}
-			on:scroll={handleScroll}
-		>
+		<div class="w-full overflow-auto h-fit" bind:this={tableContainer} on:scroll={handleScroll}>
 			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				<slot />
 			</table>

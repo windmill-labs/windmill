@@ -35,6 +35,8 @@
 	let testKind: 'preprocessor' | 'main' = 'main'
 	let isEmpty: boolean = true
 	let infiniteList: InfiniteList | null = null
+	let firstClick = true
+	let capturesLength = 0
 
 	$: hasPreprocessor && (testKind = 'preprocessor')
 
@@ -137,7 +139,6 @@
 		}
 	}
 
-	let firstClick = true
 	$: path && (infiniteList && initLoadCaptures(), (draft = false))
 </script>
 
@@ -177,8 +178,7 @@
 		<Alert type="warning" title="Save script to use captures" size="xs" />
 	{:else}
 		<div
-			class={fullHeight ? 'h-full' : 'h-[300px] overflow-auto'}
-			style={!fullHeight ? 'resize: vertical; min-height: 100px; max-height: 80vh;' : ''}
+			class={fullHeight ? 'h-full' : capturesLength > 7 ? 'h-[300px]' : 'h-fit'}
 			use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 			on:click_outside={() => {
 				if (firstClick) {
@@ -194,6 +194,7 @@
 				bind:isEmpty
 				on:error={(e) => sendUserToast(`Failed to load saved inputs: ${e.detail}`, true)}
 				on:select={(e) => handleSelect(e.detail)}
+				bind:length={capturesLength}
 			>
 				<svelte:fragment slot="columns">
 					<colgroup>

@@ -10,6 +10,8 @@
 	export let items: any[] | undefined = undefined
 	export let selectedItemId: any | undefined = undefined
 	export let isEmpty: boolean = true
+	export let length: number = 0
+
 	let hasMore = false
 	let page = 1
 	let perPage = 10
@@ -60,6 +62,7 @@
 			hasMore = items.length === perPage * (page - 1)
 			initLoad = true
 			isEmpty = items.length === 0
+			length = items.length
 		} catch (e) {
 			console.error(e)
 			if (hasAlreadyFailed) return
@@ -112,7 +115,7 @@
 		>
 			<slot name="columns" />
 
-			<tbody class="w-full overflow-y-auto">
+			<tbody class="h-full w-full">
 				{#each items ?? [] as item, index}
 					{@const hover = item.id === hovered}
 					<Row
