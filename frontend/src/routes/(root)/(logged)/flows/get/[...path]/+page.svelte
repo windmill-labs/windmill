@@ -62,6 +62,7 @@
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from '$lib/components/triggers/NatsTriggersPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -544,6 +545,12 @@
 		<svelte:fragment slot="kafka">
 			<div class="p-2">
 				<KafkaTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+
+		<svelte:fragment slot="nats">
+			<div class="p-2">
+				<NatsTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
 

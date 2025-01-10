@@ -13,6 +13,7 @@
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
+	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -131,15 +132,21 @@
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
 
-	let cloudDisabled = (captureType === 'websocket' || captureType === 'kafka') && isCloudHosted()
+	let cloudDisabled =
+		(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
+		isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if ((captureType === 'websocket' || captureType === 'kafka') && config && captureActive) {
+		if (
+			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
+			config &&
+			captureActive
+		) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
-				? `${capitalize(captureType)} is connected`
-				: `${capitalize(captureType)} is not connected${config.error ? ': ' + config.error : ''}`
+				? `Connected`
+				: `Not connected${config.error ? ': ' + config.error : ''}`
 			connectionInfo = {
 				connected,
 				message
@@ -240,6 +247,22 @@
 		<KafkaTriggersConfigSection
 			headless={true}
 			bind:args
+			staticInputDisabled={false}
+			{showCapture}
+			{captureInfo}
+			bind:captureTable
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			on:captureToggle={() => {
+				handleCapture()
+			}}
+		/>
+	{:else if captureType === 'nats'}
+		<NatsTriggersConfigSection
+			headless={true}
+			bind:args
+			{path}
 			staticInputDisabled={false}
 			{showCapture}
 			{captureInfo}

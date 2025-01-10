@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, is_flow, workspace_id, trigger_config as \"trigger_config!: _\", owner, email FROM capture_config WHERE trigger_kind = 'websocket' AND last_client_ping > NOW() - INTERVAL '10 seconds' AND trigger_config IS NOT NULL AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
+  "query": "SELECT path, is_flow, workspace_id, trigger_config as \"trigger_config!: _\", owner, email FROM capture_config WHERE trigger_kind = 'websocket' AND last_client_ping > NOW() - INTERVAL '10 seconds' AND trigger_config IS NOT NULL AND (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
   "describe": {
     "columns": [
       {
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "4f1bb3713bc52fb8cd4088947de1e9905387a20bf4b137adf0a33274f820ddc2"
+  "hash": "47560aa3d3af93167663e763ad873088eb4f57785df3c383bbf6e5ceab268980"
 }

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE kafka_trigger SET server_id = $1, last_server_ping = now(), error = 'Connecting...' WHERE enabled IS TRUE AND workspace_id = $2 AND path = $3 AND (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds') RETURNING true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d78ecf85c1e1e95650c380c9488aa90d8d8c5c76f3971484e4c515ff60293d3b"
+}

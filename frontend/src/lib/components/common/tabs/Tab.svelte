@@ -13,11 +13,24 @@
 	export let id: string | undefined = undefined
 	export let active: boolean | undefined = false
 	export let exact = false
+	export let otherValues: string[] = []
 
 	export let disabled: boolean = false
 	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
 
-	$: isSelected = exact ? $selected == value : $selected?.startsWith(value)
+	function getIsSelectedFn(exact: boolean, otherValues: string[]) {
+		if (otherValues.length > 0) {
+			return (selected: string) => selected == value || otherValues.includes(selected)
+		} else if (exact) {
+			return (selected: string) => selected == value
+		} else {
+			return (selected: string) => selected?.startsWith(value)
+		}
+	}
+
+	$: isSelectedFn = getIsSelectedFn(exact, otherValues)
+
+	$: isSelected = isSelectedFn($selected)
 
 	const fontSizeClasses = {
 		xs: 'text-xs',

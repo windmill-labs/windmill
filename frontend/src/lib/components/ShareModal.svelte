@@ -27,6 +27,7 @@
 		| 'http_trigger'
 		| 'websocket_trigger'
 		| 'kafka_trigger'
+		| 'nats_trigger'
 	let kind: Kind
 
 	let path: string = ''
