@@ -14,9 +14,11 @@
 
 	export let open = false
 
-	$: if ($usersWorkspaceStore && $workspaceStore !== lastWorkspace) {
+	$: $usersWorkspaceStore && $workspaceStore !== lastWorkspace && onWorkspaceChange()
+
+	function onWorkspaceChange() {
 		lastWorkspace = $workspaceStore
-		savedWorkspaceColor = $usersWorkspaceStore.workspaces.find(
+		savedWorkspaceColor = $usersWorkspaceStore?.workspaces.find(
 			(w) => w.id === $workspaceStore
 		)?.color
 		workspaceColor = savedWorkspaceColor
