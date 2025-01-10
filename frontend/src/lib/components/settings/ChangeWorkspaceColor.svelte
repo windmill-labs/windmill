@@ -8,11 +8,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	let colorEnabled = false
+	let workspaceColor = $usersWorkspaceStore?.workspaces.find(w => w.id === $workspaceStore)?.color
+
 	export let open = false
 
-	$: workspaceColor = $usersWorkspaceStore?.workspaces.find(w => w.id === $workspaceStore)?.color
-	$: colorEnabled = !!workspaceColor
-	$: colorEnabled && !workspaceColor && generateRandomColor()
+	$: workspaceColor
+	$: if (colorEnabled && !workspaceColor) generateRandomColor()
 
 	function generateRandomColor() {
 		const randomColor =
@@ -34,6 +35,7 @@
 		})
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		workspaceColor = colorToSave
 
 		sendUserToast(`Workspace color updated.`)
 	}
