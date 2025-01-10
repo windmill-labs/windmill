@@ -109,7 +109,6 @@
 
 	let placeholderVisible = false
 	function updatePlaceholderVisibility(value: string) {
-		console.log('dbg updatePlaceholderVisibility', value)
 		placeholderVisible = value.trim() === ''
 	}
 

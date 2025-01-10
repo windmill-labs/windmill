@@ -92,7 +92,6 @@
 
 	let selectedArgs: any = undefined
 	async function handleSelect(input: EditableInput) {
-		console.log('dbg handleSelect', input)
 		if (input.isEditing) return
 
 		if (selectedInput === input.id) {
@@ -152,7 +151,6 @@
 				args={previewArgs ?? {}}
 				disabled={!previewArgs || !flowPath}
 				on:update={() => {
-					console.log('dbg update', infiniteList?.loadData)
 					infiniteList?.loadData(true)
 				}}
 				showTooltip={true}
