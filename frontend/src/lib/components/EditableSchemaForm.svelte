@@ -33,7 +33,6 @@
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
-	export let offset: number | undefined = undefined
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
 	export let lightweightMode: boolean = false
@@ -232,7 +231,7 @@
 	export let pannelExtraButtonWidth: number = 0
 </script>
 
-<div style={offset ? `height: calc(100vh - ${offset}px);` : 'height: 100%;'} class="w-full">
+<div class="w-full h-full">
 	<div class="relative z-[100000]">
 		<div
 			class="absolute"

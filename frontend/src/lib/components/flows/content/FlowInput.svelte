@@ -281,7 +281,6 @@
 				on:delete={(e) => {
 					addProperty?.handleDeleteArgument([e.detail])
 				}}
-				offset={undefined}
 				displayWebhookWarning
 				editTab={$flowInputEditorState?.selectedTab}
 				{previewSchema}

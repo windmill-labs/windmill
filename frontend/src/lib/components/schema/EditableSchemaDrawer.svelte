@@ -56,7 +56,6 @@
 		dispatch('change', schema)
 	}
 
-	const yOffset = 49
 	export let jsonView: boolean = false
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let editor: SimpleEditor | undefined = undefined
@@ -183,7 +182,6 @@
 				on:delete={(e) => {
 					addProperty?.handleDeleteArgument([e.detail])
 				}}
-				offset={yOffset}
 				lightweightMode
 				dndType="drawer"
 				editTab="inputEditor"

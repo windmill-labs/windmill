@@ -11,7 +11,6 @@
 	import { Plus } from 'lucide-svelte'
 
 	export let schema: Schema | undefined | any
-	export let offset: number = 0
 	export let uiOnly: boolean = false
 	export let noPreview: boolean = false
 	export let fullHeight: boolean = true
@@ -111,7 +110,6 @@
 			on:delete={(e) => {
 				addProperty?.handleDeleteArgument([e.detail])
 			}}
-			{offset}
 			{uiOnly}
 			{noPreview}
 			{lightweightMode}
