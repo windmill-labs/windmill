@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.445.0](https://github.com/windmill-labs/windmill/compare/v1.444.0...v1.445.0) (2025-01-10)
+
+
+### Features
+
+* **frontend:** allow workspace admin to set workspace color ([#5032](https://github.com/windmill-labs/windmill/issues/5032)) ([0c39137](https://github.com/windmill-labs/windmill/commit/0c391372cca96da820e8438a3f685f9895dbff73))
+* nats triggers ([#5039](https://github.com/windmill-labs/windmill/issues/5039)) ([e66fcf9](https://github.com/windmill-labs/windmill/commit/e66fcf927097cb56d90d9f95c6d1f8ef10f45ff7))
+
+
+### Bug Fixes
+
+* **backend:** multiple routes with same path but different methods ([#5040](https://github.com/windmill-labs/windmill/issues/5040)) ([7b808c3](https://github.com/windmill-labs/windmill/commit/7b808c39771efb7c6b440b2a15427b4b1a7700ab))
+* support html in github markdown plugin ([#5031](https://github.com/windmill-labs/windmill/issues/5031)) ([53c62f2](https://github.com/windmill-labs/windmill/commit/53c62f2dbc4d43f02860fc9606a57996228be37c))
+
 ## [1.444.0](https://github.com/windmill-labs/windmill/compare/v1.443.0...v1.444.0) (2025-01-06)
 
 
