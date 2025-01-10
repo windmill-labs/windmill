@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE nats_trigger SET enabled = $1, email = $2, edited_by = $3, edited_at = now(), server_id = NULL, last_server_ping = NULL, error = NULL\n        WHERE path = $4 AND workspace_id = $5 RETURNING 1",
+  "query": "UPDATE websocket_trigger SET enabled = $1, email = $2, edited_by = $3, edited_at = now(), server_id = NULL, error = NULL\n        WHERE path = $4 AND workspace_id = $5 RETURNING 1",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       null
     ]
   },
-  "hash": "c085fae60074a6899b7a2eca3aca0d060a769abff70350e630f2136d8327344d"
+  "hash": "25975935d59f88df117bae0fa5016cf95ad56f790f0eddb6e2fbe3d83d3accaa"
 }

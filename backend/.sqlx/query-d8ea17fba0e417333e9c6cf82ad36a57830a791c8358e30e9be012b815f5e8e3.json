@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, is_flow, workspace_id, trigger_config as \"trigger_config!: _\", owner, email FROM capture_config WHERE trigger_kind = 'nats' AND last_client_ping > NOW() - INTERVAL '10 seconds' AND trigger_config IS NOT NULL AND (server_id IS NULL OR last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
+  "query": "SELECT path, is_flow, workspace_id, trigger_config as \"trigger_config!: _\", owner, email FROM capture_config WHERE trigger_kind = 'kafka' AND last_client_ping > NOW() - INTERVAL '10 seconds' AND trigger_config IS NOT NULL AND (last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
   "describe": {
     "columns": [
       {
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "7790d6aa6ca832877110b93a3a3bb0af7f8de12da3220fa2389a11d92beb9917"
+  "hash": "d8ea17fba0e417333e9c6cf82ad36a57830a791c8358e30e9be012b815f5e8e3"
 }

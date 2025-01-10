@@ -58,7 +58,8 @@
 						...triggers[i],
 						error: newTrigger.error,
 						last_server_ping: newTrigger.last_server_ping,
-						enabled: newTrigger.enabled
+						enabled: newTrigger.enabled,
+						server_id: newTrigger.server_id
 					}
 				}
 			}
@@ -260,9 +261,10 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No kafka triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, error, last_server_ping, enabled } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, enabled } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
+					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -298,7 +300,7 @@
 							</div>
 
 							<div class="w-10">
-								{#if (enabled && (!ping || ping.getTime() < new Date().getTime() - 15 * 1000 || error)) || (!enabled && error)}
+								{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
 									<Popover notClickable>
 										<span class="flex h-4 w-4">
 											<Circle
@@ -309,7 +311,11 @@
 										</span>
 										<div slot="text">
 											{#if enabled}
-												Consumer is not connected{error ? ': ' + error : ''}
+												{#if !server_id}
+													Consumer is starting...
+												{:else}
+													Consumer is not connected{error ? ': ' + error : ''}
+												{/if}
 											{:else}
 												Consumer was disabled because of an error: {error}
 											{/if}

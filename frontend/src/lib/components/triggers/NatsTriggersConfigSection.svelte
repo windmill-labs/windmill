@@ -157,7 +157,7 @@
 				customErrorMessage: 'Invalid stream name',
 				showExpr: 'fields.use_jetstream',
 				description:
-					'Required if using JetStream. If the stream already exists, it will be updated to include the specified subjects. Otherwise, it will be created.'
+					'Required if using JetStream. If the stream already exists, it will be updated to include the specified subjects if not already present. Otherwise, it will be created.'
 			},
 			consumer_name: {
 				type: 'string',
@@ -166,7 +166,7 @@
 				customErrorMessage: 'Invalid consumer name',
 				showExpr: 'fields.use_jetstream',
 				description:
-					'Required is using JetStream. If a consumer already exists, it will be overwritten. The consumer name needs to be unique as it is also used as the deliver subject.'
+					'Required is using JetStream. If a consumer with the same name already exists, it will be overwritten. It is also used as the deliver subject.'
 			}
 		},
 		required: ['subjects', 'use_jetstream', 'stream_name', 'consumer_name']
