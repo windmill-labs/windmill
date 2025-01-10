@@ -1,29 +1,27 @@
 <script lang="ts">
-	import { InputService, type Input, type RunnableType, type Job } from '$lib/gen/index.js'
+	import { InputService, type RunnableType, type Job } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import JobSchemaPicker from '$lib/components/schema/JobSchemaPicker.svelte'
+	import RunningJobSchemaPicker from '$lib/components/schema/RunningJobSchemaPicker.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import JobLoader from './runs/JobLoader.svelte'
-	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import DataTable from '$lib/components/table/DataTable.svelte'
+	import { DataTable } from '$lib/components/table'
 	import { clickOutside } from '$lib/utils'
+	import InfiniteList from './InfiniteList.svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
 
 	const dispatch = createEventDispatcher()
-	const perPage = 10
 
-	let previousInputs: Input[] = []
 	let jobs: Job[] = []
 	let loading: boolean = false
 	let hasMoreCurrentRuns = false
-	let hasMorePreviousRuns = false
 	let page = 1
-
-	$: runnableId = scriptHash || scriptPath || flowPath || undefined
+	let infiniteList: InfiniteList | undefined = undefined
+	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
 
 	let runnableType: RunnableType | undefined = undefined
 	$: runnableType = scriptHash
@@ -34,46 +32,43 @@
 		? 'FlowPath'
 		: undefined
 
-	let hasAlreadyFailed = false
-	async function loadInputHistory(refresh = false) {
-		hasMorePreviousRuns = false
-		if (refresh) {
-			previousInputs = []
-			page = 1
-			return loadInputHistory(false)
-		}
-		try {
-			const newInputs = await InputService.getInputHistory({
+	let draft = true
+	let runnableId: string | undefined = undefined
+	function initLoadInputs() {
+		runnableId = scriptHash || scriptPath || flowPath || undefined
+
+		loadInputsPageFn = async (page: number, perPage: number) => {
+			const inputs = await InputService.getInputHistory({
 				workspace: $workspaceStore!,
 				runnableId,
 				runnableType,
 				page,
 				perPage
 			})
-			previousInputs = [...previousInputs, ...newInputs]
-			hasMorePreviousRuns = previousInputs ? previousInputs.length === perPage * page : false
-			page++
-		} catch (e) {
-			console.error(e)
-			if (hasAlreadyFailed) return
-			hasAlreadyFailed = true
-			sendUserToast(`Failed to load input history: ${e}`, true)
-		}
-	}
 
-	$: {
-		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
-			loadInputHistory()
+			const inputsWithPayload = await Promise.all(
+				inputs.map(async (input) => {
+					const payloadData = await loadArgsFromHistory(input.id, undefined, false)
+					return {
+						...input,
+						payloadData
+					}
+				})
+			)
+			return inputsWithPayload
 		}
+
+		draft = false
 	}
+	$: $workspaceStore && (scriptHash || scriptPath || flowPath) && initLoadInputs()
 
 	function handleSelected(data: any) {
-		if (selected === data.jobId) {
+		if (selected === data.id) {
 			selected = undefined
 			dispatch('select', undefined)
 			return
 		}
-		selected = data.jobId
+		selected = data.id
 		dispatch('select', data.payloadData)
 	}
 
@@ -90,12 +85,42 @@
 		) as HTMLElement[]
 	}
 
+	async function loadArgsFromHistory(
+		id: string | undefined,
+		input: boolean | undefined,
+		allowLarge: boolean
+	): Promise<any> {
+		if (!id) return
+		const payloadData = await InputService.getArgsFromHistoryOrSavedInput({
+			jobOrInputId: id,
+			workspace: $workspaceStore!,
+			input,
+			allowLarge
+		})
+		return payloadData
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
 			selected = undefined
 			dispatch('select', undefined)
 		}
 	}
+
+	function handleError(e: any) {
+		if (e.type === 'load') {
+			sendUserToast(`Failed to load input history: ${e.error}`, true)
+		}
+	}
+
+	let jobHovered: string | undefined = undefined
+
+	function refresh() {
+		if (infiniteList) {
+			infiniteList.loadData(true)
+		}
+	}
+	$: !loading && refresh()
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -143,10 +168,10 @@
 
 				<tbody class="w-full overflow-y-auto">
 					{#each jobs as job (job.id)}
-						<JobSchemaPicker
-							runningJob={true}
+						<RunningJobSchemaPicker
 							{job}
 							selected={selected === job.id}
+							hovering={jobHovered === job.id}
 							on:select={(e) => handleSelected(e.detail)}
 						/>
 					{/each}
@@ -163,36 +188,31 @@
 	</div>
 
 	<div class="min-h-0 grow">
-		<DataTable
-			size="xs"
-			on:loadMore={() => loadInputHistory()}
-			infiniteScroll
-			hasMore={hasMorePreviousRuns}
-			tableFixed={true}
+		<InfiniteList
+			bind:this={infiniteList}
+			loadInputs={loadInputsPageFn}
+			selectedItemId={selected}
+			on:error={(e) => handleError(e.detail)}
+			on:select={(e) => handleSelected(e.detail)}
 		>
-			{#if previousInputs === undefined}
-				<Skeleton layout={[[1], 0.5, [1]]} />
-			{:else if previousInputs?.length > 0}
+			<svelte:fragment slot="columns">
 				<colgroup>
 					<col class="w-8" />
 					<col class="w-20" />
 					<col />
 				</colgroup>
-
-				<tbody class="w-full overflow-y-auto">
-					{#each previousInputs as job (job.id)}
-						<JobSchemaPicker
-							{job}
-							selected={selected === job.id}
-							on:select={(e) => handleSelected(e.detail)}
-						/>
-					{/each}
-				</tbody>
-			{:else if page > 2}
-				<div class="text-center text-tertiary text-xs py-2">No more previous Runs</div>
-			{:else}
+			</svelte:fragment>
+			<svelte:fragment let:item let:hover>
+				<JobSchemaPicker
+					job={item}
+					selected={selected === item.id}
+					hovering={hover}
+					payloadData={item.payloadData}
+				/>
+			</svelte:fragment>
+			<svelte:fragment slot="empty">
 				<div class="text-center text-tertiary text-xs py-2">No previous Runs</div>
-			{/if}
-		</DataTable>
+			</svelte:fragment>
+		</InfiniteList>
 	</div>
 </div>

@@ -24,9 +24,11 @@
 	}}
 	on:mouseenter={() => {
 		hovering = true
+		dispatch('hover', true)
 	}}
 	on:mouseleave={() => {
 		hovering = false
+		dispatch('hover', false)
 	}}
 >
 	<slot />

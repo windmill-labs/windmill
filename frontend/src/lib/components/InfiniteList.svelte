@@ -7,7 +7,7 @@
 	const dispatch = createEventDispatcher()
 
 	export let loadInputs: ((page: number, perPage: number) => Promise<any[]>) | undefined = undefined
-	export let deleteItemFn: ((id: string) => Promise<any>) | undefined = undefined
+	export let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
 	export let loading = false
 	export let items: any[] | undefined = undefined
 	export let selectedItemId: any | undefined = undefined
@@ -17,7 +17,8 @@
 	let perPage = 10
 
 	let hasAlreadyFailed = false
-
+	let hovered: any | undefined = undefined
+	let initLoad = false
 	export async function loadData(refresh = false) {
 		if (!loadInputs) return
 		loading = true
@@ -43,7 +44,7 @@
 			const existingIds = new Set(items?.map((i) => i.id) || [])
 			items = newItems.map((item) => ({
 				...item,
-				isNew: !existingIds.has(item.id)
+				isNew: initLoad && !existingIds.has(item.id)
 			}))
 
 			setTimeout(() => {
@@ -57,11 +58,12 @@
 
 			page = Math.floor(items.length / perPage) + 1
 			hasMore = items.length === perPage * (page - 1)
+			initLoad = true
 		} catch (e) {
 			console.error(e)
 			if (hasAlreadyFailed) return
 			hasAlreadyFailed = true
-			dispatch('error', e)
+			dispatch('error', { type: 'load', error: e })
 		} finally {
 			loading = false
 		}
@@ -73,7 +75,7 @@
 			items = items?.map((i) => (i.id === id ? { ...i, isDeleting: true } : i)) ?? []
 
 			setTimeout(async () => {
-				await deleteItemFn(id)
+				deleteItemFn ? await deleteItemFn(id) : null
 				if (selectedItemId === id) {
 					selectedItemId = null
 				}
@@ -89,8 +91,6 @@
 			loadData(true)
 		}
 	}
-
-	$: console.log('dbg hasMore', hasMore)
 </script>
 
 <div class="h-full">
@@ -103,7 +103,6 @@
 			{hasMore}
 			tableFixed={true}
 			on:loadMore={() => {
-				console.log('dbg loadMore')
 				loadData()
 			}}
 		>
@@ -111,6 +110,7 @@
 
 			<tbody class="w-full overflow-y-auto">
 				{#each items ?? [] as item, index}
+					{@const hover = item.id === hovered}
 					<Row
 						on:click={() => dispatch('select', item)}
 						class={twMerge(
@@ -119,8 +119,9 @@
 							item.isNew && index === 0 ? 'animate-slideIn' : 'group',
 							item.isDeleting && 'animate-slideOut'
 						)}
+						on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
 					>
-						<slot {item} />
+						<slot {item} {hover} />
 					</Row>
 				{/each}
 			</tbody>
@@ -163,7 +164,7 @@
 
 	@keyframes greenHighlight {
 		0% {
-			background-color: rgba(8, 240, 93, 0.2);
+			background-color: rgba(70, 255, 138, 0.5);
 			box-shadow: 0 0 15px rgb(34 197 94 / 0.3);
 		}
 		100% {
@@ -173,7 +174,7 @@
 	}
 
 	:global(.animate-slideIn) {
-		animation: slideIn 0.3s ease-out forwards, greenHighlight 1s ease-out forwards;
+		animation: slideIn 0.3s ease-out forwards, greenHighlight 2s ease-out forwards;
 		will-change: transform, opacity, background-color, box-shadow;
 		position: relative;
 	}
