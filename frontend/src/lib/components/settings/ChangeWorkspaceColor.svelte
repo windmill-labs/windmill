@@ -12,7 +12,6 @@
 
 	export let open = false
 
-	$: workspaceColor
 	$: if (colorEnabled && !workspaceColor) generateRandomColor()
 
 	function generateRandomColor() {
