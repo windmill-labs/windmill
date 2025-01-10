@@ -29,9 +29,7 @@
 		defaultScripts,
 		hubBaseUrlStore,
 		usedTriggerKinds,
-
 		devopsRole
-
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -193,11 +191,10 @@
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used, kafka_used } = await WorkspaceService.getUsedTriggers(
-			{
+		const { http_routes_used, websocket_used, kafka_used, nats_used } =
+			await WorkspaceService.getUsedTriggers({
 				workspace: $workspaceStore ?? ''
-			}
-		)
+			})
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -206,6 +203,9 @@
 		}
 		if (kafka_used) {
 			usedKinds.push('kafka')
+		}
+		if (nats_used) {
+			usedKinds.push('nats')
 		}
 		$usedTriggerKinds = usedKinds
 	}
