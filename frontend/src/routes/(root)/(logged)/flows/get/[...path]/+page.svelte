@@ -63,6 +63,7 @@
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
 	import DatabaseTriggersPanel from '$lib/components/triggers/database/DatabaseTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -553,6 +554,12 @@
 				<DatabaseTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
+		<svelte:fragment slot="nats">
+			<div class="p-2">
+				<NatsTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+
 		<svelte:fragment slot="emails">
 			<div class="p-2">
 				<EmailTriggerPanel

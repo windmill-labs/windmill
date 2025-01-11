@@ -7,9 +7,7 @@
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
-
 		devopsRole
-
 	} from '$lib/stores'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -54,6 +52,7 @@
 	import { page } from '$app/stores'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
+	import NatsIcon from '../icons/NatsIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -115,6 +114,13 @@
 			icon: Database,
 			disabled: $userStore?.operator,
 			kind: 'database'
+		},
+		{
+			label: 'NATS' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/nats_triggers',
+			icon: NatsIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'nats'
 		}
 	]
 

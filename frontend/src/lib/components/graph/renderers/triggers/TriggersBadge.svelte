@@ -1,16 +1,17 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Unplug, Database } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Unplug, Database, PlugZap } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
 	import TriggerCount from './TriggerCount.svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onMount, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 
 	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -25,9 +26,13 @@
 		| 'routes'
 		| 'websockets'
 		| 'kafka'
+		| 'nats'
 		| 'emails'
+		| 'eventStreams'
 		| 'database'
-	)[] = ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'database', 'emails']
+	)[] = showOnlyWithCount
+		? ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'nats', 'emails']
+		: ['webhooks', 'schedules', 'routes', 'websockets', 'eventStreams', 'emails']
 	const dispatch = createEventDispatcher()
 
 	onMount(() => {
@@ -50,30 +55,44 @@
 		}
 	}
 
-	const triggerTypeConfig = {
+	const triggerTypeConfig: {
+		[key: string]: { icon: ComponentType; countKey?: string }
+	} = {
 		webhooks: { icon: Webhook, countKey: 'webhook_count' },
 		schedules: { icon: Calendar, countKey: 'schedule_count' },
 		routes: { icon: Route, countKey: 'http_routes_count' },
 		websockets: { icon: Unplug, countKey: 'websocket_count' },
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
 		database: { icon: Database, countKey: 'database_count' },
-		emails: { icon: Mail, countKey: 'email_count' }
+		emails: { icon: Mail, countKey: 'email_count' },
+		nats: { icon: NatsIcon, countKey: 'nats_count' },
+		eventStreams: { icon: PlugZap }
+	}
+
+	function camelCaseToWords(s: string) {
+		const result = s.replace(/([A-Z])/g, ' $1')
+		return result.charAt(0).toUpperCase() + result.slice(1).toLowerCase()
 	}
 </script>
 
 {#each triggersToDisplay as type}
 	{@const { icon, countKey } = triggerTypeConfig[type]}
-	{#if (!showOnlyWithCount || ($triggersCount?.[countKey] ?? 0) > 0) && !(type === 'kafka' && !$enterpriseLicense)}
+	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense)}
 		<Popover>
-			<svelte:fragment slot="text">{type.charAt(0).toUpperCase() + type.slice(1)}</svelte:fragment>
+			<svelte:fragment slot="text">{camelCaseToWords(type)}</svelte:fragment>
 			<TriggerButton
 				on:click={() => {
-					$selectedTrigger = type
+					$selectedTrigger = type === 'eventStreams' ? 'kafka' : type
 					dispatch('select')
 				}}
-				selected={selected && $selectedTrigger === type}
+				selected={selected &&
+					($selectedTrigger === type ||
+						(type === 'eventStreams' &&
+							($selectedTrigger === 'kafka' || $selectedTrigger === 'nats')))}
 			>
-				<TriggerCount count={$triggersCount?.[countKey]} />
+				{#if countKey}
+					<TriggerCount count={$triggersCount?.[countKey]} />
+				{/if}
 				<svelte:component this={icon} size={12} />
 			</TriggerButton>
 		</Popover>

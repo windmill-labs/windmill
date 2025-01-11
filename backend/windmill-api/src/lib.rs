@@ -84,6 +84,8 @@ pub mod job_metrics;
 pub mod jobs;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_ee;
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+mod nats_triggers_ee;
 #[cfg(feature = "oauth2")]
 pub mod oauth2_ee;
 mod oidc_ee;
@@ -276,6 +278,18 @@ pub async fn run_server(
         }
     };
 
+    let nats_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "nats"))]
+        {
+            nats_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "nats")))]
+        {
+            Router::new()
+        }
+    };
+
     if !*CLOUD_HOSTED {
         #[cfg(feature = "websocket")]
         {
@@ -287,6 +301,12 @@ pub async fn run_server(
         {
             let kafka_killpill_rx = rx.resubscribe();
             kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "nats"))]
+        {
+            let nats_killpill_rx = rx.resubscribe();
+            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx).await;
         }
         #[cfg(feature = "database")]
         {
@@ -362,6 +382,7 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/kafka_triggers", kafka_triggers_service)
+                        .nest("/nats_triggers", nats_triggers_service)
                         .nest("/database_triggers", {
                             #[cfg(feature = "database")]
                             {

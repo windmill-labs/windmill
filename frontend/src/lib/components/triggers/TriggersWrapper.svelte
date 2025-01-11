@@ -7,6 +7,7 @@
 	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
+	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false
@@ -58,5 +59,7 @@
 		/>
 	{:else if triggerType === 'kafka'}
 		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
+	{:else if triggerType === 'nats'}
+		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{/if}
 </div>

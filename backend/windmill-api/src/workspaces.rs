@@ -1302,6 +1302,7 @@ struct UsedTriggers {
     pub websocket_used: bool,
     pub http_routes_used: bool,
     pub kafka_used: bool,
+    pub nats_used: bool,
     pub database_used: bool,
 }
 
@@ -1320,6 +1321,7 @@ async fn get_used_triggers(
            
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
+            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM database_trigger WHERE workspace_id = $1) AS "database_used!"
         "#,
         w_id

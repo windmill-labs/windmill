@@ -572,7 +572,7 @@ export async function main(approver?: string) {
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'database',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'database',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -595,6 +595,14 @@ export async function preprocessor(
 			transaction_type : 'insert' | 'update' | 'delete',
 			row: unknown
 		}
+		nats?: {
+			servers: string[]
+			subject: string
+			headers?: Record<string, string[]>
+			status?: number
+			description?: string
+			length: number
+		}
 	},
 	/* your other args */ 
 ) {
@@ -607,7 +615,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'database',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'database',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -629,6 +637,14 @@ export async function preprocessor(
 			table_name: string,
 			transaction_type : 'insert' | 'update' | 'delete',
 			row: unknown
+		}
+		nats?: {
+			servers: string[]
+			subject: string
+			headers?: Record<string, string[]>
+			status?: number
+			description?: string
+			length: number
 		}
 	},
 	/* your other args */ 
@@ -684,11 +700,20 @@ class Kafka(TypedDict):
 	brokers: list[str]
 	group_id: str
 
+class Nats(TypedDict):
+	servers: list[str]
+	subject: str
+	headers: dict[str, list[str]] | None
+	status: int | None
+	description: str | None
+	length: int
+
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka"]
+	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
 	http: Http | None
 	websocket: Websocket | None
 	kafka: Kafka | None
+	nats: Nats | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,
