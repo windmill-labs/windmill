@@ -13,7 +13,9 @@
 		| 'routes'
 		| 'websockets'
 		| 'database'
-		| 'scheduledPoll' = 'webhooks'
+		| 'scheduledPoll'
+		| 'kafka'
+		| 'nats' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let simplfiedPoll: boolean = false
 
@@ -54,6 +56,7 @@
 						<slot slot="websockets" name="websockets" />
 						<slot slot="kafka" name="kafka" />
 						<slot slot="database" name="database" />
+						<slot slot="nats" name="nats" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />
 						<slot slot="cli" name="cli" />

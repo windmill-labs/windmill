@@ -10,6 +10,7 @@ use crate::{
         run_job,
     },
     db::DB,
+    variables::get_variable_or_self
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -18,7 +19,7 @@ use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
 use serde_json::to_value;
-use windmill_common::{variables::get_variable_or_self, worker::to_raw_value, INSTANCE_NAME};
+use windmill_common::{worker::to_raw_value, INSTANCE_NAME};
 
 use super::{
     handler::{Database, DatabaseTrigger},

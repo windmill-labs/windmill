@@ -1,9 +1,20 @@
 <script lang="ts">
 	import { Tabs, Tab } from '$lib/components/common'
-	import { CalendarCheck2, MailIcon, Route, Terminal, Webhook, Unplug } from 'lucide-svelte'
+	import {
+		CalendarCheck2,
+		MailIcon,
+		Route,
+		Terminal,
+		Webhook,
+		Unplug,
+		PlugZap
+	} from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
+	import NatsIcon from '../icons/NatsIcon.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	export let triggerSelected:
 		| 'webhooks'
@@ -14,8 +25,17 @@
 		| 'websockets'
 		| 'kafka'
 		| 'database'
+		| 'nats'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
+
+	export let eventStreamType: 'kafka' | 'nats' = 'kafka'
+
+	$: {
+		if (triggerSelected === 'kafka' || triggerSelected === 'nats') {
+			eventStreamType = triggerSelected
+		}
+	}
 </script>
 
 <HighlightTheme />
@@ -46,10 +66,10 @@
 				Websockets
 			</span>
 		</Tab>
-		<Tab value="kafka">
+		<Tab value="kafka" otherValues={['nats']}>
 			<span class="flex flex-row gap-2 items-center text-xs">
-				<KafkaIcon size={12} />
-				Kafka
+				<PlugZap size={12} />
+				Event streams
 			</span>
 		</Tab>
 		<Tab value="database">
@@ -84,10 +104,20 @@
 				<slot name="schedules" />
 			{:else if triggerSelected === 'websockets'}
 				<slot name="websockets" />
-			{:else if triggerSelected === 'kafka'}
-				<slot name="kafka" />
 			{:else if triggerSelected === 'database'}
 				<slot name="database" />
+			{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
+				<div class="m-1.5">
+					<ToggleButtonGroup bind:selected={eventStreamType}>
+						<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
+						<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+					</ToggleButtonGroup>
+				</div>
+				{#if eventStreamType === 'kafka'}
+					<slot name="kafka" />
+				{:else if eventStreamType === 'nats'}
+					<slot name="nats" />
+				{/if}
 			{:else if triggerSelected === 'cli'}
 				<slot name="cli" />
 			{/if}

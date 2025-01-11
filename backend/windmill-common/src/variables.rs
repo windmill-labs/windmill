@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
@@ -107,47 +107,6 @@ pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<Stri
     .await
     .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e:#}")))?;
     Ok(key)
-}
-
-pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
-    mc.encrypt_str_to_base64(value)
-}
-
-pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
-    mc.decrypt_base64_to_string(value).map_err(|e| match e {
-        MagicCryptError::DecryptError(_) => Error::InternalErr(
-            "Could not decrypt value. The value may have been encrypted with a different key."
-                .to_string(),
-        ),
-        _ => Error::InternalErr(e.to_string()),
-    })
-}
-
-struct Variable {
-    value: String,
-    is_secret: bool,
-}
-
-pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<String> {
-    if !path.starts_with("$var:") {
-        return Ok(path);
-    }
-    let path = path.strip_prefix("$var:").unwrap().to_string();
-    let mut variable = sqlx::query_as!(
-        Variable,
-        "SELECT value, is_secret
-        FROM variable
-        WHERE path = $1 AND workspace_id = $2",
-        &path,
-        &w_id
-    )
-    .fetch_one(db)
-    .await?;
-    if variable.is_secret {
-        let mc = build_crypt(db, w_id).await?;
-        variable.value = decrypt(&mc, variable.value)?;
-    }
-    Ok(variable.value)
 }
 
 pub async fn get_secret_value_as_admin(

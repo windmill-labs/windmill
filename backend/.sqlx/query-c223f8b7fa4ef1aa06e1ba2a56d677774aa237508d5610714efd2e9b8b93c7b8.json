@@ -20,7 +20,8 @@
                 "http",
                 "websocket",
                 "kafka",
-                "email"
+                "email",
+                "nats"
               ]
             }
           }

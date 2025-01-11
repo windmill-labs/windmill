@@ -15,6 +15,7 @@ use crate::{
     db::DB,
     folders::Folder,
     resources::{Resource, ResourceType},
+    variables::decrypt,
 };
 
 use axum::{
@@ -31,7 +32,7 @@ use windmill_common::{
     flows::Flow,
     schedule::Schedule,
     scripts::{Schema, Script, ScriptLang},
-    variables::{build_crypt, decrypt, ExportableListableVariable},
+    variables::{build_crypt, ExportableListableVariable},
 };
 
 use hyper::header;

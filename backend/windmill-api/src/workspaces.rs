@@ -17,6 +17,7 @@ use crate::{
     db::DB,
     users::{WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
+    variables::{decrypt, encrypt},
     webhook_util::WebhookShared,
 };
 
@@ -35,7 +36,7 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::{build_crypt, decrypt, encrypt};
+use windmill_common::variables::build_crypt;
 use windmill_common::worker::to_raw_value;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -1302,6 +1303,7 @@ struct UsedTriggers {
     pub websocket_used: bool,
     pub http_routes_used: bool,
     pub kafka_used: bool,
+    pub nats_used: bool,
     pub database_used: bool,
 }
 
@@ -1320,6 +1322,7 @@ async fn get_used_triggers(
            
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
+            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM database_trigger WHERE workspace_id = $1) AS "database_used!"
         "#,
         w_id

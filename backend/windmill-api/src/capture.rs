@@ -36,6 +36,8 @@ use windmill_queue::{PushArgs, PushArgsOwned};
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaResourceSecurity;
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+use crate::nats_triggers_ee::NatsResourceAuth;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
@@ -84,6 +86,7 @@ pub enum TriggerKind {
     Websocket,
     Kafka,
     Email,
+    Nats,
 }
 
 impl fmt::Display for TriggerKind {
@@ -94,6 +97,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Websocket => "websocket",
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
+            TriggerKind::Nats => "nats",
         };
         write!(f, "{}", s)
     }
@@ -123,6 +127,27 @@ pub struct KafkaTriggerConfig {
     pub group_id: String,
 }
 
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum NatsTriggerConfigConnection {
+    Resource { nats_resource_path: String },
+    Static { servers: Vec<String>, auth: NatsResourceAuth, require_tls: bool },
+}
+
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[derive(Serialize, Deserialize)]
+pub struct NatsTriggerConfig {
+    #[serde(flatten)]
+    pub connection: NatsTriggerConfigConnection,
+    pub subjects: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consumer_name: Option<String>,
+    pub use_jetstream: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
@@ -138,6 +163,8 @@ enum TriggerConfig {
     Websocket(WebsocketTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "nats"))]
+    Nats(NatsTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]

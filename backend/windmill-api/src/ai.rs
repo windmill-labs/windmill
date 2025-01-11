@@ -1,4 +1,8 @@
-use crate::db::{ApiAuthed, DB};
+use crate::{
+    db::{ApiAuthed, DB},
+    variables::get_variable_or_self,
+};
+
 use anthropic::AnthropicCache;
 use axum::{
     body::Bytes,
@@ -16,7 +20,6 @@ use serde::{Deserialize, Deserializer};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::error::{to_anyhow, Result};
-use windmill_common::variables::get_variable_or_self;
 
 use windmill_common::error::Error;
 

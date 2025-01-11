@@ -28,6 +28,8 @@
 		| 'websockets'
 		| 'database'
 		| 'scheduledPoll'
+		| 'kafka'
+		| 'nats'
 	>('webhooks')
 
 	const simplifiedPoll = writable(false)
@@ -63,6 +65,7 @@
 							<slot slot="websockets" name="websockets" />
 							<slot slot="kafka" name="kafka" />
 							<slot slot="database" name="database" />
+							<slot slot="nats" name="nats" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
@@ -109,6 +112,7 @@
 								<slot slot="websockets" name="websockets" />
 								<slot slot="kafka" name="kafka" />
 								<slot slot="database" name="database" />
+								<slot slot="nats" name="nats" />
 								<slot slot="emails" name="emails" />
 								<slot slot="schedules" name="schedules" />
 								<slot slot="cli" name="cli" />

@@ -91,6 +91,7 @@
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
 	import DatabaseTriggersPanel from '$lib/components/triggers/database/DatabaseTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -736,6 +737,10 @@
 			<svelte:fragment slot="database">
 				<div class="p-2">
 					<DatabaseTriggersPanel path={script.path ?? ''} isFlow={false} />
+			</svelte:fragment>
+			<svelte:fragment slot="nats">
+				<div class="p-2">
+					<NatsTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="emails">
