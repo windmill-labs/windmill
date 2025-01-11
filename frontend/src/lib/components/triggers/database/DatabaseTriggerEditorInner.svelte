@@ -38,7 +38,6 @@
 	let replication_slot_name: string = ''
 	let relations: Relations[] = []
 	let transaction_to_track: string[] = []
-	let languages = 'bun,deno'
 	let language: Language = 'Typescript'
 	let loading = false
 	let configurationEditor: ConfigurationEditor
@@ -299,7 +298,6 @@
 							allowFlow={true}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							bind:languages
 							allowRefresh
 						/>
 

@@ -69,8 +69,6 @@ impl RelationConverter {
 
             object.insert(column.name.clone(), value);
         }
-        let mut res = Map::new();
-        res.insert("row".to_string(), Value::Object(object));
-        Ok(res)
+        Ok(object)
     }
 }

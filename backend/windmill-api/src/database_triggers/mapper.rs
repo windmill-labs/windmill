@@ -113,12 +113,12 @@ impl Mapper {
             r#"
 
 
-export async function main(database: {{
-  transaction_type: "insert" | "update" | "delete";
-  schema_name: string;
-  table_name: string;
+export async function main(
+  transaction_type: "insert" | "update" | "delete",
+  schema_name: string,
+  table_name: string,
   row: {}
-}}) {{
+) {{
 }}
     "#,
             struct_definition.join("\t| "),

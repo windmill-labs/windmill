@@ -59,7 +59,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_database_trigger))
         .route("/exists/*path", get(exists_database_trigger))
         .route("/setenabled/*path", post(set_enabled))
-        .route("/get-template-script", post(get_template_script))
+        .route("/get_template_script", post(get_template_script))
         .nest("/publication", publication_service())
         .nest("/slot", slot_service())
 }

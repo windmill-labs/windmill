@@ -10,7 +10,7 @@ use crate::{
         run_job,
     },
     db::DB,
-    variables::get_variable_or_self
+    variables::get_variable_or_self,
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -18,7 +18,6 @@ use futures::{pin_mut, SinkExt, StreamExt};
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
-use serde_json::to_value;
 use windmill_common::{worker::to_raw_value, INSTANCE_NAME};
 
 use super::{
@@ -321,7 +320,7 @@ async fn listen_to_transactions(
                                     Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
                                 }
                             };
-                            if let Some((o_id, Ok(mut body), transaction_type)) = json {
+                            if let Some((o_id, Ok(body), transaction_type)) = json {
                                 let relation = match relations.get_relation(o_id) {
                                     Ok(relation) => relation,
                                     Err(err) => {
@@ -329,15 +328,17 @@ async fn listen_to_transactions(
                                         return;
                                     }
                                 };
-                                let database_info = HashMap::from([("schema_name".to_string(), relation.namespace.as_str()), ("table_name".to_string(), relation.name.as_str()), ("transaction_type".to_string(), transaction_type)]);
+                                let database_info = HashMap::from([
+                                    ("schema_name".to_string(), to_raw_value(&relation.namespace)),
+                                    ("table_name".to_string(), to_raw_value(&relation.name)),
+                                    ("transaction_type".to_string(), to_raw_value(&transaction_type)),
+                                    ("row".to_string(), to_raw_value(&body)),
+                                ]);
                                 let extra = Some(HashMap::from([(
                                     "wm_trigger".to_string(),
                                     to_raw_value(&serde_json::json!({"kind": "database", })),
                                 )]));
-                                let object = to_value(&database_info).unwrap();
-                                body.insert("trigger_info".to_string(), object);
-                                let body = HashMap::from([("database".to_string(), to_raw_value(&serde_json::json!(body)))]);
-                                let _ = run_job(Some(body), extra, &db, database_trigger).await;
+                                let _ = run_job(Some(database_info), extra, &db, database_trigger).await;
                                 continue;
                             }
 
