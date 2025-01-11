@@ -261,9 +261,10 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No database triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
+					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -290,7 +291,7 @@
 							</div>
 
 							<div class="w-10">
-								{#if (enabled && (!ping || ping.getTime() < new Date().getTime() - 15 * 1000 || error)) || (!enabled && error)}
+								{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
 									<Popover notClickable>
 										<span class="flex h-4 w-4">
 											<Circle
@@ -301,7 +302,11 @@
 										</span>
 										<div slot="text">
 											{#if enabled}
-												Could not connect to database{error ? ': ' + error : ''}
+												{#if !server_id}
+													Database Trigger is starting...
+												{:else}
+													Could not connect to database{error ? ': ' + error : ''}
+												{/if}
 											{:else}
 												Disabled because of an error: {error}
 											{/if}
@@ -312,7 +317,7 @@
 										<span class="flex h-4 w-4">
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
-										<div slot="text"> Connected to database </div>
+										<div slot="text"> Connected to database{!server_id ? ' (shutting down...)' : ''}</div>
 									</Popover>
 								{/if}
 							</div>

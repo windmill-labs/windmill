@@ -13095,6 +13095,8 @@ components:
           type: string
         publication_name:
           type: string
+        server_id:
+          type: string
         replication_slot_name:
           type: string
         error:
