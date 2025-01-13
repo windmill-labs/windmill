@@ -7,7 +7,6 @@
 	import Section from '../Section.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { type CaptureTriggerKind } from '$lib/gen'
-	import type { FlowEditorContext } from '../flows/types'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import TriggersWrapper from './TriggersWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -38,7 +37,16 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	let showCapture = false
+	let init = false
+	$: updateShowCapture(!!$captureOn)
+	function updateShowCapture(show: boolean) {
+		if (show && !init) {
+			$captureOn = undefined
+			showCapture = true
+			init = true
+		}
+	}
 </script>
 
 <Section label={captureTypeLabels[triggerType]}>
@@ -48,16 +56,16 @@
 				<Button
 					size="xs2"
 					on:click={() => {
-						$captureOn = !$captureOn
+						showCapture = !showCapture
 					}}
 					variant="border"
 					color="light"
 					endIcon={{
 						icon: ChevronDown,
-						classes: twMerge('transition', $captureOn ? 'rotate-180' : '')
+						classes: twMerge('transition', showCapture ? 'rotate-180' : '')
 					}}
 				>
-					Capture
+					Test trigger
 				</Button>
 			{/if}
 
@@ -69,6 +77,7 @@
 						{disabled}
 						startIcon={{ icon: Save }}
 						on:click={() => {
+							console.log('saveTrigger', args)
 							dispatch('saveTrigger', {
 								config: args
 							})
@@ -101,17 +110,12 @@
 			{canHavePreprocessor}
 			on:applyArgs
 			on:addPreprocessor
-			on:updateSchema={(e) => {
-				const { schema, redirect } = e.detail
-				$flowStore.schema = schema
-				if (redirect) {
-					$selectedId = 'Input'
-				}
-			}}
+			on:updateSchema
 			on:saveTrigger
+			on:testWithArgs
 			bind:args
 			{data}
-			showCapture={$captureOn}
+			{showCapture}
 		/>
 	{:else}
 		<TriggersWrapper {path} {isFlow} {triggerType} {cloudDisabled} {args} {data} />

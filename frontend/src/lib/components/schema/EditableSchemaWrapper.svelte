@@ -2,15 +2,15 @@
 	import type { Schema } from '$lib/common'
 	import { twMerge } from 'tailwind-merge'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
-	import AddProperty from './AddProperty.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Toggle from '../Toggle.svelte'
 	import { emptySchema, validateFileExtension } from '$lib/utils'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { Alert } from '../common'
+	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
+	import { Plus } from 'lucide-svelte'
 
 	export let schema: Schema | undefined | any
-	export let offset: number = 0
 	export let uiOnly: boolean = false
 	export let noPreview: boolean = false
 	export let fullHeight: boolean = true
@@ -18,7 +18,7 @@
 	export let formatExtension: string | undefined = undefined
 
 	let resourceIsTextFile: boolean = false
-	let addProperty: AddProperty | undefined = undefined
+	let addProperty: AddPropertyV2 | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -34,7 +34,7 @@
 			schema = emptySchema()
 			formatExtension = undefined
 		} else {
-			formatExtension = ""
+			formatExtension = ''
 			schema = emptySchema()
 			schema.order = ['content']
 			schema.properties = {
@@ -62,19 +62,44 @@
 		return matches
 	}
 
-	let suggestedFileExtensions = ['json', 'yaml', 'jinja', 'j2', 'ini', 'cfg', 'toml', 'html', 'xml', 'yml']
+	let suggestedFileExtensions = [
+		'json',
+		'yaml',
+		'jinja',
+		'j2',
+		'ini',
+		'cfg',
+		'toml',
+		'html',
+		'xml',
+		'yml'
+	]
 	let autocompleteExtension = true
 </script>
 
 {#if !resourceIsTextFile}
-	<div class={twMerge(fullHeight ? 'h-full' : 'h-80', 'border overflow-y-auto rounded-md')}>
-		<div class="p-4 border-b">
-			<AddProperty
-				on:change={() => dispatch('change', schema)}
+	<div
+		class={twMerge(
+			fullHeight ? 'h-full' : 'h-80',
+			noPreview ? '' : 'border rounded-md p-2',
+			'overflow-y-auto flex flex-col gap-2'
+		)}
+	>
+		{#if noPreview}
+			<AddPropertyV2
 				bind:schema
 				bind:this={addProperty}
-			/>
-		</div>
+				on:change={() => dispatch('change', schema)}
+			>
+				<svelte:fragment slot="trigger">
+					<div
+						class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+					>
+						<Plus size={14} />
+					</div>
+				</svelte:fragment>
+			</AddPropertyV2>
+		{/if}
 		<EditableSchemaForm
 			bind:schema
 			on:change={() => dispatch('change', schema)}
@@ -85,17 +110,35 @@
 			on:delete={(e) => {
 				addProperty?.handleDeleteArgument([e.detail])
 			}}
-			{offset}
 			{uiOnly}
 			{noPreview}
 			{lightweightMode}
-		/>
+			editTab="inputEditor"
+		>
+			<svelte:fragment slot="addProperty">
+				{#if !noPreview}
+					<AddPropertyV2
+						bind:schema
+						bind:this={addProperty}
+						on:change={() => dispatch('change', schema)}
+					>
+						<svelte:fragment slot="trigger">
+							<div
+								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+							>
+								<Plus size={14} />
+							</div>
+						</svelte:fragment>
+					</AddPropertyV2>
+				{/if}
+			</svelte:fragment>
+		</EditableSchemaForm>
 	</div>
 {/if}
 {#if resourceIsTextFile}
 	<div class="flex items-center space-x-2 w-5/12">
 		<label for="format-extension" class="text-base font-medium whitespace-nowrap">
-			File extension{autocompleteExtension ? "" : " (free text)"}:
+			File extension{autocompleteExtension ? '' : ' (free text)'}:
 		</label>
 		{#if autocompleteExtension}
 			<AutoComplete
@@ -145,7 +188,8 @@
 	{#if invalidExtension}
 		<Alert title="Invalid file extension" type="error">
 			The provided extension (<span class="font-bold font-mono">.{formatExtension}</span>) contains
-			invalid characters. Note that you shouldn't add the leading dot, (i.e. enter `json` instead of `.json`)
+			invalid characters. Note that you shouldn't add the leading dot, (i.e. enter `json` instead of
+			`.json`)
 		</Alert>
 	{:else if formatExtension && formatExtension !== ''}
 		<Alert title={`Example: my_file.${formatExtension}`} type="info">
