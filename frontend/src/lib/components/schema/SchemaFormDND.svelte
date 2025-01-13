@@ -74,6 +74,8 @@
 	on:reorder
 	on:consider={handleConsider}
 	on:finalize={handleFinalize}
+	on:acceptChange
+	on:rejectChange
 	{lightweightMode}
 	bind:args
 	{prettifyHeader}

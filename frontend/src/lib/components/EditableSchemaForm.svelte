@@ -277,6 +277,8 @@
 						prettifyHeader={isAppInput}
 						disabled={!!previewSchema}
 						{diff}
+						on:acceptChange
+						on:rejectChange
 					/>
 
 					<slot name="runButton" />

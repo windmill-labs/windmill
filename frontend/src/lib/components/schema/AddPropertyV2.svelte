@@ -7,7 +7,6 @@
 	} from '$lib/common'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import SimpleEditor from '../SimpleEditor.svelte'
 	import AddPropertyFormV2 from './AddPropertyFormV2.svelte'
 	export let schema: Schema | any = emptySchema()
 
@@ -24,13 +23,10 @@
 		schema = emptySchema()
 	}
 
-	let schemaString: string = ''
-
 	// Internal state: bound to args builder modal
 	let argError = ''
 	let editing = false
 	let oldArgName: string | undefined // when editing argument and changing name
-	let jsonEditor: SimpleEditor
 
 	reorder()
 
@@ -59,7 +55,7 @@
 		}
 	}
 
-	function handleAddOrEditArgument(modalProperty: ModalSchemaProperty): void {
+	export function handleAddOrEditArgument(modalProperty: ModalSchemaProperty): void {
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''
 		modalProperty.name = modalProperty.name.trim()
@@ -109,8 +105,6 @@
 		}
 
 		schema = schema
-		schemaString = JSON.stringify(schema, null, '\t')
-		jsonEditor?.setCode(schemaString)
 
 		if (argError !== '') {
 			sendUserToast(argError, true)
@@ -142,7 +136,6 @@
 					modifiedObject.order = modifiedObject.order.filter((arg) => arg !== argName)
 				}
 				schema = schema
-				schemaString = JSON.stringify(schema, null, '\t')
 				dispatch('change', schema)
 			} else {
 				throw Error('Argument not found!')

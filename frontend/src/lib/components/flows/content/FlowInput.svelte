@@ -51,10 +51,7 @@
 		onClick: () => void
 		disabled?: boolean
 	}> = []
-	let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {
-		amount: 'added',
-		orderId: 'removed'
-	}
+	let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -133,7 +130,8 @@
 		}
 	}
 
-	function schemaFromPayload(payload: any) {
+	function schemaFromPayload(payloadData: any) {
+		const payload = structuredClone(payloadData)
 		const parsed = JSON.parse(JSON.stringify(payload))
 
 		if (!parsed) {
@@ -172,18 +170,28 @@
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
-		payloadData = payload
 		if (!payload) {
+			payloadData = undefined
 			updatePreviewArguments(undefined)
+			updatePreviewSchema(undefined)
+			return
+		}
+		payloadData = structuredClone(payload)
+		const newSchema = schemaFromPayload(payloadData)
+		updatePreviewSchema(newSchema)
+		updatePreviewArguments(payloadData)
+	}
+
+	function updatePreviewSchema(newSchema: Record<string, any> | undefined) {
+		if (!newSchema) {
 			previewSchema = undefined
 			diff = {}
 			return
 		}
-		const newSchema = schemaFromPayload(payload)
+		diff = {}
 		const { diffSchema, fullSchema } = computeDiff(newSchema, $flowStore.schema)
 		diff = diffSchema
 		previewSchema = fullSchema
-		updatePreviewArguments(payload)
 	}
 
 	function applySchemaAndArgs() {
@@ -204,15 +212,11 @@
 			return
 		}
 
-		const newSchema = JSON.parse(JSON.stringify($flowStore.schema))
+		const newSchema = structuredClone(previewSchema)
 
-		Object.keys(previewSchema.properties).forEach((key) => {
+		Object.keys(diff).forEach((key) => {
 			if (diff[key] === 'removed') {
 				delete newSchema.properties[key]
-			} else if (diff[key] === 'added') {
-				newSchema.properties[key] = previewSchema?.properties[key]
-			} else if (diff[key] === 'modified') {
-				newSchema.properties[key] = previewSchema?.properties[key]
 			}
 		})
 
@@ -228,7 +232,7 @@
 			previewArguments = $previewArgs
 			return
 		}
-		previewArguments = payloadData
+		previewArguments = structuredClone(payloadData)
 	}
 
 	let jsonValid = false
@@ -304,6 +308,46 @@
 
 		return { diffSchema, fullSchema }
 	}
+
+	async function acceptChange(arg: any) {
+		if (!diff || !$flowStore?.schema?.properties || !previewSchema) {
+			return
+		}
+		if (diff[arg] === 'removed') {
+			delete $flowStore.schema.properties[arg]
+			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
+				$flowStore.schema.order = $flowStore.schema.order.filter((a) => a !== arg)
+			}
+			delete previewSchema.properties[arg]
+		} else if (diff[arg] === 'added') {
+			$flowStore.schema.properties[arg] = previewSchema?.properties[arg]
+			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
+				$flowStore.schema.order.push(arg)
+			} else {
+				$flowStore.schema.order = [arg]
+			}
+		} else if (diff[arg] === 'modified') {
+			$flowStore.schema.properties[arg] = previewSchema?.properties[arg]
+		}
+		delete diff[arg]
+		diff = diff
+	}
+
+	function rejectChange(arg: any) {
+		console.log('dbg rejectChange', arg)
+		if (!previewSchema) {
+			return
+		}
+		if (diff[arg] === 'added') {
+			delete previewSchema.properties[arg]
+		} else if (diff[arg] === 'modified' && $flowStore.schema?.properties) {
+			previewSchema.properties[arg] = $flowStore.schema.properties[arg]
+		}
+		delete diff[arg]
+		diff = diff
+	}
+
+	$: console.log('dbg diff', diff)
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -340,6 +384,8 @@
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 				{diff}
+				on:rejectChange={(e) => rejectChange(e.detail)}
+				on:acceptChange={(e) => acceptChange(e.detail)}
 			>
 				<svelte:fragment slot="openEditTab">
 					<div

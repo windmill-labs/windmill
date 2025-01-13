@@ -245,6 +245,8 @@
 								{:else}
 									<ArgInput
 										on:change={() => dispatch('change')}
+										on:acceptChange={() => dispatch('acceptChange')}
+										on:rejectChange={() => dispatch('rejectChange')}
 										{disablePortal}
 										{resourceTypes}
 										{prettifyHeader}
@@ -285,7 +287,7 @@
 										otherArgs={args}
 										{helperScript}
 										{lightHeader}
-										diffStatus={diff[argName]}
+										diffStatus={diff[argName] ?? undefined}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />
