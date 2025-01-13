@@ -813,7 +813,12 @@
 			</div>
 		{:else if tab == 'general'}
 			<div class="flex flex-col gap-4 my-8">
-				<div class=" text-primary text-lg font-semibold">General</div>
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold">General</div>
+					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_settings">
+						Configure general workspace settings.
+					</Description>
+				</div>
 			</div>
 
 			<div class="flex flex-col gap-10">
@@ -835,9 +840,15 @@
 
 			<div class="mt-20" />
 			<PageHeader title="Delete workspace" primary={false} />
-			<p class="italic text-xs">
-				The workspace will be archived for a short period of time and then permanently deleted
-			</p>
+			{#if $superadmin}
+				<p class="italic text-xs">
+					When deleting the workspace, it will be archived for a short period of time and then permanently deleted.
+				</p>
+			{:else}
+				<p class="italic text-xs">
+					Only instance superadmins can delete a workspace.
+				</p>
+			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
 				<p class="italic text-xs">
 					This workspace cannot be deleted as it has a special function. Consult the documentation

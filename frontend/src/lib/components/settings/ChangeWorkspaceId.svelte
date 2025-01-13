@@ -67,6 +67,7 @@
 			/>
 		{/if}
 	</div>
+	<p class="italic text-xs">Slug to uniquely identify your workspace</p>
 </div>
 
 <Modal bind:open title="Change workspace ID">

@@ -198,7 +198,7 @@
 	</label>
 	<label class="block pb-4">
 		<span class="text-secondary text-sm">Workspace color</span>
-		<span class="ml-5 text-tertiary text-xs">Color to identify the current workspace</span>
+		<span class="ml-5 text-tertiary text-xs">Color to identify the current workspace in the list of workspaces</span>
 		<div class="flex items-center gap-2">
 			<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
 			{#if colorEnabled}<input class="w-10" type="color" bind:value={workspaceColor} disabled={!colorEnabled} />{/if}
