@@ -24,25 +24,69 @@
 	export let rowCount: number | undefined = undefined
 	export let hasMore: boolean = true
 	export let contentHeight: number = 0
+	export let tableFixed: boolean = false
+	export let infiniteScroll: boolean | undefined = undefined
 
 	let footerHeight: number = 0
 	let tableHeight: number = 0
 	const dispatch = createEventDispatcher()
+	let tableContainer: HTMLDivElement
+	let isLoading = false
 
 	setContext<DatatableContext>('datatable', {
 		size
 	})
 
 	$: contentHeight = tableHeight - footerHeight
+
+	function checkScrollStatus() {
+		if (!infiniteScroll || isLoading) return
+
+		const hasScrollbar = tableContainer.scrollHeight > tableContainer.clientHeight
+		if (!hasScrollbar && hasMore) {
+			isLoading = true
+			dispatch('loadMore')
+			setTimeout(() => {
+				isLoading = false
+			}, 200)
+		}
+	}
+
+	function handleScroll() {
+		if (!infiniteScroll || isLoading) {
+			if (isLoading) {
+				const checkAgain = () => {
+					if (!isLoading) {
+						handleScroll()
+					}
+				}
+				setTimeout(checkAgain, 200)
+			}
+			return
+		}
+
+		const { scrollTop, scrollHeight, clientHeight } = tableContainer
+		if (scrollHeight - (scrollTop + clientHeight) < 50) {
+			isLoading = true
+			dispatch('loadMore')
+			setTimeout(() => {
+				isLoading = false
+			}, 1000)
+		}
+	}
+
+	$: if (tableContainer && hasMore && !isLoading) {
+		checkScrollStatus()
+	}
 </script>
 
 <div
 	class={twMerge('h-full', rounded ? 'rounded-md' : '', noBorder ? 'border-0' : 'border')}
 	bind:clientHeight={tableHeight}
 >
-	<List justify="between" gap="none">
-		<div class="w-full overflow-auto min-h-0 grow">
-			<table class={twMerge('min-w-full divide-y')}>
+	<List justify="between" gap="none" hFull={true}>
+		<div class="w-full overflow-auto h-fit" bind:this={tableContainer} on:scroll={handleScroll}>
+			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				<slot />
 			</table>
 		</div>

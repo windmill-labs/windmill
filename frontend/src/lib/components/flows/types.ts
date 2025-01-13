@@ -25,6 +25,19 @@ export type ExtendedOpenFlow = OpenFlow & {
 	visible_to_runner_only?: boolean
 }
 
+export type FlowInputEditorState = {
+	selectedTab:
+		| 'inputEditor'
+		| 'history'
+		| 'savedInputs'
+		| 'json'
+		| 'captures'
+		| 'firstStepInputs'
+		| undefined
+	editPanelSize: number | undefined
+	payloadData: Record<string, any> | undefined
+}
+
 export type FlowEditorContext = {
 	selectedId: Writable<string>
 	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
@@ -33,6 +46,7 @@ export type FlowEditorContext = {
 	history: History<OpenFlow>
 	pathStore: Writable<string>
 	flowStore: Writable<ExtendedOpenFlow>
+	flowInputEditorState: Writable<FlowInputEditorState>
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void

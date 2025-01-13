@@ -27,7 +27,7 @@ use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
-    utils::{not_found_if_none, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 use windmill_queue::{PushArgs, PushArgsOwned};
@@ -280,6 +280,8 @@ enum RunnableKind {
 #[derive(Deserialize)]
 struct ListCapturesQuery {
     trigger_kind: Option<TriggerKind>,
+    page: Option<usize>,
+    per_page: Option<usize>,
 }
 
 async fn list_captures(
@@ -290,6 +292,8 @@ async fn list_captures(
 ) -> JsonResult<Vec<Capture>> {
     let mut tx = user_db.begin(&authed).await?;
 
+    let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
+
     let captures = sqlx::query_as!(
         Capture,
         r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", payload as "payload: _", trigger_extra as "trigger_extra: _"
@@ -297,11 +301,15 @@ async fn list_captures(
         WHERE workspace_id = $1
             AND path = $2 AND is_flow = $3
             AND ($4::trigger_kind IS NULL OR trigger_kind = $4)
-        ORDER BY created_at DESC"#,
+        ORDER BY created_at DESC
+        OFFSET $5
+        LIMIT $6"#,
         &w_id,
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
         query.trigger_kind as Option<TriggerKind>,
+        offset as i64,
+        per_page as i64,
     )
     .fetch_all(&mut *tx)
     .await?;

@@ -14,7 +14,7 @@
 	export let headless: boolean = false
 </script>
 
-<div class="w-full">
+<div class="w-full h-full flex flex-col">
 	{#if !headless}
 		<div class="flex flex-row justify-between items-center mb-2">
 			<h2
@@ -55,7 +55,9 @@
 			{/if}
 		</div>
 	{/if}
-	<div class={collapsable && collapsed ? `hidden ${$$props.class}` : `${$$props.class}`}>
-		<slot />
-	</div>
+	{#if !collapsable || !collapsed}
+		<div class={twMerge('grow min-h-0', $$props.class)}>
+			<slot />
+		</div>
+	{/if}
 </div>

@@ -23,7 +23,8 @@
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
 		defaultValues: writable(undefined),
-		captureOn: writable(undefined)
+		captureOn: writable(undefined),
+		showCaptureHint: writable(undefined)
 	})
 
 	async function loadFlow(path: string) {

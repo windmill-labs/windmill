@@ -6,24 +6,28 @@
 	export let open = false
 	export let closeButton: boolean = true
 	export let displayArrow: boolean = false
+	export let placement: any = 'bottom'
 
 	const {
 		elements: { trigger, content, arrow, close },
 		states
 	} = createPopover({
-		forceVisible: true
+		forceVisible: true,
+		positioning: {
+			placement
+		}
 	})
 
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = v))
 </script>
 
-<button type="button" use:melt={$trigger} aria-label="Popup button">
+<button class="w-full h-full" type="button" use:melt={$trigger} aria-label="Popup button">
 	<slot name="trigger" />
 </button>
 
 {#if open}
-	<div use:melt={$content} transition:fade={{ duration: 100 }} class="content">
+	<div use:melt={$content} transition:fade={{ duration: 100 }} class="content z-[9999]">
 		{#if displayArrow}
 			<div use:melt={$arrow} />
 		{/if}
@@ -45,6 +49,6 @@
 	}
 
 	.content {
-		@apply z-10 w-fit rounded-[4px] bg-surface p-0 overflow-hidden shadow-md;
+		@apply w-fit rounded-[4px] bg-surface p-0 overflow-hidden shadow-md;
 	}
 </style>

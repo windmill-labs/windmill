@@ -73,7 +73,7 @@
 	on:consider={handleConsider}
 	on:finalize={handleFinalize}
 	{lightweightMode}
-	{args}
+	bind:args
 	{prettifyHeader}
 	{onlyMaskPassword}
 	{disablePortal}

@@ -262,6 +262,7 @@ done`
 			on:applyArgs
 			on:updateSchema
 			on:addPreprocessor
+			on:testWithArgs
 		>
 			<Label label="URL">
 				<ClipboardPanel content={captureUrl} disabled={!captureInfo.active} />

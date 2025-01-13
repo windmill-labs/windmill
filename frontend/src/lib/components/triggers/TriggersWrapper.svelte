@@ -41,13 +41,7 @@
 			showCapture={false}
 		/>
 	{:else if triggerType === 'http'}
-		<RouteEditorConfigSection
-			showCapture={false}
-			can_write={true}
-			bind:route_path={args.route_path}
-			bind:http_method={args.http_method}
-			headless
-		/>
+		<RouteEditorConfigSection showCapture={false} can_write={true} bind:args headless />
 	{:else if triggerType === 'email'}
 		<EmailTriggerConfigSection
 			hash={data?.hash}

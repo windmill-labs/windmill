@@ -16,6 +16,7 @@
 	export let newItem: boolean = false
 	export let isEditor: boolean = false
 	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
 
 	let routeEditor: RouteEditor
 
@@ -71,12 +72,15 @@
 		}}
 		on:applyArgs
 		on:addPreprocessor
+		on:updateSchema
+		on:testWithArgs
 		cloudDisabled={false}
 		triggerType="http"
 		{isFlow}
 		{path}
 		{isEditor}
 		{canHavePreprocessor}
+		{hasPreprocessor}
 		{newItem}
 	/>
 	{#if !newItem}

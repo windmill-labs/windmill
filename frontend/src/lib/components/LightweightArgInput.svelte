@@ -309,19 +309,21 @@
 						/>
 					{/if}
 				{:else if inputCat == 'boolean'}
-					<Toggle
-						on:pointerdown={(e) => {
-							e?.stopPropagation()
-						}}
-						class={valid && error == ''
-							? ''
-							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
-						bind:checked={value}
-						{disabled}
-					/>
-					{#if type == 'boolean' && value == undefined}
-						<span>&nbsp; Not set</span>
-					{/if}
+					<div class="w-full">
+						<Toggle
+							on:pointerdown={(e) => {
+								e?.stopPropagation()
+							}}
+							class={valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
+							bind:checked={value}
+							{disabled}
+						/>
+						{#if type == 'boolean' && value == undefined}
+							<span>&nbsp; Not set</span>
+						{/if}
+					</div>
 				{:else if inputCat == 'list'}
 					<div class="w-full">
 						{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}

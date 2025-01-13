@@ -395,19 +395,21 @@
 					</div>
 				{/if}
 			{:else if inputCat == 'boolean'}
-				<Toggle
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					{disabled}
-					class={valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-					bind:checked={value}
-				/>
-				{#if type == 'boolean' && value == undefined}
-					<span>&nbsp; Not set</span>
-				{/if}
+				<div class="w-full">
+					<Toggle
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+						}}
+						{disabled}
+						class={valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+						bind:checked={value}
+					/>
+					{#if type == 'boolean' && value == undefined}
+						<span>&nbsp; Not set</span>
+					{/if}
+				</div>
 			{:else if inputCat == 'list' && !isListJson}
 				<div class="w-full flex gap-4">
 					<div class="w-full">

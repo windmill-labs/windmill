@@ -33,7 +33,7 @@
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history'
-	import type { FlowEditorContext, FlowInput } from './flows/types'
+	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
@@ -490,7 +490,8 @@
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
 		defaultValues: writable(undefined),
-		captureOn: writable(undefined)
+		captureOn: writable(undefined),
+		showCaptureHint: writable(undefined)
 	})
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
@@ -508,6 +509,11 @@
 		customUi: {},
 		insertButtonOpen: writable(false),
 		executionCount: writable(0),
+		flowInputEditorState: writable<FlowInputEditorState>({
+			selectedTab: undefined,
+			editPanelSize: undefined,
+			payloadData: undefined
+		})
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

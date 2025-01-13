@@ -115,12 +115,18 @@ pub struct CompletedJobMini {
     success: bool,
 }
 
+#[derive(Deserialize)]
+struct GetInputHistory {
+    include_preview: Option<bool>,
+}
+
 async fn get_input_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(r): Query<RunnableParams>,
+    Query(g): Query<GetInputHistory>,
 ) -> JsonResult<Vec<Input>> {
     let (per_page, offset) = paginate(pagination);
 
@@ -128,7 +134,7 @@ async fn get_input_history(
 
     let sql = &format!(
         "select id, created_at, created_by, 'null'::jsonb as args, success from completed_job \
-        where {} = $1 and job_kind = $2 and workspace_id = $3 \
+        where {} = $1 and job_kind = any($2) and workspace_id = $3 \
         order by created_at desc limit $4 offset $5",
         r.runnable_type.column_name()
     );
@@ -140,8 +146,18 @@ async fn get_input_history(
         _ => query.bind(&r.runnable_id),
     };
 
+    let job_kinds = match r.runnable_type.job_kind() {
+        kind @ JobKind::Script if g.include_preview.unwrap_or(false) => {
+            vec![kind, JobKind::Preview]
+        }
+        kind @ JobKind::Flow if g.include_preview.unwrap_or(false) => {
+            vec![kind, JobKind::FlowPreview]
+        }
+        kind => vec![kind],
+    };
+
     let rows = query
-        .bind(r.runnable_type.job_kind())
+        .bind(job_kinds)
         .bind(&w_id)
         .bind(per_page as i32)
         .bind(offset as i32)
