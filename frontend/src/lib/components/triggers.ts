@@ -49,7 +49,7 @@ export type TriggerKind =
 	| 'websockets'
 	| 'scheduledPoll'
 	| 'kafka'
-
+	| 'nats'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':
@@ -62,6 +62,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'websockets'
 		case 'kafka':
 			return 'kafka'
+		case 'nats':
+			return 'nats'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

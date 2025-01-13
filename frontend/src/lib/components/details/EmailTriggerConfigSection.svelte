@@ -33,7 +33,6 @@
 				pad: false
 			})
 			.toLowerCase()
-		console.log(encodedPrefix)
 		return `${encodedPrefix}@${emailDomain}`
 	}
 

@@ -8,6 +8,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
+	import NatsIcon from '../icons/NatsIcon.svelte'
 
 	export let small = false
 
@@ -98,6 +99,16 @@
 				<div class="flex flex-row items-center gap-2">
 					<KafkaIcon size={16} />
 					<p class="text-xs text-secondary">Kafka</p>
+				</div>
+			</button>
+			<button
+				disabled={!$enterpriseLicense}
+				class="hover:bg-surface-hover p-2 transition-colors duration-150"
+				on:click={() => handleClick('nats')}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<NatsIcon size={16} />
+					<p class="text-xs text-secondary">Nats</p>
 				</div>
 			</button>
 		</div>

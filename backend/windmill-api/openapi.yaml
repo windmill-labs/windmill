@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.444.0
+  version: 1.445.0
   title: Windmill API
 
   contact:
@@ -1573,6 +1573,30 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/change_workspace_color:
+    post:
+      summary: change workspace id
+      operationId: changeWorkspaceColor
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                color:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/users/whois/{username}:
     get:
       summary: whois
@@ -1719,6 +1743,8 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDefaultScripts"
                   mute_critical_alerts:
                     type: boolean
+                  color:
+                    type: string
                 required:
                   - code_completion_enabled
                   - automatic_billing
@@ -2350,10 +2376,13 @@ paths:
                     type: boolean
                   kafka_used:
                     type: boolean
+                  nats_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
                   - kafka_used
+                  - nats_used
 
   /w/{workspace}/users/list:
     get:
@@ -7970,6 +7999,170 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/nats_triggers/create:
+    post:
+      summary: create nats trigger
+      operationId: createNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new nats trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewNatsTrigger"
+      responses:
+        "201":
+          description: nats trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/nats_triggers/update/{path}:
+    post:
+      summary: update nats trigger
+      operationId: updateNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditNatsTrigger"
+      responses:
+        "200":
+          description: nats trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/nats_triggers/delete/{path}:
+    delete:
+      summary: delete nats trigger
+      operationId: deleteNatsTrigger
+      tags:
+        -  nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: nats trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/nats_triggers/get/{path}:
+    get:
+      summary: get nats trigger
+      operationId: getNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: nats trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NatsTrigger"
+
+  
+  /w/{workspace}/nats_triggers/list:
+    get:
+      summary: list nats triggers
+      operationId: listNatsTriggers
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: nats trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NatsTrigger"
+
+  
+  /w/{workspace}/nats_triggers/exists/{path}:
+    get:
+      summary: does nats trigger exists
+      operationId: existsNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: nats trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/nats_triggers/setenabled/{path}:
+    post:
+      summary: set enabled nats trigger
+      operationId: setNatsTriggerEnabled
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated nats trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: nats trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /groups/list:
     get:
       summary: list instance groups
@@ -8837,6 +9030,7 @@ paths:
                 http_trigger,
                 websocket_trigger,
                 kafka_trigger,
+                nats_trigger,
               ]
       responses:
         "200":
@@ -8876,6 +9070,7 @@ paths:
                 http_trigger,
                 websocket_trigger,
                 kafka_trigger,
+                nats_trigger,
               ]
       requestBody:
         description: acl to add
@@ -8926,6 +9121,7 @@ paths:
                 http_trigger,
                 websocket_trigger,
                 kafka_trigger,
+                nats_trigger,
               ]
       requestBody:
         description: acl to add
@@ -12340,6 +12536,8 @@ components:
           type: number
         kafka_count:
           type: number
+        nats_count:
+          type: number
 
     WebsocketTrigger:
       type: object
@@ -12613,6 +12811,126 @@ components:
         - topics
         - is_flow
 
+    NatsTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        nats_resource_path:
+          type: string
+        use_jetstream:
+          type: boolean
+        stream_name:
+          type: string
+        consumer_name:
+          type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - nats_resource_path
+        - use_jetstream
+        - subjects
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - enabled
+
+    NewNatsTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        nats_resource_path:
+          type: string
+        use_jetstream:
+          type: boolean
+        stream_name:
+          type: string
+        consumer_name:
+          type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - script_path
+        - is_flow
+        - nats_resource_path
+        - use_jetstream
+        - subjects
+
+    EditNatsTrigger:
+      type: object
+      properties:
+        nats_resource_path:
+          type: string
+        use_jetstream:
+          type: boolean
+        stream_name:
+          type: string
+        consumer_name:
+          type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+              
+      required:
+        - path
+        - script_path
+        - nats_resource_path
+        - use_jetstream
+        - subjects
+        - is_flow
+
     Group:
       type: object
       properties:
@@ -12739,10 +13057,13 @@ components:
                 type: string
               username:
                 type: string
+              color:
+                type: string
             required:
               - id
               - name
               - username
+              - color
       required:
         - email
         - workspaces
@@ -12755,6 +13076,8 @@ components:
         name:
           type: string
         username:
+          type: string
+        color:
           type: string
       required:
         - id
@@ -12770,6 +13093,8 @@ components:
         owner:
           type: string
         domain:
+          type: string
+        color:
           type: string
       required:
         - id
@@ -13575,7 +13900,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email]
+      enum: [webhook, http, websocket, kafka, email, nats]
 
     Capture:
       type: object

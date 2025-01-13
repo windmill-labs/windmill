@@ -271,8 +271,8 @@
 
 						<span class="text-xs absolute -top-4"
 							>Label <Tooltip
-								>Labels are string values in the array at the result field 'wm_labels' to easily
-								filter them</Tooltip
+								><a href="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#jobs-labels" target="_blank">Job Labels</a> are string values in the array at the result field 'wm_labels' to easily
+								filter them.</Tooltip
 							></span
 						>
 

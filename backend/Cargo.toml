@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.444.0"
+version = "1.445.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.444.0"
+version = "1.445.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -63,6 +63,7 @@ tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/ent
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
 kafka = ["windmill-api/kafka"]
+nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
 php = ["windmill-worker/php"]
@@ -285,6 +286,8 @@ openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
 rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
+async-nats = "0.38.0"
+nkeys = "0.4.4"
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }

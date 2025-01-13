@@ -13,6 +13,10 @@
 	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
 	import ScheduledPollPanel from './ScheduledPollPanel.svelte'
 	import KafkaTriggersPanel from './KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from './NatsTriggersPanel.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { KafkaIcon, NatsIcon } from '../icons'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -23,6 +27,14 @@
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
+
+	let eventStreamType: 'kafka' | 'nats' = 'kafka'
+
+	$: {
+		if ($selectedTrigger === 'kafka' || $selectedTrigger === 'nats') {
+			eventStreamType = $selectedTrigger
+		}
+	}
 
 	const { selectedTrigger, simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
 
@@ -41,7 +53,13 @@
 				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
-				<Tab value="kafka" selectedClass="text-primary text-sm font-semibold">Kafka</Tab>
+				<Tab
+					value="kafka"
+					otherValues={['nats']}
+					selectedClass="text-primary text-sm font-semibold"
+				>
+					Event streams
+				</Tab>
 				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 				{#if isFlow}
 					<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
@@ -117,20 +135,37 @@
 									{hasPreprocessor}
 								/>
 							</div>
-						{:else if $selectedTrigger === 'kafka'}
-							<div class="p-4">
-								<KafkaTriggersPanel
-									on:applyArgs
-									on:addPreprocessor
-									on:updateSchema
-									on:testWithArgs
-									{newItem}
-									path={currentPath}
-									{isFlow}
-									isEditor={true}
-									{canHavePreprocessor}
-									{hasPreprocessor}
-								/>
+						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats'}
+							<div class="p-4 flex flex-col gap-2">
+								<ToggleButtonGroup bind:selected={eventStreamType}>
+									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
+									<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+								</ToggleButtonGroup>
+								{#if eventStreamType === 'kafka'}
+									<KafkaTriggersPanel
+										on:applyArgs
+										on:addPreprocessor
+										on:updateSchema
+										on:testWithArgs
+										{newItem}
+										path={currentPath}
+										{isFlow}
+										isEditor={true}
+										{canHavePreprocessor}
+										{hasPreprocessor}
+									/>
+								{:else if eventStreamType === 'nats'}
+									<NatsTriggersPanel
+										on:applyArgs
+										on:addPreprocessor
+										{newItem}
+										path={currentPath}
+										{isFlow}
+										isEditor={true}
+										{canHavePreprocessor}
+										{hasPreprocessor}
+									/>
+								{/if}
 							</div>
 						{:else if $selectedTrigger === 'schedules'}
 							<div class="p-4">

@@ -9,7 +9,7 @@
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
 	import { HttpTriggerService } from '$lib/gen'
-	import { page } from '$app/stores'
+	// import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import type { CaptureInfo } from './CaptureSection.svelte'
@@ -26,8 +26,6 @@
 		undefined
 	export let showCapture = false
 	export let initialRoutePath: string = ''
-	export let isFlow = false
-	export let path: string = ''
 	export let headless: boolean = false
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
@@ -61,23 +59,17 @@
 		})
 	}
 
-	function getHttpRoute(route_path: string | undefined, capture: boolean) {
-		if (capture) {
-			return `${$page.url.origin}/api/w/${$workspaceStore}/capture_u/http/${
-				isFlow ? 'flow' : 'script'
-			}/${path.replaceAll('/', '.')}/${route_path ?? ''}`
-		} else {
-			return `${$page.url.origin}${base}/api/r/${
-				isCloudHosted() ? $workspaceStore + '/' : ''
-			}${route_path}`
-		}
+	function getHttpRoute(route_path: string | undefined) {
+		return `${location.origin}${base}/api/r/${
+			isCloudHosted() ? $workspaceStore + '/' : ''
+		}${route_path}`
 	}
 
 	$: validateRoute(route_path, http_method)
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path, showCapture)
+	$: fullRoute = getHttpRoute(route_path)
 
 	$: showCapture && (http_method = 'post')
 
