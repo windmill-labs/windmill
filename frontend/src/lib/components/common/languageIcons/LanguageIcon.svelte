@@ -9,6 +9,7 @@
 	import RestIcon from '$lib/components/icons/RestIcon.svelte'
 	import PowershellIcon from '$lib/components/icons/PowershellIcon.svelte'
 	import BigQueryIcon from '$lib/components/icons/BigQueryIcon.svelte'
+	import OracleDBIcon from '$lib/components/icons/OracleDBIcon.svelte'
 	import SnowflakeIcon from '$lib/components/icons/SnowflakeIcon.svelte'
 	import GraphqlIcon from '$lib/components/icons/GraphqlIcon.svelte'
 	import MSSqlServerIcon from '$lib/components/icons/MSSqlServerIcon.svelte'
@@ -45,6 +46,7 @@
 		graphql: 'GraphQL',
 		postgresql: 'Postgresql',
 		bigquery: 'BigQuery',
+		oracledb: 'Oracle DB',
 		snowflake: 'Snowflake',
 		mysql: 'MySQL',
 		mssql: 'MS SQL Server',
@@ -69,6 +71,7 @@
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,
 		bigquery: BigQueryIcon,
+		oracledb: OracleDBIcon,
 		snowflake: SnowflakeIcon,
 		mssql: MSSqlServerIcon,
 		javascript: JavaScript,

@@ -2485,6 +2485,7 @@ async fn handle_code_execution_job(
                 mem_peak,
                 canceled_by,
                 worker_name,
+                column_order,
                 occupancy_metrics,
             )
             .await;

@@ -267,6 +267,15 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
+const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- @name1 (string) = default arg
+-- @name2 (integer)
+-- @name3 (string[])
+-- @name4 (integer)
+INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
+UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
+`
+
 const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
@@ -813,6 +822,9 @@ export const INITIAL_CODE = {
 	graphql: {
 		script: GRAPHQL_INIT_CODE
 	},
+	oracledb: {
+		script: ORACLEDB_INIT_CODE
+	},
 	php: {
 		script: PHP_INIT_CODE
 	},
@@ -917,6 +929,8 @@ export function initialCode(
 		return INITIAL_CODE.mysql.script
 	} else if (language == 'bigquery') {
 		return INITIAL_CODE.bigquery.script
+	} else if (language == 'oracledb') {
+		return INITIAL_CODE.oracledb.script
 	} else if (language == 'snowflake') {
 		return INITIAL_CODE.snowflake.script
 	} else if (language == 'mssql') {

@@ -63,6 +63,7 @@ import RssIcon from './RssIcon.svelte'
 import ShopifyIcon from './ShopifyIcon.svelte'
 import TypeformIcon from './TypeformIcon.svelte'
 import BigQueryIcon from './BigQueryIcon.svelte'
+import OracleDBIcon from './OracleDBIcon.svelte'
 import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
@@ -257,6 +258,7 @@ export {
 	ShopifyIcon,
 	TypeformIcon,
 	BigQueryIcon,
+	OracleDBIcon,
 	GraphqlIcon,
 	NocoDbIcon,
 	AzureIcon,
