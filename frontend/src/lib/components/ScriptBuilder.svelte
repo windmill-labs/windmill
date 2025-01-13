@@ -630,7 +630,9 @@
 	async function applyArgs(e) {
 		selectedInputTab = e.detail.kind
 		metadataOpen = false
-		args = e.detail.args ?? {}
+		if (scriptEditor) {
+			scriptEditor.updateArgs(e.detail.args ?? {})
+		}
 	}
 
 	function openTriggers(ev) {

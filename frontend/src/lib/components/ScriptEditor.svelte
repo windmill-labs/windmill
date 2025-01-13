@@ -250,6 +250,12 @@
 	$: selectedTab && inferSchema(code)
 
 	let argsRender = 0
+	export async function updateArgs(newArgs: Record<string, any>) {
+		if (Object.keys(newArgs).length > 0) {
+			args = { ...newArgs }
+			argsRender++
+		}
+	}
 
 	let setFocusToLogs = () => {}
 </script>
