@@ -86,13 +86,13 @@
 	export let newPath: string = ''
 	export let appPath: string
 	export let runnables: Writable<Record<string, HiddenRunnable>>
-	export let files: Record<string, string>
+	export let files: Record<string, string> | undefined
 	export let jobs: string[]
 	export let jobsById: Record<string, any>
 
 	let newEditedPath = ''
 
-	$: app = { runnables: $runnables, files: { ...files, '/wmill.ts': wmillTs } }
+	$: app = files ? { runnables: $runnables, files: { ...files, '/wmill.ts': wmillTs } } : undefined
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -221,6 +221,10 @@
 	// }
 
 	async function createApp(path: string) {
+		if (!app) {
+			sendUserToast(`App hasn't been loaded yet`, true)
+			return
+		}
 		await computeTriggerables()
 		try {
 			await AppService.createApp({
@@ -315,6 +319,10 @@
 	}
 
 	async function updateApp(npath: string) {
+		if (!app) {
+			sendUserToast(`App hasn't been loaded yet`, true)
+			return
+		}
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
@@ -388,6 +396,10 @@
 	}
 
 	async function saveInitialDraft() {
+		if (!app) {
+			sendUserToast(`App hasn't been loaded yet`, true)
+			return
+		}
 		await computeTriggerables()
 		try {
 			await AppService.createApp({
@@ -441,6 +453,10 @@
 	}
 
 	async function saveDraft(forceSave = false) {
+		if (!app) {
+			sendUserToast(`App hasn't been loaded yet`, true)
+			return
+		}
 		if (newApp) {
 			// initial draft
 			draftDrawerOpen = true
@@ -722,7 +738,7 @@
 			<div slot="actions">
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != ''}
+					disabled={pathError != '' || app == undefined}
 					on:click={() => saveInitialDraft()}
 				>
 					Save initial draft
@@ -831,7 +847,7 @@
 			</Button>
 			<Button
 				startIcon={{ icon: Save }}
-				disabled={pathError != '' || customPathError != ''}
+				disabled={pathError != '' || customPathError != '' || app == undefined}
 				on:click={() => {
 					if (appPath == '') {
 						createApp(newEditedPath)

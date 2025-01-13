@@ -14,7 +14,6 @@
 	export let workspace: string
 
 	let listener = async (event) => {
-		// if (event.origin !== "https://codesandbox.io") return;
 		const data = event.data
 		function respond(o: object) {
 			iframe?.contentWindow?.postMessage({ type: data.type, ...o, reqId: data.reqId }, '*')
