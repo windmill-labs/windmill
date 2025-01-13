@@ -118,6 +118,7 @@
 			selectedTab === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
 			tag
 		)
+		setFocusToLogs()
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -249,6 +250,14 @@
 	$: selectedTab && inferSchema(code)
 
 	let argsRender = 0
+	export async function updateArgs(newArgs: Record<string, any>) {
+		if (Object.keys(newArgs).length > 0) {
+			args = { ...newArgs }
+			argsRender++
+		}
+	}
+
+	let setFocusToLogs = () => {}
 </script>
 
 <TestJobLoader
@@ -425,7 +434,7 @@
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 					<Pane size={33}>
-						<div class="px-2">
+						<div class="px-4">
 							<div class="break-words relative font-sans">
 								{#key argsRender}
 									<SchemaForm
@@ -447,6 +456,7 @@
 					</Pane>
 					<Pane size={67} class="relative">
 						<LogPanel
+							bind:setFocusToLogs
 							{lang}
 							previewJob={testJob}
 							{pastPreviews}
@@ -469,12 +479,10 @@
 								<div class="h-full p-2">
 									<CaptureTable
 										bind:this={captureTable}
-										captureType="all"
 										{hasPreprocessor}
 										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
 										isFlow={false}
 										path={path ?? ''}
-										hideCapturesWhenEmpty={false}
 										canEdit={true}
 										on:applyArgs
 										on:updateSchema

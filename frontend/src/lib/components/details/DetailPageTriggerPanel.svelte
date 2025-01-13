@@ -40,79 +40,81 @@
 <HighlightTheme />
 
 {#if !simplfiedPoll}
-	<Tabs bind:selected={triggerSelected}>
-		<Tab value="webhooks">
-			<span class="flex flex-row gap-2 items-center text-xs">
-				<Webhook size={12} />
-				Webhooks
-			</span>
-		</Tab>
-		<Tab value="schedules">
-			<span class="flex flex-row gap-2 items-center text-xs">
-				<CalendarCheck2 size={12} />
-				Schedules
-			</span>
-		</Tab>
-		<Tab value="routes">
-			<span class="flex flex-row gap-2 items-center text-xs">
-				<Route size={12} />
-				HTTP
-			</span>
-		</Tab>
-		<Tab value="websockets">
-			<span class="flex flex-row gap-2 items-center text-xs">
-				<Unplug size={12} />
-				Websockets
-			</span>
-		</Tab>
-		<Tab value="kafka" otherValues={['nats']}>
-			<span class="flex flex-row gap-2 items-center text-xs">
-				<PlugZap size={12} />
-				Event streams
-			</span>
-		</Tab>
-		<Tab value="emails">
-			<span class="flex flex-row gap-2 items-center text-xs">
-				<MailIcon size={12} />
-				Email
-			</span>
-		</Tab>
-		<Tab value="cli">
-			<span class="flex flex-row gap-2 items-center text-xs">
-				<Terminal size={12} />
-				CLI
-			</span>
-		</Tab>
-	</Tabs>
+	<div class="flex flex-col h-full">
+		<Tabs bind:selected={triggerSelected} wrapperClass="flex-none w-full">
+			<Tab value="webhooks">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<Webhook size={12} />
+					Webhooks
+				</span>
+			</Tab>
+			<Tab value="schedules">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<CalendarCheck2 size={12} />
+					Schedules
+				</span>
+			</Tab>
+			<Tab value="routes">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<Route size={12} />
+					HTTP
+				</span>
+			</Tab>
+			<Tab value="websockets">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<Unplug size={12} />
+					Websockets
+				</span>
+			</Tab>
+			<Tab value="kafka" otherValues={['nats']}>
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<PlugZap size={12} />
+					Event streams
+				</span>
+			</Tab>
+			<Tab value="emails">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<MailIcon size={12} />
+					Email
+				</span>
+			</Tab>
+			<Tab value="cli">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<Terminal size={12} />
+					CLI
+				</span>
+			</Tab>
 
-	<div class="h-[calc(100%-32px)]">
-		<div class="h-full overflow-auto">
-			{#if triggerSelected === 'webhooks'}
-				<slot name="webhooks" />
-			{:else if triggerSelected === 'routes'}
-				<slot name="routes" />
-			{:else if triggerSelected === 'emails'}
-				<slot name="emails" />
-			{:else if triggerSelected === 'schedules'}
-				<slot name="schedules" />
-			{:else if triggerSelected === 'websockets'}
-				<slot name="websockets" />
-			{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
-				<div class="m-1.5">
-					<ToggleButtonGroup bind:selected={eventStreamType}>
-						<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
-						<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
-					</ToggleButtonGroup>
+			<svelte:fragment slot="content">
+				<div class="min-h-0 grow overflow-y-auto">
+					{#if triggerSelected === 'webhooks'}
+						<slot name="webhooks" />
+					{:else if triggerSelected === 'routes'}
+						<slot name="routes" />
+					{:else if triggerSelected === 'emails'}
+						<slot name="emails" />
+					{:else if triggerSelected === 'schedules'}
+						<slot name="schedules" />
+					{:else if triggerSelected === 'websockets'}
+						<slot name="websockets" />
+					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
+						<div class="m-1.5">
+							<ToggleButtonGroup bind:selected={eventStreamType}>
+								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
+								<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+							</ToggleButtonGroup>
+						</div>
+						{#if eventStreamType === 'kafka'}
+							<slot name="kafka" />
+						{:else if eventStreamType === 'nats'}
+							<slot name="nats" />
+						{/if}
+					{:else if triggerSelected === 'cli'}
+						<slot name="cli" />
+					{/if}
 				</div>
-				{#if eventStreamType === 'kafka'}
-					<slot name="kafka" />
-				{:else if eventStreamType === 'nats'}
-					<slot name="nats" />
-				{/if}
-			{:else if triggerSelected === 'cli'}
-				<slot name="cli" />
-			{/if}
-		</div>
+			</svelte:fragment>
+		</Tabs>
 	</div>
 {:else}
 	<slot name="schedules" />
