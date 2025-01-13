@@ -109,6 +109,7 @@
 
 	let placeholderVisible = false
 	function updatePlaceholderVisibility(value: string) {
+		if (!value) return
 		placeholderVisible = value.trim() === ''
 	}
 
