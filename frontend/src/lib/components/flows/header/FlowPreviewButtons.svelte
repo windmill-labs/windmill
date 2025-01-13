@@ -14,12 +14,12 @@
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
 
-	export async function openPreview() {
+	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
 			previewOpen = true
-		} else {
-			flowPreviewContent?.test()
+			if (!test) return
 		}
+		flowPreviewContent?.test()
 	}
 
 	const dispatch = createEventDispatcher()

@@ -33,7 +33,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
-	import RoundIconButton from '$lib/components/common/button/RoundIconButton.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -341,15 +340,21 @@
 					{#if !!previewSchema}
 						<div
 							class={twMerge(
-								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs p-2 w-full flex flex-row gap-2 items-center justify-center rounded-md',
+								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs p-2 w-full flex flex-row gap-2 items-center justify-left rounded-md',
 								'text-blue-700 dark:text-blue-100',
 								'relative'
 							)}
 						>
-							<span> Preview only, save to update input schema</span>
-							<div class="opacity-60"><CornerDownLeft size={14} /></div>
-							<div class="flex flex-row gap-2 absolute right-2">
-								<RoundIconButton><X size={12} /></RoundIconButton>
+							<span> Preview only, update schema to save.</span>
+							<div class="flex flex-row items-center gap-2 absolute right-2">
+								<Button
+									variant="contained"
+									color="light"
+									size="xs2"
+									startIcon={{ icon: X }}
+									shortCut={{ key: 'esc', withoutModifier: true }}
+									nonCaptureEvent
+								/>
 							</div>
 						</div>
 					{:else}

@@ -169,7 +169,7 @@
 			<div class="w-full flex flex-col gap-4 p-2">
 				<div class="w-full flex justify-between items-center gap-4 flex-wrap">
 					<span class="text-sm font-semibold flex-shrink-0"
-						>Saved Inputs test<Tooltip
+						>Saved Inputs<Tooltip
 							>Shared inputs are available to anyone with access to the script</Tooltip
 						></span
 					>

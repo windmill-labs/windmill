@@ -84,7 +84,7 @@
 					selectedItemId = null
 				}
 				loadData('refresh')
-			}, 300)
+			}, 100)
 		} catch (err) {
 			dispatch('error', { type: 'delete', error: err })
 		}
@@ -123,8 +123,7 @@
 						class={twMerge(
 							selectedItemId === item.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
 							'cursor-pointer rounded-md',
-							item.isNew && index === 0 ? 'animate-slideIn' : 'group',
-							item.isDeleting && 'animate-slideOut'
+							item.isNew && index === 0 ? 'animate-slideIn' : 'group'
 						)}
 						on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
 					>
@@ -139,21 +138,6 @@
 </div>
 
 <style>
-	@keyframes slideIn {
-		from {
-			opacity: 0;
-			transform: translateY(-100%);
-			position: absolute;
-			top: 0;
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-			position: relative;
-			top: auto;
-		}
-	}
-
 	@keyframes slideOut {
 		from {
 			opacity: 1;
@@ -181,15 +165,8 @@
 	}
 
 	:global(.animate-slideIn) {
-		animation: slideIn 0.3s ease-out forwards, greenHighlight 2s ease-out forwards;
+		animation: greenHighlight 2s ease-out forwards;
 		will-change: transform, opacity, background-color, box-shadow;
 		position: relative;
-	}
-
-	:global(.animate-slideOut) {
-		animation: slideOut 0.3s ease-out forwards;
-		will-change: transform, opacity, max-height, margin, padding;
-		position: relative;
-		pointer-events: none;
 	}
 </style>

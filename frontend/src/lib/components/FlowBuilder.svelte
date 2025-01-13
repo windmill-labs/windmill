@@ -1508,7 +1508,7 @@
 					}}
 					on:testWithArgs={(e) => {
 						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
-						flowPreviewButtons?.openPreview()
+						flowPreviewButtons?.openPreview(true)
 					}}
 				/>
 			{:else}

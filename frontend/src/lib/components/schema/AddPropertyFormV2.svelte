@@ -37,7 +37,10 @@
 				color="dark"
 				size="xs"
 				id="flow-editor-add-property"
-				on:click={addField}
+				on:click={() => {
+					addField()
+					open = false
+				}}
 				disabled={!name}
 				shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}
 			>
