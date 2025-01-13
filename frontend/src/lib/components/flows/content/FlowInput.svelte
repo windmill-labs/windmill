@@ -51,7 +51,10 @@
 		onClick: () => void
 		disabled?: boolean
 	}> = []
-
+	let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {
+		amount: 'added',
+		orderId: 'removed'
+	}
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -173,9 +176,13 @@
 		if (!payload) {
 			updatePreviewArguments(undefined)
 			previewSchema = undefined
+			diff = {}
 			return
 		}
-		previewSchema = schemaFromPayload(payload)
+		const newSchema = schemaFromPayload(payload)
+		const { diffSchema, fullSchema } = computeDiff(newSchema, $flowStore.schema)
+		diff = diffSchema
+		previewSchema = fullSchema
 		updatePreviewArguments(payload)
 	}
 
@@ -183,7 +190,7 @@
 		if (!previewSchema) {
 			return
 		}
-		$flowStore.schema = previewSchema
+		applySchema()
 		if (previewArguments) {
 			$previewArgs = previewArguments
 		}
@@ -193,10 +200,27 @@
 	}
 
 	function applySchema() {
-		$flowStore.schema = previewSchema
+		if (!previewSchema?.properties) {
+			return
+		}
+
+		const newSchema = JSON.parse(JSON.stringify($flowStore.schema))
+
+		Object.keys(previewSchema.properties).forEach((key) => {
+			if (diff[key] === 'removed') {
+				delete newSchema.properties[key]
+			} else if (diff[key] === 'added') {
+				newSchema.properties[key] = previewSchema?.properties[key]
+			} else if (diff[key] === 'modified') {
+				newSchema.properties[key] = previewSchema?.properties[key]
+			}
+		})
+
+		$flowStore.schema = newSchema
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
+		diff = {}
 	}
 
 	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
@@ -249,6 +273,37 @@
 	$: $flowInputEditorState && ((dropdownItems = getDropdownItems()), initPayloadData())
 
 	let preventEnter = false
+
+	function computeDiff(previewSchema: any, currentSchema: any) {
+		const diffSchema: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
+		const fullSchema: any = JSON.parse(JSON.stringify(currentSchema))
+
+		if (previewSchema?.properties) {
+			Object.keys(previewSchema.properties).forEach((key) => {
+				if (!currentSchema?.properties?.[key]) {
+					diffSchema[key] = 'added'
+					fullSchema.properties[key] = structuredClone(previewSchema.properties[key])
+					fullSchema.order.push(key)
+				} else {
+					const previewProp = previewSchema.properties[key]
+					const currentProp = currentSchema.properties[key]
+					diffSchema[key] =
+						JSON.stringify(previewProp) === JSON.stringify(currentProp) ? 'same' : 'modified'
+					fullSchema.properties[key] = structuredClone(previewProp)
+				}
+			})
+		}
+
+		if (currentSchema?.properties) {
+			Object.keys(currentSchema.properties).forEach((key) => {
+				if (!previewSchema?.properties?.[key]) {
+					diffSchema[key] = 'removed'
+				}
+			})
+		}
+
+		return { diffSchema, fullSchema }
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -284,6 +339,7 @@
 				bind:editPanelSize
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
+				{diff}
 			>
 				<svelte:fragment slot="openEditTab">
 					<div

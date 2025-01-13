@@ -46,6 +46,7 @@
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
 	export let lightHeader = false
+	export let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
 
 	const dispatch = createEventDispatcher()
 
@@ -284,6 +285,7 @@
 										otherArgs={args}
 										{helperScript}
 										{lightHeader}
+										diffStatus={diff[argName]}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />

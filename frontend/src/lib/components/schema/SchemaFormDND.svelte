@@ -15,6 +15,7 @@
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
 	export let schemaSkippedValues: string[] = []
+	export let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
@@ -66,6 +67,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <SchemaForm
+	class="flex flex-col gap-1"
 	{schemaSkippedValues}
 	on:click
 	on:change
@@ -86,6 +88,7 @@
 		type: dndType ?? 'top-level'
 	}}
 	{items}
+	{diff}
 >
 	<svelte:fragment slot="actions">
 		<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>

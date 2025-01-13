@@ -49,6 +49,7 @@
 	export let previewSchema: Record<string, any> | undefined = undefined
 	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
+	export let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
 
 	const dispatch = createEventDispatcher()
 
@@ -275,6 +276,7 @@
 						{lightweightMode}
 						prettifyHeader={isAppInput}
 						disabled={!!previewSchema}
+						{diff}
 					/>
 
 					<slot name="runButton" />

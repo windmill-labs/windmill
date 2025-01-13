@@ -96,6 +96,7 @@
 		| undefined = undefined
 	export let otherArgs: Record<string, any> = {}
 	export let lightHeader = false
+	export let diffStatus: 'added' | 'removed' | 'modified' | 'same' = 'same'
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -333,7 +334,13 @@
 	readOnlyMode={false}
 />
 <!-- svelte-ignore a11y-autofocus -->
-<div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
+<div
+	class={twMerge(
+		'flex flex-col w-full rounded-md px-2',
+		minW ? 'min-w-[250px]' : '',
+		diffStatus == 'added' ? 'bg-green-300' : diffStatus == 'removed' ? 'bg-red-300' : ''
+	)}
+>
 	<div>
 		{#if displayHeader}
 			<FieldHeader
