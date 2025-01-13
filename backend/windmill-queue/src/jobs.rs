@@ -2208,6 +2208,82 @@ struct FlowJobResult {
     parent_job: Option<Uuid>,
 }
 
+pub async fn get_result_and_success_by_id_from_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    flow_id: &Uuid,
+    node_id: &str,
+    json_path: Option<String>,
+) -> error::Result<(Box<RawValue>, bool)> {
+    // used exclusively for sync webhook/routes, do not handle restarted_from like get_result_by_id
+    let mut job_result =
+        match get_result_by_id_from_running_flow_inner(db, w_id, flow_id, node_id).await {
+            Ok(res) => Some(res),
+            Err(err) => match err {
+                Error::NotFound(_) => None,
+                _ => return Err(err),
+            },
+        };
+
+    let mut completed = false;
+
+    if job_result.is_none() {
+        job_result =
+            match get_result_by_id_from_original_flow_inner(db, w_id, flow_id, node_id).await {
+                Ok(res) => Some(res),
+                Err(err) => match err {
+                    Error::NotFound(_) => None,
+                    _ => return Err(err),
+                },
+            };
+        completed = job_result.is_some();
+    }
+
+    let job_result = not_found_if_none(
+        job_result,
+        "Node result",
+        format!("flow: {}, node: {}", flow_id, node_id),
+    )?;
+
+    let success = match &job_result {
+        JobResult::SingleJob(job_id) => {
+            sqlx::query_scalar!(
+                "SELECT success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                w_id
+            )
+            .fetch_one(db)
+            .await?
+        }
+        JobResult::ListJob(_) => {
+            let query = format!(
+                r#"WITH modules AS (
+                    SELECT jsonb_array_elements(flow_status->'modules') AS module
+                    FROM {}
+                    WHERE id = $1 AND workspace_id = $2
+                )
+                SELECT module->>'type' = 'Success'
+                FROM modules
+                WHERE module->>'id' = $3"#,
+                if completed { "completed_job" } else { "queue" }
+            );
+            sqlx::query_scalar(&query)
+                .bind(flow_id)
+                .bind(w_id)
+                .bind(node_id)
+                .fetch_optional(db)
+                .await?
+                .ok_or_else(|| {
+                    error::Error::InternalErr(format!("Could not get success from flow job status"))
+                })?
+        }
+    };
+
+    let result = extract_result_from_job_result(db, w_id, job_result, json_path).await?;
+
+    Ok((result, success))
+}
+
 #[async_recursion]
 pub async fn get_result_by_id_from_running_flow(
     db: &Pool<Postgres>,
@@ -2216,6 +2292,18 @@ pub async fn get_result_by_id_from_running_flow(
     node_id: &str,
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
+    let result_id = get_result_by_id_from_running_flow_inner(db, w_id, flow_id, node_id).await?;
+
+    extract_result_from_job_result(db, w_id, result_id, json_path).await
+}
+
+#[async_recursion]
+pub async fn get_result_by_id_from_running_flow_inner(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    flow_id: &Uuid,
+    node_id: &str,
+) -> error::Result<JobResult> {
     let flow_job_result = sqlx::query_as::<_, FlowJobResult>(
         "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3")
     .bind(node_id)
@@ -2242,7 +2330,7 @@ pub async fn get_result_by_id_from_running_flow(
             .await?
             .flatten()
             .unwrap_or(parent_job);
-        return get_result_by_id_from_running_flow(db, w_id, &root_job, node_id, json_path).await;
+        return get_result_by_id_from_running_flow_inner(db, w_id, &root_job, node_id).await;
     }
 
     let result_id = windmill_common::utils::not_found_if_none(
@@ -2251,7 +2339,7 @@ pub async fn get_result_by_id_from_running_flow(
         format!("parent: {}, id: {}", flow_id, node_id),
     )?;
 
-    extract_result_from_job_result(db, w_id, result_id, json_path).await
+    Ok(result_id)
 }
 
 #[async_recursion]
@@ -2260,8 +2348,7 @@ async fn get_completed_flow_node_result_rec(
     w_id: &str,
     subflows: Vec<CompletedJob>,
     node_id: &str,
-    json_path: Option<String>,
-) -> error::Result<Option<Box<RawValue>>> {
+) -> error::Result<Option<JobResult>> {
     for subflow in subflows {
         let flow_status = subflow.parse_flow_status().ok_or_else(|| {
             error::Error::InternalErr(format!("Could not parse flow status of {}", subflow.id))
@@ -2273,22 +2360,8 @@ async fn get_completed_flow_node_result_rec(
             .find(|module| module.id() == node_id)
         {
             return match (node_status.job(), node_status.flow_jobs()) {
-                (Some(leaf_job_uuid), None) => extract_result_from_job_result(
-                    db,
-                    w_id,
-                    JobResult::SingleJob(leaf_job_uuid),
-                    json_path.clone(),
-                )
-                .await
-                .map(Some),
-                (Some(_), Some(jobs)) => extract_result_from_job_result(
-                    db,
-                    w_id,
-                    JobResult::ListJob(jobs),
-                    json_path.clone(),
-                )
-                .await
-                .map(Some),
+                (Some(leaf_job_uuid), None) => Ok(Some(JobResult::SingleJob(leaf_job_uuid))),
+                (Some(_), Some(jobs)) => Ok(Some(JobResult::ListJob(jobs))),
                 _ => Err(error::Error::NotFound(format!(
                     "Flow result by id not found going top-down in subflows (currently: {}), (id: {})",
                     subflow.id,
@@ -2299,9 +2372,7 @@ async fn get_completed_flow_node_result_rec(
             let subflows = sqlx::query_as::<_, CompletedJob>(
                 "SELECT *, null as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
             ).bind(subflow.id).bind(w_id).fetch_all(db).await?;
-            match get_completed_flow_node_result_rec(db, w_id, subflows, node_id, json_path.clone())
-                .await?
-            {
+            match get_completed_flow_node_result_rec(db, w_id, subflows, node_id).await? {
                 Some(res) => return Ok(Some(res)),
                 None => continue,
             };
@@ -2311,13 +2382,12 @@ async fn get_completed_flow_node_result_rec(
     Ok(None)
 }
 
-async fn get_result_by_id_from_original_flow(
+async fn get_result_by_id_from_original_flow_inner(
     db: &Pool<Postgres>,
     w_id: &str,
     completed_flow_id: &Uuid,
     node_id: &str,
-    json_path: Option<String>,
-) -> error::Result<Box<RawValue>> {
+) -> error::Result<JobResult> {
     let flow_job = sqlx::query_as::<_, CompletedJob>(
         "SELECT *, null as labels FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
@@ -2332,13 +2402,25 @@ async fn get_result_by_id_from_original_flow(
         format!("root: {}, id: {}", completed_flow_id, node_id),
     )?;
 
-    match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id, json_path).await? {
+    match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id).await? {
         Some(res) => Ok(res),
         None => Err(error::Error::NotFound(format!(
             "Flow result by id not found going top-down from {}, (id: {})",
             completed_flow_id, node_id
         ))),
     }
+}
+
+async fn get_result_by_id_from_original_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    completed_flow_id: &Uuid,
+    node_id: &str,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    let job_result =
+        get_result_by_id_from_original_flow_inner(db, w_id, completed_flow_id, node_id).await?;
+    extract_result_from_job_result(db, w_id, job_result, json_path).await
 }
 
 async fn extract_result_from_job_result(
