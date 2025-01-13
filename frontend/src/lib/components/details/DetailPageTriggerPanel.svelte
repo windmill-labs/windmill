@@ -67,6 +67,12 @@
 					Websockets
 				</span>
 			</Tab>
+			<Tab value="database">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<Unplug size={12} />
+					Database
+				</span>
+			</Tab>
 			<Tab value="kafka" otherValues={['nats']}>
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<PlugZap size={12} />
@@ -98,6 +104,8 @@
 						<slot name="schedules" />
 					{:else if triggerSelected === 'websockets'}
 						<slot name="websockets" />
+					{:else if triggerSelected === 'database'}
+						<slot name="database" />
 					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
 						<div class="m-1.5">
 							<ToggleButtonGroup bind:selected={eventStreamType}>

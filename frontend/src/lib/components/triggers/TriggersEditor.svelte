@@ -54,6 +54,7 @@
 				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
+				<Tab value="database" selectedClass="text-primary text-sm font-semibold">Database</Tab>
 				<Tab
 					value="kafka"
 					otherValues={['nats']}
@@ -135,6 +136,10 @@
 									{canHavePreprocessor}
 									{hasPreprocessor}
 								/>
+							</div>
+						{:else if $selectedTrigger === 'database'}
+							<div class="p-4">
+								<DatabaseTriggersPanel {newItem} path={currentPath} {isFlow} />
 							</div>
 						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats'}
 							<div class="p-4 flex flex-col gap-2">
