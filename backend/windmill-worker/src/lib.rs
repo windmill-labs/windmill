@@ -36,6 +36,7 @@ mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
+#[cfg(feature = "oracledb")]
 mod oracledb_executor;
 pub use worker::*;
 
