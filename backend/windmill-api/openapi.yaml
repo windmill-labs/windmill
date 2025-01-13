@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.445.0
+  version: 1.445.1
   title: Windmill API
 
   contact:
@@ -876,7 +876,7 @@ paths:
                   alerts:
                     type: array
                     items:
-                      $ref: '#/components/schemas/CriticalAlert'
+                      $ref: "#/components/schemas/CriticalAlert"
                   total_rows:
                     type: integer
                     description: Total number of rows matching the query.
@@ -2807,7 +2807,7 @@ paths:
                   alerts:
                     type: array
                     items:
-                      $ref: '#/components/schemas/CriticalAlert'
+                      $ref: "#/components/schemas/CriticalAlert"
                   total_rows:
                     type: integer
                     description: Total number of rows matching the query.
@@ -7897,7 +7897,7 @@ paths:
       summary: delete kafka trigger
       operationId: deleteKafkaTrigger
       tags:
-        -  kafka_trigger
+        - kafka_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -7926,7 +7926,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/KafkaTrigger"
 
-  
   /w/{workspace}/kafka_triggers/list:
     get:
       summary: list kafka triggers
@@ -7961,7 +7960,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/KafkaTrigger"
 
-  
   /w/{workspace}/kafka_triggers/exists/{path}:
     get:
       summary: does kafka trigger exists
@@ -9527,11 +9525,11 @@ paths:
               properties:
                 trigger_kind:
                   $ref: "#/components/schemas/CaptureTriggerKind"
-                path: 
+                path:
                   type: string
                 is_flow:
                   type: boolean
-                trigger_config: 
+                trigger_config:
                   type: object
               required:
                 - trigger_kind
@@ -9541,7 +9539,6 @@ paths:
         "200":
           description: capture config set
 
-  
   /w/{workspace}/capture/ping_config/{trigger_kind}/{runnable_kind}/{path}:
     post:
       summary: ping capture config
@@ -9595,6 +9592,8 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/CaptureTriggerKind"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: list of captures for a script or flow
@@ -9604,7 +9603,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Capture"
-
 
   /w/{workspace}/capture/{id}:
     delete:
@@ -9681,6 +9679,10 @@ paths:
         - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: include_preview
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: Input history for completed jobs
@@ -13201,7 +13203,7 @@ components:
           type: string
         enabled:
           type: boolean
-        
+
       required:
         - path
         - edited_by
@@ -13235,7 +13237,7 @@ components:
             type: string
         enabled:
           type: boolean
-        
+
       required:
         - path
         - script_path
@@ -13261,7 +13263,7 @@ components:
           type: string
         is_flow:
           type: boolean
-              
+
       required:
         - path
         - script_path

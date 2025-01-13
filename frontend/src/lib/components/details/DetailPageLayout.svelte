@@ -39,7 +39,8 @@
 		triggersCount,
 		simplifiedPoll,
 		defaultValues: writable(undefined),
-		captureOn: writable(undefined)
+		captureOn: writable(undefined),
+		showCaptureHint: writable(undefined)
 	})
 </script>
 

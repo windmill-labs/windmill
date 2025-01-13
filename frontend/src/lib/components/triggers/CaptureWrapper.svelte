@@ -82,9 +82,9 @@
 				})
 				await getCaptureConfigs()
 			}
-			captureTable?.refreshCaptures()
 			i++
 			await sleep(1000)
+			captureTable?.loadCaptures(true)
 		}
 	}
 
@@ -98,11 +98,6 @@
 				brokers: [''],
 				topics: [''],
 				group_id: `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
-			}
-		} else if (captureType === 'http') {
-			args = {
-				route_path: '',
-				http_method: 'post'
 			}
 		} else {
 			args = {}
@@ -190,6 +185,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'webhook'}
 		<WebhooksConfigSection
@@ -208,13 +204,13 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'http'}
 		<RouteEditorConfigSection
 			{showCapture}
 			can_write={true}
-			bind:route_path={args.route_path}
-			bind:http_method={args.http_method}
+			bind:args
 			headless
 			{captureInfo}
 			bind:captureTable
@@ -224,6 +220,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'email'}
 		<EmailTriggerConfigSection
@@ -242,6 +239,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'kafka'}
 		<KafkaTriggersConfigSection
@@ -257,6 +255,7 @@
 			on:captureToggle={() => {
 				handleCapture()
 			}}
+			on:testWithArgs
 		/>
 	{:else if captureType === 'nats'}
 		<NatsTriggersConfigSection

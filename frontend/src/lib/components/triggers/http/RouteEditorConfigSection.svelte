@@ -17,6 +17,7 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 
+	export let args: Record<string, any> = { route_path: '', http_method: 'get' }
 	export let dirtyRoutePath: boolean = false
 	export let route_path = ''
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
@@ -69,6 +70,14 @@
 	$: isValid = routeError === ''
 
 	$: fullRoute = getHttpRoute(route_path)
+
+	$: showCapture && (http_method = 'post')
+
+	function updateArgs(route_path: string, http_method: string) {
+		args && ((args.route_path = route_path), (args.http_method = http_method))
+	}
+
+	$: updateArgs(route_path, http_method)
 </script>
 
 <div>
@@ -81,6 +90,7 @@
 			on:applyArgs
 			on:updateSchema
 			on:addPreprocessor
+			on:testWithArgs
 			bind:captureTable
 		>
 			<Label label="URL">

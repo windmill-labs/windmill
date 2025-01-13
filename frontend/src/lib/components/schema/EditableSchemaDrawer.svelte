@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { GripVertical, Pen, Trash } from 'lucide-svelte'
+	import { GripVertical, Pen, Trash, Plus } from 'lucide-svelte'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { Drawer, DrawerContent } from '../common'
 	import AddProperty from './AddProperty.svelte'
@@ -12,6 +12,7 @@
 	import Label from '../Label.svelte'
 	import Toggle from '../Toggle.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
+	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 
 	export let schema: Schema | undefined | any
 	export let parentId: string | undefined = undefined
@@ -55,7 +56,6 @@
 		dispatch('change', schema)
 	}
 
-	const yOffset = 49
 	export let jsonView: boolean = false
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let editor: SimpleEditor | undefined = undefined
@@ -170,10 +170,7 @@
 	</div>
 
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
-		<DrawerContent noPadding title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
-			<svelte:fragment slot="actions">
-				<AddProperty on:change bind:schema />
-			</svelte:fragment>
+		<DrawerContent title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
 			<EditableSchemaForm
 				on:change
 				bind:this={editableSchemaForm}
@@ -185,10 +182,22 @@
 				on:delete={(e) => {
 					addProperty?.handleDeleteArgument([e.detail])
 				}}
-				offset={yOffset}
 				lightweightMode
 				dndType="drawer"
-			/>
+				editTab="inputEditor"
+			>
+				<svelte:fragment slot="addProperty">
+					<AddPropertyV2 bind:schema on:change>
+						<svelte:fragment slot="trigger">
+							<div
+								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+							>
+								<Plus size={14} />
+							</div>
+						</svelte:fragment>
+					</AddPropertyV2>
+				</svelte:fragment>
+			</EditableSchemaForm>
 		</DrawerContent>
 	</Drawer>
 {:else}

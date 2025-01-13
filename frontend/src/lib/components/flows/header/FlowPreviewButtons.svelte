@@ -5,6 +5,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import type { Job } from '$lib/gen'
+	import { createEventDispatcher } from 'svelte'
 
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -13,13 +14,15 @@
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
 
-	export async function openPreview() {
+	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
 			previewOpen = true
-		} else {
-			flowPreviewContent?.test()
+			if (!test) return
 		}
+		flowPreviewContent?.test()
 	}
+
+	const dispatch = createEventDispatcher()
 
 	let flowPreviewContent: FlowPreviewContent
 	let jobId: string | undefined = undefined
@@ -92,6 +95,10 @@
 		bind:jobId
 		on:close={() => {
 			previewOpen = false
+		}}
+		on:openTriggers={(e) => {
+			previewOpen = false
+			dispatch('openTriggers', e.detail)
 		}}
 	/>
 </Drawer>
