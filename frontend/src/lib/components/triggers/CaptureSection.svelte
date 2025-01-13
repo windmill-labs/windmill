@@ -124,7 +124,6 @@
 			on:updateSchema={handleUpdateSchema}
 			on:addPreprocessor
 			on:testWithArgs
-			captureActive={captureInfo.active}
 			fullHeight={false}
 		/>
 	</div>

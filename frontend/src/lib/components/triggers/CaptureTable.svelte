@@ -18,7 +18,6 @@
 	import { sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import { clickOutside } from '$lib/utils'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -28,7 +27,6 @@
 	export let headless = false
 	export let addButton = false
 	export let canEdit = false
-	export let captureActive = false
 	export let fullHeight = true
 
 	let selected: number | undefined = undefined
@@ -63,7 +61,6 @@
 		await infiniteList?.loadData(refresh ? 'refresh' : 'loadMore')
 	}
 
-	let draft = true
 	function initLoadCaptures(testKind: 'preprocessor' | 'main' = 'main') {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const captures = await CaptureService.listCaptures({
@@ -147,7 +144,7 @@
 		}
 	}
 
-	$: path && (infiniteList && initLoadCaptures(), (draft = false))
+	$: path && infiniteList && initLoadCaptures()
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -182,141 +179,133 @@
 		{/if}
 	</svelte:fragment>
 
-	{#if draft}
-		<Alert type="warning" title="Save script to use captures" size="xs" />
-	{:else}
-		<div
-			class={fullHeight ? 'h-full' : capturesLength > 7 ? 'h-[300px]' : 'h-fit'}
-			use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-			on:click_outside={() => {
-				if (firstClick) {
-					firstClick = false
-					return
-				}
-				deselect()
-			}}
+	<div
+		class={fullHeight ? 'h-full' : capturesLength > 7 ? 'h-[300px]' : 'h-fit'}
+		use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
+		on:click_outside={() => {
+			if (firstClick) {
+				firstClick = false
+				return
+			}
+			deselect()
+		}}
+	>
+		<InfiniteList
+			bind:this={infiniteList}
+			selectedItemId={selected}
+			bind:isEmpty
+			on:error={(e) => handleError(e.detail)}
+			on:select={(e) => handleSelect(e.detail)}
+			bind:length={capturesLength}
 		>
-			<InfiniteList
-				bind:this={infiniteList}
-				selectedItemId={selected}
-				bind:isEmpty
-				on:error={(e) => handleError(e.detail)}
-				on:select={(e) => handleSelect(e.detail)}
-				bind:length={capturesLength}
-			>
-				<svelte:fragment slot="columns">
-					<colgroup>
-						<col class="w-8" />
-						<col class="w-20" />
-						<col />
-					</colgroup>
-				</svelte:fragment>
-				<svelte:fragment let:item let:hover>
-					{@const captureIcon = captureKindToIcon[item.trigger_kind]}
-					<SchemaPickerRow
-						date={item.created_at}
-						payloadData={item.payloadData}
-						selected={selected === item.id}
-						hovering={hover}
-					>
-						<svelte:fragment slot="start">
-							<div class="center-center">
-								<svelte:component this={captureIcon} size={12} />
-							</div>
-						</svelte:fragment>
+			<svelte:fragment slot="columns">
+				<colgroup>
+					<col class="w-8" />
+					<col class="w-20" />
+					<col />
+				</colgroup>
+			</svelte:fragment>
+			<svelte:fragment let:item let:hover>
+				{@const captureIcon = captureKindToIcon[item.trigger_kind]}
+				<SchemaPickerRow
+					date={item.created_at}
+					payloadData={item.payloadData}
+					selected={selected === item.id}
+					hovering={hover}
+				>
+					<svelte:fragment slot="start">
+						<div class="center-center">
+							<svelte:component this={captureIcon} size={12} />
+						</div>
+					</svelte:fragment>
 
-						<svelte:fragment slot="extra">
-							{#if canEdit}
-								<div class="flex flex-row items-center gap-2 px-2">
-									{#if testKind === 'preprocessor' && !hasPreprocessor}
-										<CustomPopover noPadding>
-											<Button
-												size="xs2"
-												color="dark"
-												disabled
-												endIcon={{
-													icon: Info
-												}}
-												wrapperClasses="h-full"
-											>
-												Apply args
-											</Button>
-											<svelte:fragment slot="overlay">
-												<div class="text-sm p-2 flex flex-col gap-1 items-start">
-													<p>
-														You need to add a preprocessor to use preprocessor captures as args
-													</p>
-													<Button
-														size="xs2"
-														color="dark"
-														on:click={() => {
-															dispatch('addPreprocessor')
-														}}
-													>
-														Add preprocessor
-													</Button>
-												</div>
-											</svelte:fragment>
-										</CustomPopover>
-									{:else}
+					<svelte:fragment slot="extra">
+						{#if canEdit}
+							<div class="flex flex-row items-center gap-2 px-2">
+								{#if testKind === 'preprocessor' && !hasPreprocessor}
+									<CustomPopover noPadding>
 										<Button
 											size="xs2"
-											color={hover || selected === item.id ? 'dark' : 'light'}
-											dropdownItems={[
-												{
-													label: 'Use as input schema',
-													onClick: () => {
-														dispatch('updateSchema', {
-															payloadData: item.payloadData,
-															redirect: true,
-															args: true
-														})
-													},
-													disabled: !isFlow || testKind !== 'main'
-												}
-											].filter((item) => !item.disabled)}
-											on:click={() => {
-												if (isFlow && testKind === 'main') {
-													dispatch('testWithArgs', item.payloadData)
-												} else {
-													dispatch('applyArgs', {
-														kind: testKind,
-														args: item.payloadData
-													})
-												}
+											color="dark"
+											disabled
+											endIcon={{
+												icon: Info
 											}}
-											disabled={testKind === 'preprocessor' && !hasPreprocessor}
-											title={isFlow && testKind === 'main'
-												? 'Test flow with args'
-												: 'Apply args to preprocessor'}
-											startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
+											wrapperClasses="h-full"
 										>
-											{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
+											Apply args
 										</Button>
-									{/if}
-								</div>
-
+										<svelte:fragment slot="overlay">
+											<div class="text-sm p-2 flex flex-col gap-1 items-start">
+												<p> You need to add a preprocessor to use preprocessor captures as args </p>
+												<Button
+													size="xs2"
+													color="dark"
+													on:click={() => {
+														dispatch('addPreprocessor')
+													}}
+												>
+													Add preprocessor
+												</Button>
+											</div>
+										</svelte:fragment>
+									</CustomPopover>
+								{:else}
+									<Button
+										size="xs2"
+										color={hover || selected === item.id ? 'dark' : 'light'}
+										dropdownItems={[
+											{
+												label: 'Use as input schema',
+												onClick: () => {
+													dispatch('updateSchema', {
+														payloadData: item.payloadData,
+														redirect: true,
+														args: true
+													})
+												},
+												disabled: !isFlow || testKind !== 'main'
+											}
+										].filter((item) => !item.disabled)}
+										on:click={() => {
+											if (isFlow && testKind === 'main') {
+												dispatch('testWithArgs', item.payloadData)
+											} else {
+												dispatch('applyArgs', {
+													kind: testKind,
+													args: item.payloadData
+												})
+											}
+										}}
+										disabled={testKind === 'preprocessor' && !hasPreprocessor}
+										title={isFlow && testKind === 'main'
+											? 'Test flow with args'
+											: 'Apply args to preprocessor'}
+										startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
+									>
+										{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
+									</Button>
+								{/if}
 								<Button
 									size="xs2"
 									color="light"
 									variant="contained"
 									iconOnly
 									startIcon={{ icon: Trash2 }}
-									disabled={captureActive}
 									loading={item.isDeleting}
 									on:click={() => {
 										infiniteList?.deleteItem(item.id)
 									}}
 									btnClasses="hover:text-white hover:bg-red-500 text-red-500"
 								/>
-							{/if}
-						</svelte:fragment>
-					</SchemaPickerRow>
-				</svelte:fragment>
-				<svelte:fragment slot="empty">
-					<div class="text-center text-xs text-tertiary">No captures yet</div>
-				</svelte:fragment>
-			</InfiniteList>
-		</div>
-	{/if}
+							</div>
+						{/if}
+					</svelte:fragment>
+				</SchemaPickerRow>
+			</svelte:fragment>
+			<svelte:fragment slot="empty">
+				<div class="text-center text-xs text-tertiary">No captures yet</div>
+			</svelte:fragment>
+		</InfiniteList>
+	</div>
 </Label>

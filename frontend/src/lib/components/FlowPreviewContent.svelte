@@ -160,7 +160,7 @@
 	>
 		<div class="h-full flex flex-col gap-2">
 			<CapturesInputs
-				flowPath={initialPath}
+				flowPath={$pathStore}
 				headless={false}
 				addButton={true}
 				on:select={(e) => {
@@ -352,16 +352,15 @@
 			</div>
 		{/if}
 		<div class="flex gap-2">
+			<Button
+				btnClasses="h-full truncate"
+				size="sm"
+				variant="border"
+				on:click={() => {
+					captureLibraryDrawer?.openDrawer()
+				}}>Trigger captures library</Button
+			>
 			{#if initialPath != ''}
-				<Button
-					btnClasses="h-full truncate"
-					size="sm"
-					variant="border"
-					on:click={() => {
-						captureLibraryDrawer?.openDrawer()
-					}}>Trigger captures library</Button
-				>
-
 				<Button
 					btnClasses="h-full truncate"
 					size="sm"
