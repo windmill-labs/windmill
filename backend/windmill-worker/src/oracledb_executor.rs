@@ -32,18 +32,6 @@ struct OracleDatabase {
     database: String,
 }
 
-trait MyTrait: oracle::sql_type::ToSql + Send + Sync {}
-
-// fn convert_params<'a>(
-//     // params: &[(&'a str, &'a (dyn ToSql + Send + Sync))],
-//     params: Vec<(String, dyn ToSql + Send + Sync)>,
-// ) -> Vec<(&'a str, &'a dyn ToSql)> {
-//     params
-//         .iter()
-//         .map(|(key, value)| (key.as_str(), value as &dyn ToSql))
-//         .collect()
-// }
-
 pub fn do_oracledb_inner<'a>(
     query: &'a str,
     params: Vec<(String, Box<dyn ToSql + Send + Sync>)>,
@@ -54,9 +42,7 @@ pub fn do_oracledb_inner<'a>(
     let qw = query.to_string();
     let result_f = async move {
         if skip_collect {
-            // let c = conn.lock().await;
             tokio::task::spawn_blocking(move || {
-                // conn2.execute_named(&qw, &[("asd", &"asd")])
                 let params2: Vec<(&str, &dyn ToSql)> = params
                     .iter()
                     .map(|(key, val)| (key.as_str(), &**val as &dyn ToSql))
@@ -66,8 +52,6 @@ pub fn do_oracledb_inner<'a>(
             .await
             .map_err(to_anyhow)?
             .map_err(to_anyhow)?;
-
-            // drop(c);
 
             Ok(to_raw_value(&Value::Array(vec![])))
         } else {
@@ -117,7 +101,6 @@ pub fn do_oracledb_inner<'a>(
                     .map(|x| convert_row_to_value(x))
                     .collect::<Vec<serde_json::Value>>(),
             ))
-            // Err(anyhow!("asd"))
         }
     };
 
