@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.445.1](https://github.com/windmill-labs/windmill/compare/v1.445.0...v1.445.1) (2025-01-13)
+
+
+### Bug Fixes
+
+* **ui:** capture v2 UX ([#4954](https://github.com/windmill-labs/windmill/issues/4954)) ([ebfde19](https://github.com/windmill-labs/windmill/commit/ebfde197fc11d243bbc9ba9b36d4f8a5e72d1f71))
+
 ## [1.445.0](https://github.com/windmill-labs/windmill/compare/v1.444.0...v1.445.0) (2025-01-10)
 
 
