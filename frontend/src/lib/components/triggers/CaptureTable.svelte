@@ -133,6 +133,8 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
 			deselect()
+			event.stopPropagation()
+			event.preventDefault()
 		}
 	}
 

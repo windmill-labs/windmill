@@ -51,6 +51,8 @@
 		if (event.key === 'Escape' && selected) {
 			selected = false
 			dispatch('select', undefined)
+			event.stopPropagation()
+			event.preventDefault()
 		}
 	}
 
