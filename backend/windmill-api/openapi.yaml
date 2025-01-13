@@ -9314,6 +9314,10 @@ paths:
         - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: include_preview
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: Input history for completed jobs

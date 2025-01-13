@@ -143,25 +143,26 @@
 	}
 </script>
 
-<JobLoader
-	bind:jobs
-	path={runnableId ?? null}
-	isSkipped={false}
-	jobKindsCat="jobs"
-	jobKinds="all"
-	user={null}
-	label={null}
-	folder={null}
-	concurrencyKey={null}
-	tag={null}
-	success="running"
-	argFilter={undefined}
-	bind:loading
-	syncQueuedRunsCount={false}
-	refreshRate={10000}
-	computeMinAndMax={undefined}
-	perPage={5}
-/>
+{#if runnableId}
+	<JobLoader
+		bind:jobs
+		path={runnableId}
+		isSkipped={false}
+		jobKindsCat="all"
+		user={null}
+		label={null}
+		folder={null}
+		concurrencyKey={null}
+		tag={null}
+		success="running"
+		argFilter={undefined}
+		bind:loading
+		syncQueuedRunsCount={false}
+		refreshRate={10000}
+		computeMinAndMax={undefined}
+		perPage={5}
+	/>
+{/if}
 
 <div class="min-w-[300px] h-full">
 	<Splitpanes horizontal={true}>
