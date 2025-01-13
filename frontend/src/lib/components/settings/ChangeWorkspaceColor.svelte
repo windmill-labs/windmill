@@ -53,7 +53,7 @@
 </script>
 
 <div>
-	<p class="font-semibold text-sm">Workspace Color</p>
+	<p class="font-semibold text-sm">Workspace color</p>
 	<div class="flex flex-row gap-0.5 items-center">
 		{#if savedWorkspaceColor}
 			<div
@@ -76,6 +76,9 @@
 			}}
 		/>
 	</div>
+	<p class="italic text-xs">
+		Color to identify the current workspace in the list of workspaces
+	</p>
 </div>
 
 <Modal bind:open title="Change Workspace Color">

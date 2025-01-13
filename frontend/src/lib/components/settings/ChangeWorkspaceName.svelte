@@ -49,6 +49,10 @@
 			}}
 		/>
 	</div>
+
+	<p class="italic text-xs">
+		Displayable name
+	</p>
 </div>
 
 <Modal bind:open title="Change workspace name">
