@@ -85,7 +85,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    cancel_job, get_queued_job, get_result_by_id_from_running_flow, job_is_complete, push,
+    cancel_job, get_queued_job, get_result_and_success_by_id_from_flow, job_is_complete, push,
     PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
@@ -2398,7 +2398,12 @@ pub async fn get_resume_urls(
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
-    get_resume_urls_internal(Extension(db), Path((w_id, job_id, resume_id)), Query(approver)).await
+    get_resume_urls_internal(
+        Extension(db),
+        Path((w_id, job_id, resume_id)),
+        Query(approver),
+    )
+    .await
 }
 
 pub async fn get_resume_urls_internal(
@@ -3483,6 +3488,7 @@ pub async fn run_wait_result(
     username: &str,
 ) -> error::Result<Response> {
     let mut result = None;
+    let mut success = false;
     let timeout = TIMEOUT_WAIT_RESULT.read().await.clone().unwrap_or(600);
     let timeout_ms = if timeout <= 0 {
         2000
@@ -3503,7 +3509,7 @@ pub async fn run_wait_result(
 
     loop {
         if let Some(node_id_for_empty_return) = node_id_for_empty_return.as_ref() {
-            result = get_result_by_id_from_running_flow(
+            let result_and_success = get_result_and_success_by_id_from_flow(
                 &db,
                 &w_id,
                 &uuid,
@@ -3512,11 +3518,15 @@ pub async fn run_wait_result(
             )
             .await
             .ok();
+            if let Some((r, s)) = result_and_success {
+                result = Some(r);
+                success = s;
+            }
         }
 
         if result.is_none() {
-            let row = sqlx::query_as::<_, RawResult>(
-                "SELECT null as created_by, result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            let row = sqlx::query_as::<_, RawResultWithSuccess>(
+                "SELECT '' as created_by, result, language, flow_status, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
             )
             .bind(uuid)
             .bind(&w_id)
@@ -3529,6 +3539,7 @@ pub async fn run_wait_result(
                     raw_result.result.as_mut(),
                 );
                 result = raw_result.result.map(|x| x.0);
+                success = raw_result.success;
             }
         }
 
@@ -3558,7 +3569,15 @@ pub async fn run_wait_result(
                 result: result_value,
             }) => {
                 if windmill_content_type.is_none() && windmill_status_code.is_none() {
-                    return Ok(Json(result).into_response());
+                    return Ok((
+                        if success {
+                            StatusCode::OK
+                        } else {
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        },
+                        Json(result),
+                    )
+                        .into_response());
                 }
 
                 let status_code_or_default = windmill_status_code
@@ -3566,10 +3585,14 @@ pub async fn run_wait_result(
                         Ok(sc) => Ok(sc),
                         Err(_) => Err(Error::ExecutionErr("Invalid status code".to_string())),
                     })
-                    .unwrap_or(if result_value.is_some() {
-                        Ok(StatusCode::OK)
-                    } else {
-                        Ok(StatusCode::NO_CONTENT)
+                    .unwrap_or_else(|| {
+                        if !success {
+                            Ok(StatusCode::INTERNAL_SERVER_ERROR)
+                        } else if result_value.is_some() {
+                            Ok(StatusCode::OK)
+                        } else {
+                            Ok(StatusCode::NO_CONTENT)
+                        }
                     })?;
 
                 if windmill_content_type.is_some() {
@@ -3598,7 +3621,15 @@ pub async fn run_wait_result(
                 )
                     .into_response());
             }
-            _ => Ok(Json(result).into_response()),
+            _ => Ok((
+                if success {
+                    StatusCode::OK
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                },
+                Json(result),
+            )
+                .into_response()),
         }
     } else {
         Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
@@ -5569,4 +5600,3 @@ async fn delete_completed_job<'a>(
     let response = Json(cj).into_response();
     Ok(response)
 }
-
