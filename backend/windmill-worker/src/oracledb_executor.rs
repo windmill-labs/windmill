@@ -24,7 +24,7 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, OccupancyMetrics},
+    common::{check_executor_binary_exists, build_args_map, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
     AuthedClientBackgroundTask,
 };
@@ -37,7 +37,7 @@ struct OracleDatabase {
 }
 
 lazy_static::lazy_static! {
-    static ref ORACLE_LIB_DIR: String = std::env::var("ORACLE_LIB_DIR").unwrap_or_else(|| "/opt/oracle/23/lib".to_string());
+    static ref ORACLE_LIB_DIR: String = std::env::var("ORACLE_LIB_DIR").unwrap_or_else(|_| "/opt/oracle/23/lib".to_string());
 }
 
 pub fn do_oracledb_inner<'a>(
@@ -306,6 +306,8 @@ pub async fn do_oracledb(
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
+    check_executor_binary_exists("the Oracle client lib", ORACLE_LIB_DIR.as_str(), "Oracle Database")?;
+
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
         args.as_ref()
@@ -354,7 +356,7 @@ pub async fn do_oracledb(
     }
 
     if !oracle::InitParams::is_initialized() {
-        oracle::InitParams::new()
+        let _ = oracle::InitParams::new()
             .oracle_client_lib_dir(ORACLE_LIB_DIR.as_str())
             .map_err(|e| anyhow!("Failed to initialize oracle client: {e}"))?
             .init();
