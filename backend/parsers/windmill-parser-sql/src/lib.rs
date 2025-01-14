@@ -923,11 +923,11 @@ SELECT ?;
     #[test]
     fn test_parse_mssql_sig() -> anyhow::Result<()> {
         let code = r#"
--- @p1 param1 (int) = 3
--- @p2 param2 (varchar)
--- @p3 param3 (varchar)
-SELECT @p3, @p1;
-SELECT @p2;
+-- @P1 param1 (int) = 3
+-- @P2 param2 (varchar)
+-- @P3 param3 (varchar)
+SELECT @P3, @P1;
+SELECT @P2;
 "#;
         assert_eq!(
             parse_mssql_sig(code)?,
