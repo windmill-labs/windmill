@@ -5,7 +5,7 @@
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -46,6 +46,7 @@
 		{ name: 'Early Return', active: Boolean($flowStore.value.early_return) },
 		{ name: 'Dedicated Worker', active: Boolean($flowStore.dedicated_worker) },
 		{ name: 'Concurrent Limit', active: Boolean($flowStore.value.concurrent_limit) },
+		{ name: 'Run on behalf of owner', active: Boolean($flowStore.on_behalf_of_email) },
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
 	]
 
@@ -344,6 +345,27 @@
 							'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.',
 						rightDocumentationLink:
 							'https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#invisible-runs'
+					}}
+					class="py-1"
+				/>
+
+				<!-- On behalf of owner section -->
+				<Toggle
+					textClass="font-normal text-sm"
+					color="nord"
+					size="xs"
+					checked={Boolean($flowStore.on_behalf_of_email)}
+					on:change={() => {
+						if ($flowStore.on_behalf_of_email) {
+							$flowStore.on_behalf_of_email = undefined
+						} else {
+							$flowStore.on_behalf_of_email = $userStore?.email
+						}
+					}}
+					options={{
+						right: 'Run on behalf of owner',
+						rightTooltip:
+							'When this option is enabled, the flow will be run with the permissions of the owner (last editor).'
 					}}
 					class="py-1"
 				/>

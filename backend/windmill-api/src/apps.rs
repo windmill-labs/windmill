@@ -1436,19 +1436,29 @@ async fn execute_component(
     )
     .await?;
 
-    let (job_payload, tag) = match (payload.path, payload.raw_code, payload.id) {
+    let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
         // inline script: in "preview" mode or without entry in the `app_script` table.
-        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None),
+        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None, None),
         // inline script: in "run" mode and with an entry in the `app_script` table.
         (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
             JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+            None,
             None,
         ),
         _ => unreachable!(),
     };
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (email.as_str(), permissioned_as)
+    };
 
     let (uuid, tx) = push(
         &db,
@@ -1457,7 +1467,7 @@ async fn execute_component(
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
         &username,
-        &email,
+        email,
         permissioned_as,
         None,
         None,

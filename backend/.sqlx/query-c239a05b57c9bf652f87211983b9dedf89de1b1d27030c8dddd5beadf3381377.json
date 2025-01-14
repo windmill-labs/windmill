@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT current_setting('session.pgroups')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "current_setting",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c239a05b57c9bf652f87211983b9dedf89de1b1d27030c8dddd5beadf3381377"
+}

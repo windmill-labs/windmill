@@ -1341,7 +1341,7 @@ async fn list_workspaces_as_super_admin(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
+        "SELECT workspace.id as \"id!\", workspace.name as \"name!\", workspace.owner as \"owner!\", workspace.deleted as \"deleted!\", workspace.premium as \"premium!\", workspace_settings.color
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
