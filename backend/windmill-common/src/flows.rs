@@ -49,6 +49,8 @@ pub struct Flow {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     pub visible_to_runner_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of_email: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -98,6 +100,7 @@ pub struct NewFlow {
     pub timeout: Option<i32>,
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
+    pub on_behalf_of_email: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

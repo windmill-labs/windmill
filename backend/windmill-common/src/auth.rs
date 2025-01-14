@@ -75,7 +75,7 @@ pub async fn is_super_admin_email(db: &DB, email: &str) -> Result<bool> {
 
 pub async fn is_devops_email(db: &DB, email: &str) -> Result<bool> {
     if is_super_admin_email(db, email).await? {
-        return Ok(true)
+        return Ok(true);
     }
 
     let is_devops = sqlx::query_scalar!("SELECT devops FROM password WHERE email = $1", email)

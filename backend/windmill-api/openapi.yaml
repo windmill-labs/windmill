@@ -11043,6 +11043,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
 
       required:
         - hash
@@ -11144,6 +11146,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - summary
@@ -13193,6 +13197,8 @@ components:
           type: number
         visible_to_runner_only:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - edited_by
@@ -13219,6 +13225,8 @@ components:
               type: number
             visible_to_runner_only:
               type: boolean
+            on_behalf_of_email:
+              type: string
           required:
             - path
 

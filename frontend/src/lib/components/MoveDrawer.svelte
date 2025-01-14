@@ -54,7 +54,8 @@
 					tag: flow.tag,
 					dedicated_worker: flow.dedicated_worker,
 					ws_error_handler_muted: flow.ws_error_handler_muted,
-					visible_to_runner_only: flow.visible_to_runner_only
+					visible_to_runner_only: flow.visible_to_runner_only,
+					on_behalf_of_email: flow.on_behalf_of_email
 				}
 			})
 		} else if (kind == 'script') {

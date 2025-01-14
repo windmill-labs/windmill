@@ -103,17 +103,17 @@ pub async fn push_scheduled_job<'c>(
         }
     }
 
-    let (payload, tag, timeout) = if schedule.is_flow {
+    let (payload, tag, timeout, on_behalf_of_email, created_by) = if schedule.is_flow {
         let r = sqlx::query!(
-            "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
+            "SELECT tag, dedicated_worker, on_behalf_of_email, edited_by from flow WHERE path = $1 and workspace_id = $2",
             &schedule.script_path,
             &schedule.workspace_id,
         )
         .fetch_optional(&mut *tx)
         .await?;
-        let (tag, dedicated_worker) = r
-            .map(|x| (x.tag, x.dedicated_worker))
-            .unwrap_or_else(|| (None, None));
+        let (tag, dedicated_worker, on_behalf_of_email, edited_by) = r
+            .map(|x| (x.tag, x.dedicated_worker, x.on_behalf_of_email, x.edited_by))
+            .unwrap_or_else(|| (None, None, None, "".to_string()));
         (
             JobPayload::Flow {
                 path: schedule.script_path.clone(),
@@ -122,6 +122,8 @@ pub async fn push_scheduled_job<'c>(
             },
             tag,
             None,
+            on_behalf_of_email,
+            edited_by,
         )
     } else {
         let (
@@ -135,6 +137,8 @@ pub async fn push_scheduled_job<'c>(
             dedicated_worker,
             priority,
             timeout,
+            on_behalf_of_email,
+            created_by,
         ) = windmill_common::get_latest_hash_for_path(
             &mut tx,
             &schedule.workspace_id,
@@ -174,6 +178,8 @@ pub async fn push_scheduled_job<'c>(
                     tag
                 },
                 timeout,
+                on_behalf_of_email,
+                created_by,
             )
         } else {
             (
@@ -195,6 +201,8 @@ pub async fn push_scheduled_job<'c>(
                     tag
                 },
                 timeout,
+                on_behalf_of_email,
+                created_by,
             )
         }
     };
@@ -214,16 +222,43 @@ pub async fn push_scheduled_job<'c>(
         );
     };
 
+    let (email, permissioned_as, push_authed, revert_to_windmill_user) = if let Some(email) =
+        on_behalf_of_email.as_ref()
+    {
+        let is_windmill_user =
+            sqlx::query_scalar!("SELECT CURRENT_USER = 'windmill_user' as \"is_windmill_user!\"")
+                .fetch_one(&mut *tx)
+                .await?;
+        if is_windmill_user {
+            sqlx::query!("SET LOCAL ROLE NONE")
+                .execute(&mut *tx)
+                .await?;
+        }
+        (
+            email,
+            username_to_permissioned_as(&created_by),
+            None,
+            is_windmill_user,
+        )
+    } else {
+        (
+            &schedule.email,
+            username_to_permissioned_as(&schedule.edited_by),
+            authed,
+            false,
+        )
+    };
+
     let tx = PushIsolationLevel::Transaction(tx);
-    let (_, tx) = push(
+    let (_, mut tx) = push(
         &db,
         tx,
         &schedule.workspace_id,
         payload,
         crate::PushArgs { args: &args, extra: None },
         &schedule_to_user(&schedule.path),
-        &schedule.email,
-        username_to_permissioned_as(&schedule.edited_by),
+        email,
+        permissioned_as,
         Some(next),
         Some(schedule.path.clone()),
         None,
@@ -237,9 +272,15 @@ pub async fn push_scheduled_job<'c>(
         timeout,
         None,
         None,
-        authed,
+        push_authed,
     )
     .await?;
+
+    if revert_to_windmill_user {
+        sqlx::query!("SET LOCAL ROLE windmill_user")
+            .execute(&mut *tx)
+            .await?;
+    }
 
     Ok(tx) // TODO: Bubble up pushed UUID from here
 }

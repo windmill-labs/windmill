@@ -584,7 +584,6 @@
 		{#if drawerLoading}
 			<Loader2 class="animate-spin" />
 		{:else}
-			{can_write}
 			<div class="flex flex-col gap-12">
 				<div class="flex flex-col gap-4">
 					<div>

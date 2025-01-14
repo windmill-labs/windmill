@@ -228,7 +228,8 @@
 						tag: flow.tag,
 						draft_only: true,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
-						visible_to_runner_only: flow.visible_to_runner_only
+						visible_to_runner_only: flow.visible_to_runner_only,
+						on_behalf_of_email: flow.on_behalf_of_email
 					}
 				})
 			}
@@ -359,6 +360,7 @@
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
+						on_behalf_of_email: flow.on_behalf_of_email,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -432,6 +434,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
+						on_behalf_of_email: flow.on_behalf_of_email,
 						deployment_message: deploymentMsg || undefined
 					}
 				})

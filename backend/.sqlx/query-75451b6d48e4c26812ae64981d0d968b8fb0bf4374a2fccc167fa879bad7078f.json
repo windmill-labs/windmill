@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+  "query": "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "hash",
-        "type_info": "Int8"
+        "name": "path",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
@@ -88,11 +88,21 @@
         "ordinal": 11,
         "name": "has_preprocessor",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "on_behalf_of_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_by",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
+        "Int8",
         "Text"
       ]
     },
@@ -108,8 +118,10 @@
       true,
       true,
       true,
-      true
+      true,
+      true,
+      false
     ]
   },
-  "hash": "fc7ac95d8d5f4532a2b0e50f84c1e273d25543401639a68f868e1e4fd8b0640a"
+  "hash": "75451b6d48e4c26812ae64981d0d968b8fb0bf4374a2fccc167fa879bad7078f"
 }
