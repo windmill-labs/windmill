@@ -278,11 +278,11 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 
 const MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
--- @p1 name1 (varchar) = default arg
--- @p2 name2 (int)
--- @p3 name3 (int)
-INSERT INTO demo VALUES (@p1, @p2);
-UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
+-- @P1 name1 (varchar) = default arg
+-- @P2 name2 (int)
+-- @P3 name3 (int)
+INSERT INTO demo VALUES (@P1, @P2);
+UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {

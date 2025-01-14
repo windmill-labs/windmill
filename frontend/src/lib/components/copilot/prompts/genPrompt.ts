@@ -26,7 +26,7 @@ export const GEN_PROMPT = {
       "prompt": "<contextual_information>\nYou have to write a statement for Snowflake. Arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
     },
     "mssql": {
-      "prompt": "<contextual_information>\nYou have to write a statement for Microsoft SQL Server. Arguments can be obtained directly in the statement with @p1, @p2, etc.. Name the parameters by adding comments before the statement like that: `-- @p1 name1 ({type})` or `-- @p2 name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
+      "prompt": "<contextual_information>\nYou have to write a statement for Microsoft SQL Server. Arguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
     },
     "graphql": {
       "prompt": "<contextual_information>\nYou have to write a query for GraphQL. Add the needed arguments as query parameters.\n</contextual_information>\nMy instructions: {description}"
