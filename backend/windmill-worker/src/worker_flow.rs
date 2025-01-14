@@ -220,7 +220,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         let (job_kind, script_hash, old_status, raw_flow) = sqlx::query!(
             "SELECT
-                job_kind AS \"job_kind: JobKind\",
+                job_kind AS \"job_kind!: JobKind\",
                 script_hash AS \"script_hash: ScriptHash\",
                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",
                 raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
@@ -550,7 +550,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     let new_status = if skip_loop_failures
                         || sqlx::query_scalar!(
-                            "SELECT success FROM completed_job WHERE id = ANY($1)",
+                            "SELECT success AS \"success!\" FROM completed_job WHERE id = ANY($1)",
                             jobs.as_slice()
                         )
                         .fetch_all(&mut *tx)
@@ -1683,7 +1683,7 @@ async fn push_next_flow_job(
             .await?;
             if no_flow_overlap {
                 let overlapping = sqlx::query_scalar!(
-                    "SELECT id FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
+                    "SELECT id AS \"id!\" FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
                     flow_job.id
