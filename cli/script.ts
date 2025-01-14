@@ -309,6 +309,7 @@ export async function handleFile(
       //@ts-ignore
       codebase: codebase?.digest,
       timeout: typed?.timeout,
+      on_behalf_of_email: typed?.on_behalf_of_email,
     };
 
     if (remote) {
@@ -343,7 +344,8 @@ export async function handleFile(
             typed.timeout == remote.timeout &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
-            typed.codebase == remote.codebase)
+            typed.codebase == remote.codebase &&
+            typed.on_behalf_of_email == remote.on_behalf_of_email)
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
