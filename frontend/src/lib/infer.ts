@@ -8,6 +8,7 @@ import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
+	parse_oracledb,
 	parse_bigquery,
 	parse_snowflake,
 	parse_graphql,
@@ -129,7 +130,7 @@ export async function inferArgs(
 				]
 			}
 		} else if (language == 'oracledb') {
-			inferedSchema = JSON.parse(parse_mysql(code))
+			inferedSchema = JSON.parse(parse_oracledb(code))
 			if (inlineDBResource === undefined) {
 				inferedSchema.args = [
 					{ name: 'database', typ: { resource: 'oracledb' } },
