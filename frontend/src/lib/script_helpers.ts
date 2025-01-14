@@ -268,12 +268,11 @@ UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
 const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
--- @name1 (string) = default arg
--- @name2 (integer)
--- @name3 (string[])
--- @name4 (integer)
-INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
-UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
+-- :name1 (text) = default arg
+-- :name2 (int)
+-- :name3 (int)
+INSERT INTO demo VALUES (:name1, :name2);
+UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
