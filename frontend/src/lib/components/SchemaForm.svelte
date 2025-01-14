@@ -48,6 +48,7 @@
 		| undefined = undefined
 	export let lightHeader = false
 	export let diff: Record<string, SchemaDiff> = {}
+	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -338,6 +339,7 @@
 										{helperScript}
 										{lightHeader}
 										diffStatus={diff[argName] ?? undefined}
+										{nestedParent}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />

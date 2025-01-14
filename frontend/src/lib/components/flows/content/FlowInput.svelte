@@ -276,27 +276,31 @@
 
 	let preventEnter = false
 
-	async function acceptChange(arg: any) {
+	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
+		if (arg.nestedParent) {
+			console.log('dbg acceptChange nested', arg)
+			return
+		}
 		if (!diff || !$flowStore?.schema?.properties || !previewSchema) {
 			return
 		}
-		if (diff[arg].diff === 'removed') {
-			delete $flowStore.schema.properties[arg]
+		if (diff[arg.label].diff === 'removed') {
+			delete $flowStore.schema.properties[arg.label]
 			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
-				$flowStore.schema.order = $flowStore.schema.order.filter((a) => a !== arg)
+				$flowStore.schema.order = $flowStore.schema.order.filter((a) => a !== arg.label)
 			}
-			delete previewSchema.properties[arg]
-		} else if (diff[arg].diff === 'added') {
-			$flowStore.schema.properties[arg] = previewSchema?.properties[arg]
+			delete previewSchema.properties[arg.label]
+		} else if (diff[arg.label].diff === 'added') {
+			$flowStore.schema.properties[arg.label] = previewSchema?.properties[arg.label]
 			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
-				$flowStore.schema.order.push(arg)
+				$flowStore.schema.order.push(arg.label)
 			} else {
 				$flowStore.schema.order = [arg]
 			}
-		} else if (typeof diff[arg] === 'object' && $flowStore.schema?.properties) {
-			$flowStore.schema.properties[arg] = previewSchema?.properties[arg]
+		} else if (typeof diff[arg.label] === 'object' && $flowStore.schema?.properties) {
+			$flowStore.schema.properties[arg.label] = previewSchema?.properties[arg.label]
 		}
-		delete diff[arg]
+		delete diff[arg.label]
 		diff = diff
 	}
 

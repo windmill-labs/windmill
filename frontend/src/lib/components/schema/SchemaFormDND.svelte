@@ -15,6 +15,7 @@
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
 	export let schemaSkippedValues: string[] = []
+	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
 
 	export let diff: Record<string, SchemaDiff> = {}
 
@@ -92,6 +93,7 @@
 	}}
 	{items}
 	{diff}
+	{nestedParent}
 >
 	<svelte:fragment slot="actions">
 		<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>

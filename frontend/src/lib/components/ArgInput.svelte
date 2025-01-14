@@ -99,6 +99,8 @@
 	export let lightHeader = false
 	export let diffStatus: SchemaDiff | undefined = undefined
 	export let hideNested = false
+	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
@@ -358,7 +360,7 @@
 			<button
 				class="p-1 bg-green-500 text-white hover:bg-green-600"
 				on:click|preventDefault|stopPropagation={() => {
-					dispatch('acceptChange', label)
+					dispatch('acceptChange', { label, nestedParent })
 				}}
 			>
 				<Check size={14} />
@@ -366,7 +368,7 @@
 			<button
 				class="p-1 hover:bg-red-500 hover:text-white"
 				on:click|preventDefault|stopPropagation={() => {
-					dispatch('rejectChange', label)
+					dispatch('rejectChange', { label, nestedParent })
 				}}
 			>
 				<X size={14} />
@@ -809,6 +811,13 @@
 							}}
 							on:change
 							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
+							on:acceptChange={(e) => {
+								dispatch('acceptChange', e.detail)
+							}}
+							on:rejectChange={(e) => {
+								dispatch('rejectChange', e.detail)
+							}}
+							nestedParent={{ label, nestedParent }}
 						/>
 					{:else}
 						<SchemaForm
