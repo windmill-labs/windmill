@@ -36,6 +36,10 @@ struct OracleDatabase {
     database: String,
 }
 
+lazy_static::lazy_static! {
+    static ref ORACLE_LIB_DIR: String = std::env::var("ORACLE_LIB_DIR").unwrap_or_else(|| "/opt/oracle/23/lib".to_string());
+}
+
 pub fn do_oracledb_inner<'a>(
     query: &str,
     params: Vec<(String, Box<dyn ToSql + Send + Sync>)>,
@@ -347,6 +351,13 @@ pub async fn do_oracledb(
 
     if !errors.is_empty() {
         return Err(Error::ExecutionErr(errors.join("\n")));
+    }
+
+    if !oracle::InitParams::is_initialized() {
+        oracle::InitParams::new()
+            .oracle_client_lib_dir(ORACLE_LIB_DIR.as_str())
+            .map_err(|e| anyhow!("Failed to initialize oracle client: {e}"))?
+            .init();
     }
 
     let conn = tokio::task::spawn_blocking(|| {
