@@ -1550,6 +1550,11 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         )
     } else if is_global_error_handler {
         (SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SECRET_EMAIL.to_string())
+    } else if is_schedule_error_handler {
+        (
+            SCHEDULE_ERROR_HANDLER_USER_EMAIL,
+            ERROR_HANDLER_USER_GROUP.to_string(),
+        )
     } else {
         (
             ERROR_HANDLER_USER_EMAIL,
