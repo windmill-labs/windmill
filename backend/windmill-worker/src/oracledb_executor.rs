@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use chrono::Utc;
-use std::{str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
+use windmill_parser::Arg;
 
 use futures::{future::BoxFuture, FutureExt};
 use itertools::Itertools;
@@ -11,13 +12,15 @@ use oracle::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use sqlx::types::Json;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
     worker::to_raw_value,
 };
-use windmill_parser_sql::{parse_db_resource, parse_mysql_sig};
+use windmill_parser_sql::{
+    parse_db_resource, parse_oracledb_sig, parse_sql_blocks, parse_sql_statement_named_params,
+};
 use windmill_queue::CanceledBy;
 
 use crate::{
@@ -34,22 +37,42 @@ struct OracleDatabase {
 }
 
 pub fn do_oracledb_inner<'a>(
-    query: &'a str,
+    query: &str,
     params: Vec<(String, Box<dyn ToSql + Send + Sync>)>,
-    conn2: oracle::Connection,
+    conn: Arc<std::sync::Mutex<oracle::Connection>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
 ) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
-    let qw = query.to_string();
+    let qw = query.trim_end_matches(';').to_string();
+
     let result_f = async move {
+        let param_names = parse_sql_statement_named_params(&qw, ':')
+            .into_iter()
+            .map(|x| x.into_bytes())
+            .collect_vec();
+
         if skip_collect {
             tokio::task::spawn_blocking(move || {
+                let c = conn.lock()?;
+
                 let params2: Vec<(&str, &dyn ToSql)> = params
                     .iter()
+                    .filter(|(k, _)| param_names.contains(&k.clone().into_bytes()))
                     .map(|(key, val)| (key.as_str(), &**val as &dyn ToSql))
                     .collect();
-                conn2.execute_named(&qw, &params2)?;
-                conn2.commit()
+
+                let mut stmt = c.statement(&qw).build()?;
+
+                match stmt.statement_type() {
+                    oracle::StatementType::Select => {
+                        stmt.query_named(&params2)?;
+                    }
+                    _ => {
+                        stmt.execute_named(&params2)?;
+                        c.commit()?;
+                    }
+                }
+                oracle::Result::Ok(())
             })
             .await
             .map_err(to_anyhow)?
@@ -60,10 +83,12 @@ pub fn do_oracledb_inner<'a>(
             let rows = tokio::task::spawn_blocking(move || {
                 let params2: Vec<(&str, &dyn ToSql)> = params
                     .iter()
+                    .filter(|(k, _)| param_names.contains(&k.clone().into_bytes()))
                     .map(|(key, val)| (key.as_str(), &**val as &dyn ToSql))
                     .collect();
 
-                let mut stmt = conn2.statement(&qw).build()?;
+                let c = conn.lock()?;
+                let mut stmt = c.statement(&qw).build()?;
 
                 let rows = match stmt.statement_type() {
                     oracle::StatementType::Select => {
@@ -74,7 +99,7 @@ pub fn do_oracledb_inner<'a>(
                     }
                     _ => {
                         stmt.execute_named(&params2)?;
-                        conn2.commit()?;
+                        c.commit()?;
                         vec![]
                     }
                 };
@@ -116,7 +141,7 @@ fn convert_row_to_value(row: oracle::Row) -> serde_json::Value {
     for (key, value) in row.column_info().iter().zip(row.sql_values()) {
         map.insert(
             key.name().to_string(),
-            convert_mysql_value_to_json(value, key.oracle_type()),
+            convert_oracledb_value_to_json(value, key.oracle_type()),
         );
     }
     serde_json::Value::Object(map)
@@ -129,12 +154,7 @@ fn conversion_error<T: Serialize>(r: Result<T, oracle::Error>) -> serde_json::Va
     }
 }
 
-fn convert_mysql_value_to_json(v: &oracle::SqlValue, c: &OracleType) -> serde_json::Value {
-    tracing::error!(
-        "converting to json:: {:?} - {:?} - {c:?}",
-        v,
-        v.as_inner_value()
-    );
+fn convert_oracledb_value_to_json(v: &oracle::SqlValue, c: &OracleType) -> serde_json::Value {
     match v.as_inner_value() {
         Err(_) => serde_json::Value::Null,
         Ok(iv) => match iv {
@@ -198,6 +218,79 @@ fn convert_mysql_value_to_json(v: &oracle::SqlValue, c: &OracleType) -> serde_js
     }
 }
 
+fn get_statement_values(
+    sig: Vec<Arg>,
+    job_args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+) -> (Vec<(String, Box<dyn ToSql + Send + Sync>)>, Vec<String>) {
+    let mut statement_values = vec![];
+    let mut errors = vec![];
+
+    for arg in &sig {
+        let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
+        let arg_n = arg.name.clone();
+        let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args
+            .and_then(|x| {
+                x.get(arg.name.as_str())
+                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
+            })
+            .flatten()
+            .unwrap_or_else(|| json!(null))
+        {
+            // Value::Null => todo!(),
+            Value::Bool(b) => Box::new(b),
+            Value::String(s)
+                if arg_t == "timestamp"
+                    || arg_t == "datetime"
+                    || arg_t == "date"
+                    || arg_t == "time" =>
+            {
+                if let Ok(d) = chrono::DateTime::<Utc>::from_str(s.as_str()) {
+                    Box::new(d)
+                } else {
+                    Box::new(s)
+                }
+            }
+            Value::String(s) => Box::new(s),
+            Value::Number(n)
+                if n.is_i64()
+                    && (arg_t == "int"
+                        || arg_t == "integer"
+                        || arg_t == "smallint"
+                        || arg_t == "bigint") =>
+            {
+                Box::new(n.as_i64().unwrap())
+            }
+            Value::Number(n) if n.is_f64() && arg_t == "float" => {
+                Box::new(n.as_f64().unwrap() as f32)
+            }
+            Value::Number(n) if n.is_i64() && arg_t == "float" => {
+                Box::new(n.as_i64().unwrap() as f32)
+            }
+            Value::Number(n) if n.is_u64() && arg_t == "uint" => Box::new(n.as_u64().unwrap()),
+            Value::Number(n)
+                if n.is_f64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
+            {
+                Box::new(n.as_f64().unwrap())
+            }
+            Value::Number(n)
+                if n.is_i64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
+            {
+                Box::new(n.as_i64().unwrap() as f64)
+            }
+            value @ _ => {
+                errors.push(format!(
+                    "Unsupported type in query: {value:?} and signature {arg_t:?} for {arg_n}"
+                ));
+                continue;
+            }
+        };
+
+        statement_values.push((arg_n, oracle_v));
+    }
+
+    (statement_values, errors)
+}
+
 pub async fn do_oracledb(
     job: &QueuedJob,
     client: &AuthedClientBackgroundTask,
@@ -244,77 +337,17 @@ pub async fn do_oracledb(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
-    let sig = parse_mysql_sig(query)
-    .map_err(|x| Error::ExecutionErr(x.to_string()))?
-    .args;
+    let annotations = windmill_common::worker::SqlAnnotations::parse(query);
 
-    let mut statement_values = vec![];
+    let sig = parse_oracledb_sig(query)
+        .map_err(|x| Error::ExecutionErr(x.to_string()))?
+        .args;
 
-    for arg in &sig {
-        let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
-        let arg_n = arg.name.clone();
-        let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args
-            .and_then(|x| {
-                x.get(arg.name.as_str())
-                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
-            })
-            .flatten()
-            .unwrap_or_else(|| json!(null))
-        {
-            // Value::Null => todo!(),
-            Value::Bool(b) => Box::new(b),
-            Value::String(s)
-                if arg_t == "timestamp"
-                    || arg_t == "datetime"
-                    || arg_t == "date"
-                    || arg_t == "time" =>
-            {
-                if let Ok(d) = chrono::DateTime::<Utc>::from_str(s.as_str()) {
-                    Box::new(d)
-                } else {
-                    Box::new(s)
-                }
-            }
-            Value::String(s) => Box::new(s),
-            Value::Number(n)
-                if n.is_i64()
-                    && (arg_t == "int"
-                        || arg_t == "integer"
-                        || arg_t == "smallint"
-                        || arg_t == "bigint") =>
-            {
-                Box::new(n.as_i64().unwrap())
-            }
-            Value::Number(n) if n.is_f64() && arg_t == "float" => {
-                Box::new(n.as_f64().unwrap() as f32)
-            }
-            Value::Number(n) if n.is_i64() && arg_t == "float" => {
-                Box::new(n.as_i64().unwrap() as f32)
-            }
-            Value::Number(n) if n.is_u64() && arg_t == "uint" => {
-                Box::new(n.as_u64().unwrap())
-            }
-            Value::Number(n)
-                if n.is_f64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
-            {
-                Box::new(n.as_f64().unwrap())
-            }
-            Value::Number(n)
-                if n.is_i64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
-            {
-                Box::new(n.as_i64().unwrap() as f64)
-            }
-            value @ _ => {
-                return Err(Error::ExecutionErr(format!(
-                    "Unsupported type in query: {:?} and signature {arg_t:?}",
-                    value
-                )))
-            }
-        };
+    let (statement_values, errors) = get_statement_values(sig.clone(), job_args);
 
-        statement_values.push((arg_n, oracle_v));
+    if !errors.is_empty() {
+        return Err(Error::ExecutionErr(errors.join("\n")));
     }
-
 
     let conn = tokio::task::spawn_blocking(|| {
         oracle::Connection::connect(database.user, database.password, database.database)
@@ -323,7 +356,37 @@ pub async fn do_oracledb(
     .await
     .map_err(to_anyhow)??;
 
-    let result_f = do_oracledb_inner(query, statement_values, conn, Some(column_order), false)?;
+    let conn_a = Arc::new(std::sync::Mutex::new(conn));
+
+    let queries = parse_sql_blocks(query);
+
+    let result_f = if queries.len() > 1 {
+        let f = async {
+            let mut res: Vec<Box<RawValue>> = vec![];
+            for (i, q) in queries.iter().enumerate() {
+                let (vals, _) = get_statement_values(sig.clone(), job_args);
+                let r = do_oracledb_inner(
+                    q,
+                    vals,
+                    conn_a.clone(),
+                    None,
+                    annotations.return_last_result && i < queries.len() - 1,
+                )?
+                .await?;
+                res.push(r);
+            }
+
+            if annotations.return_last_result && res.len() > 0 {
+                Ok(res.pop().unwrap())
+            } else {
+                Ok(to_raw_value(&res))
+            }
+        };
+
+        f.boxed()
+    } else {
+        do_oracledb_inner(query, statement_values, conn_a, Some(column_order), false)?
+    };
 
     let result = run_future_with_polling_update_job_poller(
         job.id,
