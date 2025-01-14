@@ -8169,6 +8169,23 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/database_triggers/is_valid_database_configuration/{path}:
+    get:
+      summary: check if database configuration is set to logical
+      operationId: isValidDatabaseConfiguration
+      tags:
+        - database_trigger
+      parameters:
+          - $ref: "#/components/parameters/WorkspaceId"
+          - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: boolean that indicates if database is set to logical level or not
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/database_triggers/get_template_script:
     post:
       summary: get template script
@@ -13135,8 +13152,6 @@ components:
         - is_flow
         - enabled
         - database_resource_path
-        - replication_slot_name
-        - publication_name
   
     EditDatabaseTrigger:
       type: object
@@ -13161,8 +13176,6 @@ components:
         - is_flow
         - enabled
         - database_resource_path
-        - replication_slot_name
-        - publication_name
 
     KafkaTrigger:
       type: object

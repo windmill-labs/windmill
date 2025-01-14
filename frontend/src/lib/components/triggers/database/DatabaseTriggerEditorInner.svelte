@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert, Button, TabContent } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -7,7 +7,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { DatabaseTriggerService, type Language, type Relations } from '$lib/gen'
 	import { databaseTrigger, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
@@ -16,8 +16,16 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
-	import ConfigurationEditor from './ConfigurationEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import MultiSelect from 'svelte-multiselect'
+	import PublicationPicker from './PublicationPicker.svelte'
+	import SlotPicker from './SlotPicker.svelte'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import RelationPicker from './RelationPicker.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -34,13 +42,53 @@
 	let can_write = true
 	let drawerLoading = true
 	let database_resource_path = ''
-	let publication_name: string = ''
-	let replication_slot_name: string = ''
+	let publication_name: string | undefined = ''
+	let replication_slot_name: string | undefined = ''
 	let relations: Relations[] = []
 	let transaction_to_track: string[] = []
 	let language: Language = 'Typescript'
 	let loading = false
-	let configurationEditor: ConfigurationEditor
+	type actions = 'create' | 'get'
+	let selectedPublicAction: actions = 'create'
+	let selectedSlotAction: actions = 'create'
+	let publicationItems: string[] = []
+	let transactionType: string[] = ['Insert', 'Update', 'Delete']
+	let selectedTable: 'all' | 'specific' = 'specific'
+	let tab: 'advanced' | 'basic' = 'basic'
+
+	async function createPublication() {
+		try {
+			const message = await DatabaseTriggerService.createDatabasePublication({
+				path: database_resource_path,
+				publication: publication_name as string,
+				workspace: $workspaceStore!,
+				requestBody: {
+					transaction_to_track: transaction_to_track,
+					table_to_track: selectedTable === 'specific' ? relations : undefined
+				}
+			})
+
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
+	async function createSlot() {
+		try {
+			const message = await DatabaseTriggerService.createDatabaseSlot({
+				path: database_resource_path,
+				workspace: $workspaceStore!,
+				requestBody: {
+					name: replication_slot_name
+				}
+			})
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+	}
+
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -53,6 +101,10 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
+			selectedPublicAction = 'get'
+			selectedSlotAction = 'get'
+			selectedPublicAction = selectedPublicAction
+			selectedSlotAction = selectedSlotAction
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load database trigger: ${err}`, true)
@@ -73,12 +125,22 @@
 			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
-			relations = []
+			relations = [
+				{
+					schema_name: 'public',
+					table_to_track: []
+				}
+			]
 			replication_slot_name = ''
 			publication_name = ''
 			database_resource_path = ''
 			edit = false
 			dirtyPath = false
+			selectedPublicAction = 'create'
+			selectedSlotAction = 'create'
+			publication_name = `windmill_publication_${random_adj()}`
+			replication_slot_name = `windmill_replication_${random_adj()}`
+			transaction_to_track = ['Insert', 'Update', 'Delete']
 		} finally {
 			drawerLoading = false
 		}
@@ -98,10 +160,21 @@
 		database_resource_path = s.database_resource_path
 		publication_name = s.publication_name
 		replication_slot_name = s.replication_slot_name
+
+		const publication_data = await DatabaseTriggerService.getDatabasePublication({
+			path: database_resource_path,
+			workspace: $workspaceStore!,
+			publication: publication_name
+		})
+
+		transaction_to_track = [...publication_data.transaction_to_track]
+		relations = publication_data.table_to_track ?? []
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
 	async function updateTrigger(): Promise<void> {
+		publication_name = tab === 'basic' ? undefined : publication_name
+		replication_slot_name = tab === 'basic' ? undefined : replication_slot_name
 		if (edit) {
 			await DatabaseTriggerService.updateDatabaseTrigger({
 				workspace: $workspaceStore!,
@@ -126,8 +199,8 @@
 					is_flow,
 					enabled: true,
 					database_resource_path,
-					replication_slot_name,
-					publication_name
+					replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
+					publication_name: tab === 'basic' ? undefined : publication_name
 				}
 			})
 			sendUserToast(`Database ${path} created`)
@@ -178,17 +251,36 @@
 			console.log({ error })
 		}
 	}
-</script>
 
-<ConfigurationEditor
-	{edit}
-	{database_resource_path}
-	bind:relations
-	bind:publication_name
-	bind:transaction_to_track
-	bind:replication_slot_name
-	bind:this={configurationEditor}
-/>
+	const checkDatabaseConfiguration = async () => {
+		try {
+			if (emptyString(database_resource_path)) {
+				sendUserToast('You must first pick a database resource', true)
+				return
+			}
+
+			const isLogical = await DatabaseTriggerService.isValidDatabaseConfiguration({
+				workspace: $workspaceStore!,
+				path: database_resource_path
+			})
+			if (isLogical) {
+				sendUserToast(
+					'Your database is correctly configured with logical replication enabled. You can proceed with using the streaming feature'
+				)
+			} else {
+				sendUserToast(
+					"Logical replication is not enabled on your database. To use this feature, your PostgreSQL database must have <code>wal_level</code> configured as 'logical' in your database configuration.",
+					true
+				)
+			}
+		} catch (error) {}
+	}
+
+	$: showAddSchema =
+		selectedTable !== 'all' &&
+		(selectedPublicAction === 'create' ||
+			(publicationItems.length > 0 && !emptyString(publication_name)))
+</script>
 
 <Drawer size="800px" bind:this={drawer}>
 	<DrawerContent
@@ -225,8 +317,9 @@
 					disabled={pathError != '' ||
 						emptyString(database_resource_path) ||
 						emptyString(script_path) ||
-						emptyString(replication_slot_name) ||
-						emptyString(publication_name) ||
+						((emptyString(replication_slot_name) || emptyString(publication_name)) &&
+							tab === 'advanced') ||
+						(relations.length === 0 && tab === 'basic') ||
 						!can_write}
 					on:click={updateTrigger}
 				>
@@ -237,13 +330,15 @@
 		{#if drawerLoading}
 			<Loader2 class="animate-spin" />
 		{:else}
-			<Alert title="Info" type="info">
-				{#if edit}
-					Changes can take up to 30 seconds to take effect.
-				{:else}
-					New database triggers can take up to 30 seconds to start listening.
-				{/if}
-			</Alert>
+			<div class="flex flex-col gap-5">
+				<Alert title="Info" type="info">
+					{#if edit}
+						Changes can take up to 30 seconds to take effect.
+					{:else}
+						New database triggers can take up to 30 seconds to start listening.
+					{/if}
+				</Alert>
+			</div>
 			<div class="flex flex-col gap-12 mt-6">
 				<div class="flex flex-col gap-4">
 					<Label label="Path">
@@ -264,28 +359,15 @@
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a database to connect to <Required required={true} />
 					</p>
-					<div class="flex flex-row mb-2">
+					<div class="flex flex-col mb-2 gap-3">
 						<ResourcePicker bind:value={database_resource_path} resourceType={'postgresql'} />
+						{#if database_resource_path}
+							<Button on:click={checkDatabaseConfiguration} color="gray" size="sm"
+								>Check Database Configuration</Button
+							>
+						{/if}
 					</div>
 				</Section>
-
-				<Section label="Configuration">
-					<p class="text-xs mb-3 text-tertiary">
-						Choose which table of your database to track as well as what kind of transaction should
-						fire the script.<br />
-						You must pick a database resource first to make the configuration of your trigger
-						<Required required={true} />
-					</p>
-					<Button
-						size="md"
-						on:click={() => configurationEditor.openNew()}
-						color="dark"
-						disabled={emptyString(database_resource_path)}
-					>
-						Configuration</Button
-					>
-				</Section>
-
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
@@ -324,6 +406,127 @@
 						{/if}
 					</div>
 				</Section>
+				{#if database_resource_path}
+					<Section label="Configuration">
+						<div class="flex flex-col gap-5">
+							<p class="text-xs mb-3 text-tertiary">
+								Choose which table of your database to track as well as what kind of transaction
+								should fire the script.<br />
+								You must pick a database resource first to make the configuration of your trigger
+								<Required required={true} />
+							</p>
+							<Section label="Transactions">
+								<MultiSelect
+									ulOptionsClass={'!bg-surface-secondary'}
+									noMatchingOptionsMsg=""
+									createOptionMsg={null}
+									duplicates={false}
+									bind:value={transaction_to_track}
+									options={transactionType}
+									allowUserOptions="append"
+									bind:selected={transaction_to_track}
+								/>
+							</Section>
+							<Tabs bind:selected={tab}>
+								<Tab value="basic">Basic</Tab>
+								<Tab value="advanced">Advanced</Tab>
+								<svelte:fragment slot="content">
+									<div class="overflow-hidden bg-surface">
+										<TabContent value="basic">
+											<RelationPicker bind:relations />
+										</TabContent>
+										<TabContent value="advanced">
+											<div class="flex flex-col gap-12 mt-6">
+												<Section label="Slot name">
+													<div class="flex flex-col gap-3">
+														<ToggleButtonGroup
+															bind:selected={selectedSlotAction}
+															on:selected={() => {
+																replication_slot_name = ''
+															}}
+														>
+															<ToggleButton value="create" label="Create Slot" />
+															<ToggleButton value="get" label="Get Slot" />
+														</ToggleButtonGroup>
+														{#if selectedSlotAction === 'create'}
+															<div class="flex gap-3">
+																<input
+																	type="text"
+																	bind:value={replication_slot_name}
+																	placeholder={'Choose a slot name'}
+																/>
+																<Button
+																	color="light"
+																	size="xs"
+																	variant="border"
+																	disabled={emptyStringTrimmed(replication_slot_name)}
+																	on:click={createSlot}>Create</Button
+																>
+															</div>
+														{:else}
+															<SlotPicker
+																bind:edit
+																{database_resource_path}
+																bind:replication_slot_name
+															/>
+														{/if}
+													</div>
+												</Section>
+
+												<Section label="Publication">
+													<div class="flex flex-col gap-3">
+														<ToggleButtonGroup
+															bind:selected={selectedPublicAction}
+															on:selected={() => {
+																publication_name = ''
+																relations = []
+																transaction_to_track = []
+																transaction_to_track = transaction_to_track
+															}}
+														>
+															<ToggleButton value="create" label="Create Publication" />
+															<ToggleButton value="get" label="Get Publication" />
+														</ToggleButtonGroup>
+														{#if selectedPublicAction === 'create'}
+															<div class="flex gap-3">
+																<input
+																	type="text"
+																	bind:value={publication_name}
+																	placeholder={'Publication Name'}
+																/>
+																<Button
+																	color="light"
+																	size="xs"
+																	variant="border"
+																	disabled={emptyStringTrimmed(publication_name) ||
+																		(selectedTable != 'all' && relations.length === 0)}
+																	on:click={createPublication}>Create</Button
+																>
+															</div>
+														{:else}
+															<PublicationPicker
+																{database_resource_path}
+																bind:transaction_to_track
+																bind:table_to_track={relations}
+																bind:items={publicationItems}
+																bind:publication_name
+																bind:selectedTable
+															/>
+														{/if}
+
+														{#if showAddSchema}
+															<RelationPicker bind:relations />
+														{/if}
+													</div>
+												</Section>
+											</div>
+										</TabContent>
+									</div>
+								</svelte:fragment>
+							</Tabs>
+						</div>
+					</Section>
+				{/if}
 			</div>
 		{/if}
 	</DrawerContent>

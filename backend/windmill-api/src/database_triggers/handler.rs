@@ -1313,3 +1313,25 @@ pub async fn get_template_script(
 
     Ok(template)
 }
+
+pub async fn is_database_in_logical_level(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path)): Path<(String, String)>,
+    ) -> error::JsonResult<bool> {
+    
+    let database =
+        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
+
+    let mut pg_connection = get_raw_postgres_connection(&database).await?;
+
+    let wal_level = sqlx::query_scalar!("SHOW WAL_LEVEL;").fetch_optional(&mut pg_connection).await?.flatten();
+
+    let is_logical = match wal_level.as_deref() {
+        Some("logical") => true,
+        _ => false
+    };
+
+    Ok(Json(is_logical))
+}
