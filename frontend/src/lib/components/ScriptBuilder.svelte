@@ -1196,11 +1196,11 @@
 											/>
 										</div>
 									</Section>
-									<Section label="On behalf of owner">
+									<Section label="On behalf of last editor">
 										<svelte:fragment slot="header">
 											<Tooltip>
 												When this option is enabled, the script will be run with the permissions of
-												the owner (last editor).
+												the last editor.
 											</Tooltip>
 										</svelte:fragment>
 										<div class="flex gap-2 shrink flex-col">
@@ -1215,7 +1215,7 @@
 													}
 												}}
 												options={{
-													right: 'Run on behalf of owner'
+													right: 'Run on behalf of last editor'
 												}}
 											/>
 										</div>

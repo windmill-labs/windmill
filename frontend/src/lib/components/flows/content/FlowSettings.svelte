@@ -46,7 +46,7 @@
 		{ name: 'Early Return', active: Boolean($flowStore.value.early_return) },
 		{ name: 'Dedicated Worker', active: Boolean($flowStore.dedicated_worker) },
 		{ name: 'Concurrent Limit', active: Boolean($flowStore.value.concurrent_limit) },
-		{ name: 'Run on behalf of owner', active: Boolean($flowStore.on_behalf_of_email) },
+		{ name: 'Run on Behalf of Last Editor', active: Boolean($flowStore.on_behalf_of_email) },
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
 	]
 
@@ -349,7 +349,7 @@
 					class="py-1"
 				/>
 
-				<!-- On behalf of owner section -->
+				<!-- On behalf of last editor section -->
 				<Toggle
 					textClass="font-normal text-sm"
 					color="nord"
@@ -363,9 +363,9 @@
 						}
 					}}
 					options={{
-						right: 'Run on behalf of owner',
+						right: 'Run on behalf of last editor',
 						rightTooltip:
-							'When this option is enabled, the flow will be run with the permissions of the owner (last editor).'
+							'When this option is enabled, the flow will be run with the permissions of the last editor.'
 					}}
 					class="py-1"
 				/>
