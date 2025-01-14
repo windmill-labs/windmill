@@ -5,14 +5,10 @@ use windmill_parser::Arg;
 
 use futures::{future::BoxFuture, FutureExt};
 use itertools::Itertools;
-use oracle::{
-    sql_type::{InnerValue, OracleType, ToSql},
-    ResultSet,
-};
+use oracle::sql_type::{InnerValue, OracleType, ToSql};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use sqlx::types::Json;
-use tokio::sync::{Mutex, MutexGuard};
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,

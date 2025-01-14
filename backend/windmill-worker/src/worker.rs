@@ -114,7 +114,7 @@ use crate::ansible_executor::handle_ansible_job;
 use crate::mysql_executor::do_mysql;
 
 #[cfg(feature = "oracledb")]
-use oracledb_executor::do_oracledb;
+use crate::oracledb_executor::do_oracledb;
 
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
