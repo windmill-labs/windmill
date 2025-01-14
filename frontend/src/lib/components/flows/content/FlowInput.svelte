@@ -34,7 +34,15 @@
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
-	import { type SchemaDiff, computeSchemaDiff } from '$lib/components/schema/schemaUtils'
+	import {
+		type SchemaDiff,
+		computeSchemaDiff,
+		getFullPath,
+		setNestedProperty,
+		getNestedProperty,
+		getNestedOrder,
+		setNestedOrder
+	} from '$lib/components/schema/schemaUtils'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -55,6 +63,8 @@
 	}> = []
 	let diff: Record<string, SchemaDiff> = {}
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
+	let selectedSchema: Record<string, any> | undefined = undefined
+
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
 		if (!size || size === 0) {
@@ -179,8 +189,8 @@
 			return
 		}
 		payloadData = structuredClone(payload)
-		const newSchema = schemaFromPayload(payloadData)
-		updatePreviewSchema(newSchema)
+		selectedSchema = schemaFromPayload(payloadData)
+		updatePreviewSchema(selectedSchema)
 		updatePreviewArguments(payloadData)
 	}
 
@@ -200,7 +210,9 @@
 		if (!previewSchema) {
 			return
 		}
-		applySchema()
+		$flowStore.schema = applySchema(previewSchema, diff)
+		diff = {}
+		updatePreviewSchemaAndArgs(undefined)
 		if (previewArguments) {
 			$previewArgs = previewArguments
 		}
@@ -209,24 +221,26 @@
 		}
 	}
 
-	function applySchema() {
-		if (!previewSchema?.properties) {
+	function applySchema(schema: Record<string, any>, diff: Record<string, SchemaDiff>) {
+		if (!diff) {
 			return
 		}
 
-		const newSchema = structuredClone(previewSchema)
+		let newSchema = structuredClone(schema)
 
 		Object.keys(diff).forEach((key) => {
 			if (diff[key].diff === 'removed') {
 				delete newSchema.properties[key]
+				if (newSchema.order) {
+					newSchema.order = newSchema.order.filter((x) => x !== key)
+				}
+			}
+			if (typeof diff[key].diff === 'object') {
+				newSchema.properties[key] = applySchema(newSchema.properties[key], diff[key].diff)
 			}
 		})
 
-		$flowStore.schema = newSchema
-		if ($flowInputEditorState) {
-			$flowInputEditorState.selectedTab = undefined
-		}
-		diff = {}
+		return newSchema
 	}
 
 	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
@@ -277,31 +291,45 @@
 	let preventEnter = false
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
-		if (arg.nestedParent) {
-			console.log('dbg acceptChange nested', arg)
+		if (!diff || !$flowStore?.schema?.properties || !selectedSchema) {
 			return
 		}
-		if (!diff || !$flowStore?.schema?.properties || !previewSchema) {
-			return
-		}
-		if (diff[arg.label].diff === 'removed') {
-			delete $flowStore.schema.properties[arg.label]
-			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
-				$flowStore.schema.order = $flowStore.schema.order.filter((a) => a !== arg.label)
+
+		const path = getFullPath(arg)
+		const parentPath = path.slice(0, -1)
+		const diffStatus = getNestedProperty({ diff }, path, 'diff').diff
+
+		if (diffStatus === 'removed') {
+			setNestedProperty($flowStore.schema, path, undefined)
+
+			const currentOrder = getNestedOrder($flowStore.schema, parentPath)
+			if (currentOrder && Array.isArray(currentOrder)) {
+				setNestedOrder(
+					$flowStore.schema,
+					parentPath,
+					currentOrder.filter((a) => a !== arg.label)
+				)
 			}
-			delete previewSchema.properties[arg.label]
-		} else if (diff[arg.label].diff === 'added') {
-			$flowStore.schema.properties[arg.label] = previewSchema?.properties[arg.label]
-			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
-				$flowStore.schema.order.push(arg.label)
+		} else if (diffStatus === 'added' || diffStatus === 'modified') {
+			const newValue = getNestedProperty(selectedSchema, path, 'properties')
+			setNestedProperty($flowStore.schema, path, newValue)
+			const previewOrder = getNestedOrder(previewSchema, parentPath)
+			const currentOrder = getNestedOrder($flowStore.schema, parentPath)
+			if (previewOrder && Array.isArray(previewOrder)) {
+				setNestedOrder(
+					$flowStore.schema,
+					parentPath,
+					previewOrder.filter((x) => currentOrder?.includes(x) || x === arg.label)
+				)
 			} else {
-				$flowStore.schema.order = [arg]
+				setNestedOrder($flowStore.schema, parentPath, [arg.label])
 			}
-		} else if (typeof diff[arg.label] === 'object' && $flowStore.schema?.properties) {
-			$flowStore.schema.properties[arg.label] = previewSchema?.properties[arg.label]
+		} else if (typeof diffStatus === 'object') {
+			const schema = getNestedProperty(selectedSchema, path, 'properties')
+			const newSchema = applySchema(schema, diffStatus)
+			setNestedProperty(selectedSchema, path, newSchema)
+			setNestedProperty($flowStore.schema, path, newSchema)
 		}
-		delete diff[arg.label]
-		diff = diff
 	}
 
 	function rejectChange(arg: any) {
@@ -353,7 +381,11 @@
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 				{diff}
 				on:rejectChange={(e) => rejectChange(e.detail)}
-				on:acceptChange={(e) => acceptChange(e.detail)}
+				on:acceptChange={(e) => {
+					acceptChange(e.detail).then(() => {
+						updatePreviewSchema(selectedSchema)
+					})
+				}}
 			>
 				<svelte:fragment slot="openEditTab">
 					<div
@@ -450,7 +482,6 @@
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
 							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -467,7 +498,6 @@
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
 							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -488,7 +518,6 @@
 						<FlowInputEditor
 							{preventEnter}
 							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -508,7 +537,6 @@
 						<FlowInputEditor
 							{preventEnter}
 							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -541,7 +569,6 @@
 								applySchemaAndArgs()
 								connectFirstNode()
 							}}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
