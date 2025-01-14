@@ -31,7 +31,6 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    jobs::QueuedJob,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
 };
@@ -537,16 +536,23 @@ pub async fn transform_json_value<'c>(
         }
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
             let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
-            let job = sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
+            let job_id = job_id.unwrap();
+            let job = sqlx::query!(
+                "SELECT
+                    email AS \"email!\",
+                    created_by AS \"created_by!\",
+                    parent_job, permissioned_as AS \"permissioned_as!\",
+                    script_path, schedule_path, flow_step_id, root_job,
+                    scheduled_for AS \"scheduled_for!: chrono::DateTime<chrono::Utc>\"
+                FROM queue WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                workspace
             )
-            .bind(job_id.unwrap())
-            .bind(workspace)
             .fetch_optional(&mut *tx)
             .await?;
             tx.commit().await?;
 
-            let job = not_found_if_none(job, "Job", job_id.unwrap().to_string())?;
+            let job = not_found_if_none(job, "Job", job_id.to_string())?;
 
             let flow_path = if let Some(uuid) = job.parent_job {
                 let mut tx: Transaction<'_, Postgres> =
@@ -563,11 +569,11 @@ pub async fn transform_json_value<'c>(
 
             let variables = variables::get_reserved_variables(
                 db,
-                &job.workspace_id,
+                workspace,
                 token,
                 &job.email,
                 &job.created_by,
-                &job.id.to_string(),
+                &job_id.to_string(),
                 &job.permissioned_as,
                 job.script_path.clone(),
                 job.parent_job.map(|x| x.to_string()),
