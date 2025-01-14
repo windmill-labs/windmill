@@ -5,7 +5,7 @@
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
-
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	export let dndType: string | undefined = undefined
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -15,7 +15,8 @@
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
 	export let schemaSkippedValues: string[] = []
-	export let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
+
+	export let diff: Record<string, SchemaDiff> = {}
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200

@@ -34,6 +34,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
+	import { type SchemaDiff, computeSchemaDiff } from '$lib/components/schema/schemaUtils'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -52,7 +53,7 @@
 		onClick: () => void
 		disabled?: boolean
 	}> = []
-	let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
+	let diff: Record<string, SchemaDiff> = {}
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -190,7 +191,7 @@
 			return
 		}
 		diff = {}
-		const { diffSchema, fullSchema } = computeDiff(newSchema, $flowStore.schema)
+		const { diffSchema, fullSchema } = computeSchemaDiff(newSchema, $flowStore.schema)
 		diff = diffSchema
 		previewSchema = fullSchema
 	}
@@ -216,7 +217,7 @@
 		const newSchema = structuredClone(previewSchema)
 
 		Object.keys(diff).forEach((key) => {
-			if (diff[key] === 'removed') {
+			if (diff[key].diff === 'removed') {
 				delete newSchema.properties[key]
 			}
 		})
@@ -275,58 +276,24 @@
 
 	let preventEnter = false
 
-	function computeDiff(previewSchema: any, currentSchema: any) {
-		if (!previewSchema) {
-			return { diffSchema: {}, fullSchema: undefined }
-		}
-		const diffSchema: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
-		const fullSchema: any = structuredClone(currentSchema)
-
-		if (previewSchema?.properties) {
-			Object.keys(previewSchema.properties).forEach((key) => {
-				if (!currentSchema?.properties?.[key]) {
-					diffSchema[key] = 'added'
-					fullSchema.properties[key] = structuredClone(previewSchema.properties[key])
-					fullSchema.order.push(key)
-				} else {
-					const previewProp = previewSchema.properties[key]
-					const currentProp = currentSchema.properties[key]
-					diffSchema[key] =
-						JSON.stringify(previewProp) === JSON.stringify(currentProp) ? 'same' : 'modified'
-					fullSchema.properties[key] = structuredClone(previewProp)
-				}
-			})
-		}
-
-		if (currentSchema?.properties) {
-			Object.keys(currentSchema.properties).forEach((key) => {
-				if (!previewSchema?.properties?.[key]) {
-					diffSchema[key] = 'removed'
-				}
-			})
-		}
-
-		return { diffSchema, fullSchema }
-	}
-
 	async function acceptChange(arg: any) {
 		if (!diff || !$flowStore?.schema?.properties || !previewSchema) {
 			return
 		}
-		if (diff[arg] === 'removed') {
+		if (diff[arg].diff === 'removed') {
 			delete $flowStore.schema.properties[arg]
 			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
 				$flowStore.schema.order = $flowStore.schema.order.filter((a) => a !== arg)
 			}
 			delete previewSchema.properties[arg]
-		} else if (diff[arg] === 'added') {
+		} else if (diff[arg].diff === 'added') {
 			$flowStore.schema.properties[arg] = previewSchema?.properties[arg]
 			if ($flowStore.schema.order && Array.isArray($flowStore.schema.order)) {
 				$flowStore.schema.order.push(arg)
 			} else {
 				$flowStore.schema.order = [arg]
 			}
-		} else if (diff[arg] === 'modified') {
+		} else if (typeof diff[arg] === 'object' && $flowStore.schema?.properties) {
 			$flowStore.schema.properties[arg] = previewSchema?.properties[arg]
 		}
 		delete diff[arg]
@@ -337,9 +304,9 @@
 		if (!previewSchema) {
 			return
 		}
-		if (diff[arg] === 'added') {
+		if (diff[arg].diff === 'added') {
 			delete previewSchema.properties[arg]
-		} else if (diff[arg] === 'modified' && $flowStore.schema?.properties) {
+		} else if (typeof diff[arg] === 'object' && $flowStore.schema?.properties) {
 			previewSchema.properties[arg] = $flowStore.schema.properties[arg]
 		}
 		delete diff[arg]
@@ -440,7 +407,7 @@
 						<div class="flex flex-row items-center gap-2 right-2 justify-end">
 							<Button
 								size="xs"
-								color="dark"
+								color="green"
 								disabled={!previewSchema}
 								shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
 								startIcon={{ icon: Check }}
@@ -580,7 +547,7 @@
 									connectFirstNode = detail.connectFirstNode
 								}}
 								on:select={(e) => {
-									const { diffSchema, fullSchema } = computeDiff(
+									const { diffSchema, fullSchema } = computeSchemaDiff(
 										e.detail ?? undefined,
 										$flowStore.schema
 									)

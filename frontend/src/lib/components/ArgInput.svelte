@@ -37,6 +37,7 @@
 	import { deepEqual } from 'fast-equals'
 	import DynSelect from './DynSelect.svelte'
 	import type { Script } from '$lib/gen'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 
 	export let label: string = ''
 	export let value: any
@@ -96,8 +97,8 @@
 		| undefined = undefined
 	export let otherArgs: Record<string, any> = {}
 	export let lightHeader = false
-	export let diffStatus: 'added' | 'removed' | 'modified' | 'same' | undefined = undefined
-
+	export let diffStatus: SchemaDiff | undefined = undefined
+	export let hideNested = false
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
@@ -338,22 +339,24 @@
 	class={twMerge(
 		'flex flex-col w-full rounded-md px-2 relative',
 		minW ? 'min-w-[250px]' : '',
-		diffStatus == 'added'
+		diffStatus?.diff == 'added'
 			? 'bg-green-300'
-			: diffStatus == 'removed'
+			: diffStatus?.diff == 'removed'
 			? 'bg-red-300'
-			: diffStatus == 'modified'
-			? 'bg-orange-300'
+			: diffStatus?.diff == 'same'
+			? 'bg-surface'
+			: diffStatus?.diff == 'modified' || typeof diffStatus?.diff === 'object'
+			? 'border-2 border-green-500 bg-surface'
 			: ''
 	)}
 >
-	{#if diffStatus && diffStatus != 'same'}
+	{#if diffStatus && typeof diffStatus === 'object' && diffStatus.diff !== 'same'}
 		<div
 			class="absolute top-0 right-2 rounded-md rounded-t-none flex flex-row overflow-hidden bg-surface"
 			data-schema-picker
 		>
 			<button
-				class="p-1 hover:bg-surface-hover"
+				class="p-1 bg-green-500 text-white hover:bg-green-600"
 				on:click|preventDefault|stopPropagation={() => {
 					dispatch('acceptChange', label)
 				}}
@@ -361,7 +364,7 @@
 				<Check size={14} />
 			</button>
 			<button
-				class="p-1 hover:bg-surface-hover"
+				class="p-1 hover:bg-red-500 hover:text-white"
 				on:click|preventDefault|stopPropagation={() => {
 					dispatch('rejectChange', label)
 				}}
@@ -785,7 +788,7 @@
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class="p-4 pl-8 border rounded-md w-full">
+				<div class={hideNested ? 'hidden' : 'p-4 pl-8 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
 							{onlyMaskPassword}
@@ -805,6 +808,7 @@
 								order = keys
 							}}
 							on:change
+							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
 						/>
 					{:else}
 						<SchemaForm

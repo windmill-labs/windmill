@@ -12,7 +12,6 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
-
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -23,6 +22,7 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -49,7 +49,7 @@
 	export let previewSchema: Record<string, any> | undefined = undefined
 	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
-	export let diff: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
+	export let diff: Record<string, SchemaDiff> = {}
 
 	const dispatch = createEventDispatcher()
 
