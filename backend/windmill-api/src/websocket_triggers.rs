@@ -558,17 +558,12 @@ async fn wait_runnable_result(
             .into());
         }
 
-        #[derive(sqlx::FromRow)]
-        struct RawResult {
-            result: Option<SqlxJson<Box<RawValue>>>,
-            success: bool,
-        }
-
-        let result = sqlx::query_as::<_, RawResult>(
-            "SELECT result, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        let result = sqlx::query!(
+            "SELECT result AS \"result: SqlxJson<Box<RawValue>>\", success AS \"success!\"
+            FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            Uuid::parse_str(&job_id)?,
+            workspace_id
         )
-        .bind(Uuid::parse_str(&job_id).unwrap())
-        .bind(workspace_id)
         .fetch_optional(db)
         .await;
 
