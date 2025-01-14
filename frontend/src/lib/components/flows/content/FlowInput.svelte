@@ -279,8 +279,11 @@
 	let preventEnter = false
 
 	function computeDiff(previewSchema: any, currentSchema: any) {
+		if (!previewSchema) {
+			return { diffSchema: {}, fullSchema: undefined }
+		}
 		const diffSchema: Record<string, 'added' | 'removed' | 'modified' | 'same'> = {}
-		const fullSchema: any = JSON.parse(JSON.stringify(currentSchema))
+		const fullSchema: any = structuredClone(currentSchema)
 
 		if (previewSchema?.properties) {
 			Object.keys(previewSchema.properties).forEach((key) => {
@@ -587,7 +590,12 @@
 									connectFirstNode = detail.connectFirstNode
 								}}
 								on:select={(e) => {
-									previewSchema = e.detail ?? undefined
+									const { diffSchema, fullSchema } = computeDiff(
+										e.detail ?? undefined,
+										$flowStore.schema
+									)
+									diff = diffSchema
+									previewSchema = fullSchema
 								}}
 							/>
 						</FlowInputEditor>
