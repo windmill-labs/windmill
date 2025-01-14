@@ -1,11 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { CornerDownLeft, Save } from 'lucide-svelte'
 
 	export let name: string = ''
-	export let disabled = false
 	export let preventEnter = false
 
 	const dispatch = createEventDispatcher()
@@ -34,16 +31,8 @@
 			<slot name="header" />
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			<div class="flex flex-row gap-2 data-schema-picker">
+			<div class="flex flex-row gap-2 data-schema-picker min-h-[22px]">
 				<slot name="action" />
-				<Button
-					size="xs2"
-					color="dark"
-					{disabled}
-					shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
-					startIcon={{ icon: Save }}
-					on:click={applySchemaAndArgs}>Update schema</Button
-				>
 			</div>
 		</svelte:fragment>
 		<slot />

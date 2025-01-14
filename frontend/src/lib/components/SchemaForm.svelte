@@ -245,8 +245,8 @@
 								{:else}
 									<ArgInput
 										on:change={() => dispatch('change')}
-										on:acceptChange={() => dispatch('acceptChange')}
-										on:rejectChange={() => dispatch('rejectChange')}
+										on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
+										on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
 										{disablePortal}
 										{resourceTypes}
 										{prettifyHeader}

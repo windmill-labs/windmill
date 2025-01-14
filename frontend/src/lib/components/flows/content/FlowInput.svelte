@@ -24,7 +24,8 @@
 		Braces,
 		Code,
 		Save,
-		X
+		X,
+		Check
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
@@ -235,20 +236,16 @@
 		previewArguments = structuredClone(payloadData)
 	}
 
-	let jsonValid = false
 	function updatePayloadFromJson(jsonInput: string) {
 		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
 			updatePreviewSchemaAndArgs(undefined)
-			jsonValid = false
 			return
 		}
 		try {
 			const parsed = JSON.parse(jsonInput)
 			updatePreviewSchemaAndArgs(parsed)
-			jsonValid = true
 		} catch (error) {
 			updatePreviewSchemaAndArgs(undefined)
-			jsonValid = false
 		}
 	}
 
@@ -337,7 +334,6 @@
 	}
 
 	function rejectChange(arg: any) {
-		console.log('dbg rejectChange', arg)
 		if (!previewSchema) {
 			return
 		}
@@ -349,8 +345,6 @@
 		delete diff[arg]
 		diff = diff
 	}
-
-	$: console.log('dbg diff', diff)
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -443,24 +437,25 @@
 				</svelte:fragment>
 				<svelte:fragment slot="addProperty">
 					{#if !!previewSchema}
-						<div
-							class={twMerge(
-								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs p-2 w-full flex flex-row gap-2 items-center justify-left rounded-md',
-								'text-blue-700 dark:text-blue-100',
-								'relative'
-							)}
-						>
-							<span> Preview only, update schema to save.</span>
-							<div class="flex flex-row items-center gap-2 absolute right-2">
-								<Button
-									variant="contained"
-									color="light"
-									size="xs2"
-									startIcon={{ icon: X }}
-									shortCut={{ key: 'esc', withoutModifier: true }}
-									nonCaptureEvent
-								/>
-							</div>
+						<div class="flex flex-row items-center gap-2 right-2 justify-end">
+							<Button
+								size="xs"
+								color="dark"
+								disabled={!previewSchema}
+								shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
+								startIcon={{ icon: Check }}
+								on:click={applySchemaAndArgs}
+							>
+								Update schema
+							</Button>
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								startIcon={{ icon: X }}
+								shortCut={{ key: 'esc', withoutModifier: true }}
+								nonCaptureEvent
+							/>
 						</div>
 					{:else}
 						<AddPropertyV2
@@ -483,7 +478,6 @@
 				<svelte:fragment slot="extraTab">
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
-							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
@@ -501,7 +495,6 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
-							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
@@ -523,7 +516,6 @@
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
 							{preventEnter}
-							disabled={!payloadData}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
@@ -544,7 +536,6 @@
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
 						<FlowInputEditor
 							{preventEnter}
-							disabled={!jsonValid}
 							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:applySchema={applySchema}
 							on:destroy={() => {
@@ -575,7 +566,6 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
 						<FlowInputEditor
-							disabled={!previewSchema}
 							on:applySchemaAndArgs={() => {
 								applySchemaAndArgs()
 								connectFirstNode()
