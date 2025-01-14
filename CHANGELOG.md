@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.446.0](https://github.com/windmill-labs/windmill/compare/v1.445.1...v1.446.0) (2025-01-14)
+
+
+### Features
+
+* support gpg signing commits with git sync ([#5053](https://github.com/windmill-labs/windmill/issues/5053)) ([010928b](https://github.com/windmill-labs/windmill/commit/010928b37f776839dc088d3b570bcfbb30a3b347))
+
+
+### Bug Fixes
+
+* **ui:** fix section height taking h-full ([c717a91](https://github.com/windmill-labs/windmill/commit/c717a915d6d48fa1ec697c24a4c85c04f4b70d84))
+
 ## [1.445.1](https://github.com/windmill-labs/windmill/compare/v1.445.0...v1.445.1) (2025-01-13)
 
 
