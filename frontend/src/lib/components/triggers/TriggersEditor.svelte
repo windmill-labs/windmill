@@ -8,31 +8,58 @@
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
 	import ScheduledPollPanel from './ScheduledPollPanel.svelte'
 	import KafkaTriggersPanel from './KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from './NatsTriggersPanel.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { KafkaIcon, NatsIcon } from '../icons'
 
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
+	export let hash: string | undefined = undefined
 	export let initialPath: string
 	export let schema: any
 	export let isFlow: boolean
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
+
+	let eventStreamType: 'kafka' | 'nats' = 'kafka'
+
+	$: {
+		if ($selectedTrigger === 'kafka' || $selectedTrigger === 'nats') {
+			eventStreamType = $selectedTrigger
+		}
+	}
 
 	const { selectedTrigger, simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
+
+	const dispatch = createEventDispatcher()
+
+	onDestroy(() => {
+		dispatch('exitTriggers')
+	})
 </script>
 
 <FlowCard {noEditor} title="Triggers">
-	<div class="pt-4">
-		{#if !$simplifiedPoll}
-			<Tabs bind:selected={$selectedTrigger}>
+	{#if !$simplifiedPoll}
+		<div class="h-full flex flex-col">
+			<Tabs bind:selected={$selectedTrigger} wrapperClass="overflow-hidden shrink-0">
 				<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
 				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
-				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">Routes</Tab>
+				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
-				<Tab value="kafka" selectedClass="text-primary text-sm font-semibold">Kafka</Tab>
+				<Tab
+					value="kafka"
+					otherValues={['nats']}
+					selectedClass="text-primary text-sm font-semibold"
+				>
+					Event streams
+				</Tab>
 				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
 				{#if isFlow}
 					<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
@@ -41,77 +68,133 @@
 				{/if}
 
 				<svelte:fragment slot="content">
-					{#if $selectedTrigger === 'webhooks'}
-						<div class="p-4">
-							<WebhooksPanel
-								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-								path={currentPath}
-								{isFlow}
-								args={{}}
-								token=""
-								{newItem}
-							/>
-						</div>
-					{/if}
-
-					{#if $selectedTrigger === 'emails'}
-						<div class="p-4">
-							<EmailTriggerPanel
-								token=""
-								scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-								path={currentPath}
-								{isFlow}
-							/>
-						</div>
-					{/if}
-
-					{#if $selectedTrigger === 'routes'}
-						<div class="p-4">
-							<RoutesPanel {newItem} path={currentPath} {isFlow} />
-						</div>
-					{/if}
-
-					{#if $selectedTrigger === 'websockets'}
-						<div class="p-4">
-							<WebsocketTriggersPanel {newItem} path={currentPath} {isFlow} />
-						</div>
-					{/if}
-
-					{#if $selectedTrigger === 'kafka'}
-						<div class="p-4">
-							<KafkaTriggersPanel {newItem} path={currentPath} {isFlow} />
-						</div>
-					{/if}
-
-					{#if $selectedTrigger === 'schedules'}
-						<div class="p-4">
-							<RunPageSchedules
-								{schema}
-								{isFlow}
-								path={initialPath}
-								{newItem}
-								can_write={canWrite(currentPath, {}, $userStore)}
-							/>
-						</div>
-					{/if}
-
-					{#if $selectedTrigger === 'scheduledPoll'}
-						<div class="p-4">
-							<ScheduledPollPanel />
-						</div>
-					{/if}
+					<div class="min-h-0 grow overflow-y-auto">
+						{#if $selectedTrigger === 'webhooks'}
+							<div class="p-4">
+								<WebhooksPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+									path={currentPath}
+									{hash}
+									{isFlow}
+									args={{}}
+									token=""
+									{newItem}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'emails'}
+							<div class="p-4">
+								<EmailTriggerPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									token=""
+									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+									{newItem}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'routes'}
+							<div class="p-4">
+								<RoutesPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									{newItem}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'websockets'}
+							<div class="p-4">
+								<WebsocketTriggersPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									{newItem}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats'}
+							<div class="p-4 flex flex-col gap-2">
+								<ToggleButtonGroup bind:selected={eventStreamType}>
+									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
+									<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+								</ToggleButtonGroup>
+								{#if eventStreamType === 'kafka'}
+									<KafkaTriggersPanel
+										on:applyArgs
+										on:addPreprocessor
+										on:updateSchema
+										on:testWithArgs
+										{newItem}
+										path={currentPath}
+										{isFlow}
+										isEditor={true}
+										{canHavePreprocessor}
+										{hasPreprocessor}
+									/>
+								{:else if eventStreamType === 'nats'}
+									<NatsTriggersPanel
+										on:applyArgs
+										on:addPreprocessor
+										{newItem}
+										path={currentPath}
+										{isFlow}
+										isEditor={true}
+										{canHavePreprocessor}
+										{hasPreprocessor}
+									/>
+								{/if}
+							</div>
+						{:else if $selectedTrigger === 'schedules'}
+							<div class="p-4">
+								<RunPageSchedules
+									{schema}
+									{isFlow}
+									path={initialPath}
+									{newItem}
+									can_write={canWrite(currentPath, {}, $userStore)}
+								/>
+							</div>
+						{:else if $selectedTrigger === 'scheduledPoll'}
+							<div class="p-4">
+								<ScheduledPollPanel />
+							</div>
+						{/if}
+					</div>
 				</svelte:fragment>
 			</Tabs>
-		{:else}
-			<div class="px-4 pb-2">
-				<RunPageSchedules
-					{schema}
-					{isFlow}
-					path={initialPath}
-					{newItem}
-					can_write={canWrite(currentPath, {}, $userStore)}
-				/>
-			</div>
-		{/if}
-	</div>
+		</div>
+	{:else}
+		<div class="px-4 pb-2">
+			<RunPageSchedules
+				{schema}
+				{isFlow}
+				path={initialPath}
+				{newItem}
+				can_write={canWrite(currentPath, {}, $userStore)}
+			/>
+		</div>
+	{/if}
 </FlowCard>

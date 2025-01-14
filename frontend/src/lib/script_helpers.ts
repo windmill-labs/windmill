@@ -287,11 +287,11 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 
 const MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
--- @p1 name1 (varchar) = default arg
--- @p2 name2 (int)
--- @p3 name3 (int)
-INSERT INTO demo VALUES (@p1, @p2);
-UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
+-- @P1 name1 (varchar) = default arg
+-- @P2 name2 (int)
+-- @P3 name3 (int)
+INSERT INTO demo VALUES (@P1, @P2);
+UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -570,10 +570,10 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-const BUN_PREPROCESSOR_MODULE_CODE = `
+export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -589,12 +589,20 @@ export async function preprocessor(
 			brokers: string[]
 			topic: string
 			group_id: string
+		},
+		nats?: {
+			servers: string[]
+			subject: string
+			headers?: Record<string, string[]>
+			status?: number
+			description?: string
+			length: number
 		}
 	},
 	/* your other args */ 
 ) {
 	return {
-		// return the args to be passed to the flow
+		// return the args to be passed to the runnable
 	}
 }
 `
@@ -602,7 +610,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -618,12 +626,20 @@ export async function preprocessor(
 			brokers: string[]
 			topic: string
 			group_id: string
+		},
+		nats?: {
+			servers: string[]
+			subject: string
+			headers?: Record<string, string[]>
+			status?: number
+			description?: string
+			length: number
 		}
 	},
 	/* your other args */ 
 ) {
 	return {
-		// return the args to be passed to the flow
+		// return the args to be passed to the runnable
 	}
 }
 `
@@ -655,7 +671,7 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 
 class Http(TypedDict):
 	route: str # The route path, e.g. "/users/:id"
@@ -673,18 +689,27 @@ class Kafka(TypedDict):
 	brokers: list[str]
 	group_id: str
 
+class Nats(TypedDict):
+	servers: list[str]
+	subject: str
+	headers: dict[str, list[str]] | None
+	status: int | None
+	description: str | None
+	length: int
+
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka"]
+	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
 	http: Http | None
 	websocket: Websocket | None
 	kafka: Kafka | None
+	nats: Nats | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,
 	# your other args
 ):
 	return {
-		# return the args to be passed to the flow
+		# return the args to be passed to the runnable
 	}
 `
 

@@ -95,6 +95,7 @@
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
 	export let otherArgs: Record<string, any> = {}
+	export let lightHeader = false
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -344,6 +345,7 @@
 				{contentEncoding}
 				{format}
 				{simpleTooltip}
+				{lightHeader}
 			/>
 		{/if}
 
@@ -393,19 +395,21 @@
 					</div>
 				{/if}
 			{:else if inputCat == 'boolean'}
-				<Toggle
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					{disabled}
-					class={valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-					bind:checked={value}
-				/>
-				{#if type == 'boolean' && value == undefined}
-					<span>&nbsp; Not set</span>
-				{/if}
+				<div class="w-full">
+					<Toggle
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+						}}
+						{disabled}
+						class={valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+						bind:checked={value}
+					/>
+					{#if type == 'boolean' && value == undefined}
+						<span>&nbsp; Not set</span>
+					{/if}
+				</div>
 			{:else if inputCat == 'list' && !isListJson}
 				<div class="w-full flex gap-4">
 					<div class="w-full">
@@ -508,7 +512,7 @@
 														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 														aria-label="Clear"
 														on:click={() => {
-															value.splice(i, 1)
+															value = value.filter((_, index) => index !== i)
 															redraw += 1
 														}}
 													>
@@ -658,11 +662,11 @@
 					<div class="flex flex-col gap-2 w-full">
 						{#if oneOf && oneOf.length >= 2}
 							<ToggleButtonGroup
+								bind:selected={oneOfSelected}
 								on:selected={() => {
-									value = {}
+									value = { label: oneOfSelected }
 									redraw += 1
 								}}
-								bind:selected={oneOfSelected}
 							>
 								{#each oneOf as obj}
 									<ToggleButton value={obj.title} label={obj.title} />
@@ -680,10 +684,8 @@
 													{disablePortal}
 													{disabled}
 													schema={{
-														properties: Object.fromEntries(
-															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-														),
-														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														properties: obj.properties,
+														order: obj.order,
 														$schema: '',
 														required: obj.required ?? [],
 														type: 'object'
@@ -703,11 +705,10 @@
 													{onlyMaskPassword}
 													{disablePortal}
 													{disabled}
+													schemaSkippedValues={['label']}
 													schema={{
-														properties: Object.fromEntries(
-															Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-														),
-														order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+														properties: obj.properties,
+														order: obj.order,
 														$schema: '',
 														required: obj.required ?? [],
 														type: 'object'

@@ -44,7 +44,7 @@
 	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput } from './flows/types'
+	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import {
 		Calendar,
@@ -107,7 +107,7 @@
 	export let disabledFlowInputs = false
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let version: number | undefined = undefined
-	export let setSavedraftCb:  ((cb: () => void) => void) | undefined = undefined
+	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = undefined // Value to diff against
@@ -228,7 +228,8 @@
 						tag: flow.tag,
 						draft_only: true,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
-						visible_to_runner_only: flow.visible_to_runner_only
+						visible_to_runner_only: flow.visible_to_runner_only,
+						on_behalf_of_email: flow.on_behalf_of_email
 					}
 				})
 			}
@@ -359,6 +360,7 @@
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
+						on_behalf_of_email: flow.on_behalf_of_email,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -432,6 +434,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
+						on_behalf_of_email: flow.on_behalf_of_email,
 						deployment_message: deploymentMsg || undefined
 					}
 				})
@@ -490,7 +493,13 @@
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 	const history = initHistory($flowStore)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
-
+	const captureOn = writable<boolean>(false)
+	const showCaptureHint = writable<boolean | undefined>(undefined)
+	const flowInputEditorStateStore = writable<FlowInputEditorState>({
+		selectedTab: undefined,
+		editPanelSize: 0,
+		payloadData: undefined
+	})
 	$: initialPath && ($pathStore = initialPath)
 
 	const testStepStore = writable<Record<string, any>>({})
@@ -528,14 +537,19 @@
 		initialPath,
 		flowInputsStore: writable<FlowInput>({}),
 		customUi,
-		insertButtonOpen
+		insertButtonOpen,
+		executionCount: writable(0),
+		flowInputEditorState: flowInputEditorStateStore
 	})
 
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
-		simplifiedPoll
+		simplifiedPoll,
+		defaultValues: writable(undefined),
+		captureOn,
+		showCaptureHint
 	})
 
 	async function loadTriggers() {
@@ -1203,6 +1217,8 @@
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
+
+	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1414,7 +1430,15 @@
 							{abortController}
 						/>
 					{/if}
-					<FlowPreviewButtons />
+					<FlowPreviewButtons
+						on:openTriggers={(e) => {
+							select('triggers')
+							selectTrigger(e.detail.kind)
+							captureOn.set(true)
+							showCaptureHint.set(true)
+						}}
+						bind:this={flowPreviewButtons}
+					/>
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1479,6 +1503,16 @@
 						renderCount += 1
 					}}
 					{newFlow}
+					on:applyArgs={(ev) => {
+						if (ev.detail.kind === 'preprocessor') {
+							$testStepStore['preprocessor'] = ev.detail.args ?? {}
+							$selectedIdStore = 'preprocessor'
+						}
+					}}
+					on:testWithArgs={(e) => {
+						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
+						flowPreviewButtons?.openPreview(true)
+					}}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

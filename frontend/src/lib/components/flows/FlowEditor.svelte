@@ -67,12 +67,18 @@
 		<Pane class="relative z-10" size={100 - size} minSize={40}>
 			{#if loading}
 				<div class="w-full h-full">
-					<div class="block m-auto mt-40 w-10">
+					<div class="block m-auto pt-40 w-10">
 						<WindmillIcon height="40px" width="40px" spin="fast" />
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel {disabledFlowInputs} {newFlow} enableAi={!disableAi} />
+				<FlowEditorPanel
+					{disabledFlowInputs}
+					{newFlow}
+					enableAi={!disableAi}
+					on:applyArgs
+					on:testWithArgs
+				/>
 			{/if}
 		</Pane>
 	</Splitpanes>

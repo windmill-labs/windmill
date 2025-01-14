@@ -12,8 +12,29 @@ use std::sync::Arc;
 use windmill_common::error;
 #[cfg(feature = "parquet")]
 use windmill_common::{db::UserDB, s3_helpers::ObjectStoreResource};
+
+#[cfg(feature = "parquet")]
+use bytes::Bytes;
+#[cfg(feature = "parquet")]
+use futures::Stream;
+
+#[cfg(feature = "parquet")]
+use axum::response::Response;
+#[cfg(feature = "parquet")]
+use serde::Deserialize;
+
 #[derive(Serialize)]
 pub struct UploadFileResponse {
+    pub file_key: String,
+}
+
+#[derive(Deserialize)]
+pub struct LoadImagePreviewQuery {
+    pub file_key: String,
+}
+
+#[derive(Deserialize)]
+pub struct DownloadFileQuery {
     pub file_key: String,
 }
 
@@ -35,7 +56,7 @@ pub async fn get_workspace_s3_resource<'c>(
 }
 
 pub fn get_random_file_name(_file_extension: Option<String>) -> String {
-    todo!()
+    unimplemented!("Not implemented in Windmill's Open Source repository")
 }
 
 pub async fn get_s3_resource<'c>(
@@ -48,14 +69,58 @@ pub async fn get_s3_resource<'c>(
     _resource_type: Option<StorageResourceType>,
     _job_id: Option<Uuid>,
 ) -> error::Result<ObjectStoreResource> {
-    todo!()
+    Err(error::Error::InternalErr(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
 }
 
+#[cfg(feature = "parquet")]
+pub async fn upload_file_from_req(
+    _s3_client: Arc<dyn ObjectStore>,
+    _file_key: &str,
+    _req: axum::extract::Request,
+    _options: PutMultipartOpts,
+) -> error::Result<()> {
+    Err(error::Error::InternalErr(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
+
+#[cfg(feature = "parquet")]
 pub async fn upload_file_internal(
     _s3_client: Arc<dyn ObjectStore>,
     _file_key: &str,
-    _request: axum::extract::Request,
+    _stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
     _options: PutMultipartOpts,
 ) -> error::Result<()> {
-    todo!()
+    Err(error::Error::InternalErr(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
+
+#[cfg(feature = "parquet")]
+pub async fn download_s3_file_internal(
+    _authed: ApiAuthed,
+    _db: &DB,
+    _user_db: Option<UserDB>,
+    _token: &str,
+    _w_id: &str,
+    _query: DownloadFileQuery,
+) -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
+
+#[cfg(feature = "parquet")]
+pub async fn load_image_preview_internal(
+    _authed: ApiAuthed,
+    _db: &DB,
+    _token: &str,
+    _w_id: &str,
+    _query: LoadImagePreviewQuery,
+) -> error::Result<Response> {
+    Err(error::Error::InternalErr(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
 }

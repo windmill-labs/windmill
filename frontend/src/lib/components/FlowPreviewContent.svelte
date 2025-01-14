@@ -8,15 +8,23 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import CapturePayload from './flows/content/CapturePayload.svelte'
-	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		ArrowRight,
+		CornerDownLeft,
+		Play,
+		RefreshCw,
+		X,
+		ArrowLeftIcon
+	} from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils'
+	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
+	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
-	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
 
@@ -36,8 +44,16 @@
 		runPreview($previewArgs, undefined)
 	}
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, initialPath, customUi } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		selectedId,
+		previewArgs,
+		flowStateStore,
+		flowStore,
+		pathStore,
+		initialPath,
+		customUi,
+		executionCount
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
@@ -114,10 +130,11 @@
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	let inputLibraryDrawer: Drawer
+	let captureLibraryDrawer: Drawer
 	let renderCount: number = 0
-</script>
 
-<CapturePayload bind:this={capturePayload} />
+	let selectedCapture: Record<string, any> | undefined = undefined
+</script>
 
 <svelte:window on:keydown={onKeyDown} />
 
@@ -133,6 +150,65 @@
 				renderCount++
 			}}
 		/>
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={captureLibraryDrawer}>
+	<DrawerContent
+		title="Trigger captures library {initialPath}"
+		on:close={captureLibraryDrawer?.toggleDrawer}
+	>
+		<div class="h-full flex flex-col gap-2">
+			<CapturesInputs
+				flowPath={$pathStore}
+				headless={false}
+				addButton={true}
+				on:select={(e) => {
+					selectedCapture = e.detail
+				}}
+				on:openTriggers={(e) => {
+					dispatch('openTriggers', e.detail)
+					captureLibraryDrawer?.closeDrawer()
+				}}
+			/>
+
+			<div class="h-full overflow-hidden min-h-0 flex flex-col justify-between">
+				<div class="w-full flex flex-col min-h-0 gap-2 px-2 py-2 grow">
+					<div class="w-full flex flex-col">
+						<Button
+							color="blue"
+							btnClasses="w-full"
+							size="sm"
+							spacingSize="xl"
+							on:click={async () => {
+								$previewArgs = JSON.parse(JSON.stringify(selectedCapture))
+								captureLibraryDrawer?.closeDrawer()
+								renderCount++
+							}}
+							disabled={!selectedCapture}
+						>
+							<ArrowLeftIcon class="w-4 h-4 mr-2" />
+							Use input
+						</Button>
+					</div>
+					<div class="w-full min-h-0 grow overflow-auto">
+						{#if typeof selectedCapture == 'string' && selectedCapture == 'WINDMILL_TOO_BIG'}
+							<div class="text-secondary mt-2">
+								Payload too big to preview but can still be loaded</div
+							>
+						{:else if Object.keys(selectedCapture || {}).length > 0}
+							<div class=" overflow-auto h-full p-2">
+								<ObjectViewer json={selectedCapture} />
+							</div>
+						{:else}
+							<div class="text-center text-tertiary">
+								Select an Input to preview scripts arguments
+							</div>
+						{/if}
+					</div>
+				</div>
+			</div>
+		</div>
 	</DrawerContent>
 </Drawer>
 
@@ -276,6 +352,14 @@
 			</div>
 		{/if}
 		<div class="flex gap-2">
+			<Button
+				btnClasses="h-full truncate"
+				size="sm"
+				variant="border"
+				on:click={() => {
+					captureLibraryDrawer?.openDrawer()
+				}}>Trigger captures library</Button
+			>
 			{#if initialPath != ''}
 				<Button
 					btnClasses="h-full truncate"
@@ -286,15 +370,6 @@
 					}}>Past runs/Input library</Button
 				>
 			{/if}
-
-			<Button
-				btnClasses="h-full truncate"
-				size="sm"
-				variant="border"
-				on:click={() => {
-					capturePayload.openDrawer()
-				}}>Fill args from a request</Button
-			>
 		</div>
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
@@ -330,6 +405,10 @@
 					wideResults
 					{flowStateStore}
 					{jobId}
+					on:done={() => {
+						console.log('done')
+						$executionCount = $executionCount + 1
+					}}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}

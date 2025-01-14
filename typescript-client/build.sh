@@ -22,10 +22,15 @@ const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://loc
 const baseUrlApi = (baseUrl ?? '') + "/api";
 
 EOF
-sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
-sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
-sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
-
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  sed -i '' 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
+  sed -i '' 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
+  sed -i '' "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
+else
+  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
+  sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
+  sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
+fi
 
 
 
@@ -34,4 +39,4 @@ cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"
 echo 'export type { S3Object, DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
 echo "" >> "${script_dirpath}/src/index.ts"
-echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, setProgress, getProgress, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, task, runScript, runScriptAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail } from "./client";' >> "${script_dirpath}/src/index.ts"
+echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, setProgress, getProgress, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, task, runScript, runScriptAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail, requestInteractiveSlackApproval } from "./client";' >> "${script_dirpath}/src/index.ts"

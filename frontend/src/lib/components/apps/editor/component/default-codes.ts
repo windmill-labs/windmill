@@ -222,12 +222,12 @@ LIMIT @limit OFFSET @offset;`,
 SELECT * FROM demo 
 WHERE LENGTH(?) = 0 OR CONCAT("ID") ILIKE CONCAT('%', ?, '%') OR CONCAT("NAME") ILIKE CONCAT('%', ?, '%') 
 LIMIT 100 OFFSET 0`,
-		mssql: `-- @p1 limit (int)
--- @p2 offset (int)
--- @p3 search (text)
-SELECT * FROM Demo WHERE (@p3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @p3 + '%') 
+		mssql: `-- @P1 limit (int)
+-- @P2 offset (int)
+-- @P3 search (text)
+SELECT * FROM Demo WHERE (@P3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @P3 + '%') 
 ORDER BY col1
-OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
+OFFSET @P2 ROWS FETCH NEXT @P1 ROWS ONLY`
 	},
 	aggridinfinitecomponentee: {
 		deno: `type User = {
@@ -342,12 +342,12 @@ LIMIT @limit OFFSET @offset;`,
 SELECT * FROM demo 
 WHERE LENGTH(?) = 0 OR CONCAT("ID") ILIKE CONCAT('%', ?, '%') OR CONCAT("NAME") ILIKE CONCAT('%', ?, '%') 
 LIMIT 100 OFFSET 0`,
-		mssql: `-- @p1 limit (int)
--- @p2 offset (int)
--- @p3 search (text)
-SELECT * FROM Demo WHERE (@p3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @p3 + '%') 
+		mssql: `-- @P1 limit (int)
+-- @P2 offset (int)
+-- @P3 search (text)
+SELECT * FROM Demo WHERE (@P3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @P3 + '%') 
 ORDER BY col1
-OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
+OFFSET @P2 ROWS FETCH NEXT @P1 ROWS ONLY`
 	},
 	textcomponent: {
 		deno: `export async function main() {

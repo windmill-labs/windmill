@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::panic::Location;
+
 use axum::body::Body;
 use axum::response::Response;
 use axum::{response::IntoResponse, response::Json};
@@ -48,6 +50,8 @@ pub enum Error {
     QuotaExceeded(String),
     #[error("Internal: {0}")]
     InternalErr(String),
+    #[error("Internal: {0}: {1}")]
+    InternalErrAt(&'static Location<'static>, String),
     #[error("Hexadecimal decoding error: {0}")]
     HexErr(#[from] hex::FromHexError),
     #[error("Migrating database: {0}")]
@@ -77,6 +81,17 @@ impl Error {
     pub fn dbg(&self) -> String {
         format!("{:?}", self)
     }
+
+    pub fn relocate_internal(self, loc: &'static Location<'static>) -> Self {
+        match self {
+            Self::InternalErr(s) | Self::InternalErrAt(_, s) => Self::InternalErrAt(loc, s),
+            _ => self,
+        }
+    }
+}
+
+pub fn relocate_internal(loc: &'static Location<'static>) -> impl FnOnce(Error) -> Error {
+    move |e| e.relocate_internal(loc)
 }
 
 pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::Error {
@@ -92,10 +107,9 @@ impl IntoResponse for Error {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
-            Self::SqlErr(_)
-            | Self::BadRequest(_)
-            | Self::AiError(_)
-            | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
+            Self::SqlErr(_) | Self::BadRequest(_) | Self::AiError(_) | Self::QuotaExceeded(_) => {
+                axum::http::StatusCode::BAD_REQUEST
+            }
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 

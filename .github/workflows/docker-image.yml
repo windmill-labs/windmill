@@ -3,8 +3,7 @@ env:
   IMAGE_NAME:
     ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
   DEV_SHA:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || github.event.inputs.tag }}
-
+    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || github.event.inputs.tag || github.sha }}
 name: Build windmill:main
 on:
   push:
@@ -150,7 +149,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,nats,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -212,7 +211,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,nats,otel,dind,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
             PYTHON_IMAGE=python:3.12.2-slim-bookworm
           tags: |
             ${{ steps.meta-ee-public-py312.outputs.tags }}

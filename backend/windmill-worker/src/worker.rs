@@ -291,6 +291,7 @@ pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
 const VACUUM_PERIOD: u32 = 50000;
 
+#[cfg(any(target_os = "linux"))]
 const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
@@ -315,6 +316,12 @@ lazy_static::lazy_static! {
 
     pub static ref WORKER_EXECUTION_DURATION: Arc<RwLock<HashMap<String, prometheus::Histogram>>> = Arc::new(RwLock::new(HashMap::new()));
 }
+
+#[cfg(windows)]
+const DOTNET_DEFAULT_PATH: &str = "C:\\Program Files\\dotnet\\dotnet.exe";
+#[cfg(unix)]
+const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
+
 
 lazy_static::lazy_static! {
 
@@ -370,7 +377,7 @@ lazy_static::lazy_static! {
     pub static ref POWERSHELL_PATH: String = std::env::var("POWERSHELL_PATH").unwrap_or_else(|_| "/usr/bin/pwsh".to_string());
     pub static ref PHP_PATH: String = std::env::var("PHP_PATH").unwrap_or_else(|_| "/usr/bin/php".to_string());
     pub static ref COMPOSER_PATH: String = std::env::var("COMPOSER_PATH").unwrap_or_else(|_| "/usr/bin/composer".to_string());
-    pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| "/usr/bin/dotnet".to_string());
+    pub static ref DOTNET_PATH: String = std::env::var("DOTNET_PATH").unwrap_or_else(|_| DOTNET_DEFAULT_PATH.to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -841,7 +848,7 @@ pub async fn run_worker(
     };
 
     #[cfg(feature = "prometheus")]
-    let worker_save_completed_job_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
+    let _worker_save_completed_job_duration = if METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
         && METRICS_ENABLED.load(Ordering::Relaxed)
     {
         Some(Arc::new(
@@ -1076,7 +1083,7 @@ pub async fn run_worker(
     }
 
     #[cfg(feature = "prometheus")]
-    let worker_dedicated_channel_queue_send_duration = {
+    let _worker_dedicated_channel_queue_send_duration = {
         if is_dedicated_worker
             && METRICS_DEBUG_ENABLED.load(Ordering::Relaxed)
             && METRICS_ENABLED.load(Ordering::Relaxed)
@@ -1883,7 +1890,7 @@ async fn handle_queued_job(
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
-    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
+    #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
     // Extract the active span from the context
 

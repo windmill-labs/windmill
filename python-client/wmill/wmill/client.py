@@ -9,6 +9,7 @@ import os
 import random
 import time
 import warnings
+import json
 from json import JSONDecodeError
 from typing import Dict, Any, Union, Literal
 
@@ -623,6 +624,83 @@ class Windmill:
             params={"approver": approver},
         ).json()
 
+    def request_interactive_slack_approval(
+        self,
+        slack_resource_path: str,
+        channel_id: str,
+        message: str = None,
+        approver: str = None,
+        default_args_json: dict = None,
+        dynamic_enums_json: dict = None,
+    ) -> None:
+        """
+        Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
+        
+        **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
+        Learn more at: https://www.windmill.dev/docs/flows/flow_approval#form
+
+        :param slack_resource_path: The path to the Slack resource in Windmill.
+        :type slack_resource_path: str
+        :param channel_id: The Slack channel ID where the approval request will be sent.
+        :type channel_id: str
+        :param message: Optional custom message to include in the Slack approval request.
+        :type message: str, optional
+        :param approver: Optional user ID or name of the approver for the request.
+        :type approver: str, optional
+        :param default_args_json: Optional dictionary defining or overriding the default arguments for form fields.
+        :type default_args_json: dict, optional
+        :param dynamic_enums_json: Optional dictionary overriding the enum default values of enum form fields.
+        :type dynamic_enums_json: dict, optional
+        
+        :raises Exception: If the function is not called within a flow or flow preview.
+        :raises Exception: If the required flow job or flow step environment variables are not set.
+        
+        :return: None
+
+        **Usage Example:**
+            >>> client.request_interactive_slack_approval(
+            ...     slack_resource_path="/u/alex/my_slack_resource",
+            ...     channel_id="admins-slack-channel",
+            ...     message="Please approve this request",
+            ...     approver="approver123",
+            ...     default_args_json={"key1": "value1", "key2": 42},
+            ...     dynamic_enums_json={"foo": ["choice1", "choice2"], "bar": ["optionA", "optionB"]},
+            ... )
+
+        **Notes:**
+        - This function must be executed within a Windmill flow or flow preview.
+        - The function checks for required environment variables (`WM_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`) to ensure it is run in the appropriate context.
+        """
+        workspace = self.workspace
+        flow_job_id = os.environ.get("WM_FLOW_JOB_ID")
+
+        if not flow_job_id:
+            raise Exception(
+                "You can't use 'request_interactive_slack_approval' function in a standalone script or flow step preview. Please use it in a flow or a flow preview."
+            )
+
+        # Only include non-empty parameters
+        params = {}
+        if message:
+            params["message"] = message
+        if approver:
+            params["approver"] = approver
+        if slack_resource_path:
+            params["slack_resource_path"] = slack_resource_path
+        if channel_id:
+            params["channel_id"] = channel_id
+        if os.environ.get("WM_FLOW_STEP_ID"):
+            params["flow_step_id"] = os.environ.get("WM_FLOW_STEP_ID")
+        if default_args_json:
+            params["default_args_json"] = json.dumps(default_args_json)
+        if dynamic_enums_json:
+            params["dynamic_enums_json"] = json.dumps(dynamic_enums_json)
+
+        self.get(
+            f"/w/{workspace}/jobs/slack_approval/{os.environ.get('WM_JOB_ID', 'NO_JOB_ID')}",
+            params=params,
+        )
+
     def username_to_email(self, username: str) -> str:
         """
         Get email from workspace username
@@ -972,6 +1050,23 @@ def get_state_path() -> str:
 def get_resume_urls(approver: str = None) -> dict:
     return _client.get_resume_urls(approver)
 
+@init_global_client
+def request_interactive_slack_approval(
+    slack_resource_path: str,
+    channel_id: str,
+    message: str = None,
+    approver: str = None,
+    default_args_json: dict = None,
+    dynamic_enums_json: dict = None,
+) -> None:
+    return _client.request_interactive_slack_approval(
+        slack_resource_path=slack_resource_path,
+        channel_id=channel_id,
+        message=message,
+        approver=approver,
+        default_args_json=default_args_json,
+        dynamic_enums_json=dynamic_enums_json,
+    )
 
 @init_global_client
 def cancel_running() -> dict:

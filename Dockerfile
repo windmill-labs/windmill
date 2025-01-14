@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.80-slim-bookworm
+ARG RUST_IMAGE=rust:1.82-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
@@ -159,7 +159,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /root/.cargo/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.5.15/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
@@ -177,7 +177,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.1.38 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.40 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
@@ -195,6 +195,21 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
 RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 777 /tmp/windmill
+
+# Create a non-root user 'windmill' with UID and GID 1000
+RUN addgroup --gid 1000 windmill && \
+    adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
+
+RUN cp -r /root/.cache /home/windmill/.cache
+
+RUN mkdir -p /tmp/windmill/logs && \
+    mkdir -p /tmp/windmill/search
+
+RUN chown -R windmill:windmill ${APP} && \
+     chown -R windmill:windmill /tmp/windmill && \
+     chown -R windmill:windmill /home/windmill/.cache
+
+USER root
 
 EXPOSE 8000
 

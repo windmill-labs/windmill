@@ -56,6 +56,7 @@
 	import { fade } from 'svelte/transition'
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
+	import ChangeWorkspaceColor from '$lib/components/settings/ChangeWorkspaceColor.svelte'
 	import {
 		convertBackendSettingsToFrontendSettings,
 		convertFrontendToBackendSetting,
@@ -812,12 +813,18 @@
 			</div>
 		{:else if tab == 'general'}
 			<div class="flex flex-col gap-4 my-8">
-				<div class=" text-primary text-lg font-semibold">General</div>
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold">General</div>
+					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_settings">
+						Configure general workspace settings.
+					</Description>
+				</div>
 			</div>
 
 			<div class="flex flex-col gap-10">
 				<ChangeWorkspaceName />
 				<ChangeWorkspaceId />
+				<ChangeWorkspaceColor />
 			</div>
 
 			<PageHeader title="Export workspace" primary={false} />
@@ -833,9 +840,15 @@
 
 			<div class="mt-20" />
 			<PageHeader title="Delete workspace" primary={false} />
-			<p class="italic text-xs">
-				The workspace will be archived for a short period of time and then permanently deleted
-			</p>
+			{#if $superadmin}
+				<p class="italic text-xs">
+					When deleting the workspace, it will be archived for a short period of time and then permanently deleted.
+				</p>
+			{:else}
+				<p class="italic text-xs">
+					Only instance superadmins can delete a workspace.
+				</p>
+			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
 				<p class="italic text-xs">
 					This workspace cannot be deleted as it has a special function. Consult the documentation
@@ -1474,12 +1487,12 @@
 									<Alert type="warning" title="Script version mismatch">
 										The git sync version for this repository is not latest. Current: <a
 											target="_blank"
-											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/5813/versions"
+											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 											>{gitSyncRepository.script_path}</a
 										>, latest:
 										<a
 											target="_blank"
-											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/5813/versions"
+											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 											>{latestGitSyncHubScript}</a
 										>
 										<div class="flex mt-2">

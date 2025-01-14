@@ -145,7 +145,10 @@ impl ApiServer {
 
         _port_rx.await.unwrap();
 
-        return Self { addr, tx, task };
+        // clear the cache between tests
+        windmill_common::cache::clear();
+
+        Self { addr, tx, task }
     }
 
     async fn close(self) -> anyhow::Result<()> {
@@ -2871,6 +2874,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     dedicated_worker: None,
                     timeout: None,
                     visible_to_runner_only: None,
+                    on_behalf_of_email: None,
                 },
                 draft_only: None,
                 deployment_message: None,
@@ -3470,6 +3474,7 @@ async fn run_deployed_relative_imports(
                 no_main_func: None,
                 codebase: None,
                 has_preprocessor: None,
+                on_behalf_of_email: None,
             },
         )
         .await
@@ -3814,7 +3819,7 @@ mod job_payload {
         let flow_data = cache::flow::fetch_version_lite(&db, 1443253234253454)
             .await
             .unwrap();
-        let flow_value = flow_data.value().unwrap();
+        let flow_value = flow_data.value();
         let flow_scripts = {
             async fn load(db: &Pool<Postgres>, modules: &[FlowModule]) -> Vec<FlowNodeId> {
                 let mut res = vec![];
@@ -3825,9 +3830,7 @@ mod job_payload {
                         FlowModuleValue::FlowScript { id, .. } => res.push(id),
                         FlowModuleValue::ForloopFlow { modules_node: Some(flow_node), .. } => {
                             let flow_data = cache::flow::fetch_flow(db, flow_node).await.unwrap();
-                            res.extend(
-                                Box::pin(load(db, &flow_data.value().unwrap().modules)).await,
-                            );
+                            res.extend(Box::pin(load(db, &flow_data.value().modules)).await);
                         }
                         _ => {}
                     }
@@ -3848,6 +3851,7 @@ mod job_payload {
                 concurrency_time_window_s: None,
                 cache_ttl: None,
                 dedicated_worker: None,
+                path: "f/system/hello/test-0".into(),
             })
             .arg("world", json!("foo"))
             .run_until_complete(&db, port)
@@ -3867,6 +3871,7 @@ mod job_payload {
                 concurrency_time_window_s: None,
                 cache_ttl: None,
                 dedicated_worker: None,
+                path: "f/system/hello/test-0".into(),
             })
             .arg("hello", json!("You know nothing Jean Neige"))
             .run_until_complete(&db, port)
@@ -3902,7 +3907,7 @@ mod job_payload {
         let flow_data = cache::flow::fetch_version_lite(&db, 1443253234253454)
             .await
             .unwrap();
-        let flow_value = flow_data.value().unwrap();
+        let flow_value = flow_data.value();
         let forloop_module =
             serde_json::from_str::<FlowModuleValue>(flow_value.modules[0].value.get()).unwrap();
         let FlowModuleValue::ForloopFlow { modules_node: Some(id), .. } = forloop_module else {

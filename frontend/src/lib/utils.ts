@@ -609,8 +609,8 @@ export function addWhitespaceBeforeCapitals(word?: string): string {
 	return word.replace(/([A-Z])/g, ' $1').trim()
 }
 
-export function isObject(obj: any) {
-	return obj != null && typeof obj === 'object'
+export function isObject(obj: any): obj is Record<string, any> {
+	return obj != null && typeof obj === 'object' && !Array.isArray(obj)
 }
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
@@ -1088,4 +1088,14 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 export function validateFileExtension(ext: string) {
 	const validExtensionRegex = /^[a-zA-Z0-9]+([._][a-zA-Z0-9]+)*$/
 	return validExtensionRegex.test(ext)
+}
+
+export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
+	return !!job_kind && (job_kind === 'flowpreview' || job_kind === 'flownode')
+}
+
+export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
+	return (
+		!!job_kind && (job_kind === 'preview' || job_kind === 'flowscript' || job_kind === 'appscript')
+	)
 }

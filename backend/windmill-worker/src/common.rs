@@ -3,6 +3,7 @@ use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
@@ -32,11 +33,7 @@ use windmill_common::{
 use anyhow::{anyhow, Result};
 
 use std::path::Path;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use uuid::Uuid;
 use windmill_common::{variables, DB};
@@ -951,7 +948,7 @@ pub async fn clean_cache() -> error::Result<()> {
 }
 
 lazy_static::lazy_static! {
-    static ref RE_FLOW_ROOT: Regex = Regex::new(r"(?i)(.*?)(?:/branchone-\d+/|/branchall-\d+/|/loop-\d+/)").unwrap();
+    static ref RE_FLOW_ROOT: Regex = Regex::new(r"(?i)(.*?)(?:/branchone-\d+/|/branchall-\d+/|/loop-\d+|/forloop-\d+/)").unwrap();
 
 }
 
@@ -964,4 +961,13 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
     } else {
         return flow_path.to_string();
     }
+}
+
+pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
+    reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .timeout(timeout_duration)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| Error::InternalErr(format!("Error building http client: {e:#}")))
 }

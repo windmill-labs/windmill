@@ -1,7 +1,10 @@
 {
 	"gitSync_0": "hub/9087/sync-script-to-git-repo-windmill",
-	"gitSync": "hub/9987/sync-script-to-git-repo-windmill",
-	"gitSyncTest": "hub/9073/git-repo-test-read-write-windmill",
+	"gitSync_1": "hub/9987/sync-script-to-git-repo-windmill",
+	"gitSync_2": "hub/11498/sync-script-to-git-repo-windmill",
+	"gitSync": "hub/11533/sync-script-to-git-repo-windmill",
+	"gitSyncTest_0": "hub/9073/git-repo-test-read-write-windmill",
+	"gitSyncTest": "hub/11499/git-repo-test-read-write-windmill",
 	"slackErrorHandler": "hub/9206/workspace-or-schedule-error-handler-slack",
 	"slackErrorHandler_0": "hub/9079/workspace-or-schedule-error-handler-slack",
 	"slackRecoveryHandler": "hub/9080/slack/schedule-recovery-handler-slack",

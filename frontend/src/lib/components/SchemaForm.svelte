@@ -45,6 +45,7 @@
 		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
+	export let lightHeader = false
 
 	const dispatch = createEventDispatcher()
 
@@ -84,8 +85,6 @@
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
 
-	$: isValid = allTrue(inputCheck ?? {})
-
 	let resourceTypes: string[] | undefined = undefined
 
 	async function loadResourceTypes() {
@@ -94,7 +93,7 @@
 
 	loadResourceTypes()
 
-	$: schema && reorder()
+	$: schema && (reorder(), (hidden = {}))
 
 	function hasExtraKeys() {
 		return Object.keys(args ?? {}).some((x) => !keys.includes(x))
@@ -133,6 +132,28 @@
 	}
 
 	$: fields = items ?? keys.map((x) => ({ id: x, value: x }))
+
+	let hidden: Record<string, boolean> = {}
+
+	function handleHiddenFields(schema: Schema | any, args: Record<string, any>) {
+		for (const x of fields) {
+			if (schema?.properties[x.value]?.showExpr) {
+				if (computeShow(x.value, schema.properties[x.value].showExpr, args)) {
+					hidden[x.value] = false
+				} else if (!hidden[x.value]) {
+					hidden[x.value] = true
+					// remove arg (important: will not trigger a re-render)
+					delete args[x.value]
+					// make sure it's made valid
+					inputCheck[x.value] = true
+				}
+			}
+		}
+	}
+
+	$: handleHiddenFields(schema, args)
+
+	$: isValid = allTrue(inputCheck ?? {})
 </script>
 
 {#if showReset}
@@ -163,7 +184,7 @@
 						}}
 					>
 						{#if typeof args == 'object' && schema?.properties[argName]}
-							{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
+							{#if !hidden[argName]}
 								{#if lightweightMode}
 									<LightweightArgInput
 										label={argName}
@@ -262,6 +283,7 @@
 										orderEditable={dndConfig != undefined}
 										otherArgs={args}
 										{helperScript}
+										{lightHeader}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />
