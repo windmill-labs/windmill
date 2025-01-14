@@ -327,22 +327,48 @@
 		} else if (typeof diffStatus === 'object') {
 			const schema = getNestedProperty(selectedSchema, path, 'properties')
 			const newSchema = applySchema(schema, diffStatus)
-			setNestedProperty(selectedSchema, path, newSchema)
 			setNestedProperty($flowStore.schema, path, newSchema)
 		}
 	}
 
 	function rejectChange(arg: any) {
-		if (!previewSchema) {
+		if (!diff || !$flowStore?.schema?.properties || !selectedSchema) {
 			return
 		}
-		if (diff[arg].diff === 'added') {
-			delete previewSchema.properties[arg]
-		} else if (typeof diff[arg] === 'object' && $flowStore.schema?.properties) {
-			previewSchema.properties[arg] = $flowStore.schema.properties[arg]
+
+		const path = getFullPath(arg)
+		const parentPath = path.slice(0, -1)
+		const diffStatus = getNestedProperty({ diff }, path, 'diff').diff
+
+		if (diffStatus === 'added' || diffStatus === 'modified') {
+			setNestedProperty(selectedSchema, path, undefined)
+
+			const currentOrder = getNestedOrder(selectedSchema, parentPath)
+			if (currentOrder && Array.isArray(currentOrder)) {
+				setNestedOrder(
+					selectedSchema,
+					parentPath,
+					currentOrder.filter((a) => a !== arg.label)
+				)
+			}
+		} else if (diffStatus === 'removed') {
+			const newValue = getNestedProperty($flowStore.schema, path)
+			setNestedProperty(selectedSchema, path, newValue)
+			const previewOrder = getNestedOrder(previewSchema, parentPath)
+			const currentOrder = getNestedOrder(selectedSchema, parentPath)
+			if (previewOrder && Array.isArray(previewOrder)) {
+				setNestedOrder(
+					selectedSchema,
+					parentPath,
+					previewOrder.filter((x) => currentOrder?.includes(x) || x === arg.label)
+				)
+			} else {
+				setNestedOrder(selectedSchema, parentPath, [arg.label])
+			}
+		} else if (typeof diffStatus === 'object') {
+			const schema = getNestedProperty($flowStore.schema, path)
+			setNestedProperty(selectedSchema, path, schema)
 		}
-		delete diff[arg]
-		diff = diff
 	}
 </script>
 
@@ -380,7 +406,10 @@
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 				{diff}
-				on:rejectChange={(e) => rejectChange(e.detail)}
+				on:rejectChange={(e) => {
+					rejectChange(e.detail)
+					updatePreviewSchema(selectedSchema)
+				}}
 				on:acceptChange={(e) => {
 					acceptChange(e.detail).then(() => {
 						updatePreviewSchema(selectedSchema)
