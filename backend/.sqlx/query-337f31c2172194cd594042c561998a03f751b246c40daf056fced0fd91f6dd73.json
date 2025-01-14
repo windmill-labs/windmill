@@ -62,7 +62,8 @@
                 "bunnative",
                 "rust",
                 "ansible",
-                "csharp"
+                "csharp",
+                "oracledb"
               ]
             }
           }

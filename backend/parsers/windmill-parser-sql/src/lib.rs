@@ -32,6 +32,22 @@ pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     }
 }
 
+pub fn parse_oracledb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
+    let parsed = parse_oracledb_file(&code)?;
+    if let Some(x) = parsed {
+        let args = x;
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
+    } else {
+        Err(anyhow!("Error parsing sql".to_string()))
+    }
+}
+
 pub fn parse_pgsql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_pg_file(&code)?;
     if let Some(x) = parsed {
@@ -157,6 +173,61 @@ fn parsed_default(parsed_typ: &Typ, default: String) -> Option<serde_json::Value
         _ => Some(json!(default)),
     }
 }
+
+fn parse_oracledb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+    let mut args: Vec<Arg> = vec![];
+
+    let mut using_named_args = false;
+    for cap in RE_ARG_MYSQL_NAMED.captures_iter(code) {
+        using_named_args = true;
+        let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+        let typ = cap
+            .get(2)
+            .map(|x| x.as_str().to_string().to_lowercase())
+            .unwrap();
+        let default = cap.get(3).map(|x| x.as_str().to_string());
+        let has_default = default.is_some();
+        let parsed_typ = parse_oracledb_typ(typ.as_str());
+
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+        args.push(Arg {
+            name,
+            typ: parsed_typ,
+            default: parsed_default,
+            otyp: Some(typ),
+            has_default,
+            oidx: None,
+        });
+    }
+
+    if !using_named_args {
+        // backwards compatibility
+        for cap in RE_ARG_MYSQL.captures_iter(code) {
+            let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+            let typ = cap
+                .get(2)
+                .map(|x| x.as_str().to_string().to_lowercase())
+                .unwrap();
+            let default = cap.get(3).map(|x| x.as_str().to_string());
+            let has_default = default.is_some();
+            let parsed_typ = parse_oracledb_typ(typ.as_str());
+
+            let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
+            args.push(Arg {
+                name,
+                typ: parsed_typ,
+                default: parsed_default,
+                otyp: Some(typ),
+                has_default,
+                oidx: None,
+            });
+        }
+    }
+
+    Ok(Some(args))
+}
+
 fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut args: Vec<Arg> = vec![];
 
@@ -481,6 +552,18 @@ pub fn parse_mysql_typ(typ: &str) -> Typ {
         "int" | "uint" | "integer" => Typ::Int,
         "bool" | "bit" => Typ::Bool,
         "double precision" | "float" | "real" | "dec" | "fixed" => Typ::Float,
+        "date" | "datetime" | "timestamp" | "time" => Typ::Datetime,
+        _ => Typ::Str(None),
+    }
+}
+
+pub fn parse_oracledb_typ(typ: &str) -> Typ {
+    match typ {
+        "varchar" | "nvarchar" | "varchar2" | "char" | "nchar" | "nvarchar2" | "clob" | "blob"
+        | "nclob" => Typ::Str(None),
+        "integer" | "int" | "long" | "rowid" | "urowid" => Typ::Int,
+        "bool" => Typ::Bool,
+        "number" | "float" | "binary_float" | "binary_double" => Typ::Float,
         "date" | "datetime" | "timestamp" | "time" => Typ::Datetime,
         _ => Typ::Str(None),
     }

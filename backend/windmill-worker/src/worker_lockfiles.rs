@@ -1946,6 +1946,7 @@ async fn capture_dependency_job(
         ScriptLang::Snowflake => Ok("".to_owned()),
         ScriptLang::Mssql => Ok("".to_owned()),
         ScriptLang::Graphql => Ok("".to_owned()),
+        ScriptLang::OracleDB => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
         ScriptLang::Powershell => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),

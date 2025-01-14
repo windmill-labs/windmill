@@ -11,7 +11,7 @@
 
 	export let id: string | undefined = undefined
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 </script>
 
 <Popover disablePopup={!enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}>

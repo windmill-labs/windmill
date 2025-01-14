@@ -5,7 +5,7 @@
     "columns": [
       {
         "ordinal": 0,
-        "name": "?column?",
+        "name": "bool",
         "type_info": "Bool"
       }
     ],

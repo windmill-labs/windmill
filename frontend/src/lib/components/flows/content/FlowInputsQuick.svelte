@@ -125,7 +125,7 @@
 
 	let inlineScripts: [string, SupportedLanguage | 'docker'][] = []
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 
 	function computeInlineScriptChoices(
 		funcDesc: string,

@@ -8,6 +8,7 @@ import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts
 import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
+	parse_oracledb,
 	parse_bigquery,
 	parse_snowflake,
 	parse_graphql,
@@ -85,7 +86,7 @@ export async function inferArgs(
 		}
 
 		let inlineDBResource: string | undefined = undefined
-		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql'].includes(language ?? '')) {
+		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')) {
 			await initWasmRegex()
 			inlineDBResource = parse_db_resource(code)
 		}
@@ -125,6 +126,14 @@ export async function inferArgs(
 			if (inlineDBResource === undefined) {
 				inferedSchema.args = [
 					{ name: 'database', typ: { resource: 'bigquery' } },
+					...inferedSchema.args
+				]
+			}
+		} else if (language == 'oracledb') {
+			inferedSchema = JSON.parse(parse_oracledb(code))
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'oracledb' } },
 					...inferedSchema.args
 				]
 			}
