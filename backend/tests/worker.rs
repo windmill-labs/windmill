@@ -18,8 +18,6 @@ use tokio::time::{timeout, Duration};
 
 use windmill_api_client::types::{CreateFlowBody, RawScript};
 
-use sqlx::query;
-
 #[cfg(feature = "enterprise")]
 use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
@@ -3191,7 +3189,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -3259,7 +3257,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -3343,7 +3341,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -3412,7 +3410,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
+                sqlx::query!("SELECT script_path FROM completed_job  WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -3487,7 +3485,7 @@ async fn run_deployed_relative_imports(
         async move {
             completed.next().await; // deployed script
 
-            let script = query!(
+            let script = sqlx::query!(
                 "SELECT hash FROM script WHERE path = $1",
                 "f/system/test_import".to_string()
             )

@@ -19,6 +19,7 @@ use tokio::{
     join,
     sync::{mpsc, RwLock},
 };
+use uuid::Uuid;
 
 #[cfg(feature = "embedding")]
 use windmill_api::embeddings::update_embeddings_db;
@@ -36,7 +37,7 @@ use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
     error,
-    flow_status::FlowStatusModule,
+    flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
@@ -1614,20 +1615,28 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
 }
 
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
-    let flows = sqlx::query_as::<_, QueuedJob>(
+    let flows = sqlx::query!(
         r#"
-        SELECT *
+        SELECT
+            id AS "id!", workspace_id AS "workspace_id!", parent_job, is_flow_step,
+            flow_status AS "flow_status: Box<str>", last_ping, same_worker
         FROM queue
-        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval AND canceled = false
+        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
+            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
+            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
+            AND canceled = false
         "#,
-    ).bind(FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str())
+        FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
+    )
     .fetch_all(db)
     .await?;
 
     for flow in flows {
-        let status = flow.parse_flow_status();
-        if !flow.same_worker
+        let status = flow
+            .flow_status
+            .as_deref()
+            .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
+        if !flow.same_worker.unwrap_or(false)
             && status.is_some_and(|s| {
                 s.modules
                     .get(0)
@@ -1653,44 +1662,39 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let now = now_from_db(db).await?;
             let reason = format!(
                 "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
-                if flow.is_flow_step && flow.parent_job.is_some() {
+                if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
                     format!("Flow was cancelled because subflow {id}")
                 } else {
                     format!("Flow {id} was cancelled because it")
                 }
             );
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow, reason).await?;
+            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, reason).await?;
         }
     }
 
     let flows2 = sqlx::query!(
-        "
-    DELETE
-    FROM parallel_monitor_lock
-    WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
-    RETURNING parent_flow_id, job_id, last_ping
-        ",
+        r#"
+        DELETE
+        FROM parallel_monitor_lock
+        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
+        RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM queue q
+            WHERE q.id = parent_flow_id AND q.running = true AND q.canceled = false) AS workspace_id
+        "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
     )
     .fetch_all(db)
     .await?;
 
     for flow in flows2 {
-        let in_queue = sqlx::query_as::<_, QueuedJob>(
-            "SELECT * FROM queue WHERE id = $1 AND running = true AND canceled = false",
-        )
-        .bind(flow.parent_flow_id)
-        .fetch_optional(db)
-        .await?;
-        if let Some(job) = in_queue {
+        if let Some(parent_flow_workspace_id) = flow.workspace_id {
             tracing::error!(
                 "parallel Zombie flow detected: {} in workspace {}. Last ping was: {:?}.",
-                job.id,
-                job.workspace_id,
+                flow.parent_flow_id,
+                parent_flow_workspace_id,
                 flow.last_ping
             );
-            cancel_zombie_flow_job(db, job,
+            cancel_zombie_flow_job(db, flow.parent_flow_id, &parent_flow_workspace_id,
                 format!("Flow {} cancelled as one of the parallel branch {} was unable to make the last transition ", flow.parent_flow_id, flow.job_id))
                 .await?;
         } else {
@@ -1702,27 +1706,28 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
 
 async fn cancel_zombie_flow_job(
     db: &Pool<Postgres>,
-    flow: QueuedJob,
+    id: Uuid,
+    workspace_id: &str,
     message: String,
 ) -> Result<(), error::Error> {
-    let tx = db.begin().await.unwrap();
+    let mut tx = db.begin().await?;
     tracing::error!(
         "zombie flow detected: {} in workspace {}. Cancelling it.",
-        flow.id,
-        flow.workspace_id
+        id,
+        workspace_id
     );
-    let (ntx, _) = cancel_job(
+    (tx, _) = cancel_job(
         "monitor",
         Some(message),
-        flow.id,
-        flow.workspace_id.as_str(),
+        id,
+        workspace_id,
         tx,
         db,
         true,
         false,
     )
     .await?;
-    ntx.commit().await?;
+    tx.commit().await?;
     Ok(())
 }
 
