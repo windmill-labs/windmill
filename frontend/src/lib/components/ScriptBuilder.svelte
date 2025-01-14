@@ -387,7 +387,8 @@
 					visible_to_runner_only: script.visible_to_runner_only,
 					no_main_func: script.no_main_func,
 					has_preprocessor: script.has_preprocessor,
-					deployment_message: deploymentMsg || undefined
+					deployment_message: deploymentMsg || undefined,
+					on_behalf_of_email: script.on_behalf_of_email
 				}
 			})
 
@@ -527,7 +528,8 @@
 							: script.concurrency_key,
 						visible_to_runner_only: script.visible_to_runner_only,
 						no_main_func: script.no_main_func,
-						has_preprocessor: script.has_preprocessor
+						has_preprocessor: script.has_preprocessor,
+						on_behalf_of_email: script.on_behalf_of_email
 					}
 				})
 			}
@@ -1190,6 +1192,30 @@
 												}}
 												options={{
 													right: 'Make runs invisible to others'
+												}}
+											/>
+										</div>
+									</Section>
+									<Section label="On behalf of last editor">
+										<svelte:fragment slot="header">
+											<Tooltip>
+												When this option is enabled, the script will be run with the permissions of
+												the last editor.
+											</Tooltip>
+										</svelte:fragment>
+										<div class="flex gap-2 shrink flex-col">
+											<Toggle
+												size="sm"
+												checked={Boolean(script.on_behalf_of_email)}
+												on:change={() => {
+													if (script.on_behalf_of_email) {
+														script.on_behalf_of_email = undefined
+													} else {
+														script.on_behalf_of_email = $userStore?.email
+													}
+												}}
+												options={{
+													right: 'Run on behalf of last editor'
 												}}
 											/>
 										</div>

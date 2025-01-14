@@ -83,6 +83,8 @@ struct ScriptMetadata {
     pub concurrency_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of_email: Option<String>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -379,6 +381,7 @@ pub(crate) async fn tarball_workspace(
                 codebase: script.codebase,
                 concurrency_key: script.concurrency_key,
                 has_preprocessor: script.has_preprocessor,
+                on_behalf_of_email: script.on_behalf_of_email,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -426,7 +429,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
             FROM flow
             LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
             WHERE flow.workspace_id = $1 AND flow.archived = false",
