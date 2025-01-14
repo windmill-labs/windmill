@@ -153,14 +153,6 @@ export async function inferArgs(
 					...inferedSchema.args
 				]
 			}
-		} else if (language == 'oracledb') {
-			inferedSchema = JSON.parse(parse_mssql(code))
-			if (inlineDBResource === undefined) {
-				inferedSchema.args = [
-					{ name: 'database', typ: { resource: 'oracledb' } },
-					...inferedSchema.args
-				]
-			}
 		} else if (language == 'graphql') {
 			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_graphql(code))
