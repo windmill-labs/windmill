@@ -354,6 +354,7 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::Rust => "rs",
                 ScriptLang::Ansible => "playbook.yml",
                 ScriptLang::CSharp => "cs",
+                ScriptLang::OracleDB => "oracle.sql",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))

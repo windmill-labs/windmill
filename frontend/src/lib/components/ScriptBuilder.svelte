@@ -158,7 +158,7 @@
 		showCaptureHint: showCaptureHint
 	})
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
