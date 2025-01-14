@@ -1,5 +1,6 @@
 use anyhow::anyhow;
-use std::sync::Arc;
+use chrono::Utc;
+use std::{str::FromStr, sync::Arc};
 
 use futures::{future::BoxFuture, FutureExt};
 use itertools::Itertools;
@@ -16,7 +17,7 @@ use windmill_common::{
     jobs::QueuedJob,
     worker::to_raw_value,
 };
-use windmill_parser_sql::parse_db_resource;
+use windmill_parser_sql::{parse_db_resource, parse_mysql_sig};
 use windmill_queue::CanceledBy;
 
 use crate::{
@@ -47,7 +48,8 @@ pub fn do_oracledb_inner<'a>(
                     .iter()
                     .map(|(key, val)| (key.as_str(), &**val as &dyn ToSql))
                     .collect();
-                conn2.execute_named(&qw, &params2)
+                conn2.execute_named(&qw, &params2)?;
+                conn2.commit()
             })
             .await
             .map_err(to_anyhow)?
@@ -72,6 +74,7 @@ pub fn do_oracledb_inner<'a>(
                     }
                     _ => {
                         stmt.execute_named(&params2)?;
+                        conn2.commit()?;
                         vec![]
                     }
                 };
@@ -241,6 +244,78 @@ pub async fn do_oracledb(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
+    let sig = parse_mysql_sig(query)
+    .map_err(|x| Error::ExecutionErr(x.to_string()))?
+    .args;
+
+    let mut statement_values = vec![];
+
+    for arg in &sig {
+        let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
+        let arg_n = arg.name.clone();
+        let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args
+            .and_then(|x| {
+                x.get(arg.name.as_str())
+                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
+            })
+            .flatten()
+            .unwrap_or_else(|| json!(null))
+        {
+            // Value::Null => todo!(),
+            Value::Bool(b) => Box::new(b),
+            Value::String(s)
+                if arg_t == "timestamp"
+                    || arg_t == "datetime"
+                    || arg_t == "date"
+                    || arg_t == "time" =>
+            {
+                if let Ok(d) = chrono::DateTime::<Utc>::from_str(s.as_str()) {
+                    Box::new(d)
+                } else {
+                    Box::new(s)
+                }
+            }
+            Value::String(s) => Box::new(s),
+            Value::Number(n)
+                if n.is_i64()
+                    && (arg_t == "int"
+                        || arg_t == "integer"
+                        || arg_t == "smallint"
+                        || arg_t == "bigint") =>
+            {
+                Box::new(n.as_i64().unwrap())
+            }
+            Value::Number(n) if n.is_f64() && arg_t == "float" => {
+                Box::new(n.as_f64().unwrap() as f32)
+            }
+            Value::Number(n) if n.is_i64() && arg_t == "float" => {
+                Box::new(n.as_i64().unwrap() as f32)
+            }
+            Value::Number(n) if n.is_u64() && arg_t == "uint" => {
+                Box::new(n.as_u64().unwrap())
+            }
+            Value::Number(n)
+                if n.is_f64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
+            {
+                Box::new(n.as_f64().unwrap())
+            }
+            Value::Number(n)
+                if n.is_i64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
+            {
+                Box::new(n.as_i64().unwrap() as f64)
+            }
+            value @ _ => {
+                return Err(Error::ExecutionErr(format!(
+                    "Unsupported type in query: {:?} and signature {arg_t:?}",
+                    value
+                )))
+            }
+        };
+
+        statement_values.push((arg_n, oracle_v));
+    }
+
+
     let conn = tokio::task::spawn_blocking(|| {
         oracle::Connection::connect(database.user, database.password, database.database)
             .map_err(|e| Error::ExecutionErr(e.to_string()))
@@ -248,7 +323,7 @@ pub async fn do_oracledb(
     .await
     .map_err(to_anyhow)??;
 
-    let result_f = do_oracledb_inner(query, vec![], conn, Some(column_order), false)?;
+    let result_f = do_oracledb_inner(query, statement_values, conn, Some(column_order), false)?;
 
     let result = run_future_with_polling_update_job_poller(
         job.id,

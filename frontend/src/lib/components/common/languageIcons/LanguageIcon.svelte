@@ -46,7 +46,7 @@
 		graphql: 'GraphQL',
 		postgresql: 'Postgresql',
 		bigquery: 'BigQuery',
-		oracledb: 'Oracle DB',
+		oracledb: 'Oracle Database',
 		snowflake: 'Snowflake',
 		mysql: 'MySQL',
 		mssql: 'MS SQL Server',

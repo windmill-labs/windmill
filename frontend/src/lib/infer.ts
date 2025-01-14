@@ -128,6 +128,14 @@ export async function inferArgs(
 					...inferedSchema.args
 				]
 			}
+		} else if (language == 'oracledb') {
+			inferedSchema = JSON.parse(parse_mysql(code))
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'oracledb' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))
 			if (inlineDBResource === undefined) {

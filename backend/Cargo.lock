@@ -5918,6 +5918,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3db40fe6e4df881b683691ade5ef1f7b1afd52aefa115581f7b92855524d7ec0"
 dependencies = [
  "cc",
+ "chrono",
  "odpic-sys",
  "once_cell",
  "oracle_procmacro",

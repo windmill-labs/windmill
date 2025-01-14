@@ -115,6 +115,29 @@ export const MYSQL_TYPES = [
 	'time'
 ]
 
+export const ORACLEDB_TYPES = [
+	'varchar',
+	'char',
+	'bin',
+	'varbinary',
+	'blob',
+	'text',
+	'enum',
+	'set',
+	'int',
+	'uint',
+	'integer',
+	'bool',
+	'bit',
+	'float',
+	'real',
+	'dec',
+	'fixed',
+	'date',
+	'datetime',
+	'timestamp',
+	'time'
+]
 export const BIGQUERY_TYPES = [
 	'string',
 	'string[]',

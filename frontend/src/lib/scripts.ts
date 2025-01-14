@@ -113,7 +113,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['postgresql', 'PostgreSQL'],
 	['mysql', 'MySQL'],
 	['bigquery', 'BigQuery'],
-	['oracledb', 'OracleDB'],
+	['oracledb', 'Oracle Database'],
 	['snowflake', 'Snowflake'],
 	['mssql', 'MS SQL Server'],
 	['graphql', 'GraphQL'],
