@@ -1280,7 +1280,7 @@
 									{/if}
 								</div>
 							</TabContent>
-							<TabContent value="ui" class="h-full p-4 bg-red-500">
+							<TabContent value="ui" class="h-full p-4">
 								<ScriptSchema bind:schema={script.schema} />
 							</TabContent>
 							<TabContent value="triggers">
