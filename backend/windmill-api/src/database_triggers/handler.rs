@@ -10,9 +10,11 @@ use axum::{
     extract::{Path, Query},
     Extension, Json,
 };
+use chrono::Utc;
 use http::StatusCode;
 use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
+use rand::Rng;
 use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
@@ -87,6 +89,7 @@ pub struct EditDatabaseTrigger {
     script_path: String,
     is_flow: bool,
     database_resource_path: String,
+    publication: Option<PublicationData>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -97,8 +100,9 @@ pub struct NewDatabaseTrigger {
     is_flow: bool,
     enabled: bool,
     database_resource_path: String,
-    replication_slot_name: String,
-    publication_name: String,
+    replication_slot_name: Option<String>,
+    publication_name: Option<String>,
+    publication: Option<PublicationData>,
 }
 
 async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Error> {
@@ -131,6 +135,18 @@ async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Erro
     PgConnection::connect_with(&options)
         .await
         .map_err(Error::SqlErr)
+}
+
+async fn get_database_connection(
+    authed: ApiAuthed,
+    user_db: UserDB,
+    db: &DB,
+    database_resource_path: &str,
+    w_id: &str,
+) -> Result<PgConnection, Error> {
+    let database = get_database_resource(authed, user_db, db, database_resource_path, w_id).await?;
+
+    Ok(get_raw_postgres_connection(&database).await?)
 }
 
 #[derive(Debug)]
@@ -276,6 +292,7 @@ pub struct SetEnabled {
 pub async fn create_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(new_database_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
@@ -287,11 +304,72 @@ pub async fn create_database_trigger(
         is_flow,
         publication_name,
         replication_slot_name,
+        publication,
     } = new_database_trigger;
+
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
             "Database triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
         ));
+    }
+
+    if publication_name.is_none() && publication.is_none() {
+        return Err(error::Error::BadRequest(
+            "Publication data is missing".to_string(),
+        ));
+    }
+
+    let create_slot = replication_slot_name.is_none();
+    let create_publication = publication_name.is_none();
+
+    let name;
+    let mut pub_name = publication_name.as_deref().unwrap_or_default();
+    let mut slot_name = replication_slot_name.as_deref().unwrap_or_default();
+    if create_publication || create_slot {
+        let generate_random_string = move || {
+            let timestamp = Utc::now().timestamp_millis().to_string();
+            let mut rng = rand::thread_rng();
+            let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+            let random_part = (0..10)
+                .map(|_| {
+                    charset
+                        .chars()
+                        .nth(rng.gen_range(0..charset.len()))
+                        .unwrap()
+                })
+                .collect::<String>();
+
+            format!("{}_{}", timestamp, random_part)
+        };
+
+        name = format!("windmill_{}", generate_random_string());
+        pub_name = &name;
+        slot_name = &name;
+        let publication = publication.unwrap();
+
+        let mut connection = get_database_connection(
+            authed.clone(),
+            user_db.clone(),
+            &db,
+            &database_resource_path,
+            &w_id,
+        )
+        .await?;
+
+        new_publication(
+            &mut connection,
+            pub_name,
+            publication.table_to_track.as_deref(),
+            &publication
+                .transaction_to_track
+                .iter()
+                .map(AsRef::as_ref)
+                .collect_vec(),
+        )
+        .await?;
+
+        new_slot(&mut connection, slot_name).await?;
     }
 
     let mut tx = user_db.begin(&authed).await?;
@@ -324,8 +402,8 @@ pub async fn create_database_trigger(
             $10, 
             now()
         )"#,
-        &publication_name,
-        &replication_slot_name,
+        pub_name,
+        slot_name,
         &w_id,
         &path,
         script_path,
@@ -412,7 +490,7 @@ pub async fn list_database_triggers(
     Ok(Json(rows))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct PublicationData {
     #[serde(default, deserialize_with = "check_if_not_duplication_relation")]
     table_to_track: Option<Vec<Relations>>,
@@ -474,10 +552,14 @@ pub async fn list_slot_name(
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
 ) -> error::Result<Json<Vec<SlotList>>> {
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
     let slots = sqlx::query_as!(
         SlotList,
@@ -503,18 +585,7 @@ pub struct Slot {
     name: String,
 }
 
-pub async fn create_slot(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path)): Path<(String, String)>,
-    Json(Slot { name }): Json<Slot>,
-) -> error::Result<String> {
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
-
+async fn new_slot(connection: &mut PgConnection, name: &str) -> error::Result<()> {
     let query = format!(
         r#"
         SELECT 
@@ -524,7 +595,28 @@ pub async fn create_slot(
         quote_literal(&name)
     );
 
-    sqlx::query(&query).execute(&mut connection).await?;
+    sqlx::query(&query).execute(connection).await?;
+
+    Ok(())
+}
+
+pub async fn create_slot(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Json(Slot { name }): Json<Slot>,
+) -> error::Result<String> {
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
+
+    new_slot(&mut connection, &name).await?;
 
     Ok(format!("Slot {} created!", name))
 }
@@ -536,10 +628,14 @@ pub async fn drop_slot_name(
     Path((w_id, database_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> error::Result<String> {
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
     let query = format!("SELECT pg_drop_replication_slot({});", quote_literal(&name));
     sqlx::query(&query).execute(&mut connection).await?;
@@ -557,10 +653,14 @@ pub async fn list_database_publication(
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
 ) -> error::Result<Json<Vec<String>>> {
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
     let publication_names = sqlx::query_as!(
         PublicationName,
@@ -583,10 +683,14 @@ pub async fn get_publication_info(
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
 ) -> error::Result<Json<PublicationData>> {
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
     let publication_data =
         get_publication_scope_and_transaction(&publication_name, &mut connection).await;
@@ -688,10 +792,14 @@ pub async fn create_publication(
 ) -> error::Result<String> {
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
 
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
     new_publication(
         &mut connection,
@@ -725,10 +833,14 @@ pub async fn delete_publication(
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
 ) -> error::Result<String> {
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
     drop_publication(&publication_name, &mut connection).await?;
 
@@ -738,21 +850,13 @@ pub async fn delete_publication(
     ))
 }
 
-pub async fn alter_publication(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
-    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
-    Json(publication_data): Json<PublicationData>,
+async fn update_publication(
+    connection: &mut PgConnection,
+    publication_name: &str,
+    PublicationData { table_to_track, transaction_to_track }: PublicationData,
 ) -> error::Result<String> {
-    let PublicationData { table_to_track, transaction_to_track } = publication_data;
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut connection = get_raw_postgres_connection(&database).await?;
-
     let (all_table, _) =
-        get_publication_scope_and_transaction(&publication_name, &mut connection).await?;
+        get_publication_scope_and_transaction(&publication_name, connection).await?;
 
     let mut query = QueryBuilder::new("");
     let quoted_publication_name = quote_identifier(&publication_name);
@@ -762,9 +866,9 @@ pub async fn alter_publication(
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
             if all_table {
-                drop_publication(&publication_name, &mut connection).await?;
+                drop_publication(&publication_name, connection).await?;
                 new_publication(
-                    &mut connection,
+                    connection,
                     &publication_name,
                     table_to_track.as_deref(),
                     &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
@@ -811,7 +915,7 @@ pub async fn alter_publication(
                     }
                 }
                 query.push(";");
-                query.build().execute(&mut connection).await?;
+                query.build().execute(&mut *connection).await?;
                 query.reset();
                 query.push("ALTER PUBLICATION ");
                 query.push(&quoted_publication_name);
@@ -822,7 +926,7 @@ pub async fn alter_publication(
             }
         }
         _ => {
-            drop_publication(&publication_name, &mut connection).await?;
+            drop_publication(&publication_name, connection).await?;
             let to_execute = format!(
                 r#"
                 CREATE
@@ -834,12 +938,37 @@ pub async fn alter_publication(
         }
     };
 
-    query.build().execute(&mut connection).await?;
+    query.build().execute(&mut *connection).await?;
 
     Ok(format!(
         "Publication {} successfully updated!",
         publication_name
     ))
+}
+
+pub async fn alter_publication(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
+    Json(publication_data): Json<PublicationData>,
+) -> error::Result<String> {
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
+    let message = update_publication(
+        &mut connection,
+        &publication_name,
+        publication_data,
+    )
+    .await?;
+
+    Ok(message)
 }
 
 async fn get_publication_scope_and_transaction(
@@ -986,6 +1115,7 @@ pub async fn get_database_trigger(
 pub async fn update_database_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(database_trigger): Json<EditDatabaseTrigger>,
 ) -> error::Result<String> {
@@ -997,8 +1127,25 @@ pub async fn update_database_trigger(
         path,
         is_flow,
         database_resource_path,
+        publication,
     } = database_trigger;
 
+    if let Some(publication) = publication {
+        let mut connection = get_database_connection(
+            authed.clone(),
+            user_db.clone(),
+            &db,
+            &database_resource_path,
+            &w_id,
+        )
+        .await?;
+        update_publication(
+            &mut connection,
+            &publication_name,
+            publication,
+        )
+        .await?;
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1181,10 +1328,14 @@ pub async fn get_template_script(
         ));
     }
 
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
-
-    let mut pg_connection = get_raw_postgres_connection(&database).await?;
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
     #[derive(Debug, FromRow, Deserialize)]
     struct ColumnInfo {
@@ -1270,7 +1421,7 @@ pub async fn get_template_script(
     );
 
     let rows: Vec<ColumnInfo> = sqlx::query_as(&query)
-        .fetch_all(&mut pg_connection)
+        .fetch_all(&mut connection)
         .await
         .map_err(error::Error::SqlErr)?;
 
@@ -1319,18 +1470,24 @@ pub async fn is_database_in_logical_level(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, database_resource_path)): Path<(String, String)>,
-    ) -> error::JsonResult<bool> {
-    
-    let database =
-        get_database_resource(authed, user_db, &db, &database_resource_path, &w_id).await?;
+) -> error::JsonResult<bool> {
+    let mut connection = get_database_connection(
+        authed.clone(),
+        user_db.clone(),
+        &db,
+        &database_resource_path,
+        &w_id,
+    )
+    .await?;
 
-    let mut pg_connection = get_raw_postgres_connection(&database).await?;
-
-    let wal_level = sqlx::query_scalar!("SHOW WAL_LEVEL;").fetch_optional(&mut pg_connection).await?.flatten();
+    let wal_level = sqlx::query_scalar!("SHOW WAL_LEVEL;")
+        .fetch_optional(&mut connection)
+        .await?
+        .flatten();
 
     let is_logical = match wal_level.as_deref() {
         Some("logical") => true,
-        _ => false
+        _ => false,
     };
 
     Ok(Json(is_logical))

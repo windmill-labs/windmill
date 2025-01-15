@@ -13146,6 +13146,8 @@ components:
           type: boolean
         database_resource_path:
           type: string
+        publication:
+          $ref: "#/components/schemas/PublicationData"
       required:
         - path
         - script_path
@@ -13170,12 +13172,16 @@ components:
           type: boolean
         database_resource_path:
           type: string
+        publication:
+          $ref: "#/components/schemas/PublicationData"
       required:
         - path
         - script_path
         - is_flow
         - enabled
         - database_resource_path
+        - publication_name
+        - replication_slot_name
 
     KafkaTrigger:
       type: object

@@ -42,19 +42,20 @@
 	let can_write = true
 	let drawerLoading = true
 	let database_resource_path = ''
-	let publication_name: string | undefined = ''
-	let replication_slot_name: string | undefined = ''
+	let publication_name: string = ''
+	let replication_slot_name: string = ''
 	let relations: Relations[] = []
 	let transaction_to_track: string[] = []
 	let language: Language = 'Typescript'
 	let loading = false
 	type actions = 'create' | 'get'
-	let selectedPublicAction: actions = 'create'
-	let selectedSlotAction: actions = 'create'
+	let selectedPublicAction: actions
+	let selectedSlotAction: actions
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let selectedTable: 'all' | 'specific' = 'specific'
-	let tab: 'advanced' | 'basic' = 'basic'
+	let tab: 'advanced' | 'basic'
+	$: table_to_track = selectedTable === 'all' ? [] : relations
 
 	async function createPublication() {
 		try {
@@ -64,7 +65,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					transaction_to_track: transaction_to_track,
-					table_to_track: selectedTable === 'specific' ? relations : undefined
+					table_to_track
 				}
 			})
 
@@ -105,6 +106,7 @@
 			selectedSlotAction = 'get'
 			selectedPublicAction = selectedPublicAction
 			selectedSlotAction = selectedSlotAction
+			tab = 'basic'
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load database trigger: ${err}`, true)
@@ -116,8 +118,10 @@
 	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
 		drawerLoading = true
 		try {
+			selectedPublicAction = 'create'
+			selectedSlotAction = 'create'
 			drawer?.openDrawer()
-
+			tab = 'basic'
 			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
 			initialScriptPath = ''
@@ -125,12 +129,6 @@
 			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
-			relations = [
-				{
-					schema_name: 'public',
-					table_to_track: []
-				}
-			]
 			replication_slot_name = ''
 			publication_name = ''
 			database_resource_path = ''
@@ -166,15 +164,13 @@
 			workspace: $workspaceStore!,
 			publication: publication_name
 		})
-
 		transaction_to_track = [...publication_data.transaction_to_track]
 		relations = publication_data.table_to_track ?? []
+		selectedTable = relations.length === 0 ? 'all' : 'specific'
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
 	async function updateTrigger(): Promise<void> {
-		publication_name = tab === 'basic' ? undefined : publication_name
-		replication_slot_name = tab === 'basic' ? undefined : replication_slot_name
 		if (edit) {
 			await DatabaseTriggerService.updateDatabaseTrigger({
 				workspace: $workspaceStore!,
@@ -186,7 +182,14 @@
 					database_resource_path,
 					enabled,
 					replication_slot_name,
-					publication_name
+					publication_name,
+					publication:
+						tab === 'basic'
+							? {
+									transaction_to_track,
+									table_to_track
+							  }
+							: undefined
 				}
 			})
 			sendUserToast(`Database ${path} updated`)
@@ -200,7 +203,11 @@
 					enabled: true,
 					database_resource_path,
 					replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
-					publication_name: tab === 'basic' ? undefined : publication_name
+					publication_name: tab === 'basic' ? undefined : publication_name,
+					publication: {
+						transaction_to_track,
+						table_to_track
+					}
 				}
 			})
 			sendUserToast(`Database ${path} created`)
@@ -433,7 +440,7 @@
 								<svelte:fragment slot="content">
 									<div class="overflow-hidden bg-surface">
 										<TabContent value="basic">
-											<RelationPicker bind:relations />
+											<RelationPicker bind:selectedTable bind:relations />
 										</TabContent>
 										<TabContent value="advanced">
 											<div class="flex flex-col gap-12 mt-6">
@@ -507,7 +514,7 @@
 															<PublicationPicker
 																{database_resource_path}
 																bind:transaction_to_track
-																bind:table_to_track={relations}
+																bind:table_to_track
 																bind:items={publicationItems}
 																bind:publication_name
 																bind:selectedTable
@@ -515,7 +522,7 @@
 														{/if}
 
 														{#if showAddSchema}
-															<RelationPicker bind:relations />
+															<RelationPicker bind:selectedTable bind:relations />
 														{/if}
 													</div>
 												</Section>

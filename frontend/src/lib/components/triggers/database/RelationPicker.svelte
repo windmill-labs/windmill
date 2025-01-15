@@ -7,7 +7,18 @@
 	import MultiSelect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	export let relations: Relations[] = []
-	let selectedTable: 'all' | 'specific' = 'specific'
+	export let selectedTable: 'all' | 'specific'
+
+	$: {
+		if (selectedTable === 'specific' && relations.length === 0) {
+			relations = [
+				{
+					schema_name: 'public',
+					table_to_track: []
+				}
+			]
+		}
+	}
 </script>
 
 <div class="flex flex-col gap-4">

@@ -15,7 +15,7 @@
 	export let database_resource_path: string = ''
 	export let table_to_track: Relations[] = []
 	export let transaction_to_track: string[] = []
-	export let selectedTable: 'all' | 'specific'
+	export let selectedTable: 'all' | 'specific' = 'specific'
 
 	async function listDatabasePublication() {
 		try {
@@ -37,7 +37,7 @@
 				workspace: $workspaceStore!,
 				publication: publication_name,
 				requestBody: {
-					table_to_track: selectedTable === 'specific' ? table_to_track : undefined,
+					table_to_track,
 					transaction_to_track: transaction_to_track
 				}
 			})
