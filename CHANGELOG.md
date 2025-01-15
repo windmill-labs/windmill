@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.447.2](https://github.com/windmill-labs/windmill/compare/v1.447.1...v1.447.2) (2025-01-15)
+
+
+### Bug Fixes
+
+* **frontend:** fix nested shema editing ([#5068](https://github.com/windmill-labs/windmill/issues/5068)) ([df0faa2](https://github.com/windmill-labs/windmill/commit/df0faa204f64a2f5c254f90527cb8c0a57826b8c))
+* improve handling of default and set value of object args ([1c14c3a](https://github.com/windmill-labs/windmill/commit/1c14c3ac0e28871f9b66a7e0ef5977766d314cfa))
+
 ## [1.447.1](https://github.com/windmill-labs/windmill/compare/v1.447.0...v1.447.1) (2025-01-15)
 
 
