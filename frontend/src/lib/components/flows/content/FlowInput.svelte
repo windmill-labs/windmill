@@ -40,7 +40,8 @@
 		setNestedProperty,
 		getNestedProperty,
 		schemaFromDiff,
-		computeDiff
+		computeDiff,
+		applyDiff
 	} from '$lib/components/schema/schemaUtils'
 
 	export let noEditor: boolean
@@ -203,6 +204,7 @@
 		const diffSchema = computeDiff(newSchema, $flowStore.schema)
 		diff = diffSchema
 		previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+		console.log('dbg previewSchema', previewSchema)
 	}
 
 	function applySchemaAndArgs() {
@@ -218,32 +220,6 @@
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
-	}
-
-	function applyDiff(schema: Record<string, any>, diff: Record<string, SchemaDiff>) {
-		if (!diff) {
-			return
-		}
-
-		let newSchema = structuredClone(schema)
-
-		Object.keys(diff).forEach((key) => {
-			if (diff[key].diff === 'removed') {
-				delete newSchema.properties[key]
-				if (newSchema.order) {
-					newSchema.order = newSchema.order.filter((x) => x !== key)
-				}
-			} else if (diff[key].diff === 'added' || diff[key].diff === 'modified') {
-				newSchema.properties[key] = diff[key].fullSchema
-				if (newSchema.order) {
-					newSchema.order.push(key)
-				}
-			} else if (typeof diff[key].diff === 'object') {
-				newSchema.properties[key] = applyDiff(newSchema.properties[key], diff[key].diff)
-			}
-		})
-
-		return newSchema
 	}
 
 	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
@@ -299,7 +275,7 @@
 		})
 	}
 
-	function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
+	async function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
 		const revertDiff = computeDiff($flowStore.schema, selectedSchema)
 		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
 			selectedSchema = newSchema
@@ -333,6 +309,8 @@
 		diff = computeDiff(selectedSchema, $flowStore.schema)
 		previewSchema = schemaFromDiff(diff, $flowStore.schema)
 	}
+
+	$: console.log('dbg diff', diff)
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -370,8 +348,9 @@
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 				{diff}
 				on:rejectChange={(e) => {
-					rejectChange(e.detail)
-					updatePreviewSchema(selectedSchema)
+					rejectChange(e.detail).then(() => {
+						updatePreviewSchema(selectedSchema)
+					})
 				}}
 				on:acceptChange={(e) => {
 					acceptChange(e.detail).then(() => {

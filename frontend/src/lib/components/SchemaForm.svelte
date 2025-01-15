@@ -183,8 +183,8 @@
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && keys.includes(argName)}
-					{#if typeof diff[argName] === 'object' && (diff[argName].diff == 'modified' || typeof diff[argName].diff === 'object')}
-						{@const formerProperty = diff[argName].fullSchema}
+					{#if typeof diff[argName] === 'object' && diff[argName].oldSchema}
+						{@const formerProperty = diff[argName].oldSchema}
 						<ArgInput
 							{disablePortal}
 							{resourceTypes}

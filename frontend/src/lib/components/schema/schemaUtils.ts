@@ -1,6 +1,7 @@
 export type SchemaDiff = {
 	diff: 'same' | 'added' | 'removed' | 'modified' | Record<string, SchemaDiff>
 	fullSchema: { [key: string]: any } | undefined
+	oldSchema?: { [key: string]: any } | undefined
 }
 
 export function computeDiff(
@@ -27,9 +28,9 @@ export function computeDiff(
 					diff[key] = { diff: 'same', fullSchema: undefined }
 				} else if (previewProp.type === 'object' && currentProp.type === 'object') {
 					const diffProp = computeDiff(previewProp, currentProp)
-					diff[key] = { diff: diffProp, fullSchema: diffProp.fullSchema }
+					diff[key] = { diff: diffProp, fullSchema: previewProp, oldSchema: currentProp }
 				} else {
-					diff[key] = { diff: 'modified', fullSchema: previewProp }
+					diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
 				}
 			}
 		})
@@ -53,14 +54,19 @@ export function schemaFromDiff(
 	if (!schema) {
 		return undefined
 	}
+	console.log('dbg diff & schema', diff, schema)
 	const newSchema = structuredClone(schema)
 	Object.keys(diff).forEach((key) => {
 		if (diff[key].diff === 'added' || diff[key].diff === 'modified') {
 			newSchema.properties[key] = diff[key].fullSchema
+			if (newSchema.order && !newSchema.order.includes(key)) {
+				newSchema.order.push(key)
+			}
 		} else if (typeof diff[key].diff === 'object') {
 			newSchema.properties[key] = schemaFromDiff(diff[key].diff, schema.properties[key])
 		}
 	})
+	console.log('dbg updated newSchema', newSchema)
 	return newSchema
 }
 
@@ -100,4 +106,30 @@ export function setNestedProperty(
 	} else if (lastKey && !value) {
 		delete target[field][lastKey]
 	}
+}
+
+export function applyDiff(schema: Record<string, any>, diff: Record<string, SchemaDiff>) {
+	if (!diff) {
+		return
+	}
+
+	let newSchema = structuredClone(schema)
+
+	Object.keys(diff).forEach((key) => {
+		if (diff[key].diff === 'removed') {
+			delete newSchema.properties[key]
+			if (newSchema.order) {
+				newSchema.order = newSchema.order.filter((x) => x !== key)
+			}
+		} else if (diff[key].diff === 'added' || diff[key].diff === 'modified') {
+			newSchema.properties[key] = diff[key].fullSchema
+			if (newSchema.order && !newSchema.order.includes(key)) {
+				newSchema.order.push(key)
+			}
+		} else if (typeof diff[key].diff === 'object') {
+			newSchema.properties[key] = applyDiff(newSchema.properties[key], diff[key].diff)
+		}
+	})
+
+	return newSchema
 }
