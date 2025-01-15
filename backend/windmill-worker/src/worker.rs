@@ -90,26 +90,12 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job},
-    bun_executor::handle_bun_job,
-    common::{
+    bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    },
-    csharp_executor::handle_csharp_job,
-    deno_executor::handle_deno_job,
-    go_executor::handle_go_job,
-    graphql_executor::do_graphql,
-    handle_child::SLOW_LOGS,
-    handle_job_error,
-    job_logger::NO_LOGS_AT_ALL,
-    js_eval::{eval_fetch_timeout, transpile_ts},
-    pg_executor::do_postgresql,
-    result_processor::{process_result, start_background_processor},
-    worker_flow::{handle_flow, update_flow_status_in_progress},
-    worker_lockfiles::{
+    }, csharp_executor::handle_csharp_job, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, pg_executor::do_postgresql, result_processor::{process_result, start_background_processor}, worker_flow::{handle_flow, update_flow_status_in_progress}, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    },
+    }
 };
 
 #[cfg(feature = "rust")]
@@ -126,6 +112,9 @@ use crate::ansible_executor::handle_ansible_job;
 
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::do_mysql;
+
+#[cfg(feature = "oracledb")]
+use crate::oracledb_executor::do_oracledb;
 
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
@@ -2476,6 +2465,37 @@ async fn handle_code_execution_job(
                 mem_peak,
                 canceled_by,
                 worker_name,
+                occupancy_metrics,
+            )
+            .await;
+        }
+    } else if language == Some(ScriptLang::OracleDB) {
+        #[cfg(not(feature = "enterprise"))]
+        {
+            return Err(Error::ExecutionErr(
+                "Oracle DB is only available with an enterprise license".to_string(),
+            ));
+        }
+
+        #[allow(unreachable_code)]
+        #[cfg(not(feature = "oracledb"))]
+        {
+            return Err(Error::InternalErr(
+                "Oracle DB requires the oracledb feature to be enabled".to_string(),
+            ));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "oracledb"))]
+        {
+            return do_oracledb(
+                job,
+                &client,
+                &code,
+                db,
+                mem_peak,
+                canceled_by,
+                worker_name,
+                column_order,
                 occupancy_metrics,
             )
             .await;

@@ -20,6 +20,7 @@ use crate::{
     flows::{FlowNodeId, FlowValue, Retry},
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
+    users::username_to_permissioned_as,
     worker::{to_raw_value, TMP_DIR},
 };
 
@@ -370,54 +371,87 @@ type Tag = String;
 
 pub type DB = Pool<Postgres>;
 
-pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+#[derive(Clone, Debug)]
+pub struct OnBehalfOf {
+    pub email: String,
+    pub permissioned_as: String,
+}
+
+pub async fn script_path_to_payload(
     script_path: &str,
-    db: E,
+    db: &DB,
     w_id: &str,
     skip_preprocessor: Option<bool>,
-) -> error::Result<(JobPayload, Option<Tag>, Option<bool>, Option<i32>)> {
-    let (job_payload, tag, delete_after_use, script_timeout) = if script_path.starts_with("hub/") {
-        (
-            JobPayload::ScriptHub { path: script_path.to_owned() },
-            None,
-            None,
-            None,
-        )
-    } else {
-        let (
-            script_hash,
-            tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            cache_ttl,
-            language,
-            dedicated_worker,
-            priority,
-            delete_after_use,
-            script_timeout,
-            has_preprocessor,
-        ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
-        (
-            JobPayload::ScriptHash {
-                hash: script_hash,
-                path: script_path.to_owned(),
+) -> error::Result<(
+    JobPayload,
+    Option<Tag>,
+    Option<bool>,
+    Option<i32>,
+    Option<OnBehalfOf>,
+)> {
+    let (job_payload, tag, delete_after_use, script_timeout, on_behalf_of) =
+        if script_path.starts_with("hub/") {
+            (
+                JobPayload::ScriptHub { path: script_path.to_owned() },
+                None,
+                None,
+                None,
+                None,
+            )
+        } else {
+            let (
+                script_hash,
+                tag,
                 custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                cache_ttl: cache_ttl,
+                cache_ttl,
                 language,
                 dedicated_worker,
                 priority,
-                apply_preprocessor: !skip_preprocessor.unwrap_or(false)
-                    && has_preprocessor.unwrap_or(false),
-            },
-            tag,
-            delete_after_use,
-            script_timeout,
-        )
-    };
-    Ok((job_payload, tag, delete_after_use, script_timeout))
+                delete_after_use,
+                script_timeout,
+                has_preprocessor,
+                on_behalf_of_email,
+                created_by,
+            ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+
+            let on_behalf_of = if let Some(email) = on_behalf_of_email {
+                Some(OnBehalfOf {
+                    email,
+                    permissioned_as: username_to_permissioned_as(created_by.as_str()),
+                })
+            } else {
+                None
+            };
+
+            (
+                JobPayload::ScriptHash {
+                    hash: script_hash,
+                    path: script_path.to_owned(),
+                    custom_concurrency_key,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    cache_ttl: cache_ttl,
+                    language,
+                    dedicated_worker,
+                    priority,
+                    apply_preprocessor: !skip_preprocessor.unwrap_or(false)
+                        && has_preprocessor.unwrap_or(false),
+                },
+                tag,
+                delete_after_use,
+                script_timeout,
+                on_behalf_of,
+            )
+        };
+    Ok((
+        job_payload,
+        tag,
+        delete_after_use,
+        script_timeout,
+        on_behalf_of,
+    ))
 }
 
 pub async fn script_hash_to_tag_and_limits<'c>(
@@ -435,9 +469,11 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     Option<i16>,
     Option<bool>,
     Option<i32>,
+    Option<String>,
+    String,
 )> {
     let script = sqlx::query!(
-        "select tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+        "select tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, on_behalf_of_email, created_by from script where hash = $1 AND workspace_id = $2",
         script_hash.0,
         w_id
     )
@@ -459,15 +495,17 @@ pub async fn script_hash_to_tag_and_limits<'c>(
         script.priority,
         script.delete_after_use,
         script.timeout,
+        script.on_behalf_of_email,
+        script.created_by,
     ))
 }
 
-pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+pub async fn get_payload_tag_from_prefixed_path(
     path: &str,
-    db: E,
+    db: &DB,
     w_id: &str,
-) -> Result<(JobPayload, Option<String>), Error> {
-    let (payload, tag, _, _) = if path.starts_with("script/") {
+) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
+    let (payload, tag, _, _, on_behalf_of) = if path.starts_with("script/") {
         script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
@@ -486,6 +524,7 @@ pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Databa
             tag,
             None,
             None,
+            None,
         )
     } else {
         return Err(Error::BadRequest(format!(
@@ -493,7 +532,7 @@ pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Databa
             path
         )));
     };
-    Ok((payload, tag))
+    Ok((payload, tag, on_behalf_of))
 }
 
 #[derive(Deserialize)]
