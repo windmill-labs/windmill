@@ -214,6 +214,9 @@
 
 	async function applySchemaAndArgs() {
 		$flowStore.schema = applyDiff($flowStore.schema, diff)
+		if (previewArguments) {
+			$previewArgs = structuredClone(previewArguments)
+		}
 		updatePreviewSchemaAndArgs(undefined)
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
@@ -222,7 +225,7 @@
 
 	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
 		if (!payloadData) {
-			previewArguments = $previewArgs
+			previewArguments = structuredClone($previewArgs)
 			return
 		}
 		previewArguments = structuredClone(payloadData)
