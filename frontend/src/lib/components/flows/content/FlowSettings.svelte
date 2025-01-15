@@ -380,7 +380,7 @@
 					/>
 					{#if !$enterpriseLicense}
 						<span
-							class="inline-flex text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+							class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
 						>
 							<AlertTriangle size={16} />
 							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
@@ -501,7 +501,7 @@
 						/>
 						{#if !$enterpriseLicense || isCloudHosted()}
 							<span
-								class="inline-flex absolute top-0 left-72 text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+								class="inline-flex absolute top-0 left-72 text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
 							>
 								<AlertTriangle size={16} />
 								EE only <Tooltip>Enterprise Edition only feature</Tooltip>
