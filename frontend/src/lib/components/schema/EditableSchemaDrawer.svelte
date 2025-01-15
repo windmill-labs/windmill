@@ -172,7 +172,9 @@
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
 		<DrawerContent title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
 			<EditableSchemaForm
-				on:change
+				on:change={(e) => {
+					dispatch('change', e.detail)
+				}}
 				bind:this={editableSchemaForm}
 				bind:schema
 				isAppInput
