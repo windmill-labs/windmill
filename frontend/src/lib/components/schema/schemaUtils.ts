@@ -19,7 +19,7 @@ export function computeDiff(
 					diff: 'added',
 					fullSchema: previewSchema.properties[key]
 				}
-				//TODO: add other properties
+				//TODO: add other properties like required, order, etc.
 			} else {
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
@@ -97,24 +97,7 @@ export function setNestedProperty(
 		const newValue = structuredClone(value)
 		target[field][lastKey] = newValue
 		return
-	}
-	if (lastKey && !value) {
+	} else if (lastKey && !value) {
 		delete target[field][lastKey]
-	}
-}
-
-export function getNestedOrder(obj: any, path: string[]) {
-	if (path.length === 0) return obj.order
-	return path.reduce((curr, key) => curr?.properties?.[key], obj)?.order
-}
-
-export function setNestedOrder(obj: any, path: string[], value: string[]) {
-	if (path.length === 0) {
-		obj.order = value
-		return
-	}
-	const target = path.reduce((curr, key) => curr?.properties?.[key], obj)
-	if (target) {
-		target.order = value
 	}
 }

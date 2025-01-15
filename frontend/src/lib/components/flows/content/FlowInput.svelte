@@ -39,8 +39,6 @@
 		getFullPath,
 		setNestedProperty,
 		getNestedProperty,
-		getNestedOrder,
-		setNestedOrder,
 		schemaFromDiff,
 		computeDiff
 	} from '$lib/components/schema/schemaUtils'
@@ -211,7 +209,7 @@
 		if (!previewSchema) {
 			return
 		}
-		$flowStore.schema = applySchema(previewSchema, diff)
+		$flowStore.schema = applyDiff(previewSchema, diff)
 		diff = {}
 		updatePreviewSchemaAndArgs(undefined)
 		if (previewArguments) {
@@ -222,7 +220,7 @@
 		}
 	}
 
-	function applySchema(schema: Record<string, any>, diff: Record<string, SchemaDiff>) {
+	function applyDiff(schema: Record<string, any>, diff: Record<string, SchemaDiff>) {
 		if (!diff) {
 			return
 		}
@@ -235,9 +233,13 @@
 				if (newSchema.order) {
 					newSchema.order = newSchema.order.filter((x) => x !== key)
 				}
-			}
-			if (typeof diff[key].diff === 'object') {
-				newSchema.properties[key] = applySchema(newSchema.properties[key], diff[key].diff)
+			} else if (diff[key].diff === 'added' || diff[key].diff === 'modified') {
+				newSchema.properties[key] = diff[key].fullSchema
+				if (newSchema.order) {
+					newSchema.order.push(key)
+				}
+			} else if (typeof diff[key].diff === 'object') {
+				newSchema.properties[key] = applyDiff(newSchema.properties[key], diff[key].diff)
 			}
 		})
 
@@ -292,84 +294,44 @@
 	let preventEnter = false
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
-		if (!diff || !$flowStore?.schema?.properties || !selectedSchema) {
-			return
-		}
-
-		const path = getFullPath(arg)
-		const parentPath = path.slice(0, -1)
-		const diffStatus = getNestedProperty({ diff }, path, 'diff').diff
-
-		if (diffStatus === 'removed') {
-			setNestedProperty($flowStore.schema, path, undefined)
-
-			const currentOrder = getNestedOrder($flowStore.schema, parentPath)
-			if (currentOrder && Array.isArray(currentOrder)) {
-				setNestedOrder(
-					$flowStore.schema,
-					parentPath,
-					currentOrder.filter((a) => a !== arg.label)
-				)
-			}
-		} else if (diffStatus === 'added' || diffStatus === 'modified') {
-			const newValue = getNestedProperty(selectedSchema, path, 'properties')
-			setNestedProperty($flowStore.schema, path, newValue)
-			const previewOrder = getNestedOrder(previewSchema, parentPath)
-			const currentOrder = getNestedOrder($flowStore.schema, parentPath)
-			if (previewOrder && Array.isArray(previewOrder)) {
-				setNestedOrder(
-					$flowStore.schema,
-					parentPath,
-					previewOrder.filter((x) => currentOrder?.includes(x) || x === arg.label)
-				)
-			} else {
-				setNestedOrder($flowStore.schema, parentPath, [arg.label])
-			}
-		} else if (typeof diffStatus === 'object') {
-			const schema = getNestedProperty(selectedSchema, path, 'properties')
-			const newSchema = applySchema(schema, diffStatus)
-			setNestedProperty($flowStore.schema, path, newSchema)
-		}
+		handleChange(arg, $flowStore.schema, diff, (newSchema) => {
+			$flowStore.schema = newSchema
+		})
 	}
 
-	function rejectChange(arg: any) {
-		if (!diff || !$flowStore?.schema?.properties || !selectedSchema) {
+	function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
+		const revertDiff = computeDiff($flowStore.schema, selectedSchema)
+		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
+			selectedSchema = newSchema
+		})
+	}
+
+	function handleChange(
+		arg: { label: string; nestedParent: any | undefined },
+		currentSchema: Record<string, any> | undefined,
+		diffSchema: Record<string, SchemaDiff> | undefined,
+		updateCurrentSchema: (newSchema: Record<string, any> | undefined) => void
+	) {
+		if (!diff || !currentSchema) {
 			return
 		}
 
 		const path = getFullPath(arg)
 		const parentPath = path.slice(0, -1)
-		const diffStatus = getNestedProperty({ diff }, path, 'diff').diff
-
-		if (diffStatus === 'added' || diffStatus === 'modified') {
-			setNestedProperty(selectedSchema, path, undefined)
-
-			const currentOrder = getNestedOrder(selectedSchema, parentPath)
-			if (currentOrder && Array.isArray(currentOrder)) {
-				setNestedOrder(
-					selectedSchema,
-					parentPath,
-					currentOrder.filter((a) => a !== arg.label)
-				)
-			}
-		} else if (diffStatus === 'removed') {
-			const newValue = getNestedProperty($flowStore.schema, path)
-			setNestedProperty(selectedSchema, path, newValue)
-			const previewOrder = getNestedOrder(previewSchema, parentPath)
-			const currentOrder = getNestedOrder(selectedSchema, parentPath)
-			if (previewOrder && Array.isArray(previewOrder)) {
-				setNestedOrder(
-					selectedSchema,
-					parentPath,
-					previewOrder.filter((x) => currentOrder?.includes(x) || x === arg.label)
-				)
-			} else {
-				setNestedOrder(selectedSchema, parentPath, [arg.label])
-			}
-		} else if (typeof diffStatus === 'object') {
-			const schema = getNestedProperty($flowStore.schema, path)
-			setNestedProperty(selectedSchema, path, schema)
+		const diffStatus = getNestedProperty({ diff: diffSchema }, path, 'diff')
+		const schema = getNestedProperty(currentSchema, parentPath, 'properties')
+		const localDiff = {
+			[arg.label]: diffStatus
 		}
+		const schemaUpdated = applyDiff(schema, localDiff)
+		if (parentPath.length > 0) {
+			setNestedProperty(currentSchema, parentPath, schemaUpdated)
+		} else {
+			updateCurrentSchema(schemaUpdated)
+		}
+
+		diff = computeDiff(selectedSchema, $flowStore.schema)
+		previewSchema = schemaFromDiff(diff, $flowStore.schema)
 	}
 </script>
 
