@@ -24,7 +24,14 @@ export function computeDiff(
 			} else {
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
-				if (JSON.stringify(previewProp) === JSON.stringify(currentProp)) {
+				// Filter out 'order' field before comparison
+				const filteredPreviewProp = { ...previewProp }
+				const filteredCurrentProp = { ...currentProp }
+				delete filteredPreviewProp.order
+				delete filteredCurrentProp.order
+
+				console.log('dbg previewProp', previewProp, currentProp)
+				if (JSON.stringify(filteredPreviewProp) === JSON.stringify(filteredCurrentProp)) {
 					diff[key] = { diff: 'same', fullSchema: undefined }
 				} else if (previewProp.type === 'object' && currentProp.type === 'object') {
 					const diffProp = computeDiff(previewProp, currentProp)
