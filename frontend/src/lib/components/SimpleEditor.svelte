@@ -42,11 +42,6 @@
 		type IDisposable
 	} from 'monaco-editor'
 
-	import '@codingame/monaco-vscode-standalone-languages'
-	import '@codingame/monaco-vscode-standalone-json-language-features'
-	import '@codingame/monaco-vscode-standalone-css-language-features'
-	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -436,7 +431,6 @@
 </script>
 
 <EditorTheme />
-
 {#if editor && suggestion && code.length === 0}
 	<div
 		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
