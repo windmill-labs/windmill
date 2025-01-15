@@ -1,61 +1,10 @@
+import { schemaToTsType } from '$lib/schema'
+import { capitalize } from '$lib/utils'
+import type { HiddenRunnable } from '../apps/types'
+
 export type RawApp = {
 	files: string[]
 }
-
-export const wmillTs = `
-let reqs = {}
-
-function doRequest(type: string, o: object) {
-	return new Promise((resolve, reject) => {
-		const reqId = Math.random().toString(36)
-		reqs[reqId] = { resolve, reject }
-		parent.postMessage({ ...o, type, reqId }, '*')
-	})
-}
-
-export const runBg = new Proxy(
-{},
-{
-	get(_, runnable_id: string) {
-		return (v: any) => {
-			return doRequest('runBg', { runnable_id, v })
-	}}
-})
-
-export const runBgAsync = new Proxy(
-{},
-{
-	get(_, runnable_id: string) {
-		return (v: any) => {
-			return doRequest('runBgAsync', { runnable_id, v })
-	}}
-})
-
-export function waitJob(jobId: string) {
-	return doRequest('waitJob', { jobId })
-}
-
-export function getJob(jobId: string) {
-	return doRequest('getJob', { jobId })
-}
-
-
-window.addEventListener('message', (e) => {
-	if (e.data.type == 'runBg' || e.data.type == 'runBgAsync') {
-		console.log('Message from parent runBg', e.data)
-		let job = reqs[e.data.reqId]
-		if (job) {
-			const result = e.data.result
-			if (e.data.error) {
-				job.reject(new Error(result.stack ?? result.message))
-			} else {
-				job.resolve(result)
-			}
-		} else {
-			console.error('No job found for', e.data.reqId)
-		}
-	}
-})`
 
 export function htmlContent(workspace: string, version: number) {
 	return `
@@ -72,4 +21,61 @@ export function htmlContent(workspace: string, version: number) {
             </body>
         </html>
     `
+}
+
+function hiddenRunnableToTsType(runnable: HiddenRunnable) {
+	if (runnable.type == 'runnableByName') {
+		if (runnable.inlineScript?.schema) {
+			return schemaToTsType(runnable.inlineScript?.schema)
+		} else {
+			return '{}'
+		}
+	}
+}
+
+export function genWmillTs(runnables: Record<string, HiddenRunnable>) {
+	return `// THIS FILE IS READ-ONLY
+// AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
+	
+${Object.entries(runnables)
+	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
+
+	.join('\n')}
+
+export const runBg = {
+${Object.keys(runnables)
+	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<any>`)
+	.join(',\n')}
+}
+	
+export const runBgAsync = {
+${Object.keys(runnables)
+	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<string>`)
+	.join(',\n')}
+}
+	
+
+export type Job = {
+	type: 'QueuedJob' | 'CompletedJob'
+	id: string
+	created_at: number
+	started_at: number | undefined
+	duration_ms: number
+	success: boolean
+	args: any
+	result: any
+}
+
+/**
+* Execute a job and wait for it to complete and return the completed job
+* @param id
+*/
+export function waitJob(id: string): Promise<Job> {}
+
+/**
+* Get a job by id and return immediately with the current state of the job
+* @param id
+*/
+export function getJob(id: string): Promise<Job> {}
+`
 }

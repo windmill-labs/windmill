@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.444.0
+  version: 1.445.1
   title: Windmill API
 
   contact:
@@ -283,7 +283,7 @@ paths:
             text/plain:
               schema:
                 type: string
-                
+
   /users/set_password_of/{user}:
     post:
       summary: set password for a specific user (require super admin)
@@ -347,7 +347,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /users/create:
     post:
@@ -530,7 +529,7 @@ paths:
             text/plain:
               schema:
                 type: string
-  
+
   /users/export:
     get:
       summary: global export users (require super admin and EE)
@@ -877,7 +876,7 @@ paths:
                   alerts:
                     type: array
                     items:
-                      $ref: '#/components/schemas/CriticalAlert'
+                      $ref: "#/components/schemas/CriticalAlert"
                   total_rows:
                     type: integer
                     description: Total number of rows matching the query.
@@ -998,7 +997,6 @@ paths:
               schema:
                 type: string
 
-  
   /settings/latest_key_renewal_attempt:
     get:
       summary: get latest key renewal attempt
@@ -1084,7 +1082,6 @@ paths:
               schema:
                 type: string
 
-  
   /settings/list_global:
     get:
       summary: list global settings
@@ -1576,6 +1573,30 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/change_workspace_color:
+    post:
+      summary: change workspace id
+      operationId: changeWorkspaceColor
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                color:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/users/whois/{username}:
     get:
       summary: whois
@@ -1722,6 +1743,8 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDefaultScripts"
                   mute_critical_alerts:
                     type: boolean
+                  color:
+                    type: string
                 required:
                   - code_completion_enabled
                   - automatic_billing
@@ -2353,10 +2376,13 @@ paths:
                     type: boolean
                   kafka_used:
                     type: boolean
+                  nats_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
                   - kafka_used
+                  - nats_used
 
   /w/{workspace}/users/list:
     get:
@@ -2779,7 +2805,7 @@ paths:
                   alerts:
                     type: array
                     items:
-                      $ref: '#/components/schemas/CriticalAlert'
+                      $ref: "#/components/schemas/CriticalAlert"
                   total_rows:
                     type: integer
                     description: Total number of rows matching the query.
@@ -2850,7 +2876,7 @@ paths:
                   description: Whether critical alerts should be muted.
                   example: true
       responses:
-        '200':
+        "200":
           description: Successfully updated mute critical alert settings.
           content:
             application/json:
@@ -2929,7 +2955,6 @@ paths:
               schema:
                 type: string
 
-  
   /oauth/connect_slack_callback:
     post:
       summary: connect slack callback instance
@@ -3146,7 +3171,7 @@ paths:
             type: string
       responses:
         "200":
-          description: get 
+          description: get
           content:
             application/json:
               schema:
@@ -3158,9 +3183,6 @@ paths:
                     type: array
                     items:
                       type: string
-
-
-
 
   /w/{workspace}/resources/create:
     post:
@@ -3451,7 +3473,6 @@ paths:
           content:
             application/json:
               schema: {}
-
 
   /w/{workspace}/resources/type/delete/{path}:
     delete:
@@ -4440,7 +4461,6 @@ paths:
           description: Script version/hash
           content:
             application/json:
-
               required: false
 
               schema:
@@ -5011,7 +5031,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/flows/get/{path}:
     get:
       summary: get flow by path
@@ -5068,7 +5087,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
-
 
   /w/{workspace}/flows/toggle_workspace_error_handler/{path}:
     post:
@@ -5239,7 +5257,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/raw_apps/list:
     get:
@@ -5422,13 +5439,60 @@ paths:
                   type: string
                 custom_path:
                   type: string
-                raw_app:
-                  type: boolean
               required:
                 - path
                 - value
                 - summary
                 - policy
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/create_raw:
+    post:
+      summary: create app raw
+      operationId: createAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                js:
+                  type: string
+                css:
+                  type: string
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                    summary:
+                      type: string
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    draft_only:
+                      type: boolean
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
+                  required:
+                    - path
+                    - value
+                    - summary
+                    - policy
       responses:
         "201":
           description: app created
@@ -5768,8 +5832,49 @@ paths:
                   type: string
                 custom_path:
                   type: string
-                raw_app:
-                  type: boolean
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update_raw/{path}:
+    post:
+      summary: update app
+      operationId: updateAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: update app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                js:
+                  type: string
+                css:
+                  type: string
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    summary:
+                      type: string
+                    value: {}
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
       responses:
         "200":
           description: app updated
@@ -6294,7 +6399,6 @@ paths:
               schema:
                 type: integer
 
-
   /w/{workspace}/jobs/queue/list_filtered_uuids:
     get:
       summary: get the ids of all jobs matching the given filters
@@ -6605,7 +6709,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/jobs_u/get_args/{id}:
     get:
@@ -7131,7 +7234,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/jobs_u/cancel/{id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
@@ -7502,7 +7604,6 @@ paths:
         "201":
           description: default error handler set
 
-
   /w/{workspace}/http_triggers/create:
     post:
       summary: create http trigger
@@ -7555,7 +7656,7 @@ paths:
       summary: delete http trigger
       operationId: deleteHttpTrigger
       tags:
-        -  http_trigger
+        - http_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -7584,7 +7685,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/HttpTrigger"
 
-  
   /w/{workspace}/http_triggers/list:
     get:
       summary: list http triggers
@@ -7619,7 +7719,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/HttpTrigger"
 
-  
   /w/{workspace}/http_triggers/exists/{path}:
     get:
       summary: does http trigger exists
@@ -7722,7 +7821,7 @@ paths:
       summary: delete websocket trigger
       operationId: deleteWebsocketTrigger
       tags:
-        -  websocket_trigger
+        - websocket_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -7751,7 +7850,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebsocketTrigger"
 
-  
   /w/{workspace}/websocket_triggers/list:
     get:
       summary: list websocket triggers
@@ -7786,7 +7884,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/WebsocketTrigger"
 
-  
   /w/{workspace}/websocket_triggers/exists/{path}:
     get:
       summary: does websocket trigger exists
@@ -7885,7 +7982,7 @@ paths:
       summary: delete kafka trigger
       operationId: deleteKafkaTrigger
       tags:
-        -  kafka_trigger
+        - kafka_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -7914,7 +8011,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/KafkaTrigger"
 
-  
   /w/{workspace}/kafka_triggers/list:
     get:
       summary: list kafka triggers
@@ -7949,7 +8045,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/KafkaTrigger"
 
-  
   /w/{workspace}/kafka_triggers/exists/{path}:
     get:
       summary: does kafka trigger exists
@@ -7991,6 +8086,169 @@ paths:
       responses:
         "200":
           description: kafka trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/nats_triggers/create:
+    post:
+      summary: create nats trigger
+      operationId: createNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new nats trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewNatsTrigger"
+      responses:
+        "201":
+          description: nats trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/nats_triggers/update/{path}:
+    post:
+      summary: update nats trigger
+      operationId: updateNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditNatsTrigger"
+      responses:
+        "200":
+          description: nats trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/nats_triggers/delete/{path}:
+    delete:
+      summary: delete nats trigger
+      operationId: deleteNatsTrigger
+      tags:
+        -  nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: nats trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/nats_triggers/get/{path}:
+    get:
+      summary: get nats trigger
+      operationId: getNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: nats trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NatsTrigger"
+
+  
+  /w/{workspace}/nats_triggers/list:
+    get:
+      summary: list nats triggers
+      operationId: listNatsTriggers
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: nats trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NatsTrigger"
+
+  
+  /w/{workspace}/nats_triggers/exists/{path}:
+    get:
+      summary: does nats trigger exists
+      operationId: existsNatsTrigger
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: nats trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/nats_triggers/setenabled/{path}:
+    post:
+      summary: set enabled nats trigger
+      operationId: setNatsTriggerEnabled
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated nats trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: nats trigger enabled set
           content:
             text/plain:
               schema:
@@ -8692,7 +8950,7 @@ paths:
                   properties:
                     id:
                       type: string
-                    values: 
+                    values:
                       type: array
                       items:
                         type: object
@@ -8719,12 +8977,11 @@ paths:
           description: queue counts
           content:
             application/json:
-              schema: 
+              schema:
                 type: object
                 additionalProperties:
                   type: integer
 
-              
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -8837,7 +9094,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
-
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -8866,6 +9122,7 @@ paths:
                 http_trigger,
                 websocket_trigger,
                 kafka_trigger,
+                nats_trigger,
               ]
       responses:
         "200":
@@ -8905,6 +9162,7 @@ paths:
                 http_trigger,
                 websocket_trigger,
                 kafka_trigger,
+                nats_trigger,
               ]
       requestBody:
         description: acl to add
@@ -8955,6 +9213,7 @@ paths:
                 http_trigger,
                 websocket_trigger,
                 kafka_trigger,
+                nats_trigger,
               ]
       requestBody:
         description: acl to add
@@ -8993,11 +9252,11 @@ paths:
               properties:
                 trigger_kind:
                   $ref: "#/components/schemas/CaptureTriggerKind"
-                path: 
+                path:
                   type: string
                 is_flow:
                   type: boolean
-                trigger_config: 
+                trigger_config:
                   type: object
               required:
                 - trigger_kind
@@ -9007,7 +9266,6 @@ paths:
         "200":
           description: capture config set
 
-  
   /w/{workspace}/capture/ping_config/{trigger_kind}/{runnable_kind}/{path}:
     post:
       summary: ping capture config
@@ -9061,6 +9319,8 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/CaptureTriggerKind"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: list of captures for a script or flow
@@ -9070,7 +9330,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Capture"
-
 
   /w/{workspace}/capture/{id}:
     delete:
@@ -9147,6 +9406,10 @@ paths:
         - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: include_preview
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: Input history for completed jobs
@@ -10074,7 +10337,7 @@ paths:
       tags:
         - service_logs
       parameters:
-        - $ref: "#/components/parameters/Path"            
+        - $ref: "#/components/parameters/Path"
       responses:
         "200":
           description: log stream
@@ -10890,7 +11153,6 @@ components:
         - starred
         - no_main_func
         - has_preprocessor
-
 
     NewScript:
       type: object
@@ -12248,7 +12510,7 @@ components:
           type: boolean
         requires_auth:
           type: boolean
-        
+
       required:
         - path
         - edited_by
@@ -12297,7 +12559,7 @@ components:
           type: boolean
         requires_auth:
           type: boolean
-        
+
       required:
         - path
         - script_path
@@ -12370,6 +12632,8 @@ components:
           type: number
         kafka_count:
           type: number
+        nats_count:
+          type: number
 
     WebsocketTrigger:
       type: object
@@ -12421,7 +12685,7 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
-        
+
       required:
         - path
         - edited_by
@@ -12465,7 +12729,7 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
-        
+
       required:
         - path
         - script_path
@@ -12501,7 +12765,7 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
-              
+
       required:
         - path
         - script_path
@@ -12513,7 +12777,7 @@ components:
       anyOf:
         - type: object
           properties:
-            raw_message: 
+            raw_message:
               type: string
           required:
             - raw_message
@@ -12522,7 +12786,7 @@ components:
             runnable_result:
               type: object
               properties:
-                path: 
+                path:
                   type: string
                 args:
                   $ref: "#/components/schemas/ScriptArgs"
@@ -12532,7 +12796,7 @@ components:
                 - path
                 - args
                 - is_flow
-          required: 
+          required:
             - runnable_result
 
     KafkaTrigger:
@@ -12574,7 +12838,7 @@ components:
           type: string
         enabled:
           type: boolean
-        
+
       required:
         - path
         - edited_by
@@ -12608,7 +12872,7 @@ components:
             type: string
         enabled:
           type: boolean
-        
+
       required:
         - path
         - script_path
@@ -12634,13 +12898,133 @@ components:
           type: string
         is_flow:
           type: boolean
-              
+
       required:
         - path
         - script_path
         - kafka_resource_path
         - group_id
         - topics
+        - is_flow
+
+    NatsTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        edited_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        nats_resource_path:
+          type: string
+        use_jetstream:
+          type: boolean
+        stream_name:
+          type: string
+        consumer_name:
+          type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        is_flow:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        email:
+          type: string
+        workspace_id:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - edited_by
+        - edited_at
+        - script_path
+        - nats_resource_path
+        - use_jetstream
+        - subjects
+        - extra_perms
+        - is_flow
+        - email
+        - workspace_id
+        - enabled
+
+    NewNatsTrigger:
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        nats_resource_path:
+          type: string
+        use_jetstream:
+          type: boolean
+        stream_name:
+          type: string
+        consumer_name:
+          type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        
+      required:
+        - path
+        - script_path
+        - is_flow
+        - nats_resource_path
+        - use_jetstream
+        - subjects
+
+    EditNatsTrigger:
+      type: object
+      properties:
+        nats_resource_path:
+          type: string
+        use_jetstream:
+          type: boolean
+        stream_name:
+          type: string
+        consumer_name:
+          type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+              
+      required:
+        - path
+        - script_path
+        - nats_resource_path
+        - use_jetstream
+        - subjects
         - is_flow
 
     Group:
@@ -12769,10 +13153,13 @@ components:
                 type: string
               username:
                 type: string
+              color:
+                type: string
             required:
               - id
               - name
               - username
+              - color
       required:
         - email
         - workspaces
@@ -12785,6 +13172,8 @@ components:
         name:
           type: string
         username:
+          type: string
+        color:
           type: string
       required:
         - id
@@ -12800,6 +13189,8 @@ components:
         owner:
           type: string
         domain:
+          type: string
+        color:
           type: string
       required:
         - id
@@ -13476,14 +13867,14 @@ components:
         obscured_jobs:
           type: array
           items:
-            $ref : "#/components/schemas/ObscuredJob"
+            $ref: "#/components/schemas/ObscuredJob"
         omitted_obscured_jobs:
           description: "Obscured jobs omitted for security because of too specific filtering"
           type: boolean
       required:
         - jobs
         - obscured_jobs
-    
+
     ExportedUser:
       type: object
       properties:
@@ -13529,7 +13920,7 @@ components:
           type: object
       required:
         - name
-    
+
     ExportedInstanceGroup:
       type: object
       properties:
@@ -13607,7 +13998,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email]
+      enum: [webhook, http, websocket, kafka, email, nats]
 
     Capture:
       type: object

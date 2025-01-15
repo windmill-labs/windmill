@@ -27,7 +27,7 @@
 	const state = nodraft ? undefined : localStorage.getItem('rawapp')
 
 	let summary = ''
-	let files: Record<string, { code: string }> = react19Template
+	let files: Record<string, string> = react19Template
 	afterNavigate(() => {
 		if (nodraft) {
 			let url = new URL($page.url.href)
@@ -43,7 +43,6 @@
 		execution_mode: 'publisher'
 	}
 
-	let redraw = 0
 	let runnables: Record<string, HiddenRunnable> = {
 		a: {
 			name: 'a',
@@ -87,7 +86,6 @@
 			} else {
 				extractValue(importRaw)
 			}
-			redraw = redraw + 1
 			console.log('importRaw', importRaw)
 		} else if (templatePath) {
 			const template = await AppService.getAppByPath({
@@ -95,7 +93,6 @@
 				path: templatePath
 			})
 			extractValue(template.value)
-			redraw = redraw + 1
 			console.log('App loaded from template')
 			sendUserToast('App loaded from template path')
 			goto('?', { replaceState: true })
@@ -107,7 +104,6 @@
 			extractValue(template.value)
 			console.log('App loaded from template id')
 			sendUserToast('App loaded from template')
-			redraw = redraw + 1
 			goto('?', { replaceState: true })
 		} else if (!templatePath && state) {
 			console.log('App loaded from browser stored autosave')
@@ -120,8 +116,8 @@
 					}
 				}
 			])
-			extractValue(decodeState(state))
-			redraw = redraw + 1
+			let decoded = decodeState(state)
+			extractValue(decoded)
 		}
 	}
 
@@ -152,23 +148,6 @@
 	let hide = false
 </script>
 
-<!-- <div class="h-screen">
-		{#key value}
-			<AppEditor
-				on:savedNewAppPath={(event) => {
-					goto(`/apps/edit/${event.detail}`)
-				}}
-				{summary}
-				app={value}
-				path={''}
-				{policy}
-				fromHub={hubId != null}
-				newApp={true}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
-				gotoFn={(path, opt) => goto(path, opt)}
-			/>
-		{/key}
-	</div> -->
 {#if templatePicker}
 	<Modal kind="X" open title="Templates">
 		<div class="flex flex-wrap gap-4 pb-4">
@@ -179,7 +158,6 @@
 							hide = true
 
 							files = t.files
-							redraw += 1
 							hide = false
 						}
 						templatePicker = false
@@ -198,17 +176,15 @@
 	</Modal>
 {/if}
 {#if !hide}
-	{#key redraw}
-		<RawAppEditor
-			on:savedNewAppPath={(event) => {
-				goto(`/apps_raw/edit/${event.detail}`)
-			}}
-			{files}
-			initRunnables={runnables}
-			{policy}
-			path={''}
-			{summary}
-			newApp
-		/>
-	{/key}
+	<RawAppEditor
+		on:savedNewAppPath={(event) => {
+			goto(`/apps_raw/edit/${event.detail}`)
+		}}
+		initFiles={files}
+		initRunnables={runnables}
+		{policy}
+		path={''}
+		{summary}
+		newApp
+	/>
 {/if}

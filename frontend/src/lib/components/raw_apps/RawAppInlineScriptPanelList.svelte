@@ -23,6 +23,7 @@
 			}
 			return r
 		})
+		console.log('BAR 2')
 		selectedRunnable = nid
 	}
 

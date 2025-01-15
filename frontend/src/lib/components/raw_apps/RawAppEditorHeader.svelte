@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	import Path from '$lib/components/Path.svelte'
@@ -14,6 +14,7 @@
 		History,
 		Loader2,
 		MoreVertical,
+		Pen,
 		Save
 	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -22,7 +23,8 @@
 		cleanValueProperties,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined
+		replaceFalseWithUndefined,
+		defaultIfEmptyString
 	} from '../../utils'
 
 	// import {  allItems, toStatic } from '../apps/editor/settingsPanel/utils'
@@ -38,7 +40,6 @@
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	import Summary from '$lib/components/Summary.svelte'
-	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
@@ -46,7 +47,6 @@
 	import type { HiddenRunnable } from '../apps/types'
 	import type { Writable } from 'svelte/store'
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
-	import { wmillTs } from './utils'
 
 	// async function hash(message) {
 	// 	try {
@@ -80,8 +80,7 @@
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
-	export let leftPanelHidden: boolean = false
-	export let bottomPanelHidden: boolean = false
+
 	export let newApp: boolean
 	export let newPath: string = ''
 	export let appPath: string
@@ -89,10 +88,14 @@
 	export let files: Record<string, string> | undefined
 	export let jobs: string[]
 	export let jobsById: Record<string, any>
+	export let getBundle: () => Promise<{
+		js: string
+		css: string
+	}>
 
 	let newEditedPath = ''
 
-	$: app = files ? { runnables: $runnables, files: { ...files, '/wmill.ts': wmillTs } } : undefined
+	$: app = files ? { runnables: $runnables, files } : undefined
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -227,16 +230,21 @@
 		}
 		await computeTriggerables()
 		try {
-			await AppService.createApp({
+			console.log('Bundle:')
+			const { js, css } = await getBundle()
+			await AppService.createAppRaw({
 				workspace: $workspaceStore!,
-				requestBody: {
-					value: app,
-					path,
-					summary: summary,
-					policy,
-					deployment_message: deploymentMsg,
-					custom_path: customPath,
-					raw_app: true
+				formData: {
+					js,
+					css,
+					app: {
+						value: app,
+						path,
+						summary: summary,
+						policy,
+						deployment_message: deploymentMsg,
+						custom_path: customPath
+					}
 				}
 			})
 			savedApp = {
@@ -323,21 +331,25 @@
 			sendUserToast(`App hasn't been loaded yet`, true)
 			return
 		}
+		const { js, css } = await getBundle()
 		await computeTriggerables()
-		await AppService.updateApp({
+		await AppService.updateAppRaw({
 			workspace: $workspaceStore!,
 			path: appPath!,
-			requestBody: {
-				value: app!,
-				summary: summary,
-				policy,
-				path: npath,
-				deployment_message: deploymentMsg,
-				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
-				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
-				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined,
-				raw_app: true
+			formData: {
+				js,
+				css,
+				app: {
+					value: app!,
+					summary: summary,
+					policy,
+					path: npath,
+					deployment_message: deploymentMsg,
+					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
+					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
+					custom_path:
+						$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined
+				}
 			}
 		})
 		savedApp = {
@@ -381,7 +393,7 @@
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: appPath,
-			requestBody: { policy, raw_app: true }
+			requestBody: { policy }
 		})
 		if (policy.execution_mode == 'anonymous') {
 			sendUserToast('App require no login to be accessed')
@@ -402,16 +414,20 @@
 		}
 		await computeTriggerables()
 		try {
-			await AppService.createApp({
+			let { css, js } = await getBundle()
+			await AppService.createAppRaw({
 				workspace: $workspaceStore!,
-				requestBody: {
-					value: app,
-					path: newEditedPath,
-					summary: summary,
-					policy,
-					draft_only: true,
-					custom_path: customPath,
-					raw_app: true
+				formData: {
+					js,
+					css,
+					app: {
+						value: app,
+						path: newEditedPath,
+						summary: summary,
+						policy,
+						draft_only: true,
+						custom_path: customPath
+					}
 				}
 			})
 			await DraftService.createDraft({
@@ -492,16 +508,21 @@
 					workspace: $workspaceStore!,
 					path: path
 				})
-				await AppService.createApp({
+				let { css, js } = await getBundle()
+
+				await AppService.createAppRaw({
 					workspace: $workspaceStore!,
-					requestBody: {
-						value: app!,
-						summary: summary,
-						policy,
-						path: newEditedPath || path,
-						draft_only: true,
-						custom_path: customPath,
-						raw_app: true
+					formData: {
+						js,
+						css,
+						app: {
+							value: app!,
+							summary: summary,
+							policy,
+							path: newEditedPath || path,
+							draft_only: true,
+							custom_path: customPath
+						}
 					}
 				})
 			}
@@ -999,29 +1020,38 @@
 		<Summary bind:value={summary} />
 	</div>
 
-	<div class="flex gap-1">
-		<HideButton
-			direction="left"
-			hidden={leftPanelHidden}
-			on:click={() => {
-				if (leftPanelHidden) {
-					dispatch('showLeftPanel')
-				} else {
-					dispatch('hideLeftPanel')
-				}
-			}}
-		/>
-		<HideButton
-			hidden={bottomPanelHidden}
-			direction="bottom"
-			on:click={() => {
-				if (bottomPanelHidden) {
-					dispatch('showBottomPanel')
-				} else {
-					dispatch('hideBottomPanel')
-				}
-			}}
-		/>
+	<div class=" flex">
+		{#if newPath || newEditedPath}
+			<div class="flex justify-start w-full border rounded-md overflow-hidden">
+				<div>
+					<button
+						on:click={async () => {
+							saveDrawerOpen = true
+							setTimeout(() => {
+								document.getElementById('path')?.focus()
+							}, 100)
+						}}
+					>
+						<Badge
+							color="gray"
+							class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
+						>
+							<Pen size={14} />Path
+						</Badge>
+					</button>
+				</div>
+				<input
+					type="text"
+					readonly
+					value={defaultIfEmptyString(newEditedPath, newPath)}
+					size={defaultIfEmptyString(newEditedPath, newPath)?.length || 50}
+					class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+					on:focus={({ currentTarget }) => {
+						currentTarget.select()
+					}}
+				/>
+			</div>
+		{/if}
 	</div>
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />

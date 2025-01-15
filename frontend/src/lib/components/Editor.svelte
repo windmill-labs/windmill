@@ -1,7 +1,7 @@
 <!-- <script lang="ts"></script> -->
 
 <script context="module">
-	// import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import processStdContent from '$lib/process.d.ts.txt?raw'
 

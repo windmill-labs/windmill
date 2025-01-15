@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	export let horizontal: boolean = false
 	export let gap: 'none' | 'sm' | 'md' | 'lg' = 'sm'
 	export let justify: 'start' | 'center' | 'end' | 'between' = 'start'
 	export let wFull = true
+	export let hFull = true
 
 	const gapMap = {
 		none: '',
@@ -29,9 +31,13 @@
 	</div>
 {:else}
 	<div
-		class="flex flex-col h-full {wFull ? 'w-full' : ''} {gapMap[gap]} items-center {justifyMap[
-			justify
-		]}"
+		class={twMerge(
+			'flex flex-col w-full',
+			hFull ? 'h-full' : '',
+			gapMap[gap],
+			'items-center',
+			justifyMap[justify]
+		)}
 	>
 		<slot />
 	</div>

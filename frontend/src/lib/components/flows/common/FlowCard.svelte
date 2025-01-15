@@ -7,10 +7,16 @@
 	export let noEditor: boolean
 </script>
 
-{#if !noEditor}
-	<FlowCardHeader on:reload {title} bind:flowModule>
-		<slot name="header" />
-	</FlowCardHeader>
-{/if}
+<div class="flex flex-col h-full">
+	{#if !noEditor}
+		<div>
+			<FlowCardHeader on:reload {title} bind:flowModule>
+				<slot name="header" />
+			</FlowCardHeader>
+		</div>
+	{/if}
 
-<slot />
+	<div class="min-h-0 flex-grow">
+		<slot />
+	</div>
+</div>

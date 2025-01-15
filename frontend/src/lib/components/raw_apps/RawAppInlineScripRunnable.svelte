@@ -39,6 +39,7 @@
 			on:createScriptFromInlineScript
 			tag={undefined}
 			saveToWorkspace
+			on:change
 		/>
 	{/if}
 {:else if runnable?.type == 'runnableByPath'}

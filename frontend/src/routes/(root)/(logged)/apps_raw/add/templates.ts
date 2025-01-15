@@ -1,4 +1,6 @@
 const reactIndex = `
+import React from 'react'
+
 import { createRoot } from 'react-dom/client'
 import App from './App'
 
@@ -7,7 +9,7 @@ root.render(<App/>);
 `
 
 const appTsx = `import React from 'react'
-import { runBg } from './wmill.ts'
+import { runBg } from './wmill'
 
 const App = () => {
     return <div style={{ width: "100%" }}>
@@ -75,7 +77,12 @@ export const react19Template = {
 	'/package.json': `{
     "dependencies": {
         "react": "19.0.0",
-        "react-dom": "19.0.0"
+        "react-dom": "19.0.0",
+        "windmill-client": "^1"
+    },
+    "devDependencies": {
+        "@types/react-dom": "^19.0.0",
+        "@types/react": "^19.0.0"
     }
 }`,
 	'/policy.json': policyJson
@@ -89,6 +96,10 @@ export const react18Template = {
     "dependencies": {
         "react": "18.3.1",
         "react-dom": "18.3.1"
+    },
+    "devDependencies": {
+        "@types/react-dom": "^19.0.0",
+        "@types/react": "^19.0.0"
     }
 }`,
 	'/policy.json': policyJson
@@ -100,7 +111,8 @@ export const svelte5Template = {
 	'/index.css': indexCss,
 	'/package.json': `{
     "dependencies": {
-        "svelte": "5.16.1"
+        "svelte": "5.16.1",
+        "windmill-client": "^1"
     }
 }`,
 	'/policy.json': policyJson

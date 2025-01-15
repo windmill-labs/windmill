@@ -16,7 +16,7 @@
 	let listener = async (event) => {
 		const data = event.data
 		function respond(o: object) {
-			iframe?.contentWindow?.postMessage({ type: data.type, ...o, reqId: data.reqId }, '*')
+			iframe?.contentWindow?.postMessage({ type: data.type + 'Res', ...o, reqId: data.reqId }, '*')
 		}
 		async function respondWithResult(uuid: string) {
 			let error = false

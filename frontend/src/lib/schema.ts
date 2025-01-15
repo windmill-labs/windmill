@@ -28,7 +28,7 @@ export function schemaToTsType(schema: Schema): string {
 
 			return `${prefix}: ${type}`
 		})
-		.join(';')
+		.join('; ')
 
 	return `{ ${types} }`
 }

@@ -1,15 +1,4 @@
 <script lang="ts">
-	// import { animateTo } from '$lib/components/apps/editor/appUtils'
-
-	// import Editor from '$lib/components/Editor.svelte'
-	// import { extToLang } from '$lib/editorUtils'
-	// import {
-	// 	loadSandpackClient,
-	// 	// type BundlerState,
-	// 	type SandpackClient
-	// } from '@codesandbox/sandpack-client'
-	// import { SandpackRuntime } from '@codesandbox/sandpack-client/clients/runtime'
-
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
@@ -17,12 +6,13 @@
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
 	import { type Policy } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
-	import { capitalize, encodeState } from '$lib/utils'
+	import { encodeState } from '$lib/utils'
 
-	import { schemaToTsType } from '$lib/schema'
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { genWmillTs } from './utils'
+	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
 
 	export let initFiles: Record<string, string>
 	export let initRunnables: Record<string, HiddenRunnable>
@@ -46,17 +36,14 @@
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let version: number | undefined = undefined
 
-	// let editor: Editor | undefined = undefined
-
 	let runnables = writable(initRunnables)
 
-	const WMILL_TS = '/wmill.ts'
-
-	let files: Record<string, string> | undefined = undefined
+	let files: Record<string, string> | undefined = initFiles
 	$: $runnables && files && saveFrontendDraft()
 
 	let draftTimeout: NodeJS.Timeout | undefined = undefined
 	function saveFrontendDraft() {
+		console.log('BAR saveFrontendDraft')
 		draftTimeout && clearTimeout(draftTimeout)
 		draftTimeout = setTimeout(() => {
 			try {
@@ -80,90 +67,66 @@
 	let jobs: string[] = []
 	let jobsById: Record<string, JobById> = {}
 
-	function hiddenRunnableToTsType(runnable: HiddenRunnable) {
-		if (runnable.type == 'runnableByName') {
-			if (runnable.inlineScript?.schema) {
-				return schemaToTsType(runnable.inlineScript?.schema)
-			} else {
-				return '{}'
-			}
-		}
-	}
+	let iframeLoaded = false // @hmr:keep
 
-	function genWmillTs(runnables: Record<string, HiddenRunnable>) {
-		return `// THIS FILE IS READ-ONLY
-// AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
-		
-${Object.entries(runnables)
-	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
+	$: iframe && iframeLoaded && initFiles && populateFiles()
+	$: iframe && iframeLoaded && $runnables && populateRunnables()
 
-	.join('\n')}
-
-export const runBg = {
-	${Object.keys(runnables)
-		.map((k) => `${k}: (data: RunBg${capitalize(k)}) => Promise<any>`)
-		.join(',\n')}
-}
-		
-export const runBgAsync = {
-	${Object.keys(runnables)
-		.map((k) => `${k}: (data: RunBg${capitalize(k)}) => Promise<string>`)
-		.join(',\n')}
-}
-		
-
-export type Job = {
-	type: 'QueuedJob' | 'CompletedJob'
-	id: string
-	created_at: number
-	started_at: number | undefined
-	duration_ms: number
-	success: boolean
-	args: any
-	result: any
-}
-
-/**
- * Execute a job and wait for it to complete and return the completed job
- * @param id
- */
-export function waitJob(id: string): Promise<Job> {}
-
-/**
- * Get a job by id and return immediately with the current state of the job
- * @param id
- */
-export function getJob(id: string): Promise<Job> {}
-`
-	}
-
-	function addWmillClientDts(
-		files: Record<string, { code: string; readonly?: boolean }>,
-		runnables: Record<string, HiddenRunnable>
-	) {
-		const code = genWmillTs(runnables)
-		return {
-			...files,
-			[WMILL_TS]: {
-				readonly: true,
-				code
-			}
-		}
-	}
-
-	$: iframe && files && populateFiles()
-	$: iframe && runnables && populateRunnables()
+	$: iframe?.addEventListener('load', () => {
+		iframeLoaded = true
+	})
 	function populateFiles() {
-		// files = addWmillClientDts(files, $runnables)
+		iframe?.contentWindow?.postMessage(
+			{
+				type: 'setFiles',
+				files: initFiles
+			},
+			'*'
+		)
 	}
 
 	function populateRunnables() {
-		//
-		// runnables.set(initRunnables)
+		iframe?.contentWindow?.postMessage(
+			{
+				type: 'setRunnables',
+				dts: genWmillTs($runnables)
+			},
+			'*'
+		)
 	}
 
 	let selectedRunnable: string | undefined = undefined
+
+	function listener(e: MessageEvent) {
+		// console.log('FOO message from parent', e.data)
+
+		if (e.data.type === 'setFiles') {
+			console.log('FOO parentsetting files', e.data.files)
+			files = e.data.files
+		} else if (e.data.type === 'setRunnables') {
+			console.log('FOO parentsetting runnables', e.data.runnables)
+			runnables.set(e.data.runnables)
+		} else if (e.data.type === 'getBundle') {
+			getBundleResolve?.(e.data.bundle)
+		}
+	}
+
+	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
+
+	async function getBundle(): Promise<{ css: string; js: string }> {
+		return new Promise((resolve) => {
+			getBundleResolve = resolve
+			iframe?.contentWindow?.postMessage(
+				{
+					type: 'getBundle'
+				},
+				'*'
+			)
+		})
+	}
 </script>
+
+<svelte:window on:message={listener} />
 
 <RawAppBackgroundRunner
 	workspace={$workspaceStore ?? ''}
@@ -189,22 +152,43 @@ export function getJob(id: string): Promise<Job> {}
 		appPath={path}
 		{files}
 		{runnables}
+		{getBundle}
 	/>
 	<Splitpanes id="o2" horizontal class="grow">
 		<Pane bind:size={appPanelSize}>
 			<iframe
 				bind:this={iframe}
 				title="UI builder"
-				src="/ui_builder/index.html"
+				src="http://localhost:4000/ui_builder/index.html"
 				class="w-full h-full"
 			/>
 		</Pane>
 		<Pane>
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div class="flex h-full w-full">
-				<RawAppInlineScriptsPanel appPath={path} bind:selectedRunnable {runnables} />
+				<RawAppInlineScriptsPanel
+					on:hidePanel={() => {
+						appPanelSize = 100
+					}}
+					appPath={path}
+					bind:selectedRunnable
+					{runnables}
+				/>
 			</div>
 			<!-- <div class="bg-red-400 h-full w-full" /> -->
 		</Pane>
 	</Splitpanes>
+	{#if appPanelSize == 100}
+		<div class="absolute bottom-0.5 left-0.5 z-50">
+			<HideButton
+				size="lg"
+				on:click={() => {
+					appPanelSize = 70
+				}}
+				direction="bottom"
+				hidden
+				btnClasses="border bg-surface"
+			/>
+		</div>
+	{/if}
 </div>

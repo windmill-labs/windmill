@@ -30,7 +30,7 @@ use crate::{
 use axum::response::Response;
 use axum::{
     body::Body,
-    extract::{Extension, Json, Path, Query},
+    extract::{multipart, Extension, Json, Multipart, Path, Query},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Router,
@@ -88,6 +88,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_app))
         .route("/delete/*path", delete(delete_app))
         .route("/create", post(create_app))
+        .route("/create_raw", post(create_app_raw))
         .route("/history/p/*path", get(get_app_history))
         .route("/get_latest_version/*path", get(get_latest_version))
         .route("/history_update/a/:id/v/:version", post(update_app_history))
@@ -758,6 +759,30 @@ async fn get_secret_id(
     let hx = hex::encode(mc.encrypt_str_to_bytes(id.to_string()));
 
     Ok(hx)
+}
+
+async fn create_app_raw(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    mut multipart: Multipart,
+) -> Result<(StatusCode, String)> {
+    let mut tx = user_db.clone().begin(&authed).await?;
+
+    let mut uploaded_js = false;
+
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let name = field.name().unwrap().to_string();
+        let data = field.bytes().await.unwrap();
+        if name == "app" {
+            if !uploaded {
+                return Err(Error::BadRequest("j file uploaded".to_string()));
+            }
+            create_app(authed, extension, extension, extension, path, json)
+        }
+    }
 }
 
 async fn create_app(

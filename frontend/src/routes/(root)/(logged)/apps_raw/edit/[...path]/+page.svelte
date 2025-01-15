@@ -10,7 +10,7 @@
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 
-	let files: Record<string, { code: string }> | undefined = undefined
+	let files: Record<string, string> | undefined = undefined
 	let runnables = {}
 	let newPath = ''
 	let lastVersion = 0
@@ -210,7 +210,7 @@
 					newPath = event.detail
 				}}
 				on:restore={onRestore}
-				{files}
+				initFiles={files}
 				initRunnables={runnables}
 				{summary}
 				{newPath}
