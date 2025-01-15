@@ -377,9 +377,9 @@ pub struct OnBehalfOf {
     pub permissioned_as: String,
 }
 
-pub async fn script_path_to_payload(
+pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgres>>(
     script_path: &str,
-    db: &DB,
+    db: E,
     w_id: &str,
     skip_preprocessor: Option<bool>,
 ) -> error::Result<(
