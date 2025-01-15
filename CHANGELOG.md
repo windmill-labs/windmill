@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.447.1](https://github.com/windmill-labs/windmill/compare/v1.447.0...v1.447.1) (2025-01-15)
+
+
+### Bug Fixes
+
+* **backend:** better deleted user error ([#5060](https://github.com/windmill-labs/windmill/issues/5060)) ([bc3d93b](https://github.com/windmill-labs/windmill/commit/bc3d93b9357114ac1210bf677a8615c459bb914d))
+* **backend:** bun cache hash consistency ([#5067](https://github.com/windmill-labs/windmill/issues/5067)) ([2b0878e](https://github.com/windmill-labs/windmill/commit/2b0878ec2ba591fad003abf9ad1d024f9264e442))
+* improve runnable permissions ([#5063](https://github.com/windmill-labs/windmill/issues/5063)) ([4a68ce9](https://github.com/windmill-labs/windmill/commit/4a68ce9ac30c544e2ef87ffeb5915312df885169))
+
+## [1.447.0](https://github.com/windmill-labs/windmill/compare/v1.446.0...v1.447.0) (2025-01-15)
+
+
+### Features
+
+* add oracle db support on ee ([#5062](https://github.com/windmill-labs/windmill/issues/5062)) ([77d8255](https://github.com/windmill-labs/windmill/commit/77d825540f7bb38f5a378557138214b368a0942f))
+* on behalf of ([#5058](https://github.com/windmill-labs/windmill/issues/5058)) ([04fbda2](https://github.com/windmill-labs/windmill/commit/04fbda28e829db50cd9b1289e997c1ec84c4a566))
+
+
+### Bug Fixes
+
+* remove bg-red in custom ui builder ([74385ef](https://github.com/windmill-labs/windmill/commit/74385ef70b0f93085d2a97de62528d95a45269cc))
+* update ms sql template ([#5059](https://github.com/windmill-labs/windmill/issues/5059)) ([8c2f2eb](https://github.com/windmill-labs/windmill/commit/8c2f2ebb1e0ff8e0c307e30eb6a49534662cc20c))
+
 ## [1.446.0](https://github.com/windmill-labs/windmill/compare/v1.445.1...v1.446.0) (2025-01-14)
 
 
