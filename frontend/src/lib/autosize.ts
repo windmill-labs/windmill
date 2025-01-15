@@ -34,7 +34,7 @@ export const action = (node) => {
 			} else {
 				node.value = '|'
 				node.style.height = '0px'
-				height = node.scrollHeight
+				height = node.scrollHeight + 20
 				node.value = ''
 			}
 		}
