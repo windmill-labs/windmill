@@ -124,7 +124,7 @@ pub async fn fetch_authed_from_permissioned_as(
                     (r.is_admin, r.operator)
                 } else {
                     return Err(Error::InternalErr(format!(
-                        "user not found for {name} in {w_id}"
+                        "user {name} not found in workspace {w_id}"
                     )));
                 }
             };
