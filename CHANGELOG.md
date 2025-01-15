@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.447.1](https://github.com/windmill-labs/windmill/compare/v1.447.0...v1.447.1) (2025-01-15)
+
+
+### Bug Fixes
+
+* **backend:** better deleted user error ([#5060](https://github.com/windmill-labs/windmill/issues/5060)) ([bc3d93b](https://github.com/windmill-labs/windmill/commit/bc3d93b9357114ac1210bf677a8615c459bb914d))
+* **backend:** bun cache hash consistency ([#5067](https://github.com/windmill-labs/windmill/issues/5067)) ([2b0878e](https://github.com/windmill-labs/windmill/commit/2b0878ec2ba591fad003abf9ad1d024f9264e442))
+* improve runnable permissions ([#5063](https://github.com/windmill-labs/windmill/issues/5063)) ([4a68ce9](https://github.com/windmill-labs/windmill/commit/4a68ce9ac30c544e2ef87ffeb5915312df885169))
+
 ## [1.447.0](https://github.com/windmill-labs/windmill/compare/v1.446.0...v1.447.0) (2025-01-15)
 
 
