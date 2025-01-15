@@ -399,7 +399,7 @@
 		{/if}
 		<Toggle
 			options={{
-				right: 'Disableds',
+				right: 'Disabled',
 				rightTooltip: 'Do not let user modify this field'
 			}}
 			lightMode

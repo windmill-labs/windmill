@@ -48,115 +48,113 @@
 	/>
 </Drawer>
 
-<div class="h-full flex flex-col">
-	<FlowCard {noEditor} title="While loop">
-		<div slot="header" class="grow">
-			<input bind:value={mod.summary} placeholder={'Summary'} />
-		</div>
+<FlowCard {noEditor} title="While loop">
+	<div slot="header" class="grow">
+		<input bind:value={mod.summary} placeholder={'Summary'} />
+	</div>
 
-		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
-			<Pane size={60} minSize={20} class="p-4">
-				{#if !noEditor}
-					<Alert
-						type="info"
-						title="While loops"
-						class="mb-4"
-						size="xs"
-						documentationLink="https://www.windmill.dev/docs/flows/while_loops"
-					>
-						Add steps inside the while loop but have one of them use early stop/break in their
-						Advanced settings (or do it at the loop level that will watch the last step) to break
-						out of the while loop (otherwise it will loop forever and you will have to cancel the
-						flow manually).
-					</Alert>
-				{/if}
+	<Splitpanes horizontal class="h-full">
+		<Pane size={50} minSize={20} class="p-4">
+			{#if !noEditor}
+				<Alert
+					type="info"
+					title="While loops"
+					class="mb-4"
+					size="xs"
+					documentationLink="https://www.windmill.dev/docs/flows/while_loops"
+				>
+					Add steps inside the while loop but have one of them use early stop/break in their
+					Advanced settings (or do it at the loop level that will watch the last step) to break out
+					of the while loop (otherwise it will loop forever and you will have to cancel the flow
+					manually).
+				</Alert>
+			{/if}
 
-				{#if mod.value.type === 'whileloopflow'}
-					<div class="flex flex-row gap-8 mt-2 mb-6">
-						<div>
-							<div class="mb-2 text-sm font-bold"
-								>Skip failures <Tooltip
-									documentationLink="https://www.windmill.dev/docs/flows/while_loops"
-									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
-									the error will be collected as the result of the iteration. Regardless of this
-									setting, if an error handler is defined, it will process the error.</Tooltip
-								></div
-							>
-							<Toggle
-								bind:checked={mod.value.skip_failures}
-								options={{
-									right: 'Skip failures'
-								}}
-							/>
-						</div>
+			{#if mod.value.type === 'whileloopflow'}
+				<div class="flex flex-row gap-8 mt-2 mb-6">
+					<div>
+						<div class="mb-2 text-sm font-bold"
+							>Skip failures <Tooltip
+								documentationLink="https://www.windmill.dev/docs/flows/while_loops"
+								>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
+								the error will be collected as the result of the iteration. Regardless of this
+								setting, if an error handler is defined, it will process the error.</Tooltip
+							></div
+						>
+						<Toggle
+							bind:checked={mod.value.skip_failures}
+							options={{
+								right: 'Skip failures'
+							}}
+						/>
 					</div>
+				</div>
 
-					<div class="my-2 flex flex-row gap-2 items-center">
-						<div class="flex w-full justify-end">
-							<Button
-								on:click={() => (previewOpen = true)}
-								startIcon={{ icon: Play }}
-								color="dark"
-								size="sm">Test an iteration</Button
-							>
-						</div>
+				<div class="my-2 flex flex-row gap-2 items-center">
+					<div class="flex w-full justify-end">
+						<Button
+							on:click={() => (previewOpen = true)}
+							startIcon={{ icon: Play }}
+							color="dark"
+							size="sm">Test an iteration</Button
+						>
 					</div>
-				{/if}
-			</Pane>
-			<Pane size={40} minSize={20} class="flex flex-col flex-1">
-				<Tabs bind:selected>
-					<!-- <Tab value="retries">Retries</Tab> -->
-					<Tab value="early-stop">Early Stop/Break</Tab>
-					<Tab value="skip">Skip</Tab>
-					<Tab value="suspend">Suspend/Approval/Prompt</Tab>
-					<Tab value="sleep">Sleep</Tab>
-					<Tab value="mock">Mock</Tab>
-					<Tab value="lifetime">Lifetime</Tab>
+				</div>
+			{/if}
+		</Pane>
+		<Pane size={40} minSize={20} class="flex flex-col flex-1">
+			<Tabs bind:selected>
+				<!-- <Tab value="retries">Retries</Tab> -->
+				<Tab value="early-stop">Early Stop/Break</Tab>
+				<Tab value="skip">Skip</Tab>
+				<Tab value="suspend">Suspend/Approval/Prompt</Tab>
+				<Tab value="sleep">Sleep</Tab>
+				<Tab value="mock">Mock</Tab>
+				<Tab value="lifetime">Lifetime</Tab>
 
-					<svelte:fragment slot="content">
-						<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
-							<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
+				<svelte:fragment slot="content">
+					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
+						<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowRetries bind:flowModule={mod} />
 								</div>
 							</TabContent> -->
 
-							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowModuleEarlyStop bind:flowModule={mod} />
-								</div>
-							</TabContent>
+						<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
+							<div class="p-4 overflow-y-auto">
+								<FlowModuleEarlyStop bind:flowModule={mod} />
+							</div>
+						</TabContent>
 
-							<TabContent value="skip" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowModuleSkip bind:flowModule={mod} {parentModule} {previousModule} />
-								</div>
-							</TabContent>
+						<TabContent value="skip" class="flex flex-col flex-1 h-full">
+							<div class="p-4 overflow-y-auto">
+								<FlowModuleSkip bind:flowModule={mod} {parentModule} {previousModule} />
+							</div>
+						</TabContent>
 
-							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
-								</div>
-							</TabContent>
-							<TabContent value="sleep" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule={mod} />
-								</div>
-							</TabContent>
-							<TabContent value="mock" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowModuleMock bind:flowModule={mod} />
-								</div>
-							</TabContent>
-							<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowModuleDeleteAfterUse bind:flowModule={mod} disabled={!$enterpriseLicense} />
-								</div>
-							</TabContent>
-						</div>
-					</svelte:fragment>
-				</Tabs>
-			</Pane>
-		</Splitpanes>
-	</FlowCard>
-</div>
+						<TabContent value="suspend" class="flex flex-col flex-1 h-full">
+							<div class="p-4 overflow-y-auto">
+								<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
+							</div>
+						</TabContent>
+						<TabContent value="sleep" class="flex flex-col flex-1 h-full">
+							<div class="p-4 overflow-y-auto">
+								<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule={mod} />
+							</div>
+						</TabContent>
+						<TabContent value="mock" class="flex flex-col flex-1 h-full">
+							<div class="p-4 overflow-y-auto">
+								<FlowModuleMock bind:flowModule={mod} />
+							</div>
+						</TabContent>
+						<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
+							<div class="p-4 overflow-y-auto">
+								<FlowModuleDeleteAfterUse bind:flowModule={mod} disabled={!$enterpriseLicense} />
+							</div>
+						</TabContent>
+					</div>
+				</svelte:fragment>
+			</Tabs>
+		</Pane>
+	</Splitpanes>
+</FlowCard>
