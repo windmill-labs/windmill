@@ -36,12 +36,13 @@
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import {
 		type SchemaDiff,
-		computeSchemaDiff,
 		getFullPath,
 		setNestedProperty,
 		getNestedProperty,
 		getNestedOrder,
-		setNestedOrder
+		setNestedOrder,
+		schemaFromDiff,
+		computeDiff
 	} from '$lib/components/schema/schemaUtils'
 
 	export let noEditor: boolean
@@ -201,9 +202,9 @@
 			return
 		}
 		diff = {}
-		const { diffSchema, fullSchema } = computeSchemaDiff(newSchema, $flowStore.schema)
+		const diffSchema = computeDiff(newSchema, $flowStore.schema)
 		diff = diffSchema
-		previewSchema = fullSchema
+		previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
 	}
 
 	function applySchemaAndArgs() {
@@ -607,12 +608,9 @@
 									connectFirstNode = detail.connectFirstNode
 								}}
 								on:select={(e) => {
-									const { diffSchema, fullSchema } = computeSchemaDiff(
-										e.detail ?? undefined,
-										$flowStore.schema
-									)
+									const diffSchema = computeDiff(e.detail ?? undefined, $flowStore.schema)
 									diff = diffSchema
-									previewSchema = fullSchema
+									previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
 								}}
 							/>
 						</FlowInputEditor>

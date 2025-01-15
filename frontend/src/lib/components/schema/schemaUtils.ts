@@ -3,41 +3,33 @@ export type SchemaDiff = {
 	fullSchema: { [key: string]: any } | undefined
 }
 
-export function computeSchemaDiff(
+export function computeDiff(
 	previewSchema: { [key: string]: any } | undefined,
 	currentSchema: { [key: string]: any } | undefined
 ) {
 	if (!previewSchema || !currentSchema) {
-		return { diffSchema: {}, fullSchema: undefined }
+		return {}
 	}
-	const diffSchema: Record<string, SchemaDiff> = {}
-	const fullSchema = structuredClone(currentSchema)
+	const diff: Record<string, SchemaDiff> = {}
 
 	if (previewSchema?.properties) {
 		Object.keys(previewSchema.properties).forEach((key) => {
 			if (!currentSchema?.properties?.[key]) {
-				diffSchema[key] = {
+				diff[key] = {
 					diff: 'added',
-					fullSchema: undefined
+					fullSchema: previewSchema.properties[key]
 				}
-				fullSchema.properties[key] = structuredClone(previewSchema.properties[key])
-				fullSchema.order.push(key)
 				//TODO: add other properties
 			} else {
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
 				if (JSON.stringify(previewProp) === JSON.stringify(currentProp)) {
-					diffSchema[key] = { diff: 'same', fullSchema: undefined }
+					diff[key] = { diff: 'same', fullSchema: undefined }
 				} else if (previewProp.type === 'object' && currentProp.type === 'object') {
-					const { diffSchema: diffProp, fullSchema: fullProp } = computeSchemaDiff(
-						previewProp,
-						currentProp
-					)
-					diffSchema[key] = { diff: diffProp, fullSchema: fullProp }
-					fullSchema.properties[key] = fullProp
+					const diffProp = computeDiff(previewProp, currentProp)
+					diff[key] = { diff: diffProp, fullSchema: diffProp.fullSchema }
 				} else {
-					diffSchema[key] = { diff: 'modified', fullSchema: currentProp }
-					fullSchema.properties[key] = structuredClone(previewProp)
+					diff[key] = { diff: 'modified', fullSchema: previewProp }
 				}
 			}
 		})
@@ -46,12 +38,30 @@ export function computeSchemaDiff(
 	if (currentSchema?.properties) {
 		Object.keys(currentSchema.properties).forEach((key) => {
 			if (!previewSchema?.properties?.[key]) {
-				diffSchema[key] = { diff: 'removed', fullSchema: undefined }
+				diff[key] = { diff: 'removed', fullSchema: undefined }
 			}
 		})
 	}
 
-	return { diffSchema, fullSchema }
+	return diff
+}
+
+export function schemaFromDiff(
+	diff: Record<string, SchemaDiff>,
+	schema: { [key: string]: any } | undefined
+) {
+	if (!schema) {
+		return undefined
+	}
+	const newSchema = structuredClone(schema)
+	Object.keys(diff).forEach((key) => {
+		if (diff[key].diff === 'added' || diff[key].diff === 'modified') {
+			newSchema.properties[key] = diff[key].fullSchema
+		} else if (typeof diff[key].diff === 'object') {
+			newSchema.properties[key] = schemaFromDiff(diff[key].diff, schema.properties[key])
+		}
+	})
+	return newSchema
 }
 
 export function getFullPath(arg: { label: string; nestedParent: any | undefined }): string[] {
