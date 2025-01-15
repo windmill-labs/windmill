@@ -115,8 +115,11 @@ export function setNestedProperty(
 	}
 }
 
-export function applyDiff(schema: Record<string, any>, diff: Record<string, SchemaDiff>) {
-	if (!diff) {
+export function applyDiff(
+	schema: Record<string, any> | undefined,
+	diff: Record<string, SchemaDiff> | undefined
+) {
+	if (!diff || !schema) {
 		return
 	}
 

@@ -170,6 +170,11 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 			runPreview()
+		} else if (event.key === 'Enter' && previewSchema) {
+			applySchemaAndArgs()
+			connectFirstNode()
+			event.stopPropagation()
+			event.preventDefault()
 		}
 	}
 
@@ -184,6 +189,7 @@
 	function updatePreviewSchemaAndArgs(payload: any) {
 		if (!payload) {
 			payloadData = undefined
+			selectedSchema = undefined
 			updatePreviewArguments(undefined)
 			updatePreviewSchema(undefined)
 			return
@@ -204,19 +210,11 @@
 		const diffSchema = computeDiff(newSchema, $flowStore.schema)
 		diff = diffSchema
 		previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
-		console.log('dbg previewSchema', previewSchema)
 	}
 
-	function applySchemaAndArgs() {
-		if (!previewSchema) {
-			return
-		}
-		$flowStore.schema = applyDiff(previewSchema, diff)
-		diff = {}
+	async function applySchemaAndArgs() {
+		$flowStore.schema = applyDiff($flowStore.schema, diff)
 		updatePreviewSchemaAndArgs(undefined)
-		if (previewArguments) {
-			$previewArgs = previewArguments
-		}
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
@@ -309,8 +307,6 @@
 		diff = computeDiff(selectedSchema, $flowStore.schema)
 		previewSchema = schemaFromDiff(diff, $flowStore.schema)
 	}
-
-	$: console.log('dbg diff', diff)
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -418,7 +414,10 @@
 								disabled={!previewSchema}
 								shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
 								startIcon={{ icon: Check }}
-								on:click={applySchemaAndArgs}
+								on:click={() => {
+									applySchemaAndArgs()
+									connectFirstNode()
+								}}
 							>
 								Update schema
 							</Button>
@@ -452,7 +451,6 @@
 				<svelte:fragment slot="extraTab">
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
-							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -468,7 +466,6 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
-							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -488,7 +485,6 @@
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
 							{preventEnter}
-							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -507,7 +503,6 @@
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
 						<FlowInputEditor
 							{preventEnter}
-							on:applySchemaAndArgs={applySchemaAndArgs}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -536,12 +531,9 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
 						<FlowInputEditor
-							on:applySchemaAndArgs={() => {
-								applySchemaAndArgs()
-								connectFirstNode()
-							}}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
+								connectFirstNode = () => {}
 							}}
 						>
 							<FirstStepInputs
@@ -549,9 +541,13 @@
 									connectFirstNode = detail.connectFirstNode
 								}}
 								on:select={(e) => {
-									const diffSchema = computeDiff(e.detail ?? undefined, $flowStore.schema)
-									diff = diffSchema
-									previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+									if (e.detail) {
+										const diffSchema = computeDiff(e.detail, $flowStore.schema)
+										diff = diffSchema
+										previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+									} else {
+										updatePreviewSchemaAndArgs(undefined)
+									}
 								}}
 							/>
 						</FlowInputEditor>
