@@ -38,6 +38,9 @@
 			if (parsed['visible_to_runner_only'] !== undefined) {
 				$flowStore.visible_to_runner_only = parsed['visible_to_runner_only']
 			}
+			if (parsed['on_behalf_of_email'] !== undefined) {
+				$flowStore.on_behalf_of_email = parsed['on_behalf_of_email']
+			}
 			$flowStore.value = parsed.value
 			$flowStore.schema = parsed.schema
 			$flowStore.tag = parsed.tag

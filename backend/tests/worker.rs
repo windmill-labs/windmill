@@ -2874,6 +2874,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
                     dedicated_worker: None,
                     timeout: None,
                     visible_to_runner_only: None,
+                    on_behalf_of_email: None,
                 },
                 draft_only: None,
                 deployment_message: None,
@@ -3473,6 +3474,7 @@ async fn run_deployed_relative_imports(
                 no_main_func: None,
                 codebase: None,
                 has_preprocessor: None,
+                on_behalf_of_email: None,
             },
         )
         .await

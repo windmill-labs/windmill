@@ -63,6 +63,7 @@ import RssIcon from './RssIcon.svelte'
 import ShopifyIcon from './ShopifyIcon.svelte'
 import TypeformIcon from './TypeformIcon.svelte'
 import BigQueryIcon from './BigQueryIcon.svelte'
+import OracleDBIcon from './OracleDBIcon.svelte'
 import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
@@ -164,6 +165,7 @@ export const APP_TO_ICON_COMPONENT = {
 	shopify: ShopifyIcon,
 	typeform: TypeformIcon,
 	bigquery: BigQueryIcon,
+	oracledb: OracleDBIcon,
 	graphql: GraphqlIcon,
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
@@ -260,6 +262,7 @@ export {
 	ShopifyIcon,
 	TypeformIcon,
 	BigQueryIcon,
+	OracleDBIcon,
 	GraphqlIcon,
 	NocoDbIcon,
 	AzureIcon,

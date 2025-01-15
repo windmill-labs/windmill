@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.445.0
+  version: 1.447.1
   title: Windmill API
 
   contact:
@@ -10992,6 +10992,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -11043,6 +11044,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
 
       required:
         - hash
@@ -11095,6 +11098,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -11144,6 +11148,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - summary
@@ -11320,6 +11326,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -11443,6 +11450,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -11999,6 +12007,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -13193,6 +13202,8 @@ components:
           type: number
         visible_to_runner_only:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - edited_by
@@ -13219,6 +13230,8 @@ components:
               type: number
             visible_to_runner_only:
               type: boolean
+            on_behalf_of_email:
+              type: string
           required:
             - path
 
@@ -13739,6 +13752,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,

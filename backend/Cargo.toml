@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.445.0"
+version = "1.447.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.445.0"
+version = "1.447.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -69,6 +69,7 @@ dind = ["windmill-worker/dind"]
 php = ["windmill-worker/php"]
 rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
+oracledb = ["windmill-worker/oracledb"]
 mssql = ["windmill-worker/mssql"]
 bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
@@ -333,3 +334,4 @@ yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
 tree-sitter = {version = "0.23.0", features = []}
 tree-sitter-c-sharp = "0.23.0"
+oracle = { version = "0.6.3", features = ["chrono"] }
