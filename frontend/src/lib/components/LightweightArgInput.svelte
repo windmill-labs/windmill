@@ -492,7 +492,8 @@
 												),
 												$schema: '',
 												required: obj.required ?? [],
-												type: 'object'
+												type: 'object',
+												order: obj.order ?? []
 											}}
 											bind:args={value}
 											{disabled}
