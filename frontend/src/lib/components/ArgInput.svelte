@@ -225,7 +225,7 @@
 
 	function evalValueToRaw() {
 		rawValue = isObjectCat(inputCat) ? JSON.stringify(value, null, 2) : undefined
-		rawValue && editor?.setCode(rawValue)
+		rawValue && editor?.getCode() != rawValue && editor?.setCode(rawValue)
 		// console.log('evalValueToRaw', value, rawValue, inputCat, label)
 	}
 
