@@ -341,7 +341,7 @@
 									{/key}
 								{/if}
 							{:else if flowModule.value.type === 'script'}
-								{#if !noEditor && (customUi?.hubCode != false || flowModule?.value?.path?.startsWith('hub/'))}
+								{#if !noEditor && (customUi?.hubCode != false || !flowModule?.value?.path?.startsWith('hub/'))}
 									<div class="border-t">
 										{#key forceReload}
 											<FlowModuleScript
