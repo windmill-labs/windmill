@@ -45,15 +45,14 @@
 	/>
 	<div>
 		<span class="text-xs font-bold">Mocked Return value</span>
-		{#if flowModule?.mock?.return_value != undefined}
+		{#if flowModule?.mock?.enabled}
 			<JsonEditor {code} bind:value={flowModule.mock.return_value} />
 		{:else}
-			<input
-				type="text"
-				disabled
-				value={flowModule.mock?.return_value ? code : ''}
-				class="w-full p-2 border rounded-md"
-			/>
+			<pre class="text-xs border rounded p-2 bg-surface-disabled"
+				>{flowModule.mock?.return_value
+					? JSON.stringify(flowModule.mock?.return_value, null, 2)
+					: ''}</pre
+			>
 		{/if}
 	</div>
 </Section>
