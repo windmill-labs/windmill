@@ -52,7 +52,7 @@ jobs:
           Rename-Item -Path ".\backend\target\release\windmill.exe" -NewName "windmill-ee.exe"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windmill-ee-binary
           path: ./backend/target/release/windmill-ee.exe

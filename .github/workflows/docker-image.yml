@@ -1,9 +1,11 @@
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
+    ${{ github.event_name != 'pull_request' && github.event_name !=
+    'workflow_dispatch' && github.repository || 'windmill-labs/windmill-test' }}
   DEV_SHA:
-    ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && 'dev' || github.event.inputs.tag || github.sha }}
+    ${{ github.event_name != 'pull_request' && github.event_name !=
+    'workflow_dispatch' && 'dev' || github.event.inputs.tag || github.sha }}
 name: Build windmill:main
 on:
   push:
@@ -16,14 +18,14 @@ on:
   workflow_dispatch:
     inputs:
       ee:
-        description: 'Build EE image (true, false)'
+        description: "Build EE image (true, false)"
         required: false
         default: false
         type: boolean
       tag:
-        description: 'Tag the image'
+        description: "Tag the image"
         required: true
-        default: 'test'
+        default: "test"
 
 concurrency:
   group: ${{ github.ref }}
@@ -34,7 +36,9 @@ permissions: write-all
 jobs:
   build:
     runs-on: ubicloud
-    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs && !github.event.inputs.ee)
+    if:
+      (github.event_name != 'workflow_dispatch') || (github.event.inputs &&
+      !github.event.inputs.ee)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,8 +100,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if:
-      (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
+    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -357,7 +360,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         run: cd integration_tests && ./run.sh
       - name: Archive logs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Windmill Integration Tests Logs
@@ -452,7 +455,8 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     if:
-      (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch')
+      (github.event_name != 'pull_request') && (github.event_name !=
+      'workflow_dispatch')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -545,7 +549,9 @@ jobs:
   publish_ecr_s3:
     needs: [build_ee_nsjail]
     runs-on: ubicloud-standard-2-arm
-    if: (github.event_name != 'pull_request') && (github.event_name != 'workflow_dispatch')
+    if:
+      (github.event_name != 'pull_request') && (github.event_name !=
+      'workflow_dispatch')
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
