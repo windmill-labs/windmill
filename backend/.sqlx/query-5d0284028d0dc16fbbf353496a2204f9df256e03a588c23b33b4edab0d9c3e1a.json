@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_queue (\n                id, workspace_id, started_at, scheduled_for, running, created_at, tag, priority\n            ) SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Varchar",
+        "Timestamptz",
+        "Timestamptz",
+        "Bool",
+        "Timestamptz",
+        "Varchar",
+        "Int2"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d0284028d0dc16fbbf353496a2204f9df256e03a588c23b33b4edab0d9c3e1a"
+}

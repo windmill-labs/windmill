@@ -913,7 +913,7 @@ async fn update_flow(
     })?;
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
-            "UPDATE queue SET canceled = true WHERE id = $1",
+            "UPDATE v2_queue SET canceled = true WHERE id = $1",
             old_dep_job
         )
         .execute(&mut *new_tx)

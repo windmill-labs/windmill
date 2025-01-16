@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "database_length!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "suspended!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "f1280cedcac66a0257b45c2d1ec9f3c5e8efd23a323194f2210ae4e98de52358"
+}

@@ -1794,7 +1794,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     let allowed = opt_authed.is_some()
         || sqlx::query_scalar!(
             r#"SELECT EXISTS (
-                SELECT 1 FROM completed_job 
+                SELECT 1 FROM v2_completed_job 
                 WHERE workspace_id = $2 
                     AND (job_kind = 'appscript' OR job_kind = 'preview')
                     AND created_by = 'anonymous' 

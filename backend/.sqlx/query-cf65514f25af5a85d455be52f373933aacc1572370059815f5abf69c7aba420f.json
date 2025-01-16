@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_flow_runtime SET flow_status = jsonb_set(\n                        jsonb_set(\n                            COALESCE(flow_status, '{}'::jsonb),\n                            array[$1],\n                            COALESCE(flow_status->$1, '{}'::jsonb)\n                        ),\n                        array[$1, 'duration_ms'],\n                        to_jsonb($2::bigint)\n                    ) WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cf65514f25af5a85d455be52f373933aacc1572370059815f5abf69c7aba420f"
+}

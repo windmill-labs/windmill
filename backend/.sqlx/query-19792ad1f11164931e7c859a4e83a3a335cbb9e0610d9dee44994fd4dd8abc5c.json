@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_queue\n                    SET suspend = $1, suspend_until = now() + interval '14 day', running = true\n                    WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "19792ad1f11164931e7c859a4e83a3a335cbb9e0610d9dee44994fd4dd8abc5c"
+}

@@ -90,12 +90,26 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
+    bash_executor::{handle_bash_job, handle_powershell_job},
+    bun_executor::handle_bun_job,
+    common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    }, csharp_executor::handle_csharp_job, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, pg_executor::do_postgresql, result_processor::{process_result, start_background_processor}, worker_flow::{handle_flow, update_flow_status_in_progress}, worker_lockfiles::{
+    },
+    csharp_executor::handle_csharp_job,
+    deno_executor::handle_deno_job,
+    go_executor::handle_go_job,
+    graphql_executor::do_graphql,
+    handle_child::SLOW_LOGS,
+    handle_job_error,
+    job_logger::NO_LOGS_AT_ALL,
+    js_eval::{eval_fetch_timeout, transpile_ts},
+    pg_executor::do_postgresql,
+    result_processor::{process_result, start_background_processor},
+    worker_flow::{handle_flow, update_flow_status_in_progress},
+    worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    }
+    },
 };
 
 #[cfg(feature = "rust")]
@@ -132,7 +146,7 @@ use crate::mssql_executor::do_mssql;
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
-use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
+use crate::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
@@ -324,7 +338,6 @@ lazy_static::lazy_static! {
 const DOTNET_DEFAULT_PATH: &str = "C:\\Program Files\\dotnet\\dotnet.exe";
 #[cfg(unix)]
 const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
-
 
 lazy_static::lazy_static! {
 
@@ -995,9 +1008,9 @@ pub async fn run_worker(
     let is_dedicated_worker: bool = WORKER_CONFIG.read().await.dedicated_worker.is_some();
 
     #[cfg(feature = "benchmark")]
-    let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
+    let benchmark_jobs: usize = std::env::var("BENCHMARK_JOBS")
         .unwrap_or("5000".to_string())
-        .parse::<i32>()
+        .parse::<usize>()
         .unwrap();
 
     #[cfg(feature = "benchmark")]
@@ -1225,7 +1238,7 @@ pub async fn run_worker(
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
+                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) v2_job_queue, v2_job_runtime, v2_job_flow_runtime")
                         .execute(&db2)
                         .await
                     {
@@ -1272,7 +1285,7 @@ pub async fn run_worker(
                     same_worker_job.job_id
                 );
                 let r = sqlx::query_as::<_, PulledJob>(
-                    "UPDATE queue SET last_ping = now() WHERE id = $1 RETURNING *",
+                    "UPDATE v2_queue SET last_ping = now() WHERE id = $1 RETURNING *",
                 )
                 .bind(same_worker_job.job_id)
                 .fetch_optional(db)
@@ -1948,7 +1961,7 @@ async fn handle_queued_job(
         .await?;
     } else if let Some(parent_job) = job.parent_job {
         if let Err(e) = sqlx::query_scalar!(
-            "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
+            "UPDATE v2_queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
             &job.id.to_string(),
             parent_job,
             &job.workspace_id

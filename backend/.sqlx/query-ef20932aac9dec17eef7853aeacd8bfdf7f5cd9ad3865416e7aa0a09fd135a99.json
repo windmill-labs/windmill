@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                       UPDATE v2_queue\n                          SET canceled = true\n                            , canceled_by = 'timeout'\n                            , canceled_reason = $1\n                        WHERE id = $2\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ef20932aac9dec17eef7853aeacd8bfdf7f5cd9ad3865416e7aa0a09fd135a99"
+}

@@ -191,8 +191,8 @@ pub async fn uv_pip_compile(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
             req_hash
         )
-        .fetch_optional(db)
-        .await?
+            .fetch_optional(db)
+            .await?
         {
             logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
             return Ok(cached);
@@ -269,8 +269,8 @@ pub async fn uv_pip_compile(
             false,
             occupancy_metrics,
         )
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     } else {
         let mut args = vec![
             "pip",
@@ -368,13 +368,13 @@ pub async fn uv_pip_compile(
             false,
             occupancy_metrics,
         )
-        .await
-        .map_err(|e| {
-            Error::ExecutionErr(format!(
-                "Lock file generation failed.\n\ncommand: {uv_cmd} {}\n\n{e:?}",
-                args.join(" ")
-            ))
-        })?;
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Lock file generation failed.\n\ncommand: {uv_cmd} {}\n\n{e:?}",
+                    args.join(" ")
+                ))
+            })?;
     }
 
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -396,30 +396,30 @@ pub async fn uv_pip_compile(
 }
 
 /**
-    Iterate over all python paths and if same folder has same name multiple times,
-    then merge the content and put to <job_dir>/site-packages
+Iterate over all python paths and if same folder has same name multiple times,
+then merge the content and put to <job_dir>/site-packages
 
-    Solves problem with imports for some dependencies.
+Solves problem with imports for some dependencies.
 
-    Default layout (/windmill/cache/):
+Default layout (/windmill/cache/):
 
-    dep==x.y.z
-    └── X
-        └── A
-    dep-ext==x.y.z
-    └── X
-        └── B
+dep==x.y.z
+└── X
+    └── A
+dep-ext==x.y.z
+└── X
+    └── B
 
-    In this case python would be confused with finding B module.
+In this case python would be confused with finding B module.
 
-    This function will convert it to (/<job_dir>):
+This function will convert it to (/<job_dir>):
 
-    site-packages
-    └── X
-        ├── A
-        └── B
+site-packages
+└── X
+    ├── A
+    └── B
 
-    This way python has no problems with finding correct module
+This way python has no problems with finding correct module
 */
 #[tracing::instrument(level = "trace", skip_all)]
 async fn postinstall(
@@ -489,7 +489,7 @@ async fn postinstall(
             "\n\nCopying some packages from cache to job_dir...\n".to_string(),
             db,
         )
-        .await;
+            .await;
         // Remove PATHs we just moved
         additional_python_paths.retain(|e| !paths_to_remove.contains(e));
         // Instead add shared path
@@ -555,7 +555,7 @@ pub async fn handle_python_job(
         canceled_by,
         &mut Some(occupancy_metrics),
     )
-    .await?;
+        .await?;
 
     tracing::debug!("Finished handling python dependencies");
 
@@ -572,7 +572,7 @@ pub async fn handle_python_job(
         "\n\n--- PYTHON CODE EXECUTION ---\n".to_string(),
         db,
     )
-    .await;
+        .await;
 
     let (
         import_loader,
@@ -592,7 +592,7 @@ pub async fn handle_python_job(
         job.args.as_ref(),
         false,
     )
-    .await?;
+        .await?;
 
     tracing::debug!("Finished preparing wrapper");
 
@@ -808,7 +808,7 @@ mount {{
         false,
         &mut Some(occupancy_metrics),
     )
-    .await?;
+        .await?;
 
     if apply_preprocessor {
         let args = read_file(&format!("{job_dir}/args.json"))
@@ -1101,8 +1101,8 @@ async fn handle_python_deps(
                 db,
                 &mut already_visited,
             )
-            .await?
-            .join("\n");
+                .await?
+                .join("\n");
             if !requirements.is_empty() {
                 requirements = uv_pip_compile(
                     job_id,
@@ -1117,10 +1117,10 @@ async fn handle_python_deps(
                     annotations.no_uv || annotations.no_uv_compile,
                     annotations.no_cache,
                 )
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
-                })?;
+                    .await
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
+                    })?;
             }
             &requirements
         }
@@ -1144,7 +1144,7 @@ async fn handle_python_deps(
             annotations.no_uv || annotations.no_uv_install,
             false,
         )
-        .await?;
+            .await?;
         additional_python_paths.append(&mut venv_path);
     }
     Ok(additional_python_paths)
@@ -1402,7 +1402,7 @@ pub async fn handle_python_reqs(
             ),
             db,
         )
-        .await;
+            .await;
         // Drop lock, so next print success can fire
     }
     no_uv_install |= *USE_PIP_INSTALL;
@@ -1450,16 +1450,16 @@ pub async fn handle_python_reqs(
             } else {
                 NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
             })
-            .replace("{WORKER_DIR}", &worker_dir)
-            .replace(
-                "{CACHE_DIR}",
-                if no_uv_install {
-                    PIP_CACHE_DIR
-                } else {
-                    PY311_CACHE_DIR
-                },
-            )
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+                .replace("{WORKER_DIR}", &worker_dir)
+                .replace(
+                    "{CACHE_DIR}",
+                    if no_uv_install {
+                        PIP_CACHE_DIR
+                    } else {
+                        PY311_CACHE_DIR
+                    },
+                )
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
     };
 
@@ -1500,7 +1500,7 @@ pub async fn handle_python_reqs(
             format!("\nenv deps from local cache: {}\n", in_cache.join(", ")),
             db,
         )
-        .await;
+            .await;
     }
 
     let (kill_tx, ..) = tokio::sync::broadcast::channel::<()>(1);
@@ -1574,7 +1574,7 @@ pub async fn handle_python_reqs(
                             sqlx::query_scalar::<_, bool>
                             (r#"
 
-                                   UPDATE queue 
+                                   UPDATE v2_queue 
                                       SET last_ping = now()
                                         , mem_peak = $1
                                     WHERE id = $2
@@ -1763,7 +1763,7 @@ pub async fn handle_python_reqs(
                         ),
                         db,
                     )
-                    .await;
+                        .await;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(e.into());
                 }
@@ -1848,7 +1848,7 @@ pub async fn handle_python_reqs(
                 start,
                 db, //
             )
-            .await;
+                .await;
 
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
@@ -1954,8 +1954,8 @@ pub async fn start_worker(
         None,
         None,
     )
-    .await
-    .to_vec();
+        .await
+        .to_vec();
 
     let context_envs = build_envs_map(context).await;
     let additional_python_paths = handle_python_deps(
@@ -1972,7 +1972,7 @@ pub async fn start_worker(
         &mut canceled_by,
         &mut None,
     )
-    .await?;
+        .await?;
 
     let _args = None;
     let (
@@ -2070,7 +2070,7 @@ for line in sys.stdin:
         None,
         None,
     )
-    .await;
+        .await;
 
     let mut proc_envs = HashMap::new();
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
@@ -2099,5 +2099,5 @@ for line in sys.stdin:
         script_path,
         "python",
     )
-    .await
+        .await
 }

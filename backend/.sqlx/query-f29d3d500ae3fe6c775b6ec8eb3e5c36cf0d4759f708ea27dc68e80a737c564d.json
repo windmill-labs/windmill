@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH queued AS (\n            DELETE FROM v2_job_queue q\n            USING v2_job j\n            WHERE\n                q.id = ANY ($2) AND q.id = j.id\n                AND q.running = false AND j.parent_job IS NULL AND q.workspace_id = $3\n                AND j.schedule_path IS NULL\n            RETURNING\n                q.id, q.workspace_id, q.started_at, q.worker\n        ), queued_and_runtime AS (\n            SELECT queued.*, memory_peak, flow_status\n            FROM queued\n                JOIN v2_job_runtime USING (id)\n                LEFT JOIN v2_job_flow_runtime USING (id)\n        ) INSERT INTO v2_job_completed (\n            id, workspace_id,\n            duration_ms, result, canceled_by, canceled_reason, status,\n            flow_status, started_at, memory_peak, worker\n        ) SELECT\n            id, workspace_id,\n            0, $4, $1, 'cancel all', 'canceled'::job_status,\n            flow_status, started_at, memory_peak, worker\n        FROM queued_and_runtime\n        ON CONFLICT (id) DO NOTHING RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "UuidArray",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f29d3d500ae3fe6c775b6ec8eb3e5c36cf0d4759f708ea27dc68e80a737c564d"
+}

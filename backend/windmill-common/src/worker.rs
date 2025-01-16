@@ -109,14 +109,14 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
         return;
     }
     let query = format!(
-        "UPDATE queue
+        "UPDATE v2_queue
             SET running = true
               , started_at = coalesce(started_at, now())
               , last_ping = now()
               , suspend_until = null
             WHERE id = (
                 SELECT id
-                FROM queue
+                FROM v2_job_queue
                 WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
                 ORDER BY priority DESC NULLS LAST, created_at
                 FOR UPDATE SKIP LOCKED
@@ -141,14 +141,14 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        let query = format!("UPDATE queue
+        let query = format!("UPDATE v2_queue
         SET running = true
         , started_at = coalesce(started_at, now())
         , last_ping = now()
         , suspend_until = null
         WHERE id = (
             SELECT id
-            FROM queue
+            FROM v2_job_queue
             WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
             ORDER BY priority DESC NULLS LAST, scheduled_for
             FOR UPDATE SKIP LOCKED

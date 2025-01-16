@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_completed_job\n                    SET logs = '##DELETED##', args = '{}'::jsonb, result = '{}'::jsonb\n                    WHERE id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5acc194f4081cd81677eae9f1fbfe694c3b1aa2769a131d805600e764c458cdc"
+}

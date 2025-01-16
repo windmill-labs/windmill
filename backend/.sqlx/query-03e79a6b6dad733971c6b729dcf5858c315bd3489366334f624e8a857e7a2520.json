@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2 AND canceled = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "03e79a6b6dad733971c6b729dcf5858c315bd3489366334f624e8a857e7a2520"
+}

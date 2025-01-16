@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_queue\n                SET last_ping = now()\n                WHERE id = $1 AND last_ping < now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3c8f53194af72224d943adb5f38a7dc0c2a8676b586d36e9f949b2a056dcf1e2"
+}

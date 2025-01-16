@@ -735,7 +735,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
         match db.begin().await {
             Ok(mut tx) => {
                 let deleted_jobs = sqlx::query_scalar!(
-                    "DELETE FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id AS \"id!\"",
+                    "DELETE FROM v2_completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id AS \"id!\"",
                     job_retention_secs
                 )
                 .fetch_all(&mut *tx)
@@ -787,7 +787,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             }
 
                             if let Err(e) =
-                                sqlx::query!("DELETE FROM job WHERE id = ANY($1)", &deleted_jobs)
+                                sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
                                     .execute(&mut *tx)
                                     .await
                             {
@@ -1333,7 +1333,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                     sqlx::query!(
                             "INSERT INTO metrics (id, value)
                             VALUES ($1, to_jsonb((SELECT EXTRACT(EPOCH FROM now() - scheduled_for)
-                            FROM queue WHERE tag = $2 AND running = false AND scheduled_for <= now() - ('3 seconds')::interval
+                            FROM v2_queue WHERE tag = $2 AND running = false AND scheduled_for <= now() - ('3 seconds')::interval
                             ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1)))",
                             format!("queue_delay_{}", tag),
                             tag
@@ -1496,7 +1496,7 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
 async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-            "UPDATE queue SET running = false, started_at = null
+            "UPDATE v2_queue SET running = false, started_at = null
             WHERE last_ping < now() - ($1 || ' seconds')::interval
              AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false RETURNING id AS \"id!\", workspace_id AS \"workspace_id!\", last_ping",
             *ZOMBIE_JOB_TIMEOUT,
@@ -1534,7 +1534,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     }
 
     let mut timeout_query =
-        "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
+        "SELECT * FROM v2_queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
     AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')"
             .to_string();
     if *RESTART_ZOMBIE_JOBS {
@@ -1608,7 +1608,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             worker_name,
             send_result_never_used,
             #[cfg(feature = "benchmark")]
-            &mut windmill_common::bench::BenchmarkIter::new(),
+            &mut windmill_worker::bench::BenchmarkIter::new(),
         )
         .await;
     }
@@ -1620,7 +1620,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         SELECT
             id AS "id!", workspace_id AS "workspace_id!", parent_job, is_flow_step,
             flow_status AS "flow_status: Box<str>", last_ping, same_worker
-        FROM queue
+        FROM v2_queue
         WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
             AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
             AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
@@ -1651,7 +1651,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None).await;
             // if the flow hasn't started and is a zombie, we can simply restart it
             sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
+                "UPDATE v2_queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
                 flow.id
             )
             .execute(db)
@@ -1678,7 +1678,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         DELETE
         FROM parallel_monitor_lock
         WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
-        RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM queue q
+        RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM v2_queue q
             WHERE q.id = parent_flow_id AND q.running = true AND q.canceled = false) AS workspace_id
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()

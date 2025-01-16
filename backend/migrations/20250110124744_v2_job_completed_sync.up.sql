@@ -10,7 +10,7 @@ DECLARE
 BEGIN
     IF NEW.__created_by IS NULL THEN
         -- v2 -> v1
-        job := (SELECT * FROM v2_job WHERE id = NEW.id);
+        SELECT * INTO job FROM v2_job WHERE id = NEW.id;
         NEW.__parent_job := job.parent_job;
         NEW.__created_by := job.created_by;
         NEW.__created_at := job.created_at;
@@ -18,9 +18,12 @@ BEGIN
         NEW.__script_hash := job.runnable_id;
         NEW.__script_path := job.runnable_path;
         NEW.__args := job.args;
+        -- __logs
+        -- __deleted
         NEW.__raw_code := job.raw_code;
         NEW.__canceled := NEW.status = 'canceled';
         NEW.__job_kind := job.kind;
+        -- __env_id
         NEW.__schedule_path := job.schedule_path;
         NEW.__permissioned_as := job.permissioned_as;
         NEW.__raw_flow := job.raw_flow;
@@ -29,6 +32,7 @@ BEGIN
         NEW.__is_skipped := NEW.status = 'skipped';
         NEW.__raw_lock := job.raw_lock;
         NEW.__email := job.permissioned_as_email;
+        NEW.__visible_to_owner := job.visible_to_owner;
         NEW.__tag := job.tag;
         NEW.__priority := job.priority;
     ELSE

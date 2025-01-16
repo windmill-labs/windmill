@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_queue\n                SET flow_status = jsonb_set(\n                    jsonb_set(flow_status, ARRAY['preprocessor_module', 'job'], to_jsonb($1::UUID::TEXT)),\n                    ARRAY['preprocessor_module', 'type'],\n                    to_jsonb('InProgress'::text)\n                )\n                WHERE id = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5a335118fbe54a23269ef7a4ee1c4393d83e674e16d280c1281e6cba857ea65e"
+}

@@ -7,29 +7,38 @@ RETURNS TRIGGER AS $$
 DECLARE
     job v2_job;
 BEGIN
-    job := (SELECT * FROM v2_job WHERE id = NEW.id);
+    -- When inserting to `v2_job_queue` from `v2` code, set `v1` columns:
+    SELECT * INTO job FROM v2_job WHERE id = NEW.id;
+    NEW.__parent_job := job.parent_job;
     NEW.__created_by := job.created_by;
-    NEW.__permissioned_as := job.permissioned_as;
-    NEW.__email := job.permissioned_as_email;
-    NEW.__job_kind := job.kind;
     NEW.__script_hash := job.runnable_id;
     NEW.__script_path := job.runnable_path;
-    NEW.__parent_job := job.parent_job;
-    NEW.__language := job.script_lang;
-    NEW.__flow_step_id := job.flow_step_id;
-    NEW.__root_job := job.flow_root_job;
+    NEW.__args := job.args;
+    -- __logs
+    NEW.__raw_code := job.raw_code;
+    NEW.__canceled := NEW.canceled_by IS NOT NULL;
+    -- __last_ping
+    NEW.__job_kind := job.kind;
+    NEW.__env_id := 0xcafe; -- Magic used bellow.
     NEW.__schedule_path := job.schedule_path;
+    NEW.__permissioned_as := job.permissioned_as;
+    -- __flow_status
+    NEW.__raw_flow := job.raw_flow;
+    NEW.__is_flow_step := job.flow_step_id IS NOT NULL;
+    NEW.__language := job.script_lang;
     NEW.__same_worker := job.same_worker;
+    NEW.__raw_lock := job.raw_lock;
+    NEW.__pre_run_error := job.pre_run_error;
+    NEW.__email := job.permissioned_as_email;
     NEW.__visible_to_owner := job.visible_to_owner;
+    -- __mem_peak
+    NEW.__root_job := job.flow_root_job;
+    -- __leaf_jobs
     NEW.__concurrent_limit := job.concurrent_limit;
     NEW.__concurrency_time_window_s := job.concurrency_time_window_s;
-    NEW.__cache_ttl := job.cache_ttl;
     NEW.__timeout := job.timeout;
-    NEW.__args := job.args;
-    NEW.__pre_run_error := job.pre_run_error;
-    NEW.__raw_code := job.raw_code;
-    NEW.__raw_lock := job.raw_lock;
-    NEW.__raw_flow := job.raw_flow;
+    NEW.__flow_step_id := job.flow_step_id;
+    NEW.__cache_ttl := job.cache_ttl;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -123,7 +132,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER v2_job_queue_after_insert_trigger
 AFTER INSERT ON v2_job_queue
 FOR EACH ROW
-WHEN (pg_trigger_depth() < 1 AND NEW.__created_by IS NOT NULL) -- Prevent infinite loop v1 <-> v2
+WHEN (pg_trigger_depth() < 1 AND NEW.__created_by IS NOT NULL AND NEW.__env_id != 0xcafe) -- Prevent infinite loop v1 <-> v2
 EXECUTE FUNCTION v2_job_queue_after_insert();
 
 -- On every update to `v2_job_queue`, update `v2_job`, `v2_job_runtime` and `v2_job_flow_runtime` as well
