@@ -49,8 +49,16 @@
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		customUi,
+		selectedId,
+		moving,
+		history,
+		flowStateStore,
+		flowStore,
+		flowInputsStore,
+		pathStore
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
@@ -305,7 +313,7 @@
 		<FlowGraphV2
 			earlyStop={$flowStore.value?.skip_expr !== undefined}
 			cache={$flowStore.value?.cache_ttl !== undefined}
-			triggerNode={true}
+			triggerNode={customUi?.triggers != false}
 			path={$pathStore}
 			{newFlow}
 			{disableAi}
