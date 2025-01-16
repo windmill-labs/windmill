@@ -29,7 +29,7 @@
 				developerNb: number
 				operatorNb: number
 				seatsFromUsers: number
-				seatsFromComps: number
+				seatsFromExtraComps: number
 				usedSeats: number
 				automatic_billing: boolean
 				owner: string
@@ -73,8 +73,8 @@
 		const developerNb = users?.filter((x) => !x.operator)?.length ?? 0
 		const operatorNb = users?.filter((x) => x.operator)?.length ?? 0
 		const seatsFromUsers = Math.ceil(developerNb + operatorNb / 2)
-		const seatsFromComps = Math.ceil((info.usage ?? 0) / 10000)
-		const usedSeats = Math.max(seatsFromUsers, seatsFromComps)
+		const seatsFromExtraComps = Math.max(Math.ceil((info.usage ?? 0) / 10000) - seatsFromUsers, 0)
+		const usedSeats = seatsFromUsers + seatsFromExtraComps
 		premiumInfo = {
 			...info,
 			usage: info.usage ?? 0,
@@ -83,7 +83,7 @@
 			developerNb,
 			operatorNb,
 			seatsFromUsers,
-			seatsFromComps,
+			seatsFromExtraComps,
 			usedSeats
 		}
 	}
@@ -335,7 +335,7 @@
 								<Cell last numeric>
 									<div class="text-base font-bold">
 										c = ceil({Math.max(0, premiumInfo.usage - premiumInfo.seatsFromUsers * 10000)} /
-										10 000) = {premiumInfo.seatsFromComps}
+										10 000) = {premiumInfo.seatsFromExtraComps}
 									</div>
 								</Cell>
 							</tr>
@@ -396,7 +396,7 @@
 	{/if}
 </div>
 
-<Section collapsable label="Cost estimator" collapsed={false}>
+<Section collapsable label="Cost estimator">
 	<div class="border p-4 mb-4 rounded-md" transition:slide>
 		<Label label="Number of developers">
 			<Range min={1} max={20} bind:value={estimatedDevs} hideInput />
