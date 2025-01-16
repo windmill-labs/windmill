@@ -1,9 +1,9 @@
 use serde_json::value::RawValue;
 use std::collections::HashMap;
-
 use crate::{
-    db::DB,
+    db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
+    resources::get_resource_value_interpolated_internal,
     users::fetch_api_authed,
 };
 
@@ -12,9 +12,13 @@ use axum::{
     Router,
 };
 use handler::{
-    alter_publication, create_database_trigger, create_publication, create_slot, delete_database_trigger, delete_publication, drop_slot_name, exists_database_trigger, get_database_trigger, get_publication_info, get_template_script, is_database_in_logical_level, list_database_publication, list_database_triggers, list_slot_name, set_enabled, update_database_trigger, DatabaseTrigger
+    alter_publication, create_database_trigger, create_publication, create_slot,
+    delete_database_trigger, delete_publication, drop_slot_name, exists_database_trigger,
+    get_database_trigger, get_publication_info, get_template_script, is_database_in_logical_level,
+    list_database_publication, list_database_triggers, list_slot_name, set_enabled,
+    update_database_trigger, Database, DatabaseTrigger,
 };
-use windmill_common::{db::UserDB, utils::StripPath};
+use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
 
 mod bool;
@@ -27,6 +31,39 @@ mod replication_message;
 mod trigger;
 
 pub use trigger::start_database;
+
+pub async fn get_database_resource(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    database_resource_path: &str,
+    w_id: &str,
+) -> Result<Database, Error> {
+    let resource = get_resource_value_interpolated_internal(
+        &authed,
+        user_db,
+        &db,
+        &w_id,
+        &database_resource_path,
+        None,
+        "",
+    )
+    .await
+    .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
+
+    let resource = match resource {
+        Some(resource) => serde_json::from_value::<Database>(resource).map_err(Error::SerdeJson)?,
+        None => {
+            return {
+                Err(Error::NotFound(
+                    "Database resource do not exist".to_string(),
+                ))
+            }
+        }
+    };
+
+    Ok(resource)
+}
 
 fn publication_service() -> Router {
     Router::new()
@@ -57,7 +94,10 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_database_trigger))
         .route("/setenabled/*path", post(set_enabled))
         .route("/get_template_script", post(get_template_script))
-        .route("/is_valid_database_configuration/*path", get(is_database_in_logical_level))
+        .route(
+            "/is_valid_database_configuration/*path",
+            get(is_database_in_logical_level),
+        )
         .nest("/publication", publication_service())
         .nest("/slot", slot_service())
 }

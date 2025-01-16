@@ -49,7 +49,7 @@
 	let language: Language = 'Typescript'
 	let loading = false
 	type actions = 'create' | 'get'
-	let selectedPublicAction: actions
+	let selectedPublicationAction: actions
 	let selectedSlotAction: actions
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
@@ -102,9 +102,9 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			selectedPublicAction = 'get'
+			selectedPublicationAction = 'get'
 			selectedSlotAction = 'get'
-			selectedPublicAction = selectedPublicAction
+			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
 			tab = 'basic'
 			await loadTrigger()
@@ -118,10 +118,12 @@
 	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
 		drawerLoading = true
 		try {
-			selectedPublicAction = 'create'
+			selectedPublicationAction = 'create'
 			selectedSlotAction = 'create'
-			drawer?.openDrawer()
+			selectedTable = 'specific'
 			tab = 'basic'
+
+			drawer?.openDrawer()
 			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
 			initialScriptPath = ''
@@ -134,11 +136,15 @@
 			database_resource_path = ''
 			edit = false
 			dirtyPath = false
-			selectedPublicAction = 'create'
-			selectedSlotAction = 'create'
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
 			transaction_to_track = ['Insert', 'Update', 'Delete']
+			relations = [
+				{
+					schema_name: 'public',
+					table_to_track: []
+				}
+			]
 		} finally {
 			drawerLoading = false
 		}
@@ -221,12 +227,8 @@
 	}
 
 	const getTemplateScript = async () => {
-		if (relations.length === 0) {
-			sendUserToast('You must at least choose one schema', true)
-			return
-		}
-		if (!database_resource_path) {
-			sendUserToast('You must pick a database resource first', true)
+		if (relations.length === 0 || emptyString(database_resource_path)) {
+			sendUserToast('You must pick a database resource and choose at least one schema', true)
 			return
 		}
 
@@ -282,11 +284,6 @@
 			}
 		} catch (error) {}
 	}
-
-	$: showAddSchema =
-		selectedTable !== 'all' &&
-		(selectedPublicAction === 'create' ||
-			(publicationItems.length > 0 && !emptyString(publication_name)))
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -342,7 +339,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New database triggers can take up to 30 seconds to start listening.
+						New postgresql triggers can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>
@@ -399,16 +396,14 @@
 									on:click={getTemplateScript}
 									target="_blank"
 									{loading}
-									disabled={emptyString(database_resource_path) ||
-										emptyString(replication_slot_name) ||
-										emptyString(publication_name) ||
-										relations.length === 0}
 									>Create from template
+									<Tooltip light>
+										The conversion requires a <strong>database resource</strong> and at least one
+										<strong>schema</strong>
+										to be set.<br />
+										Please ensure these conditions are met before proceeding.
+									</Tooltip>
 								</Button>
-								<Tooltip
-									>To enable that features,Select a database resource, and inside database config
-									create or get a publication from your database</Tooltip
-								>
 							</div>
 						{/if}
 					</div>
@@ -423,6 +418,12 @@
 								<Required required={true} />
 							</p>
 							<Section label="Transactions">
+								<p class="text-xs mb-3 text-tertiary">
+									Choose the types of database transactions that should trigger a script or flow.
+									You can select from <strong>Insert</strong>, <strong>Update</strong>,
+									<strong>Delete</strong>, or any combination of these operations to define when the
+									trigger should activate.
+								</p>
 								<MultiSelect
 									ulOptionsClass={'!bg-surface-secondary'}
 									noMatchingOptionsMsg=""
@@ -434,103 +435,149 @@
 									bind:selected={transaction_to_track}
 								/>
 							</Section>
-							<Tabs bind:selected={tab}>
-								<Tab value="basic">Basic</Tab>
-								<Tab value="advanced">Advanced</Tab>
-								<svelte:fragment slot="content">
-									<div class="overflow-hidden bg-surface">
-										<TabContent value="basic">
-											<RelationPicker bind:selectedTable bind:relations />
-										</TabContent>
-										<TabContent value="advanced">
-											<div class="flex flex-col gap-12 mt-6">
-												<Section label="Slot name">
-													<div class="flex flex-col gap-3">
-														<ToggleButtonGroup
-															bind:selected={selectedSlotAction}
-															on:selected={() => {
-																replication_slot_name = ''
-															}}
-														>
-															<ToggleButton value="create" label="Create Slot" />
-															<ToggleButton value="get" label="Get Slot" />
-														</ToggleButtonGroup>
-														{#if selectedSlotAction === 'create'}
-															<div class="flex gap-3">
-																<input
-																	type="text"
-																	bind:value={replication_slot_name}
-																	placeholder={'Choose a slot name'}
+							<Section label="Publication">
+								<p class="text-xs mb-3 text-tertiary">
+									Select the tables to track. You can choose to track
+									<strong>all tables in your database</strong>,
+									<strong>all tables within a specific schema</strong>,
+									<strong>specific tables in a schema</strong>, or even
+									<strong>specific columns of a table</strong>. Additionally, you can apply a
+									<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
+								</p>
+								<Tabs bind:selected={tab}>
+									<Tab value="basic"
+										><div class="flex flex-row gap-1"
+											>Basic<Tooltip
+												><p
+													>Choose the <strong>relations</strong> to track without worrying about the
+													underlying mechanics of creating a
+													<strong>publication</strong>
+													or <strong>slot</strong>. This simplified option lets you focus only on
+													the data you want to monitor.</p
+												></Tooltip
+											></div
+										></Tab
+									>
+									<Tab value="advanced"
+										><div class="flex flex-row gap-1"
+											>Advanced<Tooltip
+												><p
+													>Select a specific <strong>publication</strong> from your database to
+													track, and manage it by <strong>creating</strong>,
+													<strong>updating</strong>, or <strong>deleting</strong>. For
+													<strong>slots</strong>, you can <strong>create</strong> or
+													<strong>delete</strong>
+													them. Both <strong>non-active slots</strong> and the
+													<strong>currently used slot</strong> by the trigger will be retrieved from
+													your database for management.</p
+												></Tooltip
+											></div
+										></Tab
+									>
+									<svelte:fragment slot="content">
+										<div class="mt-5 overflow-hidden bg-surface">
+											<TabContent value="basic">
+												<RelationPicker bind:selectedTable bind:relations />
+											</TabContent>
+											<TabContent value="advanced">
+												<div class="flex flex-col gap-4"
+													><Section
+														label="Slot name"
+														tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
+													>
+														<div class="flex flex-col gap-3">
+															<ToggleButtonGroup
+																bind:selected={selectedSlotAction}
+																on:selected={() => {
+																	replication_slot_name = ''
+																}}
+															>
+																<ToggleButton value="create" label="Create Slot" />
+																<ToggleButton value="get" label="Get Slot" />
+															</ToggleButtonGroup>
+															{#if selectedSlotAction === 'create'}
+																<div class="flex gap-3">
+																	<input
+																		type="text"
+																		bind:value={replication_slot_name}
+																		placeholder={'Choose a slot name'}
+																	/>
+																	<Button
+																		color="light"
+																		size="xs"
+																		variant="border"
+																		disabled={emptyStringTrimmed(replication_slot_name)}
+																		on:click={createSlot}>Create</Button
+																	>
+																</div>
+															{:else}
+																<SlotPicker
+																	bind:edit
+																	{database_resource_path}
+																	bind:replication_slot_name
 																/>
-																<Button
-																	color="light"
-																	size="xs"
-																	variant="border"
-																	disabled={emptyStringTrimmed(replication_slot_name)}
-																	on:click={createSlot}>Create</Button
-																>
-															</div>
-														{:else}
-															<SlotPicker
-																bind:edit
-																{database_resource_path}
-																bind:replication_slot_name
-															/>
-														{/if}
-													</div>
-												</Section>
+															{/if}
+														</div>
+													</Section>
 
-												<Section label="Publication">
-													<div class="flex flex-col gap-3">
-														<ToggleButtonGroup
-															bind:selected={selectedPublicAction}
-															on:selected={() => {
-																publication_name = ''
-																relations = []
-																transaction_to_track = []
-																transaction_to_track = transaction_to_track
-															}}
-														>
-															<ToggleButton value="create" label="Create Publication" />
-															<ToggleButton value="get" label="Get Publication" />
-														</ToggleButtonGroup>
-														{#if selectedPublicAction === 'create'}
-															<div class="flex gap-3">
-																<input
-																	type="text"
-																	bind:value={publication_name}
-																	placeholder={'Publication Name'}
+													<Section
+														label="Publication"
+														tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
+													>
+														<div class="flex flex-col gap-3">
+															<ToggleButtonGroup
+																bind:selected={selectedPublicationAction}
+																on:selected={() => {
+																	if (selectedPublicationAction === 'create') {
+																		selectedTable = 'specific'
+																		publication_name = `windmill_publication_${random_adj()}`
+																		relations = [{ schema_name: 'public', table_to_track: [] }]
+																		return
+																	}
+
+																	publication_name = ''
+																	relations = []
+																	transaction_to_track = []
+																}}
+															>
+																<ToggleButton value="create" label="Create Publication" />
+																<ToggleButton value="get" label="Get Publication" />
+															</ToggleButtonGroup>
+															{#if selectedPublicationAction === 'create'}
+																<div class="flex gap-3">
+																	<input
+																		type="text"
+																		bind:value={publication_name}
+																		placeholder={'Publication Name'}
+																	/>
+																	<Button
+																		color="light"
+																		size="xs"
+																		variant="border"
+																		disabled={emptyStringTrimmed(publication_name) ||
+																			(selectedTable != 'all' && relations.length === 0)}
+																		on:click={createPublication}>Create</Button
+																	>
+																</div>
+															{:else}
+																<PublicationPicker
+																	{database_resource_path}
+																	bind:transaction_to_track
+																	bind:table_to_track
+																	bind:items={publicationItems}
+																	bind:publication_name
+																	bind:selectedTable
 																/>
-																<Button
-																	color="light"
-																	size="xs"
-																	variant="border"
-																	disabled={emptyStringTrimmed(publication_name) ||
-																		(selectedTable != 'all' && relations.length === 0)}
-																	on:click={createPublication}>Create</Button
-																>
-															</div>
-														{:else}
-															<PublicationPicker
-																{database_resource_path}
-																bind:transaction_to_track
-																bind:table_to_track
-																bind:items={publicationItems}
-																bind:publication_name
-																bind:selectedTable
-															/>
-														{/if}
-
-														{#if showAddSchema}
+															{/if}
 															<RelationPicker bind:selectedTable bind:relations />
-														{/if}
-													</div>
-												</Section>
-											</div>
-										</TabContent>
-									</div>
-								</svelte:fragment>
-							</Tabs>
+														</div>
+													</Section></div
+												>
+											</TabContent>
+										</div>
+									</svelte:fragment>
+								</Tabs>
+							</Section>
 						</div>
 					</Section>
 				{/if}

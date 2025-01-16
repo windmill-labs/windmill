@@ -2,6 +2,7 @@ use std::{collections::HashMap, pin::Pin};
 
 use crate::{
     database_triggers::{
+        get_database_resource,
         relation::RelationConverter,
         replication_message::{
             LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
@@ -10,7 +11,7 @@ use crate::{
         run_job,
     },
     db::DB,
-    variables::get_variable_or_self,
+    users::fetch_api_authed,
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -18,7 +19,7 @@ use futures::{pin_mut, SinkExt, StreamExt};
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
-use windmill_common::{worker::to_raw_value, INSTANCE_NAME};
+use windmill_common::{db::UserDB, worker::to_raw_value, INSTANCE_NAME};
 
 use super::{
     handler::{Database, DatabaseTrigger},
@@ -166,8 +167,8 @@ async fn update_ping(
         RETURNING 1
         "#,
         error,
-        database_trigger.workspace_id,
-        database_trigger.path,
+        &database_trigger.workspace_id,
+        &database_trigger.path,
         *INSTANCE_NAME
     )
     .fetch_optional(db)
@@ -175,6 +176,23 @@ async fn update_ping(
     {
         Ok(updated) => {
             if updated.flatten().is_none() {
+                // allow faster restart of database trigger
+                sqlx::query!(
+                    r#"
+                UPDATE 
+                    database_trigger 
+                SET
+                    last_server_ping = NULL 
+                WHERE 
+                    workspace_id = $1 
+                    AND path = $2 
+                    AND server_id IS NULL"#,
+                    &database_trigger.workspace_id,
+                    &database_trigger.path,
+                )
+                .execute(db)
+                .await
+                .ok();
                 tracing::info!(
                     "Database {} changed, disabled, or deleted, stopping...",
                     database_trigger.path
@@ -209,34 +227,27 @@ async fn listen_to_transactions(
     db: DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<(), Error> {
-    let resource = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
-        &database_trigger.database_resource_path,
-        &database_trigger.workspace_id
+    let authed = fetch_api_authed(
+        database_trigger.edited_by.clone(),
+        database_trigger.email.clone(),
+        &database_trigger.workspace_id,
+        &db,
+        None,
     )
-    .fetch_optional(&db)
     .await
-    .map_err(|e| Error::Common(windmill_common::error::Error::SqlErr(e)))?
-    .flatten();
+    .map_err(Error::Common)?;
 
-    let mut resource = match resource {
-        Some(resource) => serde_json::from_value::<Database>(resource)
-            .map_err(|e| Error::Common(windmill_common::error::Error::SerdeJson(e)))?,
-        None => {
-            return {
-                Err(Error::Common(windmill_common::error::Error::NotFound(
-                    "Database resource do not exist".to_string(),
-                )))
-            }
-        }
-    };
+    let database = get_database_resource(
+        authed,
+        Some(UserDB::new(db.clone())),
+        &db,
+        &database_trigger.database_resource_path,
+        &database_trigger.workspace_id,
+    )
+    .await
+    .map_err(Error::Common)?;
 
-    resource.password =
-        get_variable_or_self(resource.password, &db, &database_trigger.workspace_id)
-            .await
-            .map_err(Error::Common)?;
-
-    let client = PostgresSimpleClient::new(&resource).await?;
+    let client = PostgresSimpleClient::new(&database).await?;
 
     let (logical_replication_stream, logicail_replication_settings) = client
         .get_logical_replication_stream(
@@ -361,14 +372,13 @@ async fn try_to_listen_to_database_transactions(
         UPDATE database_trigger 
         SET 
             server_id = $1, 
-            last_server_ping = now() 
+            last_server_ping = now(),
+            error = 'Connecting...'
         WHERE 
             enabled IS TRUE 
             AND workspace_id = $2 
             AND path = $3 
-            AND (
-                server_id IS NULL 
-                OR last_server_ping IS NULL 
+            AND (last_server_ping IS NULL 
                 OR last_server_ping < now() - INTERVAL '15 seconds'
             ) 
         RETURNING true
@@ -430,9 +440,7 @@ async fn listen_to_unlistened_database_events(
                 database_trigger
             WHERE
                 enabled IS TRUE
-                AND (
-                    server_id IS NULL OR
-                    last_server_ping IS NULL OR
+                AND (last_server_ping IS NULL OR
                     last_server_ping < now() - interval '15 seconds'
                 )
             "#

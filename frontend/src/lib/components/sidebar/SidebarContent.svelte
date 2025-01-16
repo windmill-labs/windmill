@@ -109,7 +109,7 @@
 			kind: 'kafka'
 		},
 		{
-			label: 'Database',
+			label: 'Postgresql',
 			href: '/database_triggers',
 			icon: Database,
 			disabled: $userStore?.operator,

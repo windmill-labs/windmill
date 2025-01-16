@@ -59,6 +59,7 @@ mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
+#[cfg(feature = "database")]
 mod database_triggers;
 mod db;
 mod drafts;

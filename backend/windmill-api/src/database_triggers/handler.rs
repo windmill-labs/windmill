@@ -34,8 +34,9 @@ use windmill_common::{
 use crate::{
     database_triggers::mapper::{Mapper, MappingInfo},
     db::{ApiAuthed, DB},
-    resources::get_resource_value_interpolated_internal,
 };
+
+use super::get_database_resource;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct Database {
@@ -105,7 +106,19 @@ pub struct NewDatabaseTrigger {
     publication: Option<PublicationData>,
 }
 
-async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Error> {
+pub async fn get_database_connection(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    database_resource_path: &str,
+    w_id: &str,
+) -> Result<PgConnection, windmill_common::error::Error> {
+    let database = get_database_resource(authed, user_db, db, database_resource_path, w_id).await?;
+
+    Ok(get_raw_postgres_connection(&database).await?)
+}
+
+pub async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Error> {
     let options = {
         let sslmode = if !db.sslmode.is_empty() {
             PgSslMode::from_str(&db.sslmode)?
@@ -135,18 +148,6 @@ async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Erro
     PgConnection::connect_with(&options)
         .await
         .map_err(Error::SqlErr)
-}
-
-async fn get_database_connection(
-    authed: ApiAuthed,
-    user_db: UserDB,
-    db: &DB,
-    database_resource_path: &str,
-    w_id: &str,
-) -> Result<PgConnection, Error> {
-    let database = get_database_resource(authed, user_db, db, database_resource_path, w_id).await?;
-
-    Ok(get_raw_postgres_connection(&database).await?)
 }
 
 #[derive(Debug)]
@@ -242,39 +243,6 @@ pub struct DatabaseTrigger {
     pub enabled: bool,
 }
 
-pub async fn get_database_resource(
-    authed: ApiAuthed,
-    user_db: UserDB,
-    db: &DB,
-    database_resource_path: &str,
-    w_id: &str,
-) -> Result<Database, Error> {
-    let resource = get_resource_value_interpolated_internal(
-        &authed,
-        Some(user_db),
-        &db,
-        &w_id,
-        &database_resource_path,
-        None,
-        "",
-    )
-    .await
-    .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
-
-    let resource = match resource {
-        Some(resource) => serde_json::from_value::<Database>(resource).map_err(Error::SerdeJson)?,
-        None => {
-            return {
-                Err(Error::NotFound(
-                    "Database resource do not exist".to_string(),
-                ))
-            }
-        }
-    };
-
-    Ok(resource)
-}
-
 #[derive(Deserialize, Serialize)]
 pub struct ListDatabaseTriggerQuery {
     pub page: Option<usize>,
@@ -350,7 +318,7 @@ pub async fn create_database_trigger(
 
         let mut connection = get_database_connection(
             authed.clone(),
-            user_db.clone(),
+            Some(user_db.clone()),
             &db,
             &database_resource_path,
             &w_id,
@@ -554,7 +522,7 @@ pub async fn list_slot_name(
 ) -> error::Result<Json<Vec<SlotList>>> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -609,7 +577,7 @@ pub async fn create_slot(
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -630,7 +598,7 @@ pub async fn drop_slot_name(
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -655,7 +623,7 @@ pub async fn list_database_publication(
 ) -> error::Result<Json<Vec<String>>> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -685,7 +653,7 @@ pub async fn get_publication_info(
 ) -> error::Result<Json<PublicationData>> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -794,7 +762,7 @@ pub async fn create_publication(
 
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -835,7 +803,7 @@ pub async fn delete_publication(
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -955,18 +923,13 @@ pub async fn alter_publication(
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
     )
     .await?;
-    let message = update_publication(
-        &mut connection,
-        &publication_name,
-        publication_data,
-    )
-    .await?;
+    let message = update_publication(&mut connection, &publication_name, publication_data).await?;
 
     Ok(message)
 }
@@ -1133,18 +1096,13 @@ pub async fn update_database_trigger(
     if let Some(publication) = publication {
         let mut connection = get_database_connection(
             authed.clone(),
-            user_db.clone(),
+            Some(user_db.clone()),
             &db,
             &database_resource_path,
             &w_id,
         )
         .await?;
-        update_publication(
-            &mut connection,
-            &publication_name,
-            publication,
-        )
-        .await?;
+        update_publication(&mut connection, &publication_name, publication).await?;
     }
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1330,7 +1288,7 @@ pub async fn get_template_script(
 
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,
@@ -1461,7 +1419,6 @@ pub async fn get_template_script(
     let mapper = Mapper::new(mapper, language);
 
     let template = mapper.get_template();
-
     Ok(template)
 }
 
@@ -1473,7 +1430,7 @@ pub async fn is_database_in_logical_level(
 ) -> error::JsonResult<bool> {
     let mut connection = get_database_connection(
         authed.clone(),
-        user_db.clone(),
+        Some(user_db.clone()),
         &db,
         &database_resource_path,
         &w_id,

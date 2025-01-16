@@ -206,21 +206,21 @@
 
 <CenteredPage>
 	<PageHeader
-		title="Database triggers"
-		tooltip="Windmill can listen to specific database transactions (insert, update, delete) and trigger scripts or flows based on them."
+		title="Postgresql Triggers"
+		tooltip="Windmill enables real-time responsiveness by listening to specific database transactions—such as inserts, updates, and deletes—and automatically triggering scripts or workflows in response."
 	>
 		<Button
 			size="md"
 			startIcon={{ icon: Plus }}
 			on:click={() => databaseTriggerEditor.openNew(false)}
 		>
-			New&nbsp;Database trigger
+			New&nbsp;Postgresql trigger
 		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			Database triggers are disabled in the multi-tenant cloud.
+			Postgresql triggers are disabled in the multi-tenant cloud.
 		</Alert>
 		<div class="py-4" />
 	{/if}
@@ -228,14 +228,14 @@
 		<div class="w-full pb-4 pt-6">
 			<input
 				type="text"
-				placeholder="Search Database triggers"
+				placeholder="Search Postgresql triggers"
 				bind:value={filter}
 				class="search-item"
 			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Database Trigger" icon={Unplug} />
+					<ToggleButton small value="trigger" label="Postgresql Trigger" icon={Unplug} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -258,7 +258,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No database triggers </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No postgresql triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
