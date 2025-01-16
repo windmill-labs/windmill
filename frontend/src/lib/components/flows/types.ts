@@ -23,6 +23,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 	ws_error_handler_muted?: boolean
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
+	on_behalf_of_email?: string
 }
 
 export type FlowInputEditorState = {

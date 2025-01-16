@@ -224,6 +224,8 @@
 				</div>
 
 				<RouteEditorConfigSection
+					isFlow={is_flow}
+					{path}
 					bind:route_path
 					bind:args
 					bind:isValid

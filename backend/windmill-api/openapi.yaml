@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.445.1
+  version: 1.447.4
   title: Windmill API
 
   contact:
@@ -11411,6 +11411,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
 
       required:
         - hash
@@ -11492,6 +11494,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - summary
@@ -12298,6 +12302,7 @@ components:
           bigquery,
           snowflake,
           mssql,
+          oracledb,
           graphql,
           nativets,
           bun,
@@ -13669,6 +13674,8 @@ components:
           type: number
         visible_to_runner_only:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - edited_by
@@ -13695,6 +13702,8 @@ components:
               type: number
             visible_to_runner_only:
               type: boolean
+            on_behalf_of_email:
+              type: string
           required:
             - path
 

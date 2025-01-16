@@ -26,7 +26,7 @@ export const EDIT_PROMPT = {
       "prompt": "Here's my snowflake code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
     },
     "mssql": {
-      "prompt": "Here's my Microsoft SQL Server code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with @p1, @p2, etc.. Name the parameters by adding comments before the statement like that: `-- @p1 name1 ({type})` or `-- @p2 name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
+      "prompt": "Here's my Microsoft SQL Server code: \n```sql\n{code}\n```\n<contextual_information>\nArguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)\n</contextual_information>\nMy instructions: {description}"
     },
     "graphql": {
       "prompt": "Here's my graphql code: \n```graphql\n{code}\n```\n<contextual_information>\nAdd the needed arguments as query parameters.\n</contextual_information>\nMy instructions: {description}"

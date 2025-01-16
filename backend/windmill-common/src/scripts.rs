@@ -43,6 +43,7 @@ pub enum ScriptLang {
     Snowflake,
     Graphql,
     Mssql,
+    OracleDB,
     Php,
     Rust,
     Ansible,
@@ -66,6 +67,7 @@ impl ScriptLang {
             ScriptLang::Snowflake => "snowflake",
             ScriptLang::Mssql => "mssql",
             ScriptLang::Graphql => "graphql",
+            ScriptLang::OracleDB => "oracledb",
             ScriptLang::Php => "php",
             ScriptLang::Rust => "rust",
             ScriptLang::Ansible => "ansible",
@@ -227,6 +229,8 @@ pub struct Script {
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of_email: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -324,6 +328,7 @@ pub struct NewScript {
     pub no_main_func: Option<bool>,
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
+    pub on_behalf_of_email: Option<String>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

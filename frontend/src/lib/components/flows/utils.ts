@@ -85,6 +85,9 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	if (flow.visible_to_runner_only) {
 		o['visible_to_runner_only'] = flow.visible_to_runner_only
 	}
+	if (flow.on_behalf_of_email) {
+		o['on_behalf_of_email'] = flow.on_behalf_of_email
+	}
 	if (flow.ws_error_handler_muted) {
 		o['ws_error_handler_muted'] = flow.ws_error_handler_muted
 	}
@@ -99,6 +102,7 @@ export function cleanInputs(flow: OpenFlow | any): OpenFlow & {
 	ws_error_handler_muted?: boolean
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
+	on_behalf_of_email?: string
 } {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {

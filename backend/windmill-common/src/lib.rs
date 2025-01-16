@@ -300,9 +300,11 @@ pub async fn get_latest_deployed_hash_for_path<'e, E: sqlx::Executor<'e, Databas
     Option<bool>,
     Option<i32>,
     Option<bool>,
+    Option<String>,
+    String,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -326,6 +328,8 @@ pub async fn get_latest_deployed_hash_for_path<'e, E: sqlx::Executor<'e, Databas
         script.delete_after_use,
         script.timeout,
         script.has_preprocessor,
+        script.on_behalf_of_email,
+        script.created_by,
     ))
 }
 
@@ -344,9 +348,11 @@ pub async fn get_latest_hash_for_path<'c>(
     Option<bool>,
     Option<i16>,
     Option<i32>,
+    Option<String>,
+    String,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout FROM script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -368,5 +374,7 @@ pub async fn get_latest_hash_for_path<'c>(
         script.dedicated_worker,
         script.priority,
         script.timeout,
+        script.on_behalf_of_email,
+        script.created_by,
     ))
 }

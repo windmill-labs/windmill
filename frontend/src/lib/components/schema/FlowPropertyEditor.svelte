@@ -297,7 +297,12 @@
 		</div>
 		{#if oneOfSelected && schema.oneOf}
 			{@const idx = schema.oneOf.findIndex((obj) => obj.title === oneOfSelected)}
-			<EditableSchemaDrawer bind:schema={schema.oneOf[idx]} />
+			<EditableSchemaDrawer
+				bind:schema={schema.oneOf[idx]}
+				on:change={() => {
+					dispatch('schemaChange')
+				}}
+			/>
 		{/if}
 	{:else if type === 'object' && format !== 'resource-s3_object'}
 		<Tabs
@@ -313,7 +318,7 @@
 			<svelte:fragment slot="content">
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<EditableSchemaDrawer bind:schema />
+						<EditableSchemaDrawer bind:schema on:change={() => dispatch('schemaChange')} />
 					</TabContent>
 
 					<TabContent value="resource">
@@ -399,7 +404,7 @@
 		{/if}
 		<Toggle
 			options={{
-				right: 'Disableds',
+				right: 'Disabled',
 				rightTooltip: 'Do not let user modify this field'
 			}}
 			lightMode

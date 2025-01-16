@@ -15,7 +15,7 @@
 	export let headless: boolean = false
 </script>
 
-<div class="w-full h-full flex flex-col">
+<div class="w-full flex flex-col">
 	{#if !headless}
 		<div class="flex flex-row justify-between items-center mb-2">
 			<h2

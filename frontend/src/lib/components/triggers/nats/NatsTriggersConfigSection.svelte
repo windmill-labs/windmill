@@ -153,7 +153,7 @@
 			stream_name: {
 				type: 'string',
 				title: 'Stream name',
-				pattern: '^[a-zA-Z0-9-_]+$',
+				pattern: '^((\\$var:[\\w-\\/]+)|[a-zA-Z0-9-_]+)$',
 				customErrorMessage: 'Invalid stream name',
 				showExpr: 'fields.use_jetstream',
 				description:
@@ -162,7 +162,7 @@
 			consumer_name: {
 				type: 'string',
 				title: 'Consumer name',
-				pattern: '^[a-zA-Z0-9-_]+$',
+				pattern: '^((\\$var:[\\w-\\/]+)|[a-zA-Z0-9-_]+)$',
 				customErrorMessage: 'Invalid consumer name',
 				showExpr: 'fields.use_jetstream',
 				description:

@@ -50,6 +50,8 @@
 				return sql
 			case 'bigquery':
 				return sql
+			case 'oracledb':
+				return sql
 			case 'powershell':
 				return powershell
 			case 'php':
