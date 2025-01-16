@@ -399,21 +399,3 @@ pub async fn acknowledge_all_critical_alerts(
     );
     Ok("All unacknowledged critical alerts acknowledged".to_string())
 }
-
-#[cfg(all(feature = "enterprise", any(feature = "nats", feature = "kafka")))]
-use crate::{db::ApiAuthed, resources::transform_json_value};
-#[cfg(all(feature = "enterprise", any(feature = "nats", feature = "kafka")))]
-use serde_json::Value;
-#[cfg(all(feature = "enterprise", any(feature = "nats", feature = "kafka")))]
-pub async fn interpolate(
-    authed: &ApiAuthed,
-    db: &DB,
-    w_id: &str,
-    s: String,
-) -> Result<String, anyhow::Error> {
-    let value = Value::String(s);
-    match transform_json_value(authed, None, &db, w_id, value, &None, "").await? {
-        Value::String(s) => Ok(s),
-        v => Err(anyhow::anyhow!("Expected string, got {:?}", v)),
-    }
-}

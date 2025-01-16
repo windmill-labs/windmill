@@ -41,7 +41,14 @@
 			showCapture={false}
 		/>
 	{:else if triggerType === 'http'}
-		<RouteEditorConfigSection showCapture={false} can_write={true} bind:args headless />
+		<RouteEditorConfigSection
+			showCapture={false}
+			can_write={true}
+			bind:args
+			headless
+			{isFlow}
+			{path}
+		/>
 	{:else if triggerType === 'email'}
 		<EmailTriggerConfigSection
 			hash={data?.hash}
