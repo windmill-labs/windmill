@@ -23,7 +23,7 @@ const p = {
 
     const filterLoad = new RegExp(`^${cdir}\/main\\.ts$`);
     const transpiler = new Bun.Transpiler({
-      loader: "tsx",
+      loader: "ts",
     });
 
     function replaceRelativeImports(code) {
@@ -62,7 +62,7 @@ const p = {
       const contents = await req.text();
       return {
         contents: replaceRelativeImports(contents).contents,
-        loader: "tsx",
+        loader: "ts",
       };
     });
 

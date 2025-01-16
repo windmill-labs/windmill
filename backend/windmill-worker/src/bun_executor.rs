@@ -407,6 +407,7 @@ const bo = await Bun.build({{
 
 if (!bo.success) {{
     bo.logs.forEach((l) => console.log(l));
+    console.log("Failed to build node bundle");
     process.exit(1);
 }}
 "#,
@@ -454,6 +455,7 @@ const bo = await Bun.build({{
 
 if (!bo.success) {{
     bo.logs.forEach((l) => console.log(l));
+    console.log("Failed to build node bundle");
     process.exit(1);
 }}
 "#,
