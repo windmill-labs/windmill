@@ -52,7 +52,7 @@
 			emailDomain={data?.emailDomain}
 		/>
 	{:else if triggerType === 'kafka'}
-		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
+		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{:else if triggerType === 'nats'}
 		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{/if}
