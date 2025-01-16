@@ -525,7 +525,7 @@
 							}}
 							use:autosize
 							style="min-height: 5px;"
-							class="col-span-10 {valid && error == ''
+							class="col-span-10 !leading-tight !text-2xs {valid && error == ''
 								? ''
 								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
 							placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}

@@ -702,6 +702,7 @@
 		) {
 			const client = new MonacoLanguageClient({
 				name: name,
+				messageTransports: transports,
 				clientOptions: {
 					outputChannel,
 					documentSelector: [lang],
@@ -731,11 +732,6 @@
 									return [{ enabled: true }]
 								})
 						}
-					}
-				},
-				connectionProvider: {
-					get: () => {
-						return Promise.resolve(transports)
 					}
 				}
 			})

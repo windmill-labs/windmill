@@ -32,5 +32,6 @@
 		"types": []
 	},
 	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte", "src/lib/components/triggers/TriggersEditorSectionsvelte"],
+	"exclude": ["src/lib/monaco_workers/*.js"],
 	"extends": "./.svelte-kit/tsconfig.json"
 }
