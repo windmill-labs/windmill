@@ -81,7 +81,7 @@
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` nats trigger: ${err.body}`,
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` NATS trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -211,7 +211,7 @@
 <CenteredPage>
 	<PageHeader
 		title="NATS triggers"
-		tooltip="Windmill can consume nats events and trigger scripts or flows based on them."
+		tooltip="Windmill can consume NATS events and trigger scripts or flows based on them."
 	>
 		<Button size="md" startIcon={{ icon: Plus }} on:click={() => natsTriggerEditor.openNew(false)}>
 			New&nbsp;NATS trigger
@@ -258,7 +258,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No nats triggers </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No NATS triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, nats_resource_path, subjects, extra_perms, canWrite, marked, server_id, error, last_server_ping, enabled } (path)}

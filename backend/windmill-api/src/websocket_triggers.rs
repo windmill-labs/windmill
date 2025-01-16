@@ -250,7 +250,7 @@ async fn update_websocket_trigger(
         .map(SqlxJson)
         .collect_vec();
 
-    // important to update server_id, last_server_ping and error to NULL to stop current websocket listener
+    // important to update server_id to NULL to stop current websocket listener
     sqlx::query!(
         "UPDATE websocket_trigger SET url = $1, script_path = $2, path = $3, is_flow = $4, filters = $5, initial_messages = $6, url_runnable_args = $7, edited_by = $8, email = $9, edited_at = now(), server_id = NULL, error = NULL
             WHERE workspace_id = $10 AND path = $11",
@@ -671,6 +671,12 @@ impl WebsocketTrigger {
     ).fetch_optional(db).await {
         Ok(updated) => {
             if updated.flatten().is_none() {
+                // allow faster restart of websocket trigger
+                sqlx::query!(
+                    "UPDATE websocket_trigger SET last_server_ping = NULL WHERE workspace_id = $1 AND path = $2 AND server_id IS NULL",
+                    self.workspace_id,
+                    self.path,
+                ).execute(db).await.ok();
                 tracing::info!("Websocket {} changed, disabled, or deleted, stopping...", self.url); 
                 return None;
             }
@@ -875,6 +881,13 @@ impl CaptureConfigForWebsocket {
     ).fetch_optional(db).await {
         Ok(updated) => {
             if updated.flatten().is_none() {
+                // allow faster restart of websocket capture
+                sqlx::query!(
+                    "UPDATE capture_config SET last_server_ping = NULL WHERE workspace_id = $1 AND path = $2 AND is_flow = $3 AND trigger_kind = 'websocket' AND server_id IS NULL",
+                    self.workspace_id,
+                    self.path,
+                    self.is_flow,
+                ).execute(db).await.ok();
                 tracing::info!("Websocket capture {} changed, disabled, or deleted, stopping...", self.trigger_config.url); 
                 return None;
             }

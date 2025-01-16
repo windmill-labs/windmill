@@ -220,7 +220,7 @@ async fn set_config(
             (workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (workspace_id, path, is_flow, trigger_kind)
-            DO UPDATE SET trigger_config = $5, owner = $6, email = $7, server_id = NULL, last_server_ping = NULL, error = NULL",
+            DO UPDATE SET trigger_config = $5, owner = $6, email = $7, server_id = NULL, error = NULL",
         &w_id,
         &nc.path,
         nc.is_flow,

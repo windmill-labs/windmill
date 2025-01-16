@@ -67,7 +67,7 @@
 					urlError = ''
 				}
 			} else if (!url || /^(ws:|wss:)\/\/[^\s]+$/.test(url) === false) {
-				urlError = 'Invalid websocket URL'
+				urlError = 'Websocket URL must start with ws:// or wss://'
 			} else {
 				urlError = ''
 			}
@@ -171,6 +171,7 @@
 						on:input={() => {
 							dirtyUrl = true
 						}}
+						placeholder="ws://example.com"
 						class={urlError === ''
 							? ''
 							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}

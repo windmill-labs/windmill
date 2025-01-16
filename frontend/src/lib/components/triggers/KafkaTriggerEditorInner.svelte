@@ -218,6 +218,7 @@
 				<KafkaTriggersConfigSection
 					bind:args
 					bind:isValid
+					{path}
 					defaultValues={useDefaultValues() ? defaultValues : undefined}
 				/>
 
