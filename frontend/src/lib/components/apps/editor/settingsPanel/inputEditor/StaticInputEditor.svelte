@@ -91,6 +91,7 @@
 			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker
+				placeholder="S3 resource (workspace s3 if empty)"
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
 					let path = e.detail

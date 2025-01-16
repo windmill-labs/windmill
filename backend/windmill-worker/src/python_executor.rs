@@ -1705,9 +1705,10 @@ pub async fn handle_python_reqs(
 
             tracing::info!(
                 workspace_id = %w_id,
+                job_id = %job_id,
                 // is_ok = out,
                 "started thread to install wheel {}",
-                job_id
+                venv_p
             );
 
             let start = std::time::Instant::now();
@@ -1721,7 +1722,7 @@ pub async fn handle_python_reqs(
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
-                                    "No tarball was found on S3 or different problem occured {job_id}:\n{e}",
+                                    "No tarball was found for {venv_p} on S3 or different problem occured {job_id}:\n{e}",
                                 );
                             } else {
                                 print_success(
@@ -1858,9 +1859,10 @@ pub async fn handle_python_reqs(
 
             tracing::info!(
                 workspace_id = %w_id,
+                job_id = %job_id,
                 // is_ok = out,
                 "finished setting up python dependency {}",
-                job_id
+                venv_p
             );
 
             pids.lock().await.get_mut(i).and_then(|e| e.take());

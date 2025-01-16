@@ -24,6 +24,7 @@
 	export let selectFirst = false
 	export let expressOAuthSetup = false
 	export let defaultValues: Record<string, any> | undefined = undefined
+	export let placeholder: string | undefined = undefined
 
 	onMount(() => {
 		setTimeout(() => {
@@ -153,7 +154,7 @@
 				}}
 				items={collection}
 				class="text-clip grow min-w-0"
-				placeholder="{resourceType ?? 'any'} resource"
+				placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 				containerStyles={darkMode
 					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
