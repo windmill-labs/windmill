@@ -26,6 +26,18 @@
 		schemas: [],
 		enableSchemaRequest: true
 	})
+	languages.json.jsonDefaults.setModeConfiguration({
+		documentRangeFormattingEdits: false,
+		documentFormattingEdits: true,
+		hovers: true,
+		completionItems: true,
+		documentSymbols: true,
+		tokens: true,
+		colors: true,
+		foldingRanges: true,
+		selectionRanges: true,
+		diagnostics: true
+	})
 </script>
 
 <script lang="ts">
