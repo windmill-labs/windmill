@@ -62,7 +62,7 @@ const p = {
       const contents = await req.text();
       return {
         contents: replaceRelativeImports(contents).contents,
-        loader: "ts",
+        loader: "tsx",
       };
     });
 
