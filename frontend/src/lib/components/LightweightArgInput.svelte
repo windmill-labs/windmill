@@ -251,6 +251,18 @@
 			value = value.concat('')
 		}
 	}
+
+	function filterObjectProperties(obj: SchemaProperty) {
+		if (!obj || !obj.properties || Object.keys(obj.properties).length == 0) {
+			return obj
+		}
+		const newSchema = structuredClone(obj)
+		const newProperties = Object.fromEntries(
+			Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+		)
+		newSchema.properties = newProperties
+		return newSchema
+	}
 </script>
 
 {#if render}
@@ -486,15 +498,7 @@
 								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 									<div class="p-4 pl-8 border rounded w-full">
 										<LightweightSchemaForm
-											schema={{
-												properties: Object.fromEntries(
-													Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
-												),
-												$schema: '',
-												required: obj.required ?? [],
-												type: 'object',
-												order: obj.order ?? []
-											}}
+											schema={filterObjectProperties(obj)}
 											bind:args={value}
 											{disabled}
 										/>
