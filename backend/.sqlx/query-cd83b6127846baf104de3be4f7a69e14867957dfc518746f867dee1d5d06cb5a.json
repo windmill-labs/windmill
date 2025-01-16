@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd83b6127846baf104de3be4f7a69e14867957dfc518746f867dee1d5d06cb5a"
+}

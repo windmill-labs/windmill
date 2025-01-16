@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                                args AS \"args: Json<HashMap<String, Box<RawValue>>>\"\n                            FROM v2_queue\n                            WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "args: Json<HashMap<String, Box<RawValue>>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1d45dedd57c2fafd53d3e425a9bf25c2e0a96eb3a94a092f07afffa7e5ad9c70"
+}

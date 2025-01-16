@@ -208,7 +208,7 @@ pub async fn handle_child(
             if matches!(kill_reason, KillReason::Timeout { .. }) {
                 if let Err(err) = sqlx::query!(
                     r#"
-                       UPDATE queue
+                       UPDATE v2_queue
                           SET canceled = true
                             , canceled_by = 'timeout'
                             , canceled_reason = $1
@@ -645,7 +645,7 @@ where
                 }
                 if job_id != Uuid::nil() {
                     let (canceled, canceled_by, canceled_reason, already_completed) = sqlx::query!(
-                            "UPDATE queue SET mem_peak = $1, last_ping = now()
+                            "UPDATE v2_queue SET mem_peak = $1, last_ping = now()
                             WHERE id = $2
                             RETURNING canceled AS \"canceled!\", canceled_by, canceled_reason",
                             *mem_peak,

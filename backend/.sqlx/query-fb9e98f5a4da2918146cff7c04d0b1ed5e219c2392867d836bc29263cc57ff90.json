@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(COUNT(*), 0) as \"database_length!\", null::bigint as suspended FROM v2_completed_job WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "database_length!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "suspended",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "fb9e98f5a4da2918146cff7c04d0b1ed5e219c2392867d836bc29263cc57ff90"
+}

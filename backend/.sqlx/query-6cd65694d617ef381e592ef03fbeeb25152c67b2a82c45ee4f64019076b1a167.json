@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_queue\n                SET flow_status = flow_status - 'retry'\n                WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6cd65694d617ef381e592ef03fbeeb25152c67b2a82c45ee4f64019076b1a167"
+}

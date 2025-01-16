@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "VACUUM (skip_locked) v2_job_queue, v2_job_runtime, v2_job_flow_runtime",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "86e730a3481868a8d63824904df42788dd8a777d643d46d5086b5f8f33bbc97e"
+}

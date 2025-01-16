@@ -448,10 +448,16 @@ async fn transform_schemas(
                 let is_required = required.unwrap().contains(key);
 
                 let default_value = default_args_json.and_then(|json| json.get(key).cloned());
-                let dynamic_enums_value = dynamic_enums_json.and_then(|json| json.get(key).cloned());
+                let dynamic_enums_value =
+                    dynamic_enums_json.and_then(|json| json.get(key).cloned());
 
-                let input_block =
-                    create_input_block(key, schema, is_required, default_value, dynamic_enums_value);
+                let input_block = create_input_block(
+                    key,
+                    schema,
+                    is_required,
+                    default_value,
+                    dynamic_enums_value,
+                );
                 match input_block {
                     serde_json::Value::Array(arr) => blocks.extend(arr),
                     _ => blocks.push(input_block),
@@ -536,7 +542,7 @@ fn create_input_block(
 
     // Handle date-time format
     if let FieldType::String = schema.r#type {
-        if schema.format.as_deref() == Some("date-time") {  
+        if schema.format.as_deref() == Some("date-time") {
             tracing::debug!("Date-time type");
             let now = chrono::Local::now();
             let current_date = now.format("%Y-%m-%d").to_string();
@@ -971,17 +977,17 @@ async fn get_modal_blocks(
 
     let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
-            queue.job_kind AS \"job_kind!: JobKind\",
-            queue.script_hash AS \"script_hash: ScriptHash\",
-            queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-            completed_job.parent_job AS \"parent_job: Uuid\",
-            completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
-            completed_job.created_by AS \"created_by!\",
-            queue.script_path,
-            queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM queue
-        JOIN completed_job ON completed_job.parent_job = queue.id
-        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2
+            v2_queue.job_kind AS \"job_kind!: JobKind\",
+            v2_queue.script_hash AS \"script_hash: ScriptHash\",
+            v2_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+            v2_completed_job.parent_job AS \"parent_job: Uuid\",
+            v2_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
+            v2_completed_job.created_by AS \"created_by!\",
+            v2_queue.script_path,
+            v2_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_queue
+        JOIN v2_completed_job ON v2_completed_job.parent_job = v2_queue.id
+        WHERE v2_completed_job.id = $1 AND v2_completed_job.workspace_id = $2
         LIMIT 1",
         job_id,
         &w_id

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n                SELECT 1 FROM v2_completed_job \n                WHERE workspace_id = $2 \n                    AND (job_kind = 'appscript' OR job_kind = 'preview')\n                    AND created_by = 'anonymous' \n                    AND started_at > now() - interval '3 hours'\n                    AND script_path LIKE $3 || '/%' \n                    AND result @> ('{\"s3\":\"' || $1 ||  '\"}')::jsonb \n            )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e0fffa04a21586fe01ea575373f240a56ef7687335930d1587f934dd68d4ee81"
+}

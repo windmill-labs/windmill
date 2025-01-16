@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_queue\n                    SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)\n                    WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "82057acdd9bce4c67598e410dbca062bcfe0d319a330969e4a97fb0a714be923"
+}

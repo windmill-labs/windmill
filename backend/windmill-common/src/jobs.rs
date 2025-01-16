@@ -46,6 +46,21 @@ pub enum JobKind {
     AppScript,
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase"))]
+pub enum JobTriggerKind {
+    Webhook,
+    Http,
+    Websocket,
+    Kafka,
+    Email,
+    Nats,
+    Schedule,
+    App,
+    Ui,
+}
+
 impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
@@ -197,7 +212,7 @@ pub struct CompletedJob {
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -71,7 +71,7 @@ pub async fn push_scheduled_job<'c>(
     let next = next.with_timezone(&chrono::Utc);
 
     let already_exists: bool = query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
+        "SELECT EXISTS (SELECT 1 FROM v2_queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
         &schedule.workspace_id,
         &schedule.path,
         next

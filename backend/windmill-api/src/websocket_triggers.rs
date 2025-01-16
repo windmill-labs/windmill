@@ -560,7 +560,7 @@ async fn wait_runnable_result(
 
         let result = sqlx::query!(
             "SELECT result AS \"result: SqlxJson<Box<RawValue>>\", success AS \"success!\"
-            FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            FROM v2_completed_job WHERE id = $1 AND workspace_id = $2",
             Uuid::parse_str(&job_id)?,
             workspace_id
         )

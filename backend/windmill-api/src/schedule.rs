@@ -407,8 +407,8 @@ async fn list_schedule_with_jobs(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
     let rows = sqlx::query_as!(ScheduleWJobs,
-        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE
-        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL AND is_skipped = False ORDER BY started_at DESC LIMIT 20) AS jobs ) t
+        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM v2_completed_job WHERE
+        v2_completed_job.schedule_path = schedule.path AND v2_completed_job.workspace_id = $1 AND parent_job IS NULL AND is_skipped = False ORDER BY started_at DESC LIMIT 20) AS jobs ) t
         WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
@@ -838,7 +838,7 @@ pub async fn clear_schedule<'c>(
 ) -> Result<()> {
     tracing::info!("Clearing schedule {}", path);
     sqlx::query!(
-        "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false",
+        "DELETE FROM v2_queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false",
         path,
         w_id
     )

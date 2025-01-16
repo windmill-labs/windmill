@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH runtime AS (\n                SELECT GREATEST($8, r.memory_peak) AS memory_peak, flow_status\n                FROM v2_job_runtime r\n                    LEFT JOIN v2_job_flow_runtime f USING (id)\n                WHERE r.id = $1\n            ), queued AS (\n                DELETE FROM v2_job_queue q\n                WHERE q.id = $1\n                RETURNING\n                    q.id, q.workspace_id, q.started_at, q.worker,\n                    COALESCE($5, q.canceled_by) AS canceled_by,\n                    COALESCE($6, q.canceled_reason) AS canceled_reason\n            ) INSERT INTO v2_job_completed (\n                id, workspace_id, started_at, worker, memory_peak, flow_status, result,\n                canceled_by, canceled_reason,\n                duration_ms,\n                status\n            ) SELECT\n                id, workspace_id, started_at, worker, memory_peak, flow_status, $7,\n                canceled_by, canceled_reason,\n                COALESCE($2::bigint, CASE\n                    WHEN started_at IS NULL THEN 0\n                    ELSE (EXTRACT('epoch' FROM NOW()) - EXTRACT('epoch' FROM started_at)) * 1000\n                END) AS duration_ms,\n                CASE\n                    WHEN $4::BOOLEAN THEN 'skipped'::job_status\n                    WHEN canceled_by IS NOT NULL THEN 'canceled'::job_status\n                    WHEN $3::BOOLEAN THEN 'success'::job_status\n                    ELSE 'failure'::job_status\n                END AS status\n            FROM queued, runtime\n            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = EXCLUDED.result\n            RETURNING status = 'canceled' AS \"canceled!\", duration_ms",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "canceled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "duration_ms",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Bool",
+        "Bool",
+        "Varchar",
+        "Text",
+        "Jsonb",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "068679795613c4fbfa77e4c96cfe310d1c4399fcbda69b93dd7bf15a93ce39ff"
+}

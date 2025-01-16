@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\" FROM v2_queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3843fa02ec86e57c1f13bc66e86adf8d6d19cc6cf612c20f3fb27071bfce071a"
+}
