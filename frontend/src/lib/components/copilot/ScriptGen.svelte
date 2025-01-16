@@ -471,7 +471,7 @@
 						</div>
 					{/if}
 
-					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(lang ?? '') && dbSchema?.lang === lang}
+					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql, oracledb'].includes(lang ?? '') && dbSchema?.lang === lang}
 						<div class="flex flex-row items-center justify-between gap-2 w-96">
 							<div class="flex flex-row items-center gap-1">
 								<p class="text-xs text-secondary">

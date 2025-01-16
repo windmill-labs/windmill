@@ -41,7 +41,8 @@
 		'bigquery',
 		'snowflake',
 		'mssql',
-		'graphql'
+		'graphql',
+		'oracledb'
 	]
 
 	let filter = ''

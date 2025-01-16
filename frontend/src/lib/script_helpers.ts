@@ -267,6 +267,14 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
+const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- :name1 (text) = default arg
+-- :name2 (int)
+-- :name3 (int)
+INSERT INTO demo VALUES (:name1, :name2);
+UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
+`
+
 const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
@@ -278,11 +286,11 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 
 const MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
--- @p1 name1 (varchar) = default arg
--- @p2 name2 (int)
--- @p3 name3 (int)
-INSERT INTO demo VALUES (@p1, @p2);
-UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
+-- @P1 name1 (varchar) = default arg
+-- @P2 name2 (int)
+-- @P3 name3 (int)
+INSERT INTO demo VALUES (@P1, @P2);
+UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -838,6 +846,9 @@ export const INITIAL_CODE = {
 	graphql: {
 		script: GRAPHQL_INIT_CODE
 	},
+	oracledb: {
+		script: ORACLEDB_INIT_CODE
+	},
 	php: {
 		script: PHP_INIT_CODE
 	},
@@ -942,6 +953,8 @@ export function initialCode(
 		return INITIAL_CODE.mysql.script
 	} else if (language == 'bigquery') {
 		return INITIAL_CODE.bigquery.script
+	} else if (language == 'oracledb') {
+		return INITIAL_CODE.oracledb.script
 	} else if (language == 'snowflake') {
 		return INITIAL_CODE.snowflake.script
 	} else if (language == 'mssql') {

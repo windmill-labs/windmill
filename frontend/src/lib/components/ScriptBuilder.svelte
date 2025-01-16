@@ -158,7 +158,7 @@
 		showCaptureHint: showCaptureHint
 	})
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -387,7 +387,8 @@
 					visible_to_runner_only: script.visible_to_runner_only,
 					no_main_func: script.no_main_func,
 					has_preprocessor: script.has_preprocessor,
-					deployment_message: deploymentMsg || undefined
+					deployment_message: deploymentMsg || undefined,
+					on_behalf_of_email: script.on_behalf_of_email
 				}
 			})
 
@@ -527,7 +528,8 @@
 							: script.concurrency_key,
 						visible_to_runner_only: script.visible_to_runner_only,
 						no_main_func: script.no_main_func,
-						has_preprocessor: script.has_preprocessor
+						has_preprocessor: script.has_preprocessor,
+						on_behalf_of_email: script.on_behalf_of_email
 					}
 				})
 			}
@@ -1194,6 +1196,30 @@
 											/>
 										</div>
 									</Section>
+									<Section label="On behalf of last editor">
+										<svelte:fragment slot="header">
+											<Tooltip>
+												When this option is enabled, the script will be run with the permissions of
+												the last editor.
+											</Tooltip>
+										</svelte:fragment>
+										<div class="flex gap-2 shrink flex-col">
+											<Toggle
+												size="sm"
+												checked={Boolean(script.on_behalf_of_email)}
+												on:change={() => {
+													if (script.on_behalf_of_email) {
+														script.on_behalf_of_email = undefined
+													} else {
+														script.on_behalf_of_email = $userStore?.email
+													}
+												}}
+												options={{
+													right: 'Run on behalf of last editor'
+												}}
+											/>
+										</div>
+									</Section>
 									{#if !isCloudHosted()}
 										<Section label="Custom env variables">
 											<svelte:fragment slot="header">
@@ -1254,7 +1280,7 @@
 									{/if}
 								</div>
 							</TabContent>
-							<TabContent value="ui" class="h-full p-4 bg-red-500">
+							<TabContent value="ui" class="h-full p-4">
 								<ScriptSchema bind:schema={script.schema} />
 							</TabContent>
 							<TabContent value="triggers">

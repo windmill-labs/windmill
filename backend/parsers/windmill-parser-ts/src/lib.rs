@@ -75,7 +75,9 @@ pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
     let mut visitor = ImportsFinder { imports: HashSet::new() };
     visitor.visit_module(&expr);
 
-    Ok(visitor.imports.into_iter().collect())
+    let mut imports: Vec<_> = visitor.imports.into_iter().collect();
+    imports.sort();
+    Ok(imports)
 }
 
 struct OutputFinder {

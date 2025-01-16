@@ -34,4 +34,9 @@ COPY --from=bitnami/dotnet-sdk:9.0.101-debian-12-r0 /opt/bitnami/dotnet-sdk /opt
 RUN ln -s /opt/dotnet-sdk/bin/dotnet /usr/bin/dotnet
 ENV DOTNET_ROOT="/opt/dotnet-sdk/bin"
 
+# Oracle DB Client
+COPY --from=ghcr.io/oracle/oraclelinux9-instantclient:23 /usr/lib/oracle/23/client64/lib /opt/oracle/23/lib
+RUN apt-get -y update && apt-get install -y libaio1
+RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
+
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail

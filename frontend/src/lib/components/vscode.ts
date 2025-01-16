@@ -5,8 +5,12 @@ import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+<<<<<<< HEAD
 import { ConsoleLogger } from 'monaco-languageclient/tools'
 import { LogLevel } from 'vscode'
+=======
+import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
+>>>>>>> main
 
 export let isInitialized = false
 export let isInitializing = false
@@ -18,6 +22,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 
 		try {
 			// init vscode-api
+<<<<<<< HEAD
 			// await initServices({
 			// 	serviceConfig: {
 			// 		userServices: {
@@ -40,6 +45,20 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				{
 					htmlContainer,
 					logger
+=======
+			await initServices({
+				serviceOverrides: {
+					// ...getThemeServiceOverride(),
+					// ...getTextmateServiceOverride()
+					...getConfigurationServiceOverride(),
+					...getMonarchServiceOverride()
+				},
+				enableExtHostWorker: false,
+				userConfiguration: {
+					json: JSON.stringify({
+						'editor.experimental.asyncTokenization': true
+					})
+>>>>>>> main
 				}
 			)
 

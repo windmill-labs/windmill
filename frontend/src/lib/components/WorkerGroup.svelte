@@ -131,7 +131,8 @@
 		'graphql',
 		'snowflake',
 		'mssql',
-		'bigquery'
+		'bigquery',
+		'oracledb'
 	]
 
 	const aws_env_vars_preset = [

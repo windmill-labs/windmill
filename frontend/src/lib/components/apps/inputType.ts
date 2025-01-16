@@ -40,6 +40,7 @@ export type InputType =
 	| 'snowflake'
 	| 'snowflake_oauth'
 	| 'bigquery'
+	| 'oracledb'
 	| 'app-path'
 
 // Connection to an output of another component
@@ -227,6 +228,7 @@ export type AppInput =
 	| AppInputSpec<'resource', string, 'snowflake'>
 	| AppInputSpec<'resource', string, 'snowflake_oauth'>
 	| AppInputSpec<'resource', string, 'bigquery'>
+	| AppInputSpec<'resource', string, 'oracledb'>
 	| AppInputSpec<'array', object[], 'number-tuple'>
 	| AppInputSpec<'app-path', string>
 
