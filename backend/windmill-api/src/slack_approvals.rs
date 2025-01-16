@@ -22,7 +22,6 @@ use windmill_common::{
     cache,
     error::{self, Error},
     jobs::JobKind,
-    scripts::ScriptHash,
     variables::{build_crypt, decrypt_value_with_mc},
 };
 
@@ -978,7 +977,7 @@ async fn get_modal_blocks(
     let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
             v2_queue.job_kind AS \"job_kind!: JobKind\",
-            v2_queue.script_hash AS \"script_hash: ScriptHash\",
+            v2_queue.script_hash,
             v2_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
             v2_completed_job.parent_job AS \"parent_job: Uuid\",
             v2_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
@@ -998,17 +997,11 @@ async fn get_modal_blocks(
     .ok_or_else(|| error::Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
     .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
 
-    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await {
+    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash, raw_flow).await {
         Ok(data) => data,
-        Err(_) => {
-            if let Some(parent_job_id) = parent_job_id.as_ref() {
-                cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow).await?
-            } else {
-                return Err(error::Error::BadRequest(
-                    "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
-                ));
-            }
-        }
+        Err(_) => return Err(error::Error::BadRequest(
+            "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
+        ))
     };
 
     let flow_value = &flow_data.flow;

@@ -302,6 +302,26 @@ pub enum RawData {
     Script(Arc<ScriptData>),
 }
 
+impl RawData {
+    pub fn from_raw(
+        raw_code: Option<String>,
+        raw_lock: Option<String>,
+        raw_flow: Option<Json<Box<RawValue>>>,
+    ) -> error::Result<Option<Self>> {
+        match (raw_flow, raw_code, raw_lock) {
+            (Some(Json(raw_flow)), _, _) => FlowData::from_raw(raw_flow)
+                .map(Arc::new)
+                .map(Self::Flow)
+                .map(Some),
+            (_, Some(code), lock) => Ok(ScriptData { code, lock })
+                .map(Arc::new)
+                .map(Self::Script)
+                .map(Some),
+            _ => Ok(None),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ScriptMetadata {
     pub language: Option<ScriptLang>,
@@ -353,7 +373,6 @@ pub fn clear() {
     flow::clear();
     script::clear();
     app::clear();
-    job::clear();
 }
 
 pub mod flow {
@@ -601,114 +620,19 @@ pub mod job {
     use super::*;
     use crate::jobs::JobKind;
 
-    #[cfg(not(feature = "scoped_cache"))]
-    lazy_static! {
-        /// Very small in-memory cache for "preview" jobs raw data.
-        static ref PREVIEWS: Cache<Uuid, RawData> = Cache::new(50);
-    }
-
-    #[cfg(feature = "scoped_cache")]
-    lazy_static! {
-        /// Very small in-memory cache for "preview" jobs raw data.
-        static ref PREVIEWS: Cache<(ThreadId, Uuid), RawData> = Cache::new(50);
-    }
-
-    /// Clear the job cache.
-    pub fn clear() {
-        PREVIEWS.clear();
-    }
-
-    #[track_caller]
-    pub fn fetch_preview_flow<'a, 'c>(
-        e: impl PgExecutor<'c> + 'a,
-        job: &'a Uuid,
-        // original raw values from `queue` or `completed_job` tables:
-        // kept for backward compatibility.
-        raw_flow: Option<Json<Box<RawValue>>>,
-    ) -> impl Future<Output = error::Result<Arc<FlowData>>> + 'a {
-        let fetch_preview = fetch_preview(e, job, None, None, raw_flow);
-        async move {
-            fetch_preview.await.and_then(|data| match data {
-                RawData::Flow(data) => Ok(data),
-                RawData::Script(_) => Err(error::Error::InternalErr(format!(
-                    "Job ({job}) isn't a flow job."
-                ))),
-            })
-        }
-    }
-
-    #[track_caller]
-    pub fn fetch_preview_script<'a, 'c>(
-        e: impl PgExecutor<'c> + 'a,
-        job: &'a Uuid,
-        // original raw values from `queue` or `completed_job` tables:
-        // kept for backward compatibility.
-        raw_lock: Option<String>,
-        raw_code: Option<String>,
-    ) -> impl Future<Output = error::Result<Arc<ScriptData>>> + 'a {
-        let fetch_preview = fetch_preview(e, job, raw_lock, raw_code, None);
-        async move {
-            fetch_preview.await.and_then(|data| match data {
-                RawData::Script(data) => Ok(data),
-                RawData::Flow(_) => Err(error::Error::InternalErr(format!(
-                    "Job ({job}) isn't a script job."
-                ))),
-            })
-        }
-    }
-
-    #[track_caller]
-    pub fn fetch_preview<'a, 'c>(
-        e: impl PgExecutor<'c> + 'a,
-        job: &'a Uuid,
-        // original raw values from `queue` or `completed_job` tables:
-        // kept for backward compatibility.
-        raw_lock: Option<String>,
-        raw_code: Option<String>,
-        raw_flow: Option<Json<Box<RawValue>>>,
-    ) -> impl Future<Output = error::Result<RawData>> + 'a {
-        let loc = Location::caller();
-        let fetch = async move {
-            match (raw_lock, raw_code, raw_flow) {
-                (None, None, None) => sqlx::query!(
-                    "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\" \
-                    FROM job WHERE id = $1 LIMIT 1",
-                    job
-                )
-                .fetch_optional(e)
-                .await
-                .map_err(Into::into)
-                .and_then(unwrap_or_error(&loc, "Preview", job))
-                .map(|r| (r.raw_lock, r.raw_code, r.raw_flow)),
-                (lock, code, flow) => Ok((lock, code, flow)),
-            }
-            .and_then(|(lock, code, flow)| match flow {
-                Some(Json(flow)) => FlowData::from_raw(flow).map(Arc::new).map(RawData::Flow),
-                _ => Ok(RawData::Script(Arc::new(ScriptData {
-                    code: code.unwrap_or_default(),
-                    lock,
-                }))),
-            })
-        };
-        #[cfg(not(feature = "scoped_cache"))]
-        return PREVIEWS.get_or_insert_async(job, fetch);
-        #[cfg(feature = "scoped_cache")]
-        async move {
-            let job = &(std::thread::current().id(), job.clone());
-            PREVIEWS.get_or_insert_async(job, fetch).await
-        }
-    }
+    // TODO(uael): new PREVIEWS cache
 
     #[track_caller]
     pub fn fetch_script<'c>(
         e: impl PgExecutor<'c>,
         kind: JobKind,
-        hash: Option<ScriptHash>,
+        runnable_id: Option<i64>,
+        // TODO(uael): add raw values here
     ) -> impl Future<Output = error::Result<Arc<ScriptData>>> {
         use JobKind::*;
         let loc = Location::caller();
         async move {
-            match (kind, hash.map(|ScriptHash(id)| id)) {
+            match (kind, runnable_id) {
                 (FlowScript, Some(id)) => flow::fetch_script(e, FlowNodeId(id)).await,
                 (Script | Dependencies, Some(hash)) => script::fetch(e, ScriptHash(hash))
                     .await
@@ -727,16 +651,20 @@ pub mod job {
     pub fn fetch_flow<'c>(
         e: impl PgExecutor<'c> + Copy,
         kind: JobKind,
-        hash: Option<ScriptHash>,
+        runnable_id: Option<i64>,
+        raw_flow: Option<Json<Box<RawValue>>>,
     ) -> impl Future<Output = error::Result<Arc<FlowData>>> {
         use JobKind::*;
         let loc = Location::caller();
         async move {
-            match (kind, hash.map(|ScriptHash(id)| id)) {
+            if let Some(Json(raw_flow)) = raw_flow {
+                return FlowData::from_raw(raw_flow).map(Arc::new);
+            }
+            match (kind, runnable_id) {
                 (FlowDependencies, Some(id)) => flow::fetch_version(e, id).await,
                 (FlowNode, Some(id)) => flow::fetch_flow(e, FlowNodeId(id)).await,
                 (Flow, Some(id)) => match flow::fetch_version_lite(e, id).await {
-                    Ok(raw_flow) => Ok(raw_flow),
+                    Ok(data) => Ok(data),
                     Err(_) => flow::fetch_version(e, id).await,
                 },
                 _ => Err(error::Error::InternalErr(format!(
