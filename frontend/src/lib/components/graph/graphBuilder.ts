@@ -179,7 +179,7 @@ export function graphBuilder(
 			data: {
 				eventHandlers: eventHandlers,
 				modules: modules,
-				hasPreprocessor: !!preprocessorModule,
+				hasPreprocessor: !!preprocessorModule || flowPathForTriggerNode == undefined,
 				...extra
 			}
 		}
