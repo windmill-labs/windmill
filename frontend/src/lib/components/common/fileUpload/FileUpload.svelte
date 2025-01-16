@@ -28,6 +28,7 @@
 	export let workspace: string | undefined = undefined
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
+	export let disabled = false
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
@@ -441,6 +442,7 @@
 		</div>
 	{:else}
 		<FileInput
+			{disabled}
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
@@ -452,7 +454,7 @@
 			style={customStyle}
 			defaultFile={defaultValue}
 		>
-			{containerText}
+			{containerText}{#if disabled}<br />(Disabled){/if}
 		</FileInput>
 	{/if}
 </div>
