@@ -293,7 +293,7 @@ async fn list_scripts(
     }
     if let Some(lowercased_kinds) = lowercased_kinds {
         let safe_kinds = lowercased_kinds
-            .iter()
+            .into_iter()
             .map(sql_builder::quote)
             .collect_vec();
         if safe_kinds.len() > 0 {
