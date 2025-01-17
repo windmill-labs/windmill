@@ -1161,24 +1161,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bindgen"
-version = "0.71.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f58bf3d7db68cfbac37cfc485a8d711e87e064c3d0fe0435b92f7a407f9d6b3"
-dependencies = [
- "bitflags 2.8.0",
- "cexpr",
- "clang-sys",
- "itertools 0.13.0",
- "proc-macro2",
- "quote",
- "regex",
- "rustc-hash 2.1.0",
- "shlex",
- "syn 2.0.96",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1570,9 +1552,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.9"
+version = "1.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8293772165d9345bdaaa39b45b2109591e63fe5e6fbc23c6ff930a048aa310b"
+checksum = "13208fcbb66eaeffe09b99fffbe1af420f00a7b35aa99ad683dfc1aa76145229"
 dependencies = [
  "jobserver",
  "libc",
@@ -1634,9 +1616,9 @@ dependencies = [
 
 [[package]]
 name = "chrono-tz"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd6dd8046d00723a59a2f8c5f295c515b9bb9a331ee4f8f3d4dd49e428acd3b6"
+checksum = "9c6ac4f2c0bf0f44e9161aec9675e1050aa4a530663c4a9e37e108fa948bca9f"
 dependencies = [
  "chrono",
  "chrono-tz-build 0.4.0",
@@ -3208,18 +3190,18 @@ dependencies = [
 
 [[package]]
 name = "enumflags2"
-version = "0.7.10"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d232db7f5956f3f14313dc2f87985c58bd2c695ce124c8cdd984e08e15ac133d"
+checksum = "ba2f4b465f5318854c6f8dd686ede6c0a9dc67d4b1ac241cf0eb51521a309147"
 dependencies = [
  "enumflags2_derive",
 ]
 
 [[package]]
 name = "enumflags2_derive"
-version = "0.7.10"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0d48a183585823424a4ce1aa132d174a6a81bd540895822eb4c8373a8e49e8"
+checksum = "fc4caf64a58d7a6d65ab00639b046ff54399a39f5f2554728895ace4b297cd79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5373,12 +5355,11 @@ dependencies = [
 
 [[package]]
 name = "mysql_common"
-version = "0.34.0"
+version = "0.34.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed90d09e2ca55764bf65030ff5a387fdee42282fe3b89a38fa8f96a809882bc1"
+checksum = "34a9141e735d5bb02414a7ac03add09522466d4db65bdd827069f76ae0850e58"
 dependencies = [
  "base64 0.22.1",
- "bindgen 0.71.1",
  "bitflags 2.8.0",
  "btoi",
  "byteorder",
@@ -10453,9 +10434,9 @@ dependencies = [
 
 [[package]]
 name = "valuable"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vcpkg"
@@ -10743,7 +10724,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -10784,7 +10765,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10802,7 +10783,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz 0.10.0",
+ "chrono-tz 0.10.1",
  "const_format",
  "cookie 0.17.0",
  "cron",
@@ -10871,7 +10852,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -10889,7 +10870,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "chrono",
  "serde",
@@ -10902,7 +10883,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "serde",
@@ -10916,7 +10897,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -10925,7 +10906,7 @@ dependencies = [
  "axum",
  "bytes",
  "chrono",
- "chrono-tz 0.10.0",
+ "chrono-tz 0.10.1",
  "const_format",
  "crc",
  "cron",
@@ -10975,7 +10956,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "regex",
  "serde",
@@ -10989,7 +10970,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "bytes",
@@ -11012,7 +10993,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -11024,7 +11005,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -11033,7 +11014,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11045,7 +11026,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11057,7 +11038,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -11069,7 +11050,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11081,7 +11062,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -11092,7 +11073,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -11103,7 +11084,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11121,7 +11102,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -11138,7 +11119,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11150,7 +11131,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11168,7 +11149,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -11190,7 +11171,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11200,7 +11181,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11208,7 +11189,7 @@ dependencies = [
  "backon",
  "bigdecimal",
  "chrono",
- "chrono-tz 0.10.0",
+ "chrono-tz 0.10.1",
  "cron",
  "futures",
  "futures-core",
@@ -11234,7 +11215,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -11244,7 +11225,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.447.4"
+version = "1.447.5"
 dependencies = [
  "anyhow",
  "async-recursion",
