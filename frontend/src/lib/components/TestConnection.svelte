@@ -51,7 +51,7 @@
 			argName: 'database'
 		},
 		oracledb: {
-			code: `SELECT 1`,
+			code: `SELECT 1 FROM DUAL`,
 			lang: 'oracledb',
 			argName: 'database'
 		},

@@ -13,6 +13,7 @@ export interface InstantiateResult {
     parse_python: typeof parse_python;
     parse_sql: typeof parse_sql;
     parse_mysql: typeof parse_mysql;
+    parse_oracledb: typeof parse_oracledb;
     parse_bigquery: typeof parse_bigquery;
     parse_snowflake: typeof parse_snowflake;
     parse_mssql: typeof parse_mssql;
@@ -20,7 +21,8 @@ export interface InstantiateResult {
     parse_graphql: typeof parse_graphql;
     parse_php: typeof parse_php;
     parse_rust: typeof parse_rust;
-    parse_ansible: typeof parse_ansible
+    parse_ansible: typeof parse_ansible;
+    parse_csharp: typeof parse_csharp
   };
 }
 
@@ -96,6 +98,11 @@ export function parse_mysql(code: string): string;
 * @param {string} code
 * @returns {string}
 */
+export function parse_oracledb(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
 export function parse_bigquery(code: string): string;
 /**
 * @param {string} code
@@ -132,3 +139,8 @@ export function parse_rust(code: string): string;
 * @returns {string}
 */
 export function parse_ansible(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_csharp(code: string): string;
