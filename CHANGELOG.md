@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.447.4](https://github.com/windmill-labs/windmill/compare/v1.447.3...v1.447.4) (2025-01-16)
+
+
+### Bug Fixes
+
+* add support for previous result as expression in the flow ([33227f8](https://github.com/windmill-labs/windmill/commit/33227f844823864ed476a6e0a7d3ce529ce10552))
+
 ## [1.447.3](https://github.com/windmill-labs/windmill/compare/v1.447.2...v1.447.3) (2025-01-16)
 
 

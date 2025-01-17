@@ -17,6 +17,8 @@
 	import CaptureTable from './CaptureTable.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 
+	export let isFlow: boolean
+	export let path: string
 	export let args: Record<string, any> = { route_path: '', http_method: 'get' }
 	export let dirtyRoutePath: boolean = false
 	export let route_path = ''
@@ -30,6 +32,7 @@
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
 	export let isValid = false
+	export let runnableArgs: any = {}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	let routeError: string = ''
@@ -58,6 +61,10 @@
 			}
 		})
 	}
+
+	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
+		isFlow ? 'flow' : 'script'
+	}/${path.replaceAll('/', '.')}/${route_path}`
 
 	function getHttpRoute(route_path: string | undefined) {
 		return `${location.origin}${base}/api/r/${
@@ -94,16 +101,16 @@
 			bind:captureTable
 		>
 			<Label label="URL">
-				<ClipboardPanel content={fullRoute} disabled={!captureInfo.active} />
+				<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
 			</Label>
 
 			<Label label="Example cUrl">
 				<CopyableCodeBlock
 					disabled={!captureInfo.active}
 					code={`curl \\
--X POST ${fullRoute} \\
+-X ${http_method.toUpperCase()} ${captureURL} \\
 -H 'Content-Type: application/json' \\
--d '{"foo": 42}'`}
+-d '${JSON.stringify(runnableArgs ?? {}, null, 2)}'`}
 					language={bash}
 				/>
 			</Label>

@@ -137,6 +137,7 @@
 		customResourceType="s3"
 		customClass={css?.container?.class}
 		customStyle={css?.container?.style}
+		disabled={resolvedConfigS3?.disabled}
 		{fileUploads}
 		{workspace}
 		on:addition={(evt) => {
