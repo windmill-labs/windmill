@@ -8,6 +8,7 @@
 	export let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 	export let color: 'nord' | 'dark' = 'dark'
 	export let disabled = false
+	export let showWorkspaceRestriction = false
 </script>
 
 <Popup
@@ -27,5 +28,5 @@
 			>
 		</Button>
 	</svelte:fragment>
-	<AssignableTagsInner on:refresh />
+	<AssignableTagsInner {showWorkspaceRestriction} on:refresh />
 </Popup>

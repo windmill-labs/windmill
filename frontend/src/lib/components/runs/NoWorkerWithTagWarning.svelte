@@ -9,13 +9,16 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 
+	let visible = true
 	async function lookForTag(): Promise<void> {
 		try {
 			const existsWorkerWithTag = await WorkerService.existsWorkerWithTag({ tag })
 			noWorkerWithTag = !existsWorkerWithTag
 			if (noWorkerWithTag) {
 				timeout = setTimeout(() => {
-					lookForTag()
+					if (visible) {
+						lookForTag()
+					}
 				}, 1000)
 			}
 		} catch (err) {
@@ -26,6 +29,7 @@
 	lookForTag()
 
 	onDestroy(() => {
+		visible = false
 		if (timeout) {
 			clearTimeout(timeout)
 		}

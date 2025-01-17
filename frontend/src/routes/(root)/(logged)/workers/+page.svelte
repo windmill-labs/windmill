@@ -282,6 +282,7 @@
 			<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
 				<div>
 					<AssignableTags
+						showWorkspaceRestriction
 						on:refresh={() => {
 							loadCustomTags()
 						}}

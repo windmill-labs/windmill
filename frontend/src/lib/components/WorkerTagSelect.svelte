@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workerTags } from '$lib/stores'
+	import { workerTags, workspaceStore } from '$lib/stores'
 	import { WorkerService } from '$lib/gen'
 
 	export let tag: string | undefined
@@ -11,7 +11,7 @@
 
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
+			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 		}
 	}
 </script>
