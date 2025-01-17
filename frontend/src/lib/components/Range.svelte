@@ -7,6 +7,8 @@
 	export let value = typeof initialValue === 'string' ? parseInt(initialValue) : initialValue
 	export let disabled: boolean = false
 	export let defaultValue: number | undefined = undefined
+	export let format: (value: number) => string = (v) => `${v}`
+	export let hideInput: boolean = false
 
 	let step: number = 1
 
@@ -22,10 +24,6 @@
 	}
 
 	$: axisStep = calculateAxisStep(min, max)
-
-	const format = (v, i, p) => {
-		return `${v}`
-	}
 
 	function handleKeyDown(event: KeyboardEvent) {
 		if (disabled) return
@@ -85,7 +83,9 @@
 		{/if}
 	</div>
 
-	<input bind:value type="number" class="!w-16 h-8 !text-xs mb-6" {max} {min} {disabled} />
+	{#if !hideInput}
+		<input bind:value type="number" class="!w-16 h-8 !text-xs mb-6" {max} {min} {disabled} />
+	{/if}
 </div>
 
 <style>

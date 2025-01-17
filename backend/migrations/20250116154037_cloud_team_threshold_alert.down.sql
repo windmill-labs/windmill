@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS cloud_workspace_settings;
