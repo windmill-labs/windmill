@@ -43,7 +43,7 @@
 				content: string
 				schema?: any
 				tag?: string
-				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
+				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | 'preprocessor' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
