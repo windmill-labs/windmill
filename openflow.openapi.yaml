@@ -250,6 +250,7 @@ components:
             - bigquery
             - snowflake
             - mssql
+            - oracledb
             - graphql
             - nativets
             - php
