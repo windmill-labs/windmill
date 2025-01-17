@@ -730,7 +730,7 @@
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
-									<div class="p-4 pl-8 border rounded w-full">
+									<div class="py-4 pr-2 pl-6 border rounded w-full">
 										{#if orderEditable}
 											<SchemaFormDnd
 												{onlyMaskPassword}
@@ -804,7 +804,7 @@
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class={hideNested ? 'hidden' : 'p-4 pl-8 border rounded-md w-full'}>
+				<div class={hideNested ? 'hidden' : 'py-4 pr-2 pl-6 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
 							{onlyMaskPassword}
