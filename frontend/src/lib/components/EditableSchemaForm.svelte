@@ -233,6 +233,11 @@
 
 	let pannelButtonWidth: number = 0
 	export let pannelExtraButtonWidth: number = 0
+
+	export function updateJson() {
+		schemaString = JSON.stringify(schema, null, '\t')
+		editor?.setCode(schemaString)
+	}
 </script>
 
 <div class="w-full h-full">

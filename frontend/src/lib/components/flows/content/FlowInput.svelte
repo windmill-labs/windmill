@@ -65,6 +65,7 @@
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
 	let selectedSchema: Record<string, any> | undefined = undefined
 	let runDisabled: boolean = false
+	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -336,6 +337,7 @@
 	{#if !disabled}
 		<div class="py-2 px-4 h-full">
 			<EditableSchemaForm
+				bind:this={editableSchemaForm}
 				bind:schema={$flowStore.schema}
 				isFlowInput
 				on:edit={(e) => {
@@ -445,6 +447,9 @@
 							bind:this={addProperty}
 							on:change={() => {
 								$flowStore = $flowStore
+								if (editableSchemaForm) {
+									editableSchemaForm.updateJson()
+								}
 							}}
 						>
 							<svelte:fragment slot="trigger">
