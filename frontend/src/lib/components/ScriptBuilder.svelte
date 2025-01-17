@@ -1298,6 +1298,7 @@
 									on:exitTriggers={() => {
 										captureTable?.loadCaptures(true)
 									}}
+									{args}
 									{initialPath}
 									schema={script.schema}
 									noEditor={true}

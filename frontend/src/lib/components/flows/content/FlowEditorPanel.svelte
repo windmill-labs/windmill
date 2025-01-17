@@ -112,6 +112,7 @@
 			}
 		}}
 		on:testWithArgs
+		args={$previewArgs}
 		currentPath={$pathStore}
 		{initialPath}
 		schema={$flowStore.schema}
