@@ -85,6 +85,15 @@ function main() {
 }
 `,
 
+  csharp: `class Script
+{
+    public static void Main()
+    {
+        Console.WriteLine("Hello World");
+    }
+}
+  `,
+
   rust: `fn main() -> Result<(), String> {
   println!("Hello World");
   Ok(())
