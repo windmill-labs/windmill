@@ -171,7 +171,7 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 			runPreview()
-		} else if (event.key === 'Enter' && previewSchema) {
+		} else if (event.key === 'Enter' && previewSchema && !preventEnter) {
 			applySchemaAndArgs()
 			connectFirstNode()
 			event.stopPropagation()
@@ -493,7 +493,6 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
-							{preventEnter}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -511,7 +510,6 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
 						<FlowInputEditor
-							{preventEnter}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
