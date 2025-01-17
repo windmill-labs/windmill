@@ -75,7 +75,7 @@ export async function pickFlow(
 export async function createInlineScriptModule(
 	language: RawScript['language'],
 	kind: Script['kind'],
-	subkind: 'pgsql' | 'flow' | 'preprocessor',
+	subkind: 'pgsql' | 'flow' | undefined,
 	id: string,
 	summary?: string
 ): Promise<[FlowModule, FlowModuleState]> {
@@ -300,7 +300,6 @@ export async function insertNewPreprocessorModule(
 	flowStateStore: Writable<FlowState>,
 	inlineScript?: {
 		language: RawScript['language']
-		subkind: 'preprocessor'
 	},
 	wsScript?: { path: string; summary: string; hash: string | undefined }
 ) {
@@ -313,8 +312,8 @@ export async function insertNewPreprocessorModule(
 	if (inlineScript) {
 		;[module, state] = await createInlineScriptModule(
 			inlineScript.language,
-			'script',
-			inlineScript.subkind,
+			'preprocessor',
+			undefined,
 			'preprocessor'
 		)
 	} else if (wsScript) {

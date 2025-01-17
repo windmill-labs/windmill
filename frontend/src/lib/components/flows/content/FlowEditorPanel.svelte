@@ -96,8 +96,7 @@
 		on:applyArgs
 		on:addPreprocessor={async () => {
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
-				language: 'bun',
-				subkind: 'preprocessor'
+				language: 'bun'
 			})
 			$selectedId = 'preprocessor'
 		}}

@@ -11054,7 +11054,7 @@ components:
             ]
         kind:
           type: string
-          enum: [script, failure, trigger, command, approval]
+          enum: [script, failure, trigger, command, approval, preprocessor]
         starred:
           type: boolean
         tag:
@@ -11160,7 +11160,7 @@ components:
             ]
         kind:
           type: string
-          enum: [script, failure, trigger, command, approval]
+          enum: [script, failure, trigger, command, approval, preprocessor]
         tag:
           type: string
         draft_only:
