@@ -189,7 +189,7 @@
 				{path}
 				hash={data?.hash}
 				token={data?.token}
-				{args}
+				runnableArgs={data?.args}
 				scopes={data?.scopes}
 				{showCapture}
 				{captureInfo}
@@ -208,6 +208,7 @@
 				{path}
 				{showCapture}
 				can_write={true}
+				runnableArgs={data?.args}
 				bind:args
 				headless
 				{captureInfo}
