@@ -19,7 +19,7 @@ use windmill_common::{
     db::UserDB,
     error::JsonResult,
     utils::{paginate, Pagination},
-    worker::{ALL_TAGS, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
     DB,
 };
 
@@ -133,8 +133,48 @@ async fn exists_worker_with_tag(
     Ok(Json(row.exists.unwrap_or(false)))
 }
 
-async fn get_custom_tags() -> Json<Vec<String>> {
-    Json(ALL_TAGS.read().await.clone().into())
+#[derive(Deserialize)]
+struct CustomTagQuery {
+    workspace: Option<String>,
+    show_workspace_restriction: Option<bool>,
+}
+async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<String>> {
+    if query.show_workspace_restriction.is_some_and(|x| x) && query.workspace.is_some() {
+        return Err(windmill_common::error::Error::BadRequest(
+            "Cannot use both workspace and show_workspace_restriction".to_string(),
+        ));
+    }
+    if let Some(workspace) = query.workspace {
+        let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+        let workspace_tags = tags_o
+            .1
+            .get(&workspace)
+            .map(|x| x.clone())
+            .unwrap_or_default();
+        let all_tags = tags_o.0.clone();
+        return Ok(Json(
+            all_tags
+                .into_iter()
+                .chain(workspace_tags.into_iter())
+                .collect(),
+        ));
+    } else if query.show_workspace_restriction.is_some_and(|x| x) {
+        let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+        let workspace_tags = tags_o
+            .1
+            .iter()
+            .map(|(workspace, tags)| tags.iter().map(move |tag| format!("{tag}({workspace})")))
+            .flatten()
+            .collect::<Vec<String>>();
+        let all_tags = tags_o.0.clone();
+        return Ok(Json(
+            all_tags
+                .into_iter()
+                .chain(workspace_tags.into_iter())
+                .collect(),
+        ));
+    }
+    Ok(Json(ALL_TAGS.read().await.clone().into()))
 }
 
 async fn get_default_tags_per_workspace() -> JsonResult<bool> {
