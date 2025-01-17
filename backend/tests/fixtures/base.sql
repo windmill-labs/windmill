@@ -29,7 +29,7 @@ END;
 $$ LANGUAGE PLPGSQL;
 
   CREATE TRIGGER "notify_insert_on_completed_job"
- AFTER INSERT ON "completed_job"
+ AFTER INSERT ON "v2_job_completed"
     FOR EACH ROW
 EXECUTE FUNCTION "notify_insert_on_completed_job" ();
 
@@ -43,12 +43,12 @@ END;
 $$ LANGUAGE PLPGSQL;
 
   CREATE TRIGGER "notify_queue_after_insert"
- AFTER INSERT ON "queue"
+ AFTER INSERT ON "v2_job_queue"
     FOR EACH ROW
 EXECUTE FUNCTION "notify_queue" ();
 
   CREATE TRIGGER "notify_queue_after_flow_status_update"
- AFTER UPDATE ON "queue"
+ AFTER UPDATE ON "v2_job_flow_runtime"
     FOR EACH ROW
             WHEN (NEW.flow_status IS DISTINCT FROM OLD.flow_status)
 EXECUTE FUNCTION "notify_queue" ();

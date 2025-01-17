@@ -173,7 +173,7 @@ pub async fn cancel_single_job<'c>(
         });
     } else {
         let id: Option<Uuid> = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND (canceled = false OR canceled_reason != $2) RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND (canceled = false OR canceled_reason != $2) RETURNING id AS \"id!\"",
             username,
             reason,
             job_running.id,
@@ -249,7 +249,7 @@ pub async fn cancel_job<'c>(
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
-            "SELECT id FROM queue WHERE parent_job = $1 AND workspace_id = $2",
+            "SELECT id AS \"id!\" FROM queue WHERE parent_job = $1 AND workspace_id = $2",
             p_job,
             w_id
         )
@@ -609,7 +609,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     )
                 VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), COALESCE($30::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
                         $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
-            ON CONFLICT (id) DO UPDATE SET success = $7, result = $11 RETURNING duration_ms",
+            ON CONFLICT (id) DO UPDATE SET success = $7, result = $11 RETURNING duration_ms AS \"duration_ms!\"",
             queued_job.workspace_id,
             queued_job.id,
             queued_job.parent_job,
@@ -2307,7 +2307,8 @@ pub async fn get_result_and_success_by_id_from_flow(
     let success = match &job_result {
         JobResult::SingleJob(job_id) => {
             sqlx::query_scalar!(
-                "SELECT success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                "SELECT success AS \"success!\"
+                FROM completed_job WHERE id = $1 AND workspace_id = $2",
                 job_id,
                 w_id
             )
@@ -3721,7 +3722,7 @@ pub async fn push<'c, 'd>(
                 visible_to_owner, root_job, tag, concurrent_limit, concurrency_time_window_s, timeout, \
                 flow_step_id, cache_ttl, priority, last_ping)
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, NULL) \
-         RETURNING id",
+         RETURNING id AS \"id!\"",
         workspace_id,
         job_id,
         is_running,
@@ -3906,7 +3907,7 @@ async fn restarted_flows_resolution(
     let row = sqlx::query!(
         "SELECT
             script_path, script_hash AS \"script_hash: ScriptHash\",
-            job_kind AS \"job_kind: JobKind\",
+            job_kind AS \"job_kind!: JobKind\",
             flow_status AS \"flow_status: Json<Box<RawValue>>\",
             raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
         FROM completed_job WHERE id = $1 and workspace_id = $2",

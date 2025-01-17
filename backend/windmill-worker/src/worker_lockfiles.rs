@@ -632,15 +632,17 @@ pub async fn handle_flow_dependency_job(
     let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
-    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
-        .fetch_optional(db)
-        .await
-        .map(|v| Some(true) == v)
-        .unwrap_or_else(|err| {
-            tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
-            false
-        })
-    {
+    if sqlx::query_scalar!(
+        "SELECT canceled AS \"canceled!\" FROM queue WHERE id = $1",
+        job.id
+    )
+    .fetch_optional(db)
+    .await
+    .map(|v| Some(true) == v)
+    .unwrap_or_else(|err| {
+        tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
+        false
+    }) {
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -1524,15 +1526,17 @@ pub async fn handle_app_dependency_job(
         .await?;
 
         // Re-check cancelation to ensure we don't accidentially override an app.
-        if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
-            .fetch_optional(db)
-            .await
-            .map(|v| Some(true) == v)
-            .unwrap_or_else(|err| {
-                tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
-                false
-            })
-        {
+        if sqlx::query_scalar!(
+            "SELECT canceled AS \"canceled!\" FROM queue WHERE id = $1",
+            job.id
+        )
+        .fetch_optional(db)
+        .await
+        .map(|v| Some(true) == v)
+        .unwrap_or_else(|err| {
+            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            false
+        }) {
             return Ok(());
         }
 

@@ -600,7 +600,7 @@ async fn get_flow_job_debug_info(
 
         let mut job_ids = vec![];
         let jobs_with_root = sqlx::query_scalar!(
-            "SELECT id FROM queue WHERE workspace_id = $1 and root_job = $2",
+            "SELECT id AS \"id!\" FROM queue WHERE workspace_id = $1 and root_job = $2",
             &w_id,
             &id,
         )
@@ -1007,7 +1007,7 @@ async fn get_job_logs(
         .flatten();
 
     let record = sqlx::query!(
-        "SELECT created_by, CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+        "SELECT created_by AS \"created_by!\", CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
         FROM completed_job 
         LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
         WHERE completed_job.id = $1 AND completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR completed_job.tag = ANY($3))",
@@ -1044,7 +1044,7 @@ async fn get_job_logs(
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
-            "SELECT created_by, CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
+            "SELECT created_by AS \"created_by!\", CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
             FROM queue 
             LEFT JOIN job_logs ON job_logs.job_id = queue.id 
             WHERE queue.id = $1 AND queue.workspace_id = $2 AND ($3::text[] IS NULL OR queue.tag = ANY($3))",
@@ -1549,7 +1549,7 @@ async fn cancel_jobs(
                    , tag
                    , priority FROM queue 
         WHERE id = any($2) AND running = false AND parent_job IS NULL AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED
-        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
+        ON CONFLICT (id) DO NOTHING RETURNING id AS \"id!\"", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
         .fetch_all(&mut *tx)
         .await?.into_iter().map(|x| x.id).collect::<Vec<Uuid>>();
 
@@ -1622,7 +1622,7 @@ async fn cancel_selection(
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let jobs_to_cancel = sqlx::query_scalar!(
-        "SELECT id FROM queue WHERE id = ANY($1) AND schedule_path IS NULL AND ($2::text[] IS NULL OR tag = ANY($2))",
+        "SELECT id AS \"id!\" FROM queue WHERE id = ANY($1) AND schedule_path IS NULL AND ($2::text[] IS NULL OR tag = ANY($2))",
         &jobs,
         tags.as_ref().map(|v| v.as_slice())
     )
@@ -2080,7 +2080,7 @@ async fn get_suspended_parent_flow_info(job_id: Uuid, db: &DB) -> error::Result<
     let flow = sqlx::query_as!(
         FlowInfo,
         r#"
-        SELECT id, flow_status, suspend, script_path
+        SELECT id AS "id!", flow_status, suspend AS "suspend!", script_path
         FROM queue
         WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
         FOR UPDATE
@@ -2100,7 +2100,7 @@ async fn get_suspended_flow_info<'c>(
     let flow = sqlx::query_as!(
         FlowInfo,
         r#"
-        SELECT id, flow_status, suspend, script_path
+        SELECT id AS "id!", flow_status, suspend AS "suspend!", script_path
         FROM queue
         WHERE id = $1
         "#,
@@ -4813,16 +4813,17 @@ async fn add_batch_jobs(
 
     let uuids = sqlx::query_scalar!(
         r#"WITH uuid_table as (
-            select gen_random_uuid() as uuid from generate_series(1, $5)
+            select gen_random_uuid() as uuid from generate_series(1, $6)
         )
         INSERT INTO job
-            (id, workspace_id, raw_code, raw_lock, raw_flow)
-            (SELECT uuid, $1, $2, $3, $4 FROM uuid_table)
-        RETURNING id"#,
+            (id, workspace_id, raw_code, raw_lock, raw_flow, tag)
+            (SELECT uuid, $1, $2, $3, $4, $5 FROM uuid_table)
+        RETURNING id AS "id!""#,
         w_id,
         raw_code,
         raw_lock,
         raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
+        tag,
         n
     )
     .fetch_all(&mut *tx)
@@ -4835,7 +4836,7 @@ async fn add_batch_jobs(
         INSERT INTO queue 
             (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout, flow_status)
             (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15 FROM uuid_table) 
-        RETURNING id"#,
+        RETURNING id AS "id!""#,
             hash.map(|h| h.0),
             path,
             job_kind.clone() as JobKind,
@@ -5668,7 +5669,7 @@ async fn get_completed_job_result_maybe(
         .into_response())
     } else if get_started.is_some_and(|x| x) {
         let started = sqlx::query_scalar!(
-            "SELECT running FROM queue WHERE id = $1 AND workspace_id = $2",
+            "SELECT running AS \"running!\" FROM queue WHERE id = $1 AND workspace_id = $2",
             id,
             w_id
         )

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON v2_job_completed  (workspace_id, started_at DESC)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "931703a98d2ee5fb58d3380896baaee032e731db1e6bd49d991a54f49ab8fa46"
+}

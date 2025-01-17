@@ -971,11 +971,11 @@ async fn get_modal_blocks(
 
     let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
-            queue.job_kind AS \"job_kind: JobKind\",
+            queue.job_kind AS \"job_kind!: JobKind\",
             queue.script_hash AS \"script_hash: ScriptHash\",
             queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
             completed_job.parent_job AS \"parent_job: Uuid\",
-            completed_job.created_at AS \"created_at: chrono::NaiveDateTime\",
+            completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
             completed_job.created_by AS \"created_by!\",
             queue.script_path,
             queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
