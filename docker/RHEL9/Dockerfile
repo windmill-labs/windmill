@@ -63,8 +63,8 @@ RUN subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpm
 RUN yum update -y && \
     yum install -y libxml2-devel xmlsec1-devel xmlsec1-openssl-devel clang llvm-devel cmake libtool-ltdl-devel
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
+# RUN --mount=type=cache,target=/usr/local/cargo/registry \
+#     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
