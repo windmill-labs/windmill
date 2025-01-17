@@ -940,7 +940,7 @@ const imports = {
       const ret = BigInt.asUintN(64, arg0);
       return addHeapObject(ret);
     },
-    __wbg_eval_9975af18def0f0b7: function (arg0, arg1) {
+    __wbg_eval_73a4cb0af5990ab1: function (arg0, arg1) {
       const ret = eval(getStringFromWasm0(arg0, arg1));
       return addHeapObject(ret);
     },
