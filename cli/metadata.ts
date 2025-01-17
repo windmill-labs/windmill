@@ -26,8 +26,10 @@ import {
   parse_powershell,
   parse_python,
   parse_rust,
+  parse_csharp,
   parse_snowflake,
   parse_sql,
+  parse_oracledb,
 } from "./wasm/windmill_parser_wasm.generated.js";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
@@ -468,6 +470,12 @@ export function inferSchema(
       { name: "database", typ: { resource: "bigquery" } },
       ...inferedSchema.args,
     ];
+  } else if (language === "oracledb") {
+    inferedSchema = JSON.parse(parse_oracledb(content));
+    inferedSchema.args = [
+      { name: "database", typ: { resource: "oracledb" } },
+      ...inferedSchema.args,
+    ];
   } else if (language === "snowflake") {
     inferedSchema = JSON.parse(parse_snowflake(content));
     inferedSchema.args = [
@@ -500,6 +508,8 @@ export function inferSchema(
     inferedSchema = JSON.parse(parse_php(content));
   } else if (language === "rust") {
     inferedSchema = JSON.parse(parse_rust(content));
+  } else if (language === "csharp") {
+    inferedSchema = JSON.parse(parse_csharp(content));
   } else if (language === "ansible") {
     inferedSchema = JSON.parse(parse_ansible(content));
   } else {

@@ -9,11 +9,13 @@ export type ScriptLanguage =
   | "postgresql"
   | "mysql"
   | "bigquery"
+  | "oracledb"
   | "snowflake"
   | "mssql"
   | "graphql"
   | "php"
   | "rust"
+  | "csharp"
   | "ansible";
 
 export function inferContentTypeFromFilePath(
@@ -36,6 +38,8 @@ export function inferContentTypeFromFilePath(
     return "mysql";
   } else if (contentPath.endsWith(".bq.sql")) {
     return "bigquery";
+  } else if (contentPath.endsWith(".odb.sql")) {
+    return "oracledb";
   } else if (contentPath.endsWith(".sf.sql")) {
     return "snowflake";
   } else if (contentPath.endsWith(".ms.sql")) {
@@ -52,6 +56,8 @@ export function inferContentTypeFromFilePath(
     return "php";
   } else if (contentPath.endsWith(".rs")) {
     return "rust";
+  } else if (contentPath.endsWith(".cs")) {
+    return "csharp";
   } else if (contentPath.endsWith(".playbook.yml")) {
     return "ansible";
   } else {

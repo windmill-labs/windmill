@@ -510,6 +510,8 @@ export function filePathExtensionFromContentType(
     return ".my.sql";
   } else if (language === "bigquery") {
     return ".bq.sql";
+  } else if (language === "oracledb") {
+    return ".odb.sql";
   } else if (language === "snowflake") {
     return ".sf.sql";
   } else if (language === "mssql") {
@@ -528,6 +530,8 @@ export function filePathExtensionFromContentType(
     return ".rs";
   } else if (language === "ansible") {
     return ".playbook.yml";
+  } else if (language === "csharp") {
+    return ".cs";
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -544,6 +548,7 @@ export const exts = [
   ".pg.sql",
   ".my.sql",
   ".bq.sql",
+  ".odb.sql",
   ".sf.sql",
   ".ms.sql",
   ".sql",
@@ -551,6 +556,7 @@ export const exts = [
   ".ps1",
   ".php",
   ".rs",
+  ".cs",
   ".playbook.yml",
 ];
 

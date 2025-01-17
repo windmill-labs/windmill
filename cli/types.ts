@@ -202,6 +202,7 @@ export function getTypeStrFromPath(
     parsed.ext == ".js" ||
     parsed.ext == ".php" ||
     parsed.ext == ".rs" ||
+    parsed.ext == ".cs" ||
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";
