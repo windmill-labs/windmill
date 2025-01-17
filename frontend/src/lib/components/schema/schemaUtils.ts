@@ -4,6 +4,25 @@ export type SchemaDiff = {
 	oldSchema?: { [key: string]: any } | undefined
 }
 
+function filterUndefinedFields(obj: any): any {
+	if (!obj || typeof obj !== 'object') return obj
+	delete obj.order
+
+	const filtered: any = {}
+	Object.entries(obj).forEach(([key, value]) => {
+		if (value !== undefined) {
+			if (key === 'additionalProperties' && value === false) {
+				delete filtered.additionalProperties
+			} else {
+				filtered[key] = typeof value === 'object' ? filterUndefinedFields(value) : value
+			}
+		} else {
+			delete filtered[key]
+		}
+	})
+	return filtered
+}
+
 export function computeDiff(
 	previewSchema: { [key: string]: any } | undefined,
 	currentSchema: { [key: string]: any } | undefined
@@ -20,16 +39,11 @@ export function computeDiff(
 					diff: 'added',
 					fullSchema: previewSchema.properties[key]
 				}
-				//TODO: add other properties like required, order, etc.
 			} else {
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
-				// Filter out 'order' field before comparison
-				const filteredPreviewProp = { ...previewProp }
-				const filteredCurrentProp = { ...currentProp }
-				delete filteredPreviewProp.order
-				delete filteredCurrentProp.order
-
+				const filteredPreviewProp = filterUndefinedFields({ ...previewProp })
+				const filteredCurrentProp = filterUndefinedFields({ ...currentProp })
 				if (JSON.stringify(filteredPreviewProp) === JSON.stringify(filteredCurrentProp)) {
 					diff[key] = { diff: 'same', fullSchema: undefined }
 				} else if (previewProp.type === 'object' && currentProp.type === 'object') {
@@ -135,13 +149,11 @@ export function applyDiff(
 			if (newSchema.order) {
 				newSchema.order = newSchema.order.filter((x) => x !== key)
 			}
-		} else if (diffValue === 'added' || diffValue === 'modified') {
+		} else if (diffValue === 'added' || diffValue === 'modified' || isRecordSchemaDiff(diffValue)) {
 			newSchema.properties[key] = diff[key].fullSchema
 			if (newSchema.order && !newSchema.order.includes(key)) {
 				newSchema.order.push(key)
 			}
-		} else if (isRecordSchemaDiff(diffValue)) {
-			newSchema.properties[key] = applyDiff(newSchema.properties[key], diffValue)
 		}
 	})
 
