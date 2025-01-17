@@ -272,7 +272,11 @@
 							>
 						{/if}
 					{:else if category == 'Auth/OAuth'}
-						<AuthSettings bind:oauths bind:snowflakeAccountIdentifier>
+						<AuthSettings
+							bind:oauths
+							bind:snowflakeAccountIdentifier
+							bind:requirePreexistingUserForOauth
+						>
 							<svelte:fragment slot="scim">
 								<div class="flex-col flex gap-2 pb-4">
 									{#each scimSamlSetting as setting}
