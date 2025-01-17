@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { ButtonType } from '$lib/components/common/button/model'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -64,6 +64,7 @@
 	let diff: Record<string, SchemaDiff> = {}
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
 	let selectedSchema: Record<string, any> | undefined = undefined
+	let runDisabled: boolean = false
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -200,9 +201,13 @@
 		updatePreviewArguments(payloadData)
 	}
 
-	function updatePreviewSchema(newSchema: Record<string, any> | undefined) {
+	async function updatePreviewSchema(newSchema: Record<string, any> | undefined) {
 		if (!newSchema) {
 			previewSchema = undefined
+			if (runDisabled) {
+				await tick()
+				runDisabled = false
+			}
 			diff = {}
 			return
 		}
@@ -210,6 +215,7 @@
 		const diffSchema = computeDiff(newSchema, $flowStore.schema)
 		diff = diffSchema
 		previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+		runDisabled = true
 	}
 
 	async function applySchemaAndArgs() {
@@ -548,6 +554,7 @@
 										const diffSchema = computeDiff(e.detail, $flowStore.schema)
 										diff = diffSchema
 										previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+										runDisabled = true
 									} else {
 										updatePreviewSchemaAndArgs(undefined)
 									}
@@ -561,7 +568,7 @@
 						<Button
 							color="dark"
 							btnClasses="w-fit"
-							disabled={!!previewSchema}
+							disabled={runDisabled}
 							size="xs"
 							shortCut={{ Icon: CornerDownLeft, hide: false }}
 							on:click={() => {
