@@ -14,7 +14,7 @@ CREATE OR REPLACE VIEW completed_job AS (
         args AS args,
         result,
         logs AS logs,
-        deleted AS deleted,
+        deleted,
         raw_code AS raw_code,
         canceled AS canceled,
         canceled_by,

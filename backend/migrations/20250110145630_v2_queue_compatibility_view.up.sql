@@ -41,7 +41,8 @@ SELECT
     j.flow_step_id,
     j.cache_ttl,
     j.priority,
-    NULL::TEXT                 AS logs
+    NULL::TEXT                 AS logs,
+    NULL::BIGINT               AS env_id
 FROM v2_job_queue q
      JOIN v2_job j USING (id)
      LEFT JOIN v2_job_runtime r USING (id)

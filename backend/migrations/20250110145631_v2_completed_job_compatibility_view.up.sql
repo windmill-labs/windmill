@@ -12,7 +12,7 @@ SELECT
     j.runnable_path            AS script_path,
     j.args,
     c.result,
-    FALSE                      AS deleted,
+    c.deleted,
     j.raw_code,
     c.status = 'canceled'      AS canceled,
     c.canceled_by,
@@ -32,7 +32,8 @@ SELECT
     c.memory_peak              AS mem_peak,
     j.tag,
     j.priority,
-    NULL::TEXT                 AS logs
+    NULL::TEXT                 AS logs,
+    NULL::BIGINT               AS env_id
 FROM v2_job_completed c
      JOIN v2_job j USING (id)
 ;
@@ -66,9 +67,11 @@ CREATE OR REPLACE FUNCTION v2_completed_job_update(OLD v2_completed_job, NEW v2_
     END IF;
     -- Update the `v2_job_completed` table
     IF NEW.result::TEXT IS DISTINCT FROM OLD.result::TEXT
+        OR NEW.deleted IS DISTINCT FROM OLD.deleted
     THEN
         UPDATE v2_job_completed
-        SET result = NEW.result
+        SET result = NEW.result,
+            deleted = NEW.deleted
         WHERE id = OLD.id;
     END IF;
 END $$ LANGUAGE plpgsql;

@@ -12,7 +12,6 @@ ALTER TABLE v2_job_completed RENAME COLUMN __script_hash TO script_hash;
 ALTER TABLE v2_job_completed RENAME COLUMN __script_path TO script_path;
 ALTER TABLE v2_job_completed RENAME COLUMN __args TO args;
 ALTER TABLE v2_job_completed RENAME COLUMN __logs TO logs;
-ALTER TABLE v2_job_completed RENAME COLUMN __deleted TO deleted;
 ALTER TABLE v2_job_completed RENAME COLUMN __raw_code TO raw_code;
 ALTER TABLE v2_job_completed RENAME COLUMN __canceled TO canceled;
 ALTER TABLE v2_job_completed RENAME COLUMN __job_kind TO job_kind;
