@@ -4297,6 +4297,17 @@ paths:
       operationId: getCustomTags
       tags:
         - worker
+      parameters:
+        - name: workspace
+          in: query
+          schema:
+            type: string
+          required: false
+        - name: show_workspace_restriction
+          in: query
+          schema:
+            type: boolean
+          required: false
       responses:
         "200":
           description: list of custom tags
