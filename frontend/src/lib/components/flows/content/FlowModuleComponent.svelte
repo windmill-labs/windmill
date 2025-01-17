@@ -287,7 +287,7 @@
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
 					<Splitpanes horizontal>
-						<Pane bind:size={editorPanelSize} minSize={20}>
+						<Pane bind:size={editorPanelSize} minSize={10}>
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
@@ -341,7 +341,7 @@
 									{/key}
 								{/if}
 							{:else if flowModule.value.type === 'script'}
-								{#if !noEditor}
+								{#if !noEditor && (customUi?.hubCode != false || !flowModule?.value?.path?.startsWith('hub/'))}
 									<div class="border-t">
 										{#key forceReload}
 											<FlowModuleScript
