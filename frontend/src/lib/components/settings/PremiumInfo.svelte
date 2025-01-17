@@ -169,13 +169,23 @@
 	</svelte:fragment>
 </Modal>
 
-<div class="flex flex-col gap-4 my-8">
+<div class="flex flex-col gap-4 mt-8">
 	<div class="flex flex-col gap-1">
-		<div class=" text-primary text-lg font-semibold">Plans</div>
+		<div class=" text-primary text-lg font-semibold">
+			{#if premiumInfo?.premium && plan}
+				Plan: {capitalize(plan)} plan{plan === 'team' && premiumInfo.automatic_billing
+					? ' (usage-based)'
+					: plan === 'team'
+					? ` (${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
+					: ''}
+			{:else}
+				Plan: Free plan
+			{/if}
+		</div>
 	</div>
 </div>
 {#if customer_id}
-	<div class="mt-2 mb-2">
+	<div class="mt-2">
 		<Button
 			endIcon={{ icon: ExternalLink }}
 			color="dark"
@@ -187,34 +197,25 @@
 	</div>
 {/if}
 
-<div class="text-xs my-4">
+<div class="text-xs">
 	{#if premiumInfo?.premium}
-		<div class="flex flex-col">
+		<div class="flex flex-col gap-8 my-8">
 			{#if plan}
-				<div class="text-base inline font-bold leading-8">
-					Current plan: {capitalize(plan)} plan{plan === 'team' && premiumInfo.automatic_billing
-						? ' (usage-based)'
-						: plan === 'team'
-						? ` (${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
-						: ''}
-				</div>
-				{#if plan === 'team'}
-					<div class="flex flex-row items-center gap-2 mt-2">
-						{#if !premiumInfo?.automatic_billing}
-							<Toggle
-								checked={premiumInfo?.automatic_billing}
-								options={{
-									left: 'Static number of seats',
-									leftTooltip:
-										'You will be billed for a fixed number of seats, you have to manually adapt the number of seats in the customer portal based on your usage.',
-									right: 'Automatic billing based on usage',
-									rightTooltip:
-										'You will be billed for the maximum number of seats used in a given billing period.'
-								}}
-								on:change={setAutomaticBilling}
-								disabled={billingModeLoading}
-							/>
-						{/if}
+				{#if plan === 'team' && !premiumInfo?.automatic_billing}
+					<div class="flex flex-row items-center gap-2">
+						<Toggle
+							checked={premiumInfo?.automatic_billing}
+							options={{
+								left: 'Static number of seats',
+								leftTooltip:
+									'You will be billed for a fixed number of seats, you have to manually adapt the number of seats in the customer portal based on your usage.',
+								right: 'Automatic billing based on usage',
+								rightTooltip:
+									'You will be billed for the maximum number of seats used in a given billing period.'
+							}}
+							on:change={setAutomaticBilling}
+							disabled={billingModeLoading}
+						/>
 						{#if billingModeLoading}
 							<Loader2 class="animate-spin" />
 						{/if}
@@ -226,7 +227,7 @@
 
 			{#if plan}
 				{#if premiumInfo?.automatic_billing}
-					<div class="mb-4 flex flex-col gap-1.5">
+					<div class="flex flex-col gap-1.5">
 						<p class="font-semibold text-sm">Billing threshold email alert</p>
 						<div class="flex flex-row gap-0.5 items-center">
 							<p class="text-base text-secondary mr-0.5"
@@ -391,13 +392,16 @@
 			{/if}
 		</div>
 	{:else}
-		This workspace is <b>not</b> on a team plan. Users use their global free-tier quotas when doing executions
-		in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited executions in this workspace.
+		<div class="mb-8 mt-2">
+			This workspace is <b>not</b> on a team plan. Users use their global free-tier quotas when doing
+			executions in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited executions
+			in this workspace.
+		</div>
 	{/if}
 </div>
 
 <Section collapsable label="Cost estimator">
-	<div class="border p-4 mb-4 rounded-md" transition:slide>
+	<div class="border p-4 rounded-md" transition:slide>
 		<Label label="Number of developers">
 			<Range min={1} max={20} bind:value={estimatedDevs} hideInput />
 		</Label>
@@ -407,7 +411,7 @@
 		<Label label="Number of executions">
 			<Range
 				min={estimatedSeats}
-				max={30}
+				max={100}
 				bind:value={estimatedExecs}
 				format={(v) => `${v * 10}k`}
 				hideInput
@@ -438,16 +442,28 @@
 							(estimatedExecs - estimatedSeats)) *
 							10}$ / month
 					</div>
-					<button
-						class="text-xs text-blue-500 underline"
-						on:click={() => {
-							newThresholdAlertAmount = (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10
-							thresholdAlertOpen = true
-						}}
-						>Setup threshold email alert
-					</button>
+					{#if premiumInfo?.premium && plan === 'team'}
+						<button
+							class="text-xs text-blue-500 underline"
+							on:click={() => {
+								newThresholdAlertAmount = (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10
+								thresholdAlertOpen = true
+							}}
+						>
+							Setup threshold email alert
+						</button>
+					{/if}
 				</div>
 			</div>
+			{#if (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10 > 700}
+				<a
+					class="mt-4 text-teal-600 font-semibold text-center block underline"
+					href="https://www.windmill.dev/pricing"
+					target="_blank"
+				>
+					You should consider subscribing to Cloud Enterprise
+				</a>
+			{/if}
 		</div>
 	</div>
 </Section>
