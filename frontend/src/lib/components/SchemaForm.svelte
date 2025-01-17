@@ -159,6 +159,7 @@
 	$: isValid = allTrue(inputCheck ?? {})
 </script>
 
+<!-- {JSON.stringify(args)} -->
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
 		<Button size="xs" color="light" on:click={() => setDefaults()}>

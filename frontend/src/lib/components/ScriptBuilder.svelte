@@ -43,6 +43,7 @@
 		Rocket,
 		Save,
 		Settings,
+		Shuffle,
 		X
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -205,6 +206,13 @@
 			desc: 'Handle errors in flows after all retry attempts have been exhausted.',
 			documentationLink: 'https://www.windmill.dev/docs/flows/flow_error_handler',
 			Icon: Bug
+		},
+		{
+			value: 'preprocessor',
+			title: 'Preprocessor',
+			desc: 'Transform incoming requests before they are passed to the flow.',
+			documentationLink: 'https://www.windmill.dev/docs/core_concepts/preprocessors',
+			Icon: Shuffle
 		}
 	]
 

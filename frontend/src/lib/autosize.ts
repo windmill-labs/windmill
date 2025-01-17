@@ -16,14 +16,6 @@ export const action = (node) => {
 
 	const setInitialHeight = () => {
 		let height = 0
-
-		const style = window.getComputedStyle(node)
-		const visible = style?.getPropertyValue('visibility') === 'hidden'
-
-		if (visible === false) {
-			return
-		}
-
 		if (node.value) {
 			height = node.scrollHeight
 		} else {
@@ -34,7 +26,7 @@ export const action = (node) => {
 			} else {
 				node.value = '|'
 				node.style.height = '0px'
-				height = node.scrollHeight
+				height = node.scrollHeight + 20
 				node.value = ''
 			}
 		}
