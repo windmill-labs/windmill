@@ -131,7 +131,9 @@
 			if (Object.keys(modifiedProperties).includes(argName)) {
 				delete modifiedProperties[argName]
 
-				modifiedObject.required = schema.required.filter((arg) => arg !== argName)
+				if (modifiedObject.required) {
+					modifiedObject.required = schema.required.filter((arg) => arg !== argName)
+				}
 				if (modifiedObject.order) {
 					modifiedObject.order = modifiedObject.order.filter((arg) => arg !== argName)
 				}
