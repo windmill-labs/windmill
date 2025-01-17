@@ -30,8 +30,8 @@ export type Script = {
     };
     lock?: string;
     lock_error_logs?: string;
-    language: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible';
-    kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval';
+    language: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
+    kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | 'preprocessor';
     starred: boolean;
     tag?: string;
     has_draft?: boolean;
@@ -51,11 +51,12 @@ export type Script = {
     no_main_func: boolean;
     codebase?: string;
     has_preprocessor: boolean;
+    on_behalf_of_email?: string;
 };
 
-export type language = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible';
+export type language = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
 
-export type kind = 'script' | 'failure' | 'trigger' | 'command' | 'approval';
+export type kind = 'script' | 'failure' | 'trigger' | 'command' | 'approval' | 'preprocessor';
 
 export type NewScript = {
     path: string;
@@ -68,8 +69,8 @@ export type NewScript = {
     };
     is_template?: boolean;
     lock?: string;
-    language: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible';
-    kind?: 'script' | 'failure' | 'trigger' | 'command' | 'approval';
+    language: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
+    kind?: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | 'preprocessor';
     tag?: string;
     draft_only?: boolean;
     envs?: Array<(string)>;
@@ -88,6 +89,7 @@ export type NewScript = {
     no_main_func?: boolean;
     codebase?: string;
     has_preprocessor?: boolean;
+    on_behalf_of_email?: string;
 };
 
 export type NewScriptWithDraft = NewScript & {
@@ -146,7 +148,7 @@ export type QueuedJob = {
     canceled_by?: string;
     canceled_reason?: string;
     last_ping?: string;
-    job_kind: 'script' | 'preview' | 'dependencies' | 'flowdependencies' | 'appdependencies' | 'flow' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow';
+    job_kind: 'script' | 'preview' | 'dependencies' | 'flowdependencies' | 'appdependencies' | 'flow' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow' | 'flowscript' | 'flownode' | 'appscript';
     schedule_path?: string;
     /**
      * The user (u/userfoo) or group (g/groupfoo) whom
@@ -157,7 +159,7 @@ export type QueuedJob = {
     flow_status?: FlowStatus;
     raw_flow?: FlowValue;
     is_flow_step: boolean;
-    language?: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible';
+    language?: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
     email: string;
     visible_to_owner: boolean;
     mem_peak?: number;
@@ -168,7 +170,7 @@ export type QueuedJob = {
     suspend?: number;
 };
 
-export type job_kind = 'script' | 'preview' | 'dependencies' | 'flowdependencies' | 'appdependencies' | 'flow' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow';
+export type job_kind = 'script' | 'preview' | 'dependencies' | 'flowdependencies' | 'appdependencies' | 'flow' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow' | 'flowscript' | 'flownode' | 'appscript';
 
 export type CompletedJob = {
     workspace_id?: string;
@@ -189,7 +191,7 @@ export type CompletedJob = {
     canceled: boolean;
     canceled_by?: string;
     canceled_reason?: string;
-    job_kind: 'script' | 'preview' | 'dependencies' | 'flow' | 'flowdependencies' | 'appdependencies' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow';
+    job_kind: 'script' | 'preview' | 'dependencies' | 'flow' | 'flowdependencies' | 'appdependencies' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow' | 'flowscript' | 'flownode' | 'appscript';
     schedule_path?: string;
     /**
      * The user (u/userfoo) or group (g/groupfoo) whom
@@ -200,7 +202,7 @@ export type CompletedJob = {
     flow_status?: FlowStatus;
     raw_flow?: FlowValue;
     is_flow_step: boolean;
-    language?: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible';
+    language?: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
     is_skipped: boolean;
     email: string;
     visible_to_owner: boolean;
@@ -230,6 +232,7 @@ export type User = {
     email: string;
     username: string;
     is_admin: boolean;
+    name?: string;
     is_super_admin: boolean;
     created_at: string;
     operator: boolean;
@@ -373,7 +376,7 @@ export type Preview = {
     content?: string;
     path?: string;
     args: ScriptArgs;
-    language?: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible';
+    language?: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
     tag?: string;
     kind?: 'code' | 'identity' | 'http';
     dedicated_worker?: boolean;
@@ -488,6 +491,7 @@ export type Schedule = {
     no_flow_overlap?: boolean;
     tag?: string;
     paused_until?: string;
+    cron_version?: string;
 };
 
 export type ScheduleWJobs = Schedule & {
@@ -521,6 +525,7 @@ export type NewSchedule = {
     summary?: string;
     tag?: string;
     paused_until?: string;
+    cron_version?: string;
 };
 
 export type EditSchedule = {
@@ -542,6 +547,7 @@ export type EditSchedule = {
     summary?: string;
     tag?: string;
     paused_until?: string;
+    cron_version?: string;
 };
 
 export type HttpTrigger = {
@@ -607,6 +613,8 @@ export type TriggersCount = {
     webhook_count?: number;
     email_count?: number;
     websocket_count?: number;
+    kafka_count?: number;
+    nats_count?: number;
 };
 
 export type WebsocketTrigger = {
@@ -629,8 +637,8 @@ export type WebsocketTrigger = {
         key: string;
         value: unknown;
     }>;
-    initial_messages: Array<WebsocketTriggerInitialMessage>;
-    url_runnable_args: ScriptArgs;
+    initial_messages?: Array<WebsocketTriggerInitialMessage>;
+    url_runnable_args?: ScriptArgs;
 };
 
 export type NewWebsocketTrigger = {
@@ -643,8 +651,8 @@ export type NewWebsocketTrigger = {
         key: string;
         value: unknown;
     }>;
-    initial_messages: Array<WebsocketTriggerInitialMessage>;
-    url_runnable_args: ScriptArgs;
+    initial_messages?: Array<WebsocketTriggerInitialMessage>;
+    url_runnable_args?: ScriptArgs;
 };
 
 export type EditWebsocketTrigger = {
@@ -656,8 +664,8 @@ export type EditWebsocketTrigger = {
         key: string;
         value: unknown;
     }>;
-    initial_messages: Array<WebsocketTriggerInitialMessage>;
-    url_runnable_args: ScriptArgs;
+    initial_messages?: Array<WebsocketTriggerInitialMessage>;
+    url_runnable_args?: ScriptArgs;
 };
 
 export type WebsocketTriggerInitialMessage = {
@@ -668,6 +676,90 @@ export type WebsocketTriggerInitialMessage = {
         args: ScriptArgs;
         is_flow: boolean;
     };
+};
+
+export type KafkaTrigger = {
+    path: string;
+    edited_by: string;
+    edited_at: string;
+    script_path: string;
+    kafka_resource_path: string;
+    group_id: string;
+    topics: Array<(string)>;
+    is_flow: boolean;
+    extra_perms: {
+        [key: string]: (boolean);
+    };
+    email: string;
+    workspace_id: string;
+    server_id?: string;
+    last_server_ping?: string;
+    error?: string;
+    enabled: boolean;
+};
+
+export type NewKafkaTrigger = {
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    kafka_resource_path: string;
+    group_id: string;
+    topics: Array<(string)>;
+    enabled?: boolean;
+};
+
+export type EditKafkaTrigger = {
+    kafka_resource_path: string;
+    group_id: string;
+    topics: Array<(string)>;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+};
+
+export type NatsTrigger = {
+    path: string;
+    edited_by: string;
+    edited_at: string;
+    script_path: string;
+    nats_resource_path: string;
+    use_jetstream: boolean;
+    stream_name?: string;
+    consumer_name?: string;
+    subjects: Array<(string)>;
+    is_flow: boolean;
+    extra_perms: {
+        [key: string]: (boolean);
+    };
+    email: string;
+    workspace_id: string;
+    server_id?: string;
+    last_server_ping?: string;
+    error?: string;
+    enabled: boolean;
+};
+
+export type NewNatsTrigger = {
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    nats_resource_path: string;
+    use_jetstream: boolean;
+    stream_name?: string;
+    consumer_name?: string;
+    subjects: Array<(string)>;
+    enabled?: boolean;
+};
+
+export type EditNatsTrigger = {
+    nats_resource_path: string;
+    use_jetstream: boolean;
+    stream_name?: string;
+    consumer_name?: string;
+    subjects: Array<(string)>;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
 };
 
 export type Group = {
@@ -724,6 +816,7 @@ export type UserWorkspaceList = {
         id: string;
         name: string;
         username: string;
+        color: string;
     }>;
 };
 
@@ -731,6 +824,7 @@ export type CreateWorkspace = {
     id: string;
     name: string;
     username?: string;
+    color?: string;
 };
 
 export type Workspace = {
@@ -738,6 +832,7 @@ export type Workspace = {
     name: string;
     owner: string;
     domain?: string;
+    color?: string;
 };
 
 export type WorkspaceInvite = {
@@ -751,6 +846,7 @@ export type GlobalUserInfo = {
     email: string;
     login_type: 'password' | 'github';
     super_admin: boolean;
+    devops?: boolean;
     verified: boolean;
     name?: string;
     company?: string;
@@ -781,6 +877,7 @@ export type FlowMetadata = {
     dedicated_worker?: boolean;
     timeout?: number;
     visible_to_runner_only?: boolean;
+    on_behalf_of_email?: string;
 };
 
 export type OpenFlowWPath = OpenFlow & {
@@ -791,6 +888,7 @@ export type OpenFlowWPath = OpenFlow & {
     dedicated_worker?: boolean;
     timeout?: number;
     visible_to_runner_only?: boolean;
+    on_behalf_of_email?: string;
 };
 
 export type FlowPreview = {
@@ -870,6 +968,7 @@ export type AppWithLastVersion = {
     extra_perms: {
         [key: string]: (boolean);
     };
+    custom_path?: string;
 };
 
 export type AppWithLastVersionWDraft = AppWithLastVersion & {
@@ -1012,7 +1111,7 @@ export type MetricDataPoint = {
 export type RawScriptForDependencies = {
     raw_code: string;
     path: string;
-    language: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible';
+    language: 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
 };
 
 export type ConcurrencyGroup = {
@@ -1105,6 +1204,23 @@ export type CriticalAlert = {
      * Workspace id if the alert is in the scope of a workspace
      */
     workspace_id?: (string) | null;
+};
+
+export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats';
+
+export type Capture = {
+    trigger_kind: CaptureTriggerKind;
+    payload: unknown;
+    trigger_extra?: unknown;
+    id: number;
+    created_at: string;
+};
+
+export type CaptureConfig = {
+    trigger_config?: unknown;
+    trigger_kind: CaptureTriggerKind;
+    error?: string;
+    last_server_ping?: string;
 };
 
 export type OpenFlow = {
@@ -1204,7 +1320,7 @@ export type RawScript = {
         [key: string]: InputTransform;
     };
     content: string;
-    language: 'deno' | 'bun' | 'python3' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'php';
+    language: 'deno' | 'bun' | 'python3' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'php';
     path?: string;
     lock?: string;
     type: 'rawscript';
@@ -1215,7 +1331,7 @@ export type RawScript = {
     is_trigger?: boolean;
 };
 
-export type language2 = 'deno' | 'bun' | 'python3' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'graphql' | 'nativets' | 'php';
+export type language2 = 'deno' | 'bun' | 'python3' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'php';
 
 export type PathScript = {
     input_transforms: {
@@ -1344,6 +1460,8 @@ export type ParameterScriptHash = string;
 export type ParameterJobId = string;
 
 export type ParameterPath = string;
+
+export type ParameterCustomPath = string;
 
 export type ParameterPathId = number;
 
@@ -1551,6 +1669,8 @@ export type ParameterGetStarted = boolean;
 
 export type ParameterConcurrencyId = string;
 
+export type ParameterRunnableKind = 'script' | 'flow';
+
 export type BackendVersionResponse = (string);
 
 export type BackendUptodateResponse = (string);
@@ -1705,6 +1825,7 @@ export type GlobalUserUpdateData = {
      */
     requestBody: {
         is_super_admin?: boolean;
+        is_devops?: boolean;
         name?: string;
     };
 };
@@ -1865,7 +1986,17 @@ export type GetCriticalAlertsData = {
     pageSize?: number;
 };
 
-export type GetCriticalAlertsResponse = (Array<CriticalAlert>);
+export type GetCriticalAlertsResponse = ({
+    alerts?: Array<CriticalAlert>;
+    /**
+     * Total number of rows matching the query.
+     */
+    total_rows?: number;
+    /**
+     * Total number of pages based on the page size.
+     */
+    total_pages?: number;
+});
 
 export type AcknowledgeCriticalAlertData = {
     /**
@@ -1931,6 +2062,10 @@ export type TestMetadataResponse = (string);
 export type ListGlobalSettingsResponse = (Array<GlobalSetting>);
 
 export type GetCurrentEmailResponse = (string);
+
+export type RefreshUserTokenData = {
+    ifExpiringInLessThanS?: number;
+};
 
 export type RefreshUserTokenResponse = (string);
 
@@ -2088,6 +2223,15 @@ export type ChangeWorkspaceIdData = {
 
 export type ChangeWorkspaceIdResponse = (string);
 
+export type ChangeWorkspaceColorData = {
+    requestBody?: {
+        color?: string;
+    };
+    workspace: string;
+};
+
+export type ChangeWorkspaceColorResponse = (string);
+
 export type WhoisData = {
     username: string;
     workspace: string;
@@ -2152,6 +2296,7 @@ export type GetSettingsResponse = ({
     default_app?: string;
     default_scripts?: WorkspaceDefaultScripts;
     mute_critical_alerts?: boolean;
+    color?: string;
 });
 
 export type GetDeployToData = {
@@ -2177,6 +2322,7 @@ export type GetPremiumInfoResponse = ({
     usage?: number;
     seats?: number;
     automatic_billing: boolean;
+    owner: string;
 });
 
 export type SetAutomaticBillingData = {
@@ -2191,6 +2337,27 @@ export type SetAutomaticBillingData = {
 };
 
 export type SetAutomaticBillingResponse = (string);
+
+export type GetThresholdAlertData = {
+    workspace: string;
+};
+
+export type GetThresholdAlertResponse = ({
+    threshold_alert_amount?: number;
+    last_alert_sent?: string;
+});
+
+export type SetThresholdAlertData = {
+    /**
+     * threshold alert info
+     */
+    requestBody: {
+        threshold_alert_amount?: number;
+    };
+    workspace: string;
+};
+
+export type SetThresholdAlertResponse = (string);
 
 export type EditSlackCommandData = {
     /**
@@ -2417,6 +2584,8 @@ export type GetUsedTriggersData = {
 export type GetUsedTriggersResponse = ({
     http_routes_used: boolean;
     websocket_used: boolean;
+    kafka_used: boolean;
+    nats_used: boolean;
 });
 
 export type ListUsersData = {
@@ -2589,7 +2758,17 @@ export type WorkspaceGetCriticalAlertsData = {
     workspace: string;
 };
 
-export type WorkspaceGetCriticalAlertsResponse = (Array<CriticalAlert>);
+export type WorkspaceGetCriticalAlertsResponse = ({
+    alerts?: Array<CriticalAlert>;
+    /**
+     * Total number of rows matching the query.
+     */
+    total_rows?: number;
+    /**
+     * Total number of pages based on the page size.
+     */
+    total_pages?: number;
+});
 
 export type WorkspaceAcknowledgeCriticalAlertData = {
     /**
@@ -2983,6 +3162,14 @@ export type GetHubAppByIdResponse = ({
     };
 });
 
+export type GetPublicAppByCustomPathData = {
+    customPath: string;
+};
+
+export type GetPublicAppByCustomPathResponse = ((AppWithLastVersion & {
+    workspace_id?: string;
+}));
+
 export type GetHubScriptContentByPathData = {
     path: string;
 };
@@ -3211,6 +3398,11 @@ export type ToggleWorkspaceErrorHandlerForScriptData = {
 };
 
 export type ToggleWorkspaceErrorHandlerForScriptResponse = (string);
+
+export type GetCustomTagsData = {
+    showWorkspaceRestriction?: boolean;
+    workspace?: string;
+};
 
 export type GetCustomTagsResponse = (Array<(string)>);
 
@@ -3887,6 +4079,7 @@ export type CreateAppData = {
         policy: Policy;
         draft_only?: boolean;
         deployment_message?: string;
+        custom_path?: string;
     };
     workspace: string;
 };
@@ -3907,6 +4100,13 @@ export type GetAppByPathData = {
 };
 
 export type GetAppByPathResponse = (AppWithLastVersion);
+
+export type GetAppLiteByPathData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetAppLiteByPathResponse = (AppWithLastVersion);
 
 export type GetAppByPathWithDraftData = {
     path: string;
@@ -4025,11 +4225,19 @@ export type UpdateAppData = {
         value?: unknown;
         policy?: Policy;
         deployment_message?: string;
+        custom_path?: string;
     };
     workspace: string;
 };
 
 export type UpdateAppResponse = (string);
+
+export type CustomPathExistsData = {
+    customPath: string;
+    workspace: string;
+};
+
+export type CustomPathExistsResponse = (boolean);
 
 export type ExecuteComponentData = {
     path: string;
@@ -4039,6 +4247,7 @@ export type ExecuteComponentData = {
     requestBody: {
         component: string;
         path?: string;
+        version?: number;
         args: unknown;
         raw_code?: {
             content: string;
@@ -4047,6 +4256,7 @@ export type ExecuteComponentData = {
             lock?: string;
             cache_ttl?: number;
         };
+        id?: number;
         force_viewer_static_fields?: {
             [key: string]: unknown;
         };
@@ -4892,6 +5102,20 @@ export type GetResumeUrlsResponse = ({
     cancel: string;
 });
 
+export type GetSlackApprovalPayloadData = {
+    approver?: string;
+    channelId: string;
+    defaultArgsJson?: string;
+    dynamicEnumsJson?: string;
+    flowStepId: string;
+    id: string;
+    message?: string;
+    slackResourcePath: string;
+    workspace: string;
+};
+
+export type GetSlackApprovalPayloadResponse = (unknown);
+
 export type ResumeSuspendedJobGetData = {
     approver?: string;
     id: string;
@@ -4997,6 +5221,7 @@ export type PreviewScheduleData = {
     requestBody: {
         schedule: string;
         timezone: string;
+        cron_version?: string;
     };
 };
 
@@ -5264,6 +5489,156 @@ export type SetWebsocketTriggerEnabledData = {
 };
 
 export type SetWebsocketTriggerEnabledResponse = (string);
+
+export type CreateKafkaTriggerData = {
+    /**
+     * new kafka trigger
+     */
+    requestBody: NewKafkaTrigger;
+    workspace: string;
+};
+
+export type CreateKafkaTriggerResponse = (string);
+
+export type UpdateKafkaTriggerData = {
+    path: string;
+    /**
+     * updated trigger
+     */
+    requestBody: EditKafkaTrigger;
+    workspace: string;
+};
+
+export type UpdateKafkaTriggerResponse = (string);
+
+export type DeleteKafkaTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type DeleteKafkaTriggerResponse = (string);
+
+export type GetKafkaTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetKafkaTriggerResponse = (KafkaTrigger);
+
+export type ListKafkaTriggersData = {
+    isFlow?: boolean;
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    /**
+     * filter by path
+     */
+    path?: string;
+    pathStart?: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    workspace: string;
+};
+
+export type ListKafkaTriggersResponse = (Array<KafkaTrigger>);
+
+export type ExistsKafkaTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type ExistsKafkaTriggerResponse = (boolean);
+
+export type SetKafkaTriggerEnabledData = {
+    path: string;
+    /**
+     * updated kafka trigger enable
+     */
+    requestBody: {
+        enabled: boolean;
+    };
+    workspace: string;
+};
+
+export type SetKafkaTriggerEnabledResponse = (string);
+
+export type CreateNatsTriggerData = {
+    /**
+     * new nats trigger
+     */
+    requestBody: NewNatsTrigger;
+    workspace: string;
+};
+
+export type CreateNatsTriggerResponse = (string);
+
+export type UpdateNatsTriggerData = {
+    path: string;
+    /**
+     * updated trigger
+     */
+    requestBody: EditNatsTrigger;
+    workspace: string;
+};
+
+export type UpdateNatsTriggerResponse = (string);
+
+export type DeleteNatsTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type DeleteNatsTriggerResponse = (string);
+
+export type GetNatsTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetNatsTriggerResponse = (NatsTrigger);
+
+export type ListNatsTriggersData = {
+    isFlow?: boolean;
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    /**
+     * filter by path
+     */
+    path?: string;
+    pathStart?: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    workspace: string;
+};
+
+export type ListNatsTriggersResponse = (Array<NatsTrigger>);
+
+export type ExistsNatsTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type ExistsNatsTriggerResponse = (boolean);
+
+export type SetNatsTriggerEnabledData = {
+    path: string;
+    /**
+     * updated nats trigger enable
+     */
+    requestBody: {
+        enabled: boolean;
+    };
+    workspace: string;
+};
+
+export type SetNatsTriggerEnabledResponse = (string);
 
 export type ListInstanceGroupsResponse = (Array<InstanceGroup>);
 
@@ -5612,7 +5987,7 @@ export type ListAutoscalingEventsData = {
 export type ListAutoscalingEventsResponse = (Array<AutoscalingEvent>);
 
 export type GetGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger';
     path: string;
     workspace: string;
 };
@@ -5622,7 +5997,7 @@ export type GetGranularAclsResponse = ({
 });
 
 export type AddGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger';
     path: string;
     /**
      * acl to add
@@ -5637,7 +6012,7 @@ export type AddGranularAclsData = {
 export type AddGranularAclsResponse = (string);
 
 export type RemoveGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger';
     path: string;
     /**
      * acl to add
@@ -5650,26 +6025,63 @@ export type RemoveGranularAclsData = {
 
 export type RemoveGranularAclsResponse = (string);
 
-export type UpdateCaptureData = {
-    path: string;
+export type SetCaptureConfigData = {
+    /**
+     * capture config
+     */
+    requestBody: {
+        trigger_kind: CaptureTriggerKind;
+        path: string;
+        is_flow: boolean;
+        trigger_config?: {
+            [key: string]: unknown;
+        };
+    };
     workspace: string;
 };
 
-export type UpdateCaptureResponse = (void);
+export type SetCaptureConfigResponse = (unknown);
 
-export type CreateCaptureData = {
+export type PingCaptureConfigData = {
     path: string;
+    runnableKind: 'script' | 'flow';
+    triggerKind: CaptureTriggerKind;
     workspace: string;
 };
 
-export type CreateCaptureResponse = (unknown);
+export type PingCaptureConfigResponse = (unknown);
 
-export type GetCaptureData = {
+export type GetCaptureConfigsData = {
     path: string;
+    runnableKind: 'script' | 'flow';
     workspace: string;
 };
 
-export type GetCaptureResponse = (unknown);
+export type GetCaptureConfigsResponse = (Array<CaptureConfig>);
+
+export type ListCapturesData = {
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    path: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    runnableKind: 'script' | 'flow';
+    triggerKind?: CaptureTriggerKind;
+    workspace: string;
+};
+
+export type ListCapturesResponse = (Array<Capture>);
+
+export type DeleteCaptureData = {
+    id: number;
+    workspace: string;
+};
+
+export type DeleteCaptureResponse = (unknown);
 
 export type StarData = {
     requestBody?: {
@@ -5692,6 +6104,7 @@ export type UnstarData = {
 export type UnstarResponse = (unknown);
 
 export type GetInputHistoryData = {
+    includePreview?: boolean;
     /**
      * which page to return (start at 1, default 1)
      */
@@ -6223,7 +6636,6 @@ export type SearchLogsIndexResponse = ({
 });
 
 export type CountSearchLogsIndexData = {
-    hosts: string;
     maxTs?: string;
     minTs?: string;
     searchQuery: string;
@@ -6241,3 +6653,9 @@ export type CountSearchLogsIndexResponse = ({
         [key: string]: unknown;
     };
 });
+
+export type ClearIndexData = {
+    idxName: 'JobIndex' | 'ServiceLogIndex';
+};
+
+export type ClearIndexResponse = (string);

@@ -77,6 +77,7 @@ func main() (interface{}, error) {
   bash: `echo "Hello world"
 `,
 
+  oracledb: `SELECT 'Hello world' AS message`,
   powershell: `Write-Output "Hello world"`,
 
   php: `<?php
@@ -112,5 +113,5 @@ inventory:
   - name: Print debug message
     debug:
       msg: "Hello, world!"
-`
+`,
 };
