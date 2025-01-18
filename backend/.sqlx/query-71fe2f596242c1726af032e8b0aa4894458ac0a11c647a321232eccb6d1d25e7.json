@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM capture_config WHERE workspace_id = $1",
+  "query": "DELETE FROM websocket_trigger WHERE workspace_id = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -10,5 +10,5 @@
     },
     "nullable": []
   },
-  "hash": "3c9fc4d8579767f3ce7c3633fca770e6341624e98117d21b9f01e68b4e0ce033"
+  "hash": "71fe2f596242c1726af032e8b0aa4894458ac0a11c647a321232eccb6d1d25e7"
 }

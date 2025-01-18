@@ -23,7 +23,7 @@ const p = {
 
     const filterLoad = new RegExp(`^${cdir}\/main\\.ts$`);
     const transpiler = new Bun.Transpiler({
-      loader: "tsx",
+      loader: "ts",
     });
 
     function replaceRelativeImports(code) {

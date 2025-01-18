@@ -320,6 +320,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "postgresql") ext = "pg.sql";
     else if (language == "mysql") ext = "my.sql";
     else if (language == "bigquery") ext = "bq.sql";
+    else if (language == "oracledb") ext = "odb.sql";
     else if (language == "snowflake") ext = "sf.sql";
     else if (language == "mssql") ext = "ms.sql";
     else if (language == "graphql") ext = "gql";
@@ -327,6 +328,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "frontend") ext = "frontend.js";
     else if (language == "php") ext = "php";
     else if (language == "rust") ext = "rs";
+    else if (language == "csharp") ext = "cs";
     else if (language == "ansible") ext = "playbook.yml";
     else ext = "no_ext";
 
@@ -647,6 +649,7 @@ export async function elementsToMap(
         "js",
         "lock",
         "rs",
+	"cs",
         "yml",
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)

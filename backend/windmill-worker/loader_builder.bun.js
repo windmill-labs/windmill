@@ -14,6 +14,7 @@ import { semver } from "bun";
 
 if (!bo.success) {
   bo.logs.forEach((l) => console.log(l));
+  console.log("Failed to build bundle");
   process.exit(1);
 } else {
   let content = await fs.readFile("./out/main.js", { encoding: "utf8" });

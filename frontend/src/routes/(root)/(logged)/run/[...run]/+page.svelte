@@ -710,9 +710,15 @@
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
 						{#if job.script_hash}
-							<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
-								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
-							>
+							{#if job.job_kind == 'script'}
+								<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+									><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
+								>
+							{:else}
+								<div>
+									<Badge color="gray">{truncateHash(job.script_hash)}</Badge>
+								</div>
+							{/if}
 						{/if}
 						{#if job && 'job_kind' in job}
 							<div>

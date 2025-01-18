@@ -487,6 +487,7 @@
 									<div class="p-4 pl-8 border rounded w-full">
 										<LightweightSchemaForm
 											schema={{
+												...obj,
 												properties: Object.fromEntries(
 													Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
 												),

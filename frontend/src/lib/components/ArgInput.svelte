@@ -266,7 +266,7 @@
 		if (nullable && emptyString(v)) {
 			error = ''
 			valid && (valid = true)
-		} else if (required && (v == undefined || v == null || v === '')) {
+		} else if (required && (v == undefined || v == null || v === '') && inputCat != 'object') {
 			error = 'Required'
 			valid && (valid = false)
 		} else {
@@ -345,6 +345,7 @@
 	}}
 	readOnlyMode={false}
 />
+
 <!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>

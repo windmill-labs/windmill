@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.447.5](https://github.com/windmill-labs/windmill/compare/v1.447.4...v1.447.5) (2025-01-17)
+
+
+### Bug Fixes
+
+* c# on windows, oracledb test connection, cli for C# and Oracle DB ([#5090](https://github.com/windmill-labs/windmill/issues/5090)) ([298aaae](https://github.com/windmill-labs/windmill/commit/298aaaefa398234473a54cbc15756ee2d6b0e68c))
+* fix workspace specific custom tags ([0d153a0](https://github.com/windmill-labs/windmill/commit/0d153a0a2d3954c702d41afeb3f4d74152b071f0))
+* **frontend:** empty arg initial height ([#5089](https://github.com/windmill-labs/windmill/issues/5089)) ([64f4958](https://github.com/windmill-labs/windmill/commit/64f4958774a8259c3a28c394da6ab599ac9d43bb))
+* **frontend:** input autosize on default value ([#5080](https://github.com/windmill-labs/windmill/issues/5080)) ([d1794c9](https://github.com/windmill-labs/windmill/commit/d1794c9811c1c944a9c68d2e1b8f0bb50db4e1f8))
+* **frontend:** webhook/route payload from args ([#5088](https://github.com/windmill-labs/windmill/issues/5088)) ([501c44b](https://github.com/windmill-labs/windmill/commit/501c44b3a1f38256bc7b304109ebbaa45678c792))
+* preprocessor script kind option ([#5081](https://github.com/windmill-labs/windmill/issues/5081)) ([742d04d](https://github.com/windmill-labs/windmill/commit/742d04df38b240f12c58a0785014034f55409eab))
+* require preexisting user option for auth correctly saved ([854febd](https://github.com/windmill-labs/windmill/commit/854febdafd48f114b5943de77893d80f437310ba))
+
+## [1.447.4](https://github.com/windmill-labs/windmill/compare/v1.447.3...v1.447.4) (2025-01-16)
+
+
+### Bug Fixes
+
+* add support for previous result as expression in the flow ([33227f8](https://github.com/windmill-labs/windmill/commit/33227f844823864ed476a6e0a7d3ce529ce10552))
+
+## [1.447.3](https://github.com/windmill-labs/windmill/compare/v1.447.2...v1.447.3) (2025-01-16)
+
+
+### Bug Fixes
+
+* fix default json formatter ([fddcaca](https://github.com/windmill-labs/windmill/commit/fddcaca807b4e8c81578955deb5532d0e23ec9dd))
+* Oracle Database client libraries ([#5072](https://github.com/windmill-labs/windmill/issues/5072)) ([09dda48](https://github.com/windmill-labs/windmill/commit/09dda483f404cc94cf81e70b496a5be7090b719f))
+
 ## [1.447.2](https://github.com/windmill-labs/windmill/compare/v1.447.1...v1.447.2) (2025-01-15)
 
 
