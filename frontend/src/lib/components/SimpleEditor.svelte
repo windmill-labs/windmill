@@ -54,14 +54,7 @@
 		type IDisposable
 	} from 'monaco-editor'
 
-<<<<<<< HEAD
-	// import '@codingame/monaco-vscode-standalone-languages'
-	import '@codingame/monaco-vscode-standalone-json-language-features'
-	import '@codingame/monaco-vscode-standalone-css-language-features'
-	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
-=======
->>>>>>> main
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'

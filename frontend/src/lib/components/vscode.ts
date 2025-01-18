@@ -5,12 +5,7 @@ import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
-<<<<<<< HEAD
-import { ConsoleLogger } from 'monaco-languageclient/tools'
-import { LogLevel } from 'vscode'
-=======
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
->>>>>>> main
 
 export let isInitialized = false
 export let isInitializing = false
@@ -22,30 +17,6 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 
 		try {
 			// init vscode-api
-<<<<<<< HEAD
-			// await initServices({
-			// 	serviceConfig: {
-			// 		userServices: {
-			// 			// ...getThemeServiceOverride(),
-			// 			// ...getTextmateServiceOverride()
-			// 			...getMonarchServiceOverride()
-			// 		},
-			// 		debugLogging: true,
-			// 		enableExtHostWorker: false
-			// 	}
-			// })
-			const logger = new ConsoleLogger(LogLevel.Debug)
-			await initServices(
-				{
-					serviceOverrides: {
-						...getMonarchServiceOverride(),
-						...getConfigurationServiceOverride()
-					}
-				},
-				{
-					htmlContainer,
-					logger
-=======
 			await initServices({
 				serviceOverrides: {
 					// ...getThemeServiceOverride(),
@@ -58,9 +29,8 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 					json: JSON.stringify({
 						'editor.experimental.asyncTokenization': true
 					})
->>>>>>> main
 				}
-			)
+			})
 
 			isInitialized = true
 			meditor.defineTheme('nord', {

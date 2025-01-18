@@ -752,12 +752,7 @@
 								})
 						}
 					}
-<<<<<<< HEAD
 				},
-				messageTransports: transports
-=======
-				}
->>>>>>> main
 			})
 			return client
 		}
