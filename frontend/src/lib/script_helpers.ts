@@ -915,7 +915,8 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
-		| undefined
+		| undefined,
+	templateScript?: boolean
 ): string {
 	if (!kind) {
 		kind = 'script'

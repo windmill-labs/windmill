@@ -244,17 +244,7 @@
 	function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template:
-			| 'pgsql'
-			| 'mysql'
-			| 'flow'
-			| 'script'
-			| 'fetch'
-			| 'docker'
-			| 'powershell'
-			| 'bunnative'
-			| 'preprocessor'
-			| undefined
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
 	) {
 		scriptEditor?.disableCollaboration()
 		let getInitBlockTemplate = $databaseTrigger?.codeTemplate != undefined
