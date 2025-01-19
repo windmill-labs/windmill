@@ -36,7 +36,7 @@
 			{path}
 			hash={data?.hash}
 			token={data?.token}
-			{args}
+			runnableArgs={data?.args}
 			scopes={data?.scopes}
 			showCapture={false}
 		/>

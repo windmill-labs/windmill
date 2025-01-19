@@ -32,6 +32,7 @@
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
 	export let isValid = false
+	export let runnableArgs: any = {}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	let routeError: string = ''
@@ -107,9 +108,9 @@
 				<CopyableCodeBlock
 					disabled={!captureInfo.active}
 					code={`curl \\
--X POST ${captureURL} \\
+-X ${http_method.toUpperCase()} ${captureURL} \\
 -H 'Content-Type: application/json' \\
--d '{"foo": 42}'`}
+-d '${JSON.stringify(runnableArgs ?? {}, null, 2)}'`}
 					language={bash}
 				/>
 			</Label>

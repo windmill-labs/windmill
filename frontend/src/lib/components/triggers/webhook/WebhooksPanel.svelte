@@ -5,7 +5,7 @@
 	import TriggersEditorSection from '../TriggersEditorSection.svelte'
 
 	export let token: string
-	export let args: any
+	export let args: Record<string, any> = {}
 	export let scopes: string[] = []
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
@@ -15,7 +15,7 @@
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 
-	let data: any = {
+	$: data = {
 		hash,
 		token,
 		scopes,

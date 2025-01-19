@@ -158,6 +158,7 @@ pub enum ScriptKind {
     Failure,
     Script,
     Approval,
+    Preprocessor,
 }
 
 impl Display for ScriptKind {
@@ -167,6 +168,7 @@ impl Display for ScriptKind {
             ScriptKind::Failure => "failure",
             ScriptKind::Script => "script",
             ScriptKind::Approval => "approval",
+            ScriptKind::Preprocessor => "preprocessor",
         })?;
         Ok(())
     }

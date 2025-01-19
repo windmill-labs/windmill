@@ -9,12 +9,16 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
+	export let showWorkspaceRestriction = false
 	let newTag: string = ''
 	let customTags: string[] | undefined = undefined
 
 	async function loadCustomTags() {
 		try {
-			customTags = (await WorkerService.getCustomTags()) ?? []
+			customTags =
+				(await WorkerService.getCustomTags({
+					showWorkspaceRestriction
+				})) ?? []
 		} catch (err) {
 			sendUserToast(`Could not load global cache: ${err}`, true)
 		}

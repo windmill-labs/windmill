@@ -238,7 +238,19 @@ async fn list_scripts(
         .limit(per_page)
         .clone();
 
-    if !lq.include_without_main.unwrap_or(false) || authed.is_operator {
+    let lowercased_kinds: Option<Vec<String>> = lq
+        .kinds
+        .map(|x| x.split(",").map(&str::to_lowercase).collect());
+
+    if (!lq.include_without_main.unwrap_or(false)
+        && lowercased_kinds
+            .as_ref()
+            .map(|x| !x.contains(&"preprocessor".to_string()))
+            .unwrap_or(true))
+        || authed.is_operator
+    {
+        // only include scripts that have a main function
+        // do not hide scripts without main if preprocessor is in the kinds
         sqlb.and_where("o.no_main_func IS NOT TRUE");
     }
 
@@ -278,14 +290,13 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(kinds_val) = &lq.kinds {
-        let lowercased_kinds: Vec<String> = kinds_val
-            .split(",")
-            .map(&str::to_lowercase)
+    if let Some(lowercased_kinds) = lowercased_kinds {
+        let safe_kinds = lowercased_kinds
+            .into_iter()
             .map(sql_builder::quote)
-            .collect();
-        if lowercased_kinds.len() > 0 {
-            sqlb.and_where_in("kind", lowercased_kinds.as_slice());
+            .collect_vec();
+        if safe_kinds.len() > 0 {
+            sqlb.and_where_in("kind", safe_kinds.as_slice());
         }
     }
 

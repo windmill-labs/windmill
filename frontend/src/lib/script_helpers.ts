@@ -915,9 +915,7 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
-		| 'preprocessor'
-		| undefined,
-	templateScript?: boolean
+		| undefined
 ): string {
 	if (!kind) {
 		kind = 'script'
@@ -934,10 +932,6 @@ export function initialCode(
 				return INITIAL_CODE.mysql.script
 			} else if (subkind === 'fetch') {
 				return INITIAL_CODE.deno.fetch
-			} else if (subkind === 'preprocessor') {
-				return INITIAL_CODE.deno.preprocessor
-			} else if (templateScript == true) {
-				return INITIAL_CODE.deno.scriptInitCodeBlock
 			} else {
 				return INITIAL_CODE.deno.script
 			}
@@ -945,6 +939,8 @@ export function initialCode(
 			return INITIAL_CODE.deno.failure
 		} else if (kind === 'approval') {
 			return INITIAL_CODE.deno.approval
+		} else if (kind === 'preprocessor') {
+			return INITIAL_CODE.deno.preprocessor
 		} else {
 			return INITIAL_CODE.deno.script
 		}
@@ -955,10 +951,10 @@ export function initialCode(
 			return INITIAL_CODE.python3.approval
 		} else if (kind === 'failure') {
 			return INITIAL_CODE.python3.failure
+		} else if (kind === 'preprocessor') {
+			return INITIAL_CODE.python3.preprocessor
 		} else if (subkind === 'flow') {
 			return INITIAL_CODE.python3.clear
-		} else if (subkind === 'preprocessor') {
-			return INITIAL_CODE.python3.preprocessor
 		} else {
 			return INITIAL_CODE.python3.script
 		}
@@ -1003,7 +999,7 @@ export function initialCode(
 			return INITIAL_CODE.bun.approval
 		} else if (kind === 'failure') {
 			return INITIAL_CODE.bun.failure
-		} else if (subkind === 'preprocessor') {
+		} else if (kind === 'preprocessor') {
 			return INITIAL_CODE.bun.preprocessor
 		} else if (templateScript == true) {
 			return INITIAL_CODE.bun.scriptInitCodeBlock

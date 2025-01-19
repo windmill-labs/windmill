@@ -16,6 +16,7 @@
 	export let isEditor: boolean = false
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
+	export let args: Record<string, any> = {}
 
 	let routeEditor: RouteEditor
 
@@ -81,6 +82,7 @@
 		{canHavePreprocessor}
 		{hasPreprocessor}
 		{newItem}
+		data={{ args }}
 	/>
 	{#if !newItem}
 		<Section label="Routes">

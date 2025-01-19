@@ -77,6 +77,7 @@ func main() (interface{}, error) {
   bash: `echo "Hello world"
 `,
 
+  oracledb: `SELECT 'Hello world' AS message`,
   powershell: `Write-Output "Hello world"`,
 
   php: `<?php
@@ -84,6 +85,15 @@ function main() {
   return "Hello world";
 }
 `,
+
+  csharp: `class Script
+{
+    public static void Main()
+    {
+        Console.WriteLine("Hello World");
+    }
+}
+  `,
 
   rust: `fn main() -> Result<(), String> {
   println!("Hello World");
@@ -103,5 +113,5 @@ inventory:
   - name: Print debug message
     debug:
       msg: "Hello, world!"
-`
+`,
 };

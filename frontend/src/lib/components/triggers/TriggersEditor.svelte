@@ -28,7 +28,7 @@
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
-
+	export let args: Record<string, any> = {}
 	let eventStreamType: 'kafka' | 'nats' = 'kafka'
 
 	$: {
@@ -82,7 +82,7 @@
 									path={currentPath}
 									{hash}
 									{isFlow}
-									args={{}}
+									{args}
 									token=""
 									{newItem}
 									isEditor={true}
@@ -115,6 +115,7 @@
 									on:updateSchema
 									on:testWithArgs
 									{newItem}
+									{args}
 									path={currentPath}
 									{isFlow}
 									isEditor={true}
