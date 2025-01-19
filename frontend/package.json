@@ -121,15 +121,9 @@
 		"memfs": "^4.15.3",
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@~11.1.2",
-<<<<<<< HEAD
-		"monaco-editor-wrapper": "~6.0.0",
-		"monaco-graphql": "^1.6.0",
-		"monaco-languageclient": "~9.0.0",
-=======
 		"monaco-editor-wrapper": "^6.1.0",
 		"monaco-graphql": "^1.6.0",
 		"monaco-languageclient": "~9.1.0",
->>>>>>> main
 		"monaco-vim": "^0.4.1",
 		"ol": "^7.4.0",
 		"openai": "^4.57.2",
