@@ -776,6 +776,7 @@ async fn create_app_raw(
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
+
         if name == "app" {
             if !uploaded {
                 return Err(Error::BadRequest("j file uploaded".to_string()));
