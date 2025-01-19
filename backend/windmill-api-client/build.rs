@@ -14,18 +14,22 @@ fn main() {
     let file = File::open("./bundled.json").unwrap();
     let mut spec: OpenAPI = serde_json::from_reader(file).unwrap();
     // Remove all multipart/form-data endpoints
-    for (_, value) in spec.paths.paths.iter_mut() {
+    spec.paths.paths.retain(|_, value| {
         if let openapiv3::ReferenceOr::Item(pv) = value {
-            if let Some(post) = pv.post.as_mut() {
-                if post.responses.responses.iter().any(|(_, v)| {
-                    v.as_item()
-                        .is_some_and(|x| x.content.contains_key("multipart/form-data"))
-                }) {
-                    *post = Operation::default();
-                }
+            if let Some(post) = pv.post.as_ref() {
+                !post.request_body.as_ref().map_or(false, |body| match body {
+                    openapiv3::ReferenceOr::Item(request_body) => {
+                        request_body.content.contains_key("multipart/form-data")
+                    }
+                    openapiv3::ReferenceOr::Reference { .. } => false,
+                })
+            } else {
+                true
             }
+        } else {
+            true
         }
-    }
+    });
 
     let mut generator = progenitor::Generator::default();
 
