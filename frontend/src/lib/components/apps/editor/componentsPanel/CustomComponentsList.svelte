@@ -53,7 +53,7 @@
 		} catch (e) {
 			sendUserToast(
 				'Component creation failed. Is the file uploaded, did you give it a name ? Do you have write privilege on folder app_custom: ' +
-					e.body ?? e,
+					(e.body ?? e),
 				true
 			)
 		}

@@ -31,11 +31,7 @@
 		"strict": true,
 		"types": []
 	},
-<<<<<<< HEAD
-	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte", "src/lib/components/triggers/TriggersEditorSectionsvelte", "src/lib/components/raw_apps/RawAppCodeEditor.svelte.archive"],
-=======
 	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte", "src/lib/components/triggers/TriggersEditorSectionsvelte"],
 	"exclude": ["src/lib/monaco_workers/*.js"],
->>>>>>> main
 	"extends": "./.svelte-kit/tsconfig.json"
 }
