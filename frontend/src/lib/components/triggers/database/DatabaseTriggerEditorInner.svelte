@@ -367,8 +367,17 @@
 						<ResourcePicker bind:value={database_resource_path} resourceType={'postgresql'} />
 						{#if database_resource_path}
 							<Button on:click={checkDatabaseConfiguration} color="gray" size="sm"
-								>Check Database Configuration</Button
-							>
+								>Check Database Configuration
+								<Tooltip>
+									<p class="text-sm">
+										Verifies whether the database is configured with the required <strong
+											>settings</strong
+										>.<br> The <strong>logical wal_level</strong> setting is essential for the streaming
+										feature to works. If it is not set, the trigger feature will not work, and the
+										database configuration must be updated.
+									</p>
+								</Tooltip>
+							</Button>
 						{/if}
 					</div>
 				</Section>

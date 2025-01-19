@@ -150,8 +150,9 @@ pub async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, 
         .map_err(Error::SqlErr)
 }
 
-#[derive(Debug)]
+#[derive(Deserialize, Debug)]
 pub enum Language {
+    #[serde(rename="typescript", alias="Typescript")]
     Typescript,
 }
 
@@ -160,26 +161,7 @@ pub struct TemplateScript {
     database_resource_path: String,
     #[serde(deserialize_with = "check_if_not_duplication_relation")]
     relations: Option<Vec<Relations>>,
-    #[serde(deserialize_with = "check_if_valid_language")]
     language: Language,
-}
-
-fn check_if_valid_language<'de, D>(language: D) -> std::result::Result<Language, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let language: String = String::deserialize(language)?;
-
-    let language = match language.to_lowercase().as_str() {
-        "typescript" => Language::Typescript,
-        _ => {
-            return Err(serde::de::Error::custom(
-                "Language supported for custom script is only: Typescript",
-            ))
-        }
-    };
-
-    Ok(language)
 }
 
 fn check_if_not_duplication_relation<'de, D>(

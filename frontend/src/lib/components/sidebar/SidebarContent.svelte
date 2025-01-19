@@ -102,18 +102,18 @@
 			kind: 'ws'
 		},
 		{
-			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
-			href: '/kafka_triggers',
-			icon: KafkaIcon,
-			disabled: $userStore?.operator || !$enterpriseLicense,
-			kind: 'kafka'
-		},
-		{
 			label: 'Postgresql',
 			href: '/database_triggers',
 			icon: Database,
 			disabled: $userStore?.operator,
 			kind: 'database'
+		},
+		{
+			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/kafka_triggers',
+			icon: KafkaIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'kafka'
 		},
 		{
 			label: 'NATS' + ($enterpriseLicense ? '' : ' (EE)'),
