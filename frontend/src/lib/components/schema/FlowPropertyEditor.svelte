@@ -297,7 +297,12 @@
 		</div>
 		{#if oneOfSelected && schema.oneOf}
 			{@const idx = schema.oneOf.findIndex((obj) => obj.title === oneOfSelected)}
-			<EditableSchemaDrawer bind:schema={schema.oneOf[idx]} />
+			<EditableSchemaDrawer
+				bind:schema={schema.oneOf[idx]}
+				on:change={() => {
+					dispatch('schemaChange')
+				}}
+			/>
 		{/if}
 	{:else if type === 'object' && format !== 'resource-s3_object'}
 		<Tabs
@@ -313,7 +318,7 @@
 			<svelte:fragment slot="content">
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<EditableSchemaDrawer bind:schema />
+						<EditableSchemaDrawer bind:schema on:change={() => dispatch('schemaChange')} />
 					</TabContent>
 
 					<TabContent value="resource">
@@ -363,7 +368,7 @@
 		</Label>
 	{/if}
 
-	<div class="flex flex-row gap-2">
+	<div class="flex flex-row gap-2 flex-wrap h-auto">
 		<Toggle
 			options={{ right: 'Required' }}
 			size="xs"

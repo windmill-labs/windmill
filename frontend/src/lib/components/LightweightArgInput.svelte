@@ -309,19 +309,21 @@
 						/>
 					{/if}
 				{:else if inputCat == 'boolean'}
-					<Toggle
-						on:pointerdown={(e) => {
-							e?.stopPropagation()
-						}}
-						class={valid && error == ''
-							? ''
-							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
-						bind:checked={value}
-						{disabled}
-					/>
-					{#if type == 'boolean' && value == undefined}
-						<span>&nbsp; Not set</span>
-					{/if}
+					<div class="w-full">
+						<Toggle
+							on:pointerdown={(e) => {
+								e?.stopPropagation()
+							}}
+							class={valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
+							bind:checked={value}
+							{disabled}
+						/>
+						{#if type == 'boolean' && value == undefined}
+							<span>&nbsp; Not set</span>
+						{/if}
+					</div>
 				{:else if inputCat == 'list'}
 					<div class="w-full">
 						{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
@@ -485,12 +487,14 @@
 									<div class="p-4 pl-8 border rounded w-full">
 										<LightweightSchemaForm
 											schema={{
+												...obj,
 												properties: Object.fromEntries(
 													Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
 												),
 												$schema: '',
 												required: obj.required ?? [],
-												type: 'object'
+												type: 'object',
+												order: obj.order ?? []
 											}}
 											bind:args={value}
 											{disabled}
@@ -522,7 +526,7 @@
 							}}
 							use:autosize
 							style="min-height: 5px;"
-							class="col-span-10 {valid && error == ''
+							class="col-span-10 !leading-tight !text-2xs {valid && error == ''
 								? ''
 								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
 							placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}

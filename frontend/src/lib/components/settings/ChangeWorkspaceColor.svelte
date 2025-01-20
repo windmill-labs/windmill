@@ -8,11 +8,24 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	let colorEnabled = false
+	let workspaceColor: string | undefined = undefined
+	let savedWorkspaceColor: string | undefined = undefined
+	let lastWorkspace: string | undefined = undefined
+
 	export let open = false
 
-	$: workspaceColor = $usersWorkspaceStore?.workspaces.find(w => w.id === $workspaceStore)?.color
+	$: $usersWorkspaceStore && $workspaceStore !== lastWorkspace && onWorkspaceChange()
+
+	function onWorkspaceChange() {
+		lastWorkspace = $workspaceStore
+		savedWorkspaceColor = $usersWorkspaceStore?.workspaces.find(
+			(w) => w.id === $workspaceStore
+		)?.color
+		workspaceColor = savedWorkspaceColor
+	}
+
 	$: colorEnabled = !!workspaceColor
-	$: colorEnabled && !workspaceColor && generateRandomColor()
+	$: if (colorEnabled && !workspaceColor) generateRandomColor()
 
 	function generateRandomColor() {
 		const randomColor =
@@ -34,18 +47,18 @@
 		})
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-
+		savedWorkspaceColor = colorToSave
 		sendUserToast(`Workspace color updated.`)
 	}
 </script>
 
 <div>
-	<p class="font-semibold text-sm">Workspace Color</p>
+	<p class="font-semibold text-sm">Workspace color</p>
 	<div class="flex flex-row gap-0.5 items-center">
-		{#if workspaceColor}
+		{#if savedWorkspaceColor}
 			<div
 				class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
-				style="background-color: {workspaceColor}"
+				style="background-color: {savedWorkspaceColor}"
 			/>
 		{:else}
 			<span class="text-xs text-secondary">No color set</span>
@@ -63,6 +76,9 @@
 			}}
 		/>
 	</div>
+	<p class="italic text-xs">
+		Color to identify the current workspace in the list of workspaces
+	</p>
 </div>
 
 <Modal bind:open title="Change Workspace Color">
@@ -71,7 +87,9 @@
 			<span class="text-secondary text-sm">Workspace color</span>
 			<div class="flex items-center gap-2">
 				<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
-				<input class="w-10" type="color" bind:value={workspaceColor} disabled={!colorEnabled} />
+				{#if colorEnabled}
+					<input class="w-10" type="color" bind:value={workspaceColor} disabled={!colorEnabled} />
+				{/if}
 				<input
 					type="text"
 					class="w-24 text-sm"

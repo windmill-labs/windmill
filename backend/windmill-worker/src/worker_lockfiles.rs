@@ -445,20 +445,21 @@ async fn trigger_dependents_to_recompute_dependencies(
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             let r = get_latest_deployed_hash_for_path(db, w_id, s.importer_path.as_str()).await;
-            if let Ok(r) = r {
-                JobPayload::Dependencies {
+            match r {
+                Ok(r) => JobPayload::Dependencies {
                     path: s.importer_path.clone(),
                     hash: r.0,
                     language: r.6,
                     dedicated_worker: r.7,
+                },
+                Err(err) => {
+                    tracing::error!(
+                        "error getting latest deployed hash for path {path}: {err}",
+                        path = s.importer_path,
+                        err = err
+                    );
+                    continue;
                 }
-            } else {
-                tracing::error!(
-                    "error getting latest deployed hash for path {path}: {err}",
-                    path = s.importer_path,
-                    err = r.unwrap_err()
-                );
-                continue;
             }
         } else if kind == "flow" {
             args.insert(
@@ -1975,6 +1976,7 @@ async fn capture_dependency_job(
         ScriptLang::Snowflake => Ok("".to_owned()),
         ScriptLang::Mssql => Ok("".to_owned()),
         ScriptLang::Graphql => Ok("".to_owned()),
+        ScriptLang::OracleDB => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
         ScriptLang::Powershell => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),

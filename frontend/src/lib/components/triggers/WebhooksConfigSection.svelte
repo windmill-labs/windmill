@@ -29,7 +29,7 @@
 	export let path: string = ''
 	export let hash: string | undefined = undefined
 	export let token: string = ''
-	export let args: any
+	export let runnableArgs: any
 	export let triggerTokens: TriggerTokens | undefined = undefined
 	export let scopes: string[] = []
 	export let showCapture: boolean = false
@@ -117,7 +117,10 @@ async function triggerJob() {
   ${
 		requestType === 'get_path'
 			? '// Payload is a base64 encoded string of the arguments'
-			: `const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});`
+			: `const body = JSON.stringify(${JSON.stringify(runnableArgs ?? {}, null, 2).replaceAll(
+					'\n',
+					'\n\t'
+			  )});`
 	}
   const endpoint = \`${url}\`;
 
@@ -142,7 +145,10 @@ export async function main() {
 		// triggerJob function
 		let triggerJobFunction = `
 async function triggerJob() {
-  const body = JSON.stringify(${JSON.stringify(args, null, 2).replaceAll('\n', '\n\t')});
+  const body = JSON.stringify(${JSON.stringify(runnableArgs ?? {}, null, 2).replaceAll(
+		'\n',
+		'\n\t'
+	)});
   const endpoint = \`${url}\`;
 
   return await fetch(endpoint, {
@@ -199,7 +205,7 @@ function waitForJobCompletion(UUID) {
 
 	function curlCode() {
 		return `TOKEN='${token}'
-${requestType !== 'get_path' ? `BODY='${JSON.stringify(args)}'` : ''}
+${requestType !== 'get_path' ? `BODY='${JSON.stringify(runnableArgs ?? {})}'` : ''}
 URL='${url}'
 ${webhookType === 'sync' ? 'RESULT' : 'UUID'}=$(curl -s ${
 			requestType != 'get_path' ? "-H 'Content-Type: application/json'" : ''
@@ -230,12 +236,12 @@ done`
 		(tokenType === 'query'
 			? `?token=${token}${
 					requestType === 'get_path'
-						? `&payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+						? `&payload=${encodeURIComponent(btoa(JSON.stringify(runnableArgs ?? {})))}`
 						: ''
 			  }`
 			: `${
 					requestType === 'get_path'
-						? `?payload=${encodeURIComponent(btoa(JSON.stringify(args)))}`
+						? `?payload=${encodeURIComponent(btoa(JSON.stringify(runnableArgs ?? {})))}`
 						: ''
 			  }`)
 </script>
@@ -262,6 +268,7 @@ done`
 			on:applyArgs
 			on:updateSchema
 			on:addPreprocessor
+			on:testWithArgs
 		>
 			<Label label="URL">
 				<ClipboardPanel content={captureUrl} disabled={!captureInfo.active} />
@@ -372,7 +379,7 @@ done`
 
 								{#if requestType !== 'get_path'}
 									<Label label="Body">
-										<ClipboardPanel content={JSON.stringify(args, null, 2)} />
+										<ClipboardPanel content={JSON.stringify(runnableArgs ?? {}, null, 2)} />
 									</Label>
 								{/if}
 								{#key requestType}
@@ -386,7 +393,7 @@ done`
 						</TabContent>
 						<TabContent value="curl" class="flex flex-col flex-1 h-full">
 							<div class="relative">
-								{#key args}
+								{#key runnableArgs}
 									{#key requestType}
 										{#key webhookType}
 											{#key tokenType}
@@ -407,7 +414,7 @@ done`
 							</div>
 						</TabContent>
 						<TabContent value="fetch">
-							{#key args}
+							{#key runnableArgs}
 								{#key requestType}
 									{#key webhookType}
 										{#key tokenType}

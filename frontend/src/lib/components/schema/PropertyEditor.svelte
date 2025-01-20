@@ -203,6 +203,7 @@
 										bind:schema={oneOfSchemas[idx]}
 										uiOnly
 										jsonEnabled={false}
+										editTab="inputEditor"
 									/>
 								</div>
 							{/if}
@@ -210,7 +211,14 @@
 							<div class="text-tertiary text-xs">No settings available for Dynamic Select</div>
 						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
 							<div class="border">
-								<EditableSchemaForm on:change noPreview bind:schema uiOnly jsonEnabled={false} />
+								<EditableSchemaForm
+									on:change
+									noPreview
+									bind:schema
+									uiOnly
+									jsonEnabled={false}
+									editTab="inputEditor"
+								/>
 							</div>
 						{:else}
 							<div class="text-tertiary text-xs">No settings available for this field type</div>
