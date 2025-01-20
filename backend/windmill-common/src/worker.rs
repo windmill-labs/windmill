@@ -12,7 +12,10 @@ use std::{
     io::Write,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::RwLock;
 use windmill_macros::annotations;
@@ -102,6 +105,8 @@ lazy_static::lazy_static! {
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 }
+
+pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 fn format_pull_query(peek: String) -> String {
     let r = format!(
@@ -661,6 +666,8 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
     if min_version != cur_version {
         tracing::info!("Minimal worker version: {min_version}");
     }
+
+    MIN_VERSION_IS_LATEST.store(min_version == cur_version, Ordering::Relaxed);
 
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);

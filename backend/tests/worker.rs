@@ -4005,11 +4005,6 @@ mod job_payload {
             let args = job.args.as_ref().unwrap();
             assert_eq!(args.get("foo"), Some(&json!("bar")));
             assert_eq!(args.get("bar"), Some(&json!("baz")));
-            // TODO: remove this check on v2 phase 4
-            assert_eq!(
-                job.flow_status.as_ref().unwrap().get("_metadata"),
-                Some(&json!({"preprocessed_args": true}))
-            );
             assert_eq!(job.json_result().unwrap(), json!("Hello bar baz"));
             let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
                 .fetch_one(db)
