@@ -38,7 +38,7 @@
 	{#if fullMenu}
 		<div
 			class="absolute flex-col top-[30px] left-0 z-50 bg-surface border-l border-b {open
-				? 'rounded-md rounded-tl-none overflow-hidden'
+				? 'rounded-md rounded-tl-none overflow-hidden shadow-md'
 				: 'rounded-bl-md'}"
 		>
 			{#each dropdownItems as item}
