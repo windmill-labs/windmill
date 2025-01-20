@@ -179,7 +179,7 @@
 			{@const argName = item.value}
 			<div
 				class={typeof diff[argName] === 'object' && diff[argName].diff !== 'same'
-					? 'bg-red-300 rounded-md'
+					? 'bg-red-300 dark:bg-red-800 rounded-md'
 					: ''}
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->

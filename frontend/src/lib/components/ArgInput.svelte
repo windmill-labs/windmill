@@ -356,9 +356,9 @@
 		'flex flex-col w-full rounded-md px-2 relative',
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff == 'added'
-			? 'bg-green-300'
+			? 'bg-green-300 dark:bg-green-800'
 			: diffStatus?.diff == 'removed'
-			? 'bg-red-300'
+			? 'bg-red-300 dark:bg-red-800'
 			: diffStatus?.diff == 'same'
 			? 'bg-surface'
 			: diffStatus?.diff == 'modified' || typeof diffStatus?.diff === 'object'
