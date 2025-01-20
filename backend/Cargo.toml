@@ -281,7 +281,7 @@ candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
 tiberius = { version = "0.12.3", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
-indexmap = { version = "2.2.5", features = ["serde"]}
+indexmap = { version = "2.7.1", features = ["serde"]}
 tokio-native-tls = "^0"
 openssl = "=0.10"
 mail-parser = "^0"
