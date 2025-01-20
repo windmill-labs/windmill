@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use futures::lock::Mutex;
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
@@ -36,8 +35,6 @@ use windmill_common::variables::get_secret_value_as_admin;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
-    static ref BUSY_WITH_UV_INSTALL: Mutex<()> = Mutex::new(());
-
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
@@ -1248,6 +1245,8 @@ async fn spawn_uv_install(
                 "--target",
                 venv_p,
                 "--no-cache",
+                // If we invoke uv pip install, then we want to overwrite existing data
+                "--reinstall",
             ]
         };
 
@@ -1356,7 +1355,6 @@ pub async fn handle_python_reqs(
     mut no_uv_install: bool,
     is_ansible: bool,
 ) -> error::Result<Vec<String>> {
-    let lock = BUSY_WITH_UV_INSTALL.lock().await;
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1486,10 +1484,11 @@ pub async fn handle_python_reqs(
             "{py_prefix}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
-        if metadata(&venv_p).await.is_ok() {
+        if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
             req_paths.push(venv_p);
             in_cache.push(req.to_string());
         } else {
+            // There is no valid or no wheel at all. Regardless of if there is content or not, we will overwrite it with --reinstall flag
             req_with_penv.push((req.to_string(), venv_p));
         }
     }
@@ -1520,12 +1519,6 @@ pub async fn handle_python_reqs(
     let pids = Arc::new(tokio::sync::Mutex::new(vec![None; total_to_install]));
     let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
     {
-        // when we cancel the job, it has up to 1 second window before actually getting cancelled 
-        // Thus the directory with wheel in windmill's cache cleaned only after that. 
-        // If we manage to start new job during that period windmill might see that wanted wheel is already there (because we have not cleaned it yet)
-        // and write it to installed wheels, meanwhile previous job will clean that wheel. 
-        // To fix that we create lock, which will pipeline all uv installs on worker
-        let _lock = lock;
         let pids = pids.clone();
         let mem_peak_thread_safe = mem_peak_thread_safe.clone();
         tokio::spawn(async move {
@@ -1866,6 +1859,17 @@ pub async fn handle_python_reqs(
             );
 
             pids.lock().await.get_mut(i).and_then(|e| e.take());
+            // Create a file to indicate that installation was successfull
+            let valid_path = venv_p.clone() + "/.valid.windmill";
+            // This is atomic operation, meaning, that it either completes and wheel is valid, 
+            // or it does not and wheel is invalid and will be reinstalled next run
+            if let Err(e) = File::create(&valid_path).await{
+                tracing::error!(
+                workspace_id = %w_id,
+                job_id = %job_id,
+                    "Failed to create {}!\n{e}\n
+                    This file needed for python jobs to function", valid_path)
+            };
             Ok(())
         }));
     }
@@ -1882,13 +1886,6 @@ pub async fn handle_python_reqs(
                 "Env installation failed: {:?}",
                 e
             );
-            if let Err(e) = fs::remove_dir_all(&venv_p) {
-                tracing::warn!(
-                    workspace_id = %w_id,
-                    "Failed to remove cache dir: {:?}",
-                    e
-                );
-            }
         } else {
             req_paths.push(venv_p);
         }
