@@ -18,7 +18,6 @@
 		CornerDownLeft,
 		Pen,
 		ChevronRight,
-		ChevronDown,
 		Plus,
 		History,
 		Braces,
@@ -32,7 +31,6 @@
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import {
 		type SchemaDiff,
@@ -43,6 +41,7 @@
 		computeDiff,
 		applyDiff
 	} from '$lib/components/schema/schemaUtils'
+	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -55,7 +54,6 @@
 	let previewSchema: Record<string, any> | undefined = undefined
 	let payloadData: Record<string, any> | undefined = undefined
 	let previewArguments: Record<string, any> | undefined = $previewArgs
-	let editOptionsOpen = false
 	let dropdownItems: Array<{
 		label: string
 		onClick: () => void
@@ -87,7 +85,8 @@
 				disabled:
 					!$flowInputEditorState?.selectedTab ||
 					$flowInputEditorState?.selectedTab === 'inputEditor',
-				icon: Pen
+				icon: Pen,
+				selected: $flowInputEditorState?.selectedTab === 'inputEditor'
 			},
 			{
 				label: 'Trigger captures',
@@ -95,7 +94,8 @@
 					handleEditSchema('captures')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'captures',
-				icon: CaptureIcon
+				icon: CaptureIcon,
+				selected: $flowInputEditorState?.selectedTab === 'captures'
 			},
 			{
 				label: 'History',
@@ -103,7 +103,8 @@
 					handleEditSchema('history')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'history',
-				icon: History
+				icon: History,
+				selected: $flowInputEditorState?.selectedTab === 'history'
 			},
 			{
 				label: 'Json payload',
@@ -111,14 +112,16 @@
 					handleEditSchema('json')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'json',
-				icon: Braces
+				icon: Braces,
+				selected: $flowInputEditorState?.selectedTab === 'json'
 			},
 			{
 				label: "First step's inputs",
 				onClick: () => {
 					handleEditSchema('firstStepInputs')
 				},
-				icon: Code
+				icon: Code,
+				selected: $flowInputEditorState?.selectedTab === 'firstStepInputs'
 			},
 			{
 				label: 'Saved inputs',
@@ -126,9 +129,10 @@
 					handleEditSchema('savedInputs')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'savedInputs',
-				icon: Save
+				icon: Save,
+				selected: $flowInputEditorState?.selectedTab === 'savedInputs'
 			}
-		].filter((item) => !item.disabled)
+		]
 	}
 
 	function handleEditSchema(editTab?: any) {
@@ -253,16 +257,6 @@
 
 	let tabButtonWidth = 0
 
-	const TAB_TITLES: Record<string, string> = {
-		inputEditor: 'Input editor',
-		captures: 'Captures',
-		history: 'History',
-		savedInputs: 'Saved inputs',
-		json: 'JSON',
-		firstStepInputs: 'First step',
-		undefined: ''
-	}
-
 	let connectFirstNode: () => void = () => {}
 
 	let init = false
@@ -366,54 +360,32 @@
 				}}
 			>
 				<svelte:fragment slot="openEditTab">
-					<div
-						class={twMerge(
-							'flex flex-row divide-x rounded-md bg-surface overflow-hidden',
-							!!$flowInputEditorState?.selectedTab ? 'rounded-r-none' : '',
-							ButtonType.ColorVariants.blue.divider
-						)}
-					>
-						<button
-							on:click={() => {
-								handleEditSchema()
-							}}
-							title={!!$flowInputEditorState?.selectedTab
-								? 'Close input editor'
-								: 'Open input editor'}
-							class={ButtonType.ColorVariants.blue.contained}
-						>
-							<div class="p-2 center-center">
-								<svelte:component
-									this={!!$flowInputEditorState?.selectedTab ? ChevronRight : Pen}
-									size={14}
-								/>
-							</div>
-						</button>
-
-						<ButtonDropDown
-							{dropdownItems}
-							closeOnClick={true}
-							bind:open={editOptionsOpen}
-							placement="bottom-end"
-						>
-							<div
-								class={twMerge(
-									'p-2 center-center hover:bg-surface-hover',
-									ButtonType.ColorVariants.blue.contained,
-									'flex flex-row items-center rounded-br-md',
-									'transition-all duration-150 ease-in-out overflow-hidden whitespace-nowrap',
-									!!$flowInputEditorState?.selectedTab ? 'w-[122px] px-3' : 'w-[30px]'
-								)}
-								bind:clientWidth={tabButtonWidth}
-							>
-								<div class="flex flex-row items-center gap-1 justify-between w-full">
-									{#if !!$flowInputEditorState?.selectedTab}
-										<h2 class="text-xs">{TAB_TITLES[$flowInputEditorState?.selectedTab]}</h2>
-									{/if}
-									<ChevronDown size={14} />
-								</div>
-							</div>
-						</ButtonDropDown>
+					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
+						<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
+							<svelte:fragment slot="close button">
+								<button
+									on:click={() => {
+										handleEditSchema()
+									}}
+									title={!!$flowInputEditorState?.selectedTab
+										? 'Close input editor'
+										: 'Open input editor'}
+									class={twMerge(
+										ButtonType.ColorVariants.blue.contained,
+										!!$flowInputEditorState?.selectedTab
+											? 'rounded-tl-md border-l border-t'
+											: 'rounded-md border'
+									)}
+								>
+									<div class="p-2 center-center">
+										<svelte:component
+											this={!!$flowInputEditorState?.selectedTab ? ChevronRight : Pen}
+											size={14}
+										/>
+									</div>
+								</button>
+							</svelte:fragment>
+						</SideBarTab>
 					</div>
 				</svelte:fragment>
 				<svelte:fragment slot="addProperty">
@@ -465,6 +437,7 @@
 				<svelte:fragment slot="extraTab">
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
+							title="History"
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -483,6 +456,7 @@
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
+							title="Trigger captures"
 						>
 							<svelete:fragment slot="action">
 								<div class="center-center">
@@ -501,6 +475,7 @@
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
+							title="Saved inputs"
 						>
 							<SavedInputsPicker
 								flowPath={initialPath}
@@ -518,6 +493,7 @@
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
+							title="Json payload"
 						>
 							<SimpleEditor
 								on:focus={() => {
@@ -547,6 +523,7 @@
 								updatePreviewSchemaAndArgs(undefined)
 								connectFirstNode = () => {}
 							}}
+							title="First step's inputs"
 						>
 							<FirstStepInputs
 								on:connectFirstNode={({ detail }) => {

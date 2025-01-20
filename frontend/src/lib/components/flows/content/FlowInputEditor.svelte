@@ -3,17 +3,24 @@
 
 	const dispatch = createEventDispatcher()
 
+	export let title: string = ''
+
 	onDestroy(() => {
 		dispatch('destroy')
 	})
 </script>
 
-<div class="flex flex-col h-full p-2">
-	<div class="items-center flex flex-row justify-end gap-2 data-schema-picker min-h-[30px]">
+<div class="flex flex-col h-full px-3">
+	<div
+		class="items-center grow-0 flex flex-row justify-between gap-2 data-schema-picker min-h-[40px]"
+	>
+		<h2 class="font-semibold text-secondary text-sm flex flex-row items-center gap-1 leading-6">
+			{title}
+		</h2>
 		<slot name="action" />
 	</div>
 
-	<div class="w-full min-h-0 flex-grow h-full">
+	<div class="w-full min-h-0 grow">
 		<slot />
 	</div>
 </div>

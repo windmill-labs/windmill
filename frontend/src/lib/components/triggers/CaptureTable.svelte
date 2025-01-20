@@ -151,7 +151,7 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<Label label="Trigger captures" {headless} class="h-full flex flex-col gap-1">
+<Label label="Trigger captures" {headless} class="h-full">
 	<svelte:fragment slot="header">
 		{#if addButton}
 			<div class="inline-block">
