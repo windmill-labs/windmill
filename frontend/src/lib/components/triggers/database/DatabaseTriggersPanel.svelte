@@ -97,7 +97,7 @@
 
 	{#if newItem}
 		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the {isFlow ? 'flow' : 'script'} to add Posgtres triggers.
+			Deploy the {isFlow ? 'flow' : 'script'} to add Postgres triggers.
 		</Alert>
 	{/if}
 </div>
