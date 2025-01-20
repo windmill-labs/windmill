@@ -7,7 +7,7 @@ export type SchemaDiff = {
 function isCompatible(diff: Record<string, SchemaDiff>) {
 	let compatible = true
 	Object.values(diff).forEach((diff) => {
-		if (diff.diff === 'added' || diff.diff === 'modified') {
+		if (diff.diff === 'added' || diff.diff === 'modified' || diff.diff === 'removed') {
 			compatible = false
 		} else if (isRecordSchemaDiff(diff.diff)) {
 			compatible = isCompatible(diff.diff)

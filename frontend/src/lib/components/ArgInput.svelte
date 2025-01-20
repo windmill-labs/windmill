@@ -846,6 +846,14 @@
 								type: 'object'
 							}}
 							bind:args={value}
+							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
+							nestedParent={{ label, nestedParent }}
+							on:acceptChange={(e) => {
+								dispatch('acceptChange', e.detail)
+							}}
+							on:rejectChange={(e) => {
+								dispatch('rejectChange', e.detail)
+							}}
 						/>
 					{/if}
 				</div>
