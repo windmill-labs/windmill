@@ -1482,7 +1482,7 @@ pub async fn handle_python_reqs(
             "{py_prefix}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
-        if metadata(venv_p.clone() + "/valid.windmill").await.is_ok() {
+        if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
             req_paths.push(venv_p);
             in_cache.push(req.to_string());
         } else {
@@ -1891,7 +1891,7 @@ pub async fn handle_python_reqs(
             }
         } else {
             // Create a file to indicate that installation was successfull
-            let valid_path= venv_p.clone() + "/valid.windmill";
+            let valid_path= venv_p.clone() + "/.valid.windmill";
             if let Err(e) = File::create(&valid_path).await{
                 tracing::error!(
                 workspace_id = %w_id,
