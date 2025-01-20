@@ -137,8 +137,13 @@
         version = (pkgs.lib.strings.trim (builtins.readFile ./version.txt));
 
         src = ./backend;
-        nativeBuildInputs = buildInputs ++ [ self.packages.${system}.windmill-client pkgs.perl ];
-
+        nativeBuildInputs = buildInputs
+          ++ [ self.packages.${system}.windmill-client pkgs.perl ]
+          ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            # Additional darwin specific inputs can be set here
+            pkgs.libiconv
+            pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+          ];
 
         cargoLock = {
           lockFile = ./backend/Cargo.lock;

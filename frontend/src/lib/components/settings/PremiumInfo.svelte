@@ -1,15 +1,20 @@
 <script lang="ts">
 	import { base } from '$lib/base'
-	import { capitalize, sendUserToast } from '$lib/utils'
+	import { capitalize, pluralize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { WorkspaceService, type User, UserService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
-	import { ExternalLink, Loader2 } from 'lucide-svelte'
+	import { ExternalLink, Loader2, Pen, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Toggle from '../Toggle.svelte'
+	import Section from '../Section.svelte'
+	import Range from '../Range.svelte'
+	import Label from '../Label.svelte'
+	import Modal from '../common/modal/Modal.svelte'
+	import { slide } from 'svelte/transition'
 
 	export let plan: string | undefined
 	export let customer_id: string | undefined
@@ -24,9 +29,10 @@
 				developerNb: number
 				operatorNb: number
 				seatsFromUsers: number
-				seatsFromComps: number
+				seatsFromExtraComps: number
 				usedSeats: number
 				automatic_billing: boolean
+				owner: string
 		  }
 		| undefined = undefined
 	const plans = {
@@ -54,6 +60,7 @@
 		if ($workspaceStore) {
 			loadPremiumInfo()
 			listUsers()
+			getThresholdAlert()
 		}
 	}
 
@@ -66,16 +73,17 @@
 		const developerNb = users?.filter((x) => !x.operator)?.length ?? 0
 		const operatorNb = users?.filter((x) => x.operator)?.length ?? 0
 		const seatsFromUsers = Math.ceil(developerNb + operatorNb / 2)
-		const seatsFromComps = Math.ceil((info.usage ?? 0) / 10000)
-		const usedSeats = Math.max(seatsFromUsers, seatsFromComps)
+		const seatsFromExtraComps = Math.max(Math.ceil((info.usage ?? 0) / 10000) - seatsFromUsers, 0)
+		const usedSeats = seatsFromUsers + seatsFromExtraComps
 		premiumInfo = {
 			...info,
 			usage: info.usage ?? 0,
 			seats: info.seats ?? 1,
+			owner: info.owner,
 			developerNb,
 			operatorNb,
 			seatsFromUsers,
-			seatsFromComps,
+			seatsFromExtraComps,
 			usedSeats
 		}
 	}
@@ -84,7 +92,6 @@
 	async function setAutomaticBilling(ev) {
 		try {
 			billingModeLoading = true
-			console.log('toggle check', ev.detail)
 			await WorkspaceService.setAutomaticBilling({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -99,15 +106,86 @@
 			billingModeLoading = false
 		}
 	}
+
+	let thresholdAlert:
+		| {
+				threshold_alert_amount?: number
+				last_alert_sent?: string
+		  }
+		| undefined = undefined
+	let newThresholdAlertAmount: number | undefined = undefined
+
+	let thresholdAlertOpen = false
+	async function getThresholdAlert() {
+		thresholdAlert = await WorkspaceService.getThresholdAlert({ workspace: $workspaceStore! })
+	}
+
+	async function setThresholdAlert() {
+		if (thresholdAlert) {
+			await WorkspaceService.setThresholdAlert({
+				workspace: $workspaceStore!,
+				requestBody: {
+					threshold_alert_amount: newThresholdAlertAmount
+				}
+			})
+			await getThresholdAlert()
+			sendUserToast('Threshold alert updated')
+		}
+	}
+
+	let estimatedDevs = 1
+	let estimatedOps = 0
+
+	$: estimatedSeats = estimatedDevs + Math.ceil(estimatedOps / 2)
+
+	let estimatedExecs = 1
+
+	function updateExecs() {
+		if (estimatedExecs < estimatedSeats) {
+			estimatedExecs = estimatedSeats
+		}
+	}
+	$: estimatedSeats && updateExecs()
 </script>
 
-<div class="flex flex-col gap-4 my-8">
+<Modal bind:open={thresholdAlertOpen} title="Threshold alert">
+	<div class="flex flex-col gap-4">
+		<label class="block">
+			<span class="text-secondary text-sm">Threshold amount in $</span>
+			<input type="number" bind:value={newThresholdAlertAmount} />
+		</label>
+	</div>
+
+	<svelte:fragment slot="actions">
+		<Button
+			size="sm"
+			on:click={() => {
+				setThresholdAlert()
+				thresholdAlertOpen = false
+			}}
+		>
+			Save
+		</Button>
+	</svelte:fragment>
+</Modal>
+
+<div class="flex flex-col gap-4 mt-8">
 	<div class="flex flex-col gap-1">
-		<div class=" text-primary text-lg font-semibold">Plans</div>
+		<div class=" text-primary text-lg font-semibold">
+			{#if premiumInfo?.premium && plan}
+				Plan: {capitalize(plan)} plan{plan === 'team' && premiumInfo.automatic_billing
+					? ' (usage-based)'
+					: plan === 'team'
+					? ` (${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
+					: ''}
+			{:else}
+				Plan: Free plan
+			{/if}
+		</div>
 	</div>
 </div>
 {#if customer_id}
-	<div class="mt-2 mb-2">
+	<div class="mt-2">
 		<Button
 			endIcon={{ icon: ExternalLink }}
 			color="dark"
@@ -119,19 +197,12 @@
 	</div>
 {/if}
 
-<div class="text-xs my-4">
+<div class="text-xs">
 	{#if premiumInfo?.premium}
-		<div class="flex flex-col gap-0.5">
+		<div class="flex flex-col gap-8 my-8">
 			{#if plan}
-				<div class="text-base inline font-bold leading-8 mb-2">
-					Current plan: {capitalize(plan)} plan{plan === 'team' && premiumInfo.automatic_billing
-						? ' (usage-based)'
-						: plan === 'team'
-						? ` (${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
-						: ''}
-				</div>
-				{#if plan === 'team'}
-					<div class="flex flex-row items-center gap-2 mb-4">
+				{#if plan === 'team' && !premiumInfo?.automatic_billing}
+					<div class="flex flex-row items-center gap-2">
 						<Toggle
 							checked={premiumInfo?.automatic_billing}
 							options={{
@@ -155,6 +226,54 @@
 			{/if}
 
 			{#if plan}
+				{#if premiumInfo?.automatic_billing}
+					<div class="flex flex-col gap-1.5">
+						<p class="font-semibold text-sm">Billing threshold email alert</p>
+						<div class="flex flex-row gap-0.5 items-center">
+							<p class="text-base text-secondary mr-0.5"
+								>{thresholdAlert?.threshold_alert_amount
+									? thresholdAlert?.threshold_alert_amount + '$'
+									: 'Not set'}</p
+							>
+							<Button
+								on:click={() => {
+									newThresholdAlertAmount = thresholdAlert?.threshold_alert_amount ?? 10
+									thresholdAlertOpen = true
+								}}
+								size="xs"
+								spacingSize="xs2"
+								variant="border"
+								color="light"
+								iconOnly
+								startIcon={{
+									icon: Pen
+								}}
+							/>
+							{#if thresholdAlert?.threshold_alert_amount}
+								<Button
+									on:click={() => {
+										if (thresholdAlert) {
+											newThresholdAlertAmount = undefined
+											setThresholdAlert()
+										}
+									}}
+									variant="border"
+									size="xs"
+									spacingSize="xs2"
+									color="light"
+									iconOnly
+									startIcon={{
+										icon: X
+									}}
+								/>
+							{/if}
+						</div>
+						<p class="italic text-xs"
+							>An email notification will be sent to {premiumInfo.owner} if the specified threshold amount
+							is reached during a given month.</p
+						>
+					</div>
+				{/if}
 				<div class="w-full">
 					<DataTable>
 						<tbody class="divide-y">
@@ -187,9 +306,7 @@
 								</Cell>
 							</tr>
 							<tr>
-								<Cell first
-									><div class="font-semibold">Minimum number of seats needed for users</div></Cell
-								>
+								<Cell first><div class="font-semibold">Number of seats for users</div></Cell>
 								<Cell last numeric>
 									<div class="text-base font-bold">
 										u = ceil({premiumInfo.developerNb} + {premiumInfo.operatorNb}/2) = {premiumInfo.seatsFromUsers}
@@ -205,13 +322,21 @@
 								</Cell>
 							</tr>
 							<tr>
+								<Cell first>Included computations with users (10k per user seat)</Cell>
+								<Cell last numeric>
+									<div class="text-base">
+										- {premiumInfo.seatsFromUsers * 10000}
+									</div>
+								</Cell>
+							</tr>
+							<tr>
 								<Cell first
-									><div class="font-semibold">Minimum number of seats needed for computations</div
-									></Cell
+									><div class="font-semibold">Number of seats for extra computations</div></Cell
 								>
 								<Cell last numeric>
 									<div class="text-base font-bold">
-										c = ceil({premiumInfo.usage} / 10 000) = {premiumInfo.seatsFromComps}
+										c = ceil({Math.max(0, premiumInfo.usage - premiumInfo.seatsFromUsers * 10000)} /
+										10 000) = {premiumInfo.seatsFromExtraComps}
 									</div>
 								</Cell>
 							</tr>
@@ -246,8 +371,7 @@
 												: ''
 										)}
 									>
-										max(u, c) = max({premiumInfo.seatsFromUsers}, {premiumInfo.seatsFromComps}) = {premiumInfo.usedSeats}{plan ===
-											'team' &&
+										u + c = {premiumInfo.usedSeats}{plan === 'team' &&
 										premiumInfo.usedSeats > premiumInfo.seats &&
 										!premiumInfo.automatic_billing
 											? ` > ${premiumInfo.seats}`
@@ -268,10 +392,81 @@
 			{/if}
 		</div>
 	{:else}
-		This workspace is <b>not</b> on a team plan. Users use their global free-tier quotas when doing executions
-		in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited executions in this workspace.
+		<div class="mb-8 mt-2">
+			This workspace is <b>not</b> on a team plan. Users use their global free-tier quotas when doing
+			executions in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited executions
+			in this workspace.
+		</div>
 	{/if}
 </div>
+
+<Section collapsable label="Cost estimator">
+	<div class="border p-4 rounded-md" transition:slide>
+		<Label label="Number of developers">
+			<Range min={1} max={20} bind:value={estimatedDevs} hideInput />
+		</Label>
+		<Label label="Number of operators">
+			<Range min={0} max={20} bind:value={estimatedOps} hideInput />
+		</Label>
+		<Label label="Number of executions">
+			<Range
+				min={estimatedSeats}
+				max={100}
+				bind:value={estimatedExecs}
+				format={(v) => `${v * 10}k`}
+				hideInput
+			/>
+		</Label>
+		<div class="mt-4 text-base">
+			<div class="flex flex-row justify-between">
+				<div>Seats for users = {estimatedDevs} devs + {estimatedOps} ops / 2</div>
+				<div>{pluralize(estimatedSeats, 'seat')}</div>
+			</div>
+			<div class="flex flex-row justify-between">
+				<div
+					>Extra computations = {estimatedExecs * 10}k execs - {estimatedSeats * 10}k included with
+					users</div
+				>
+				<div
+					>{(estimatedExecs - estimatedSeats) * 10}k extra execs = {pluralize(
+						estimatedExecs - estimatedSeats,
+						'seat'
+					)}</div
+				>
+			</div>
+			<div class="flex flex-row justify-between font-medium items-center">
+				<div>Total</div>
+				<div class="flex flex-col items-end">
+					<div>
+						{pluralize(estimatedSeats + (estimatedExecs - estimatedSeats), 'seat')} = {(estimatedSeats +
+							(estimatedExecs - estimatedSeats)) *
+							10}$ / month
+					</div>
+					{#if premiumInfo?.premium && plan === 'team'}
+						<button
+							class="text-xs text-blue-500 underline"
+							on:click={() => {
+								newThresholdAlertAmount = (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10
+								thresholdAlertOpen = true
+							}}
+						>
+							Setup threshold email alert
+						</button>
+					{/if}
+				</div>
+			</div>
+			{#if (estimatedSeats + (estimatedExecs - estimatedSeats)) * 10 > 700}
+				<a
+					class="mt-4 text-teal-600 font-semibold text-center block underline"
+					href="https://www.windmill.dev/pricing"
+					target="_blank"
+				>
+					You should consider subscribing to Cloud Enterprise
+				</a>
+			{/if}
+		</div>
+	</div>
+</Section>
 
 <div class="text-base font-bold leading-8 mb-2 pt-8"> All plans </div>
 

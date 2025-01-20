@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.447.0
+  version: 1.447.5
   title: Windmill API
 
   contact:
@@ -1812,10 +1812,12 @@ paths:
                     type: number
                   automatic_billing:
                     type: boolean
+                  owner:
+                    type: string
                 required:
                   - premium
                   - automatic_billing
-
+                  - owner
   /w/{workspace}/workspaces/set_automatic_billing:
     post:
       summary: set automatic billing
@@ -1838,6 +1840,55 @@ paths:
                   type: number
               required:
                 - automatic_billing
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  
+  /w/{workspace}/workspaces/threshold_alert:
+    get:
+      summary: get threshold alert info
+      operationId: getThresholdAlert
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  threshold_alert_amount:
+                    type: number
+                  last_alert_sent:
+                    type: string
+                    format: date-time
+    post:
+      summary: set threshold alert info
+      operationId: setThresholdAlert
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: threshold alert info
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                threshold_alert_amount:
+                  type: number
 
       responses:
         "200":
@@ -4246,6 +4297,17 @@ paths:
       operationId: getCustomTags
       tags:
         - worker
+      parameters:
+        - name: workspace
+          in: query
+          schema:
+            type: string
+          required: false
+        - name: show_workspace_restriction
+          in: query
+          schema:
+            type: boolean
+          required: false
       responses:
         "200":
           description: list of custom tags
@@ -11003,7 +11065,7 @@ components:
             ]
         kind:
           type: string
-          enum: [script, failure, trigger, command, approval]
+          enum: [script, failure, trigger, command, approval, preprocessor]
         starred:
           type: boolean
         tag:
@@ -11109,7 +11171,7 @@ components:
             ]
         kind:
           type: string
-          enum: [script, failure, trigger, command, approval]
+          enum: [script, failure, trigger, command, approval, preprocessor]
         tag:
           type: string
         draft_only:

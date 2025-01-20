@@ -8,7 +8,9 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import CaptureSection, { type CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
+	import { workspaceStore } from '$lib/stores'
 
+	export let path: string
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}
@@ -30,7 +32,8 @@
 					type: 'string'
 				},
 				nullable: false,
-				title: 'Brokers'
+				title: 'Brokers',
+				default: ['']
 			},
 			security: {
 				type: 'object',
@@ -120,12 +123,13 @@
 					type: 'string'
 				},
 				nullable: false,
-				title: 'Topics'
+				title: 'Topics',
+				default: ['']
 			},
 			group_id: {
 				type: 'string',
 				title: 'Group ID',
-				pattern: '^[a-zA-Z0-9-_.]+$',
+				pattern: '^((\\$var:[\\w-\\/]+)|[a-zA-Z0-9-_.]+)$',
 				customErrorMessage: 'Invalid group ID'
 			}
 		},
@@ -147,7 +151,15 @@
 		args.topics.length > 0 &&
 		args.topics.every((b) => /^[a-zA-Z0-9-_.]+$/.test(b))
 
-	$: args.kafka_resource_path && (selected = 'resource')
+	$: usingResource = !!args.kafka_resource_path
+	$: usingResource && (selected = 'resource')
+
+	function setGroupId() {
+		if (!args.group_id) {
+			args.group_id = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
+		}
+	}
+	$: path && setGroupId()
 </script>
 
 <div>

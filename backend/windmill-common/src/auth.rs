@@ -118,13 +118,14 @@ pub async fn fetch_authed_from_permissioned_as(
                     name,
                     &w_id
                 )
-                .fetch_one(db)
-                .await
-                .ok();
+                .fetch_optional(db)
+                .await?;
                 if let Some(r) = r {
                     (r.is_admin, r.operator)
                 } else {
-                    (false, true)
+                    return Err(Error::InternalErr(format!(
+                        "user {name} not found in workspace {w_id}"
+                    )));
                 }
             };
 

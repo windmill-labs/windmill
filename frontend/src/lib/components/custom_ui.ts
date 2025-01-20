@@ -24,6 +24,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	triggers?: boolean
 	flowNode?: boolean
 	hub?: boolean
+	hubCode?: boolean
 	graph?: { aiBuilder?: boolean; dataflow?: boolean }
 	stepInputs?: { ai?: boolean }
 	stepAdvancedSettings?: boolean
