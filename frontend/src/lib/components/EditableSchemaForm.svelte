@@ -255,12 +255,12 @@
 		{#if !noPreview}
 			<Pane bind:size={inputPanelSize} minSize={20}>
 				<div
-					class="flex flex-col gap-2 {$$slots.openEditTab && editPanelSize > 0
+					class="h-full flex flex-col gap-2 {$$slots.openEditTab && editPanelSize > 0
 						? 'pr-[38px]'
 						: 'pr-2'}"
 				>
 					{#if $$slots.addProperty}
-						<div class="w-full justify-left pr-2">
+						<div class="w-full justify-left pr-2 grow-0">
 							<div
 								style={editPanelSize > 0
 									? `width: 100%;`
@@ -271,32 +271,34 @@
 						</div>
 					{/if}
 
-					<SchemaFormDnd
-						schema={previewSchema ? previewSchema : schema}
-						{dndType}
-						{disableDnd}
-						bind:args
-						on:click={(e) => {
-							opened = e.detail
-						}}
-						on:reorder={(e) => {
-							schema.order = e.detail
-							schema = schema
-							dispatch('change', schema)
-						}}
-						on:change={() => {
-							schema = schema
-							dispatch('change', schema)
-						}}
-						{lightweightMode}
-						prettifyHeader={isAppInput}
-						disabled={!!previewSchema}
-						{diff}
-						on:acceptChange
-						on:rejectChange
-					/>
+					<div class="min-h-0 overflow-y-auto grow rounded-md">
+						<SchemaFormDnd
+							schema={previewSchema ? previewSchema : schema}
+							{dndType}
+							{disableDnd}
+							bind:args
+							on:click={(e) => {
+								opened = e.detail
+							}}
+							on:reorder={(e) => {
+								schema.order = e.detail
+								schema = schema
+								dispatch('change', schema)
+							}}
+							on:change={() => {
+								schema = schema
+								dispatch('change', schema)
+							}}
+							{lightweightMode}
+							prettifyHeader={isAppInput}
+							disabled={!!previewSchema}
+							{diff}
+							on:acceptChange
+							on:rejectChange
+						/>
 
-					<slot name="runButton" />
+						<slot name="runButton" />
+					</div>
 				</div>
 			</Pane>
 		{/if}
