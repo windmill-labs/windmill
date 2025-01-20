@@ -159,53 +159,53 @@
 		on:close={captureLibraryDrawer?.toggleDrawer}
 	>
 		<div class="h-full flex flex-col gap-2">
-			<CapturesInputs
-				flowPath={$pathStore}
-				headless={false}
-				addButton={true}
-				on:select={(e) => {
-					selectedCapture = e.detail
-				}}
-				on:openTriggers={(e) => {
-					dispatch('openTriggers', e.detail)
-					captureLibraryDrawer?.closeDrawer()
-				}}
-			/>
+			<div class="min-h-0 grow h-full">
+				<CapturesInputs
+					flowPath={$pathStore}
+					headless={false}
+					addButton={true}
+					on:select={(e) => {
+						selectedCapture = e.detail
+					}}
+					on:openTriggers={(e) => {
+						dispatch('openTriggers', e.detail)
+						captureLibraryDrawer?.closeDrawer()
+					}}
+				/>
+			</div>
 
-			<div class="h-full overflow-hidden min-h-0 flex flex-col justify-between">
-				<div class="w-full flex flex-col min-h-0 gap-2 px-2 py-2 grow">
-					<div class="w-full flex flex-col">
-						<Button
-							color="blue"
-							btnClasses="w-full"
-							size="sm"
-							spacingSize="xl"
-							on:click={async () => {
-								$previewArgs = JSON.parse(JSON.stringify(selectedCapture))
-								captureLibraryDrawer?.closeDrawer()
-								renderCount++
-							}}
-							disabled={!selectedCapture}
+			<div class="w-full flex flex-col gap-2 px-2 py-2 h-[50%]">
+				<div class="w-full flex flex-col">
+					<Button
+						color="blue"
+						btnClasses="w-full"
+						size="sm"
+						spacingSize="xl"
+						on:click={async () => {
+							$previewArgs = JSON.parse(JSON.stringify(selectedCapture))
+							captureLibraryDrawer?.closeDrawer()
+							renderCount++
+						}}
+						disabled={!selectedCapture}
+					>
+						<ArrowLeftIcon class="w-4 h-4 mr-2" />
+						Use input
+					</Button>
+				</div>
+				<div class="w-full min-h-0 grow overflow-auto">
+					{#if typeof selectedCapture == 'string' && selectedCapture == 'WINDMILL_TOO_BIG'}
+						<div class="text-secondary mt-2">
+							Payload too big to preview but can still be loaded</div
 						>
-							<ArrowLeftIcon class="w-4 h-4 mr-2" />
-							Use input
-						</Button>
-					</div>
-					<div class="w-full min-h-0 grow overflow-auto">
-						{#if typeof selectedCapture == 'string' && selectedCapture == 'WINDMILL_TOO_BIG'}
-							<div class="text-secondary mt-2">
-								Payload too big to preview but can still be loaded</div
-							>
-						{:else if Object.keys(selectedCapture || {}).length > 0}
-							<div class=" overflow-auto h-full p-2">
-								<ObjectViewer json={selectedCapture} />
-							</div>
-						{:else}
-							<div class="text-center text-tertiary">
-								Select an Input to preview scripts arguments
-							</div>
-						{/if}
-					</div>
+					{:else if Object.keys(selectedCapture || {}).length > 0}
+						<div class=" overflow-auto h-full p-2">
+							<ObjectViewer json={selectedCapture} />
+						</div>
+					{:else}
+						<div class="text-center text-tertiary">
+							Select an Input to preview scripts arguments
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>

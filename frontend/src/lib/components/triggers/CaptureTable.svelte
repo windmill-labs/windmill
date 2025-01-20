@@ -151,7 +151,7 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<Label label="Trigger captures" {headless} class="h-full">
+<Label label="Trigger captures" {headless} class="h-full {headless ? '' : 'flex flex-col gap-1'}">
 	<svelte:fragment slot="header">
 		{#if addButton}
 			<div class="inline-block">
@@ -182,7 +182,13 @@
 	</svelte:fragment>
 
 	<div
-		class={fullHeight ? 'h-full' : capturesLength > 7 ? 'h-[300px]' : 'h-fit'}
+		class={fullHeight
+			? headless
+				? 'h-full'
+				: 'min-h-0 grow'
+			: capturesLength > 7
+			? 'h-[300px]'
+			: 'h-fit'}
 		use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 		on:click_outside={() => {
 			if (firstClick) {
