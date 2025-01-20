@@ -4,23 +4,20 @@ export type SchemaDiff = {
 	oldSchema?: { [key: string]: any } | undefined
 }
 
-function filterUndefinedFields(obj: any): any {
-	if (!obj || typeof obj !== 'object') return obj
-	delete obj.order
-
-	const filtered: any = {}
-	Object.entries(obj).forEach(([key, value]) => {
-		if (value !== undefined) {
-			if (key === 'additionalProperties' && value === false) {
-				delete filtered.additionalProperties
-			} else {
-				filtered[key] = typeof value === 'object' ? filterUndefinedFields(value) : value
-			}
-		} else {
-			delete filtered[key]
+function isCompatible(diff: Record<string, SchemaDiff>) {
+	let compatible = true
+	Object.values(diff).forEach((diff) => {
+		if (diff.diff === 'added' || diff.diff === 'modified') {
+			compatible = false
+		} else if (isRecordSchemaDiff(diff.diff)) {
+			compatible = isCompatible(diff.diff)
 		}
 	})
-	return filtered
+	return compatible
+}
+
+function isCompatibleObject(a: any, b: any) {
+	return JSON.stringify(a.type) === JSON.stringify(b.type)
 }
 
 export function computeDiff(
@@ -42,13 +39,20 @@ export function computeDiff(
 			} else {
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
-				const filteredPreviewProp = filterUndefinedFields({ ...previewProp })
-				const filteredCurrentProp = filterUndefinedFields({ ...currentProp })
-				if (JSON.stringify(filteredPreviewProp) === JSON.stringify(filteredCurrentProp)) {
-					diff[key] = { diff: 'same', fullSchema: undefined }
-				} else if (previewProp.type === 'object' && currentProp.type === 'object') {
+				if (previewProp.type === 'object' && currentProp.type === 'object') {
 					const diffProp = computeDiff(previewProp, currentProp)
-					diff[key] = { diff: diffProp, fullSchema: previewProp, oldSchema: currentProp }
+					const checkIfSame = isCompatible(diffProp)
+					if (checkIfSame) {
+						diff[key] = { diff: 'same', fullSchema: undefined }
+					} else {
+						diff[key] = {
+							diff: diffProp,
+							fullSchema: previewProp,
+							oldSchema: currentProp
+						}
+					}
+				} else if (isCompatibleObject(previewProp, currentProp)) {
+					diff[key] = { diff: 'same', fullSchema: undefined }
 				} else {
 					diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
 				}
