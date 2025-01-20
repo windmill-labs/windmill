@@ -424,6 +424,10 @@
 									editableSchemaForm.updateJson()
 								}
 							}}
+							on:addNew={(e) => {
+								handleEditSchema('inputEditor')
+								editableSchemaForm?.openField(e.detail)
+							}}
 						>
 							<svelte:fragment slot="trigger">
 								<div

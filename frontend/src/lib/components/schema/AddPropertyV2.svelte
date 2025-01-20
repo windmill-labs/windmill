@@ -158,6 +158,7 @@
 				selectedType: 'string',
 				name: e.detail.name
 			})
+			dispatch('addNew', e.detail.name)
 		} catch (err) {
 			sendUserToast(`Could not add argument: ${err}`, true)
 		}
