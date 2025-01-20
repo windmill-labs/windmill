@@ -64,6 +64,7 @@
 	let selectedSchema: Record<string, any> | undefined = undefined
 	let runDisabled: boolean = false
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
+	let savedPreviewArgs: Record<string, any> | undefined = undefined
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -226,7 +227,7 @@
 	async function applySchemaAndArgs() {
 		$flowStore.schema = applyDiff($flowStore.schema, diff)
 		if (previewArguments) {
-			$previewArgs = structuredClone(previewArguments)
+			savedPreviewArgs = structuredClone(previewArguments)
 		}
 		updatePreviewSchemaAndArgs(undefined)
 		if ($flowInputEditorState) {
@@ -236,9 +237,10 @@
 
 	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
 		if (!payloadData) {
-			previewArguments = structuredClone($previewArgs)
+			previewArguments = savedPreviewArgs
 			return
 		}
+		savedPreviewArgs = structuredClone(previewArguments)
 		previewArguments = structuredClone(payloadData)
 	}
 
