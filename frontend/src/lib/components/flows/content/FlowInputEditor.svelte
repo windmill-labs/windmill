@@ -10,7 +10,7 @@
 	})
 </script>
 
-<div class="flex flex-col h-full px-3">
+<div class="flex flex-col h-full px-3 pb-3">
 	<div
 		class="items-center grow-0 flex flex-row justify-between gap-2 data-schema-picker min-h-[40px]"
 	>

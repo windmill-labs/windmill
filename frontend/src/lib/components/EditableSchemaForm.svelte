@@ -271,7 +271,11 @@
 						</div>
 					{/if}
 
-					<div class="min-h-0 overflow-y-auto grow rounded-md">
+					<div
+						class="min-h-0 overflow-y-auto grow rounded-md {$$slots.runButton
+							? 'flex flex-col gap-2'
+							: ''}"
+					>
 						<SchemaFormDnd
 							schema={previewSchema ? previewSchema : schema}
 							{dndType}
