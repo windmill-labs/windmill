@@ -36,8 +36,6 @@ use windmill_common::variables::get_secret_value_as_admin;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
-    static ref BUSY_WITH_UV_INSTALL: Mutex<()> = Mutex::new(());
-
     static ref PYTHON_PATH: String =
     std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
@@ -1356,7 +1354,6 @@ pub async fn handle_python_reqs(
     mut no_uv_install: bool,
     is_ansible: bool,
 ) -> error::Result<Vec<String>> {
-    let lock = BUSY_WITH_UV_INSTALL.lock().await;
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1520,12 +1517,6 @@ pub async fn handle_python_reqs(
     let pids = Arc::new(tokio::sync::Mutex::new(vec![None; total_to_install]));
     let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
     {
-        // when we cancel the job, it has up to 1 second window before actually getting cancelled 
-        // Thus the directory with wheel in windmill's cache cleaned only after that. 
-        // If we manage to start new job during that period windmill might see that wanted wheel is already there (because we have not cleaned it yet)
-        // and write it to installed wheels, meanwhile previous job will clean that wheel. 
-        // To fix that we create lock, which will pipeline all uv installs on worker
-        let _lock = lock;
         let pids = pids.clone();
         let mem_peak_thread_safe = mem_peak_thread_safe.clone();
         tokio::spawn(async move {
