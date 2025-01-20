@@ -27,7 +27,7 @@
 			error = e
 		}
 	}
-	flowStore && $flowStateStore && loadSchema()
+	$: $flowStore && $flowStateStore && loadSchema()
 
 	function handleClick() {
 		selected = !selected

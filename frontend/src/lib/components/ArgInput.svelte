@@ -357,11 +357,11 @@
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff == 'added'
 			? 'bg-green-300 dark:bg-green-800'
-			: diffStatus?.diff == 'removed'
+			: diffStatus?.diff === 'removed'
 			? 'bg-red-300 dark:bg-red-800'
-			: diffStatus?.diff == 'same'
+			: diffStatus?.diff === 'same'
 			? 'bg-surface'
-			: diffStatus?.diff == 'modified' || typeof diffStatus?.diff === 'object'
+			: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
 			? 'border-2 border-green-500 bg-surface'
 			: ''
 	)}
