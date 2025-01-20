@@ -8,7 +8,6 @@
 
 use axum::body::Body;
 use axum::http::HeaderValue;
-use futures::TryFutureExt;
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -794,38 +793,25 @@ impl<'a> GetQuery<'a> {
     async fn resolve_raw_values<T>(
         &self,
         db: &DB,
-        id: Uuid,
         kind: JobKind,
-        hash: Option<ScriptHash>,
+        runnable_id: Option<i64>,
         job: &mut JobExtended<T>,
     ) {
-        let (raw_code, raw_lock, raw_flow) = (
-            job.raw_code.take(),
-            job.raw_lock.take(),
-            job.raw_flow.take(),
-        );
-        if self.with_flow {
-            // Try to fetch the flow from the cache, fallback to the preview flow.
-            // NOTE: This could check for the job kinds instead of the `or_else` but it's not
-            // necessary as `fetch_flow` return early if the job kind is not a preview one.
-            cache::job::fetch_flow(db, kind, hash)
-                .or_else(|_| cache::job::fetch_preview_flow(db, &id, raw_flow))
+        job.raw_flow = match job.raw_flow.take() {
+            _ if !self.with_flow => None,
+            flow => cache::job::fetch_flow(db, kind, runnable_id, flow)
                 .await
                 .ok()
-                .inspect(|data| job.raw_flow = Some(sqlx::types::Json(data.raw_flow.clone())));
-        }
-        if self.with_code {
-            // Try to fetch the code from the cache, fallback to the preview code.
-            // NOTE: This could check for the job kinds instead of the `or_else` but it's not
-            // necessary as `fetch_script` return early if the job kind is not a preview one.
-            cache::job::fetch_script(db, kind, hash)
-                .or_else(|_| cache::job::fetch_preview_script(db, &id, raw_lock, raw_code))
+                .map(|data| sqlx::types::Json(data.raw_flow.clone())),
+        };
+        (job.raw_code, job.raw_lock) = match (job.raw_code.take(), job.raw_lock.take()) {
+            _ if !self.with_code => (None, None),
+            (code, lock) => cache::job::fetch_script(db, kind, runnable_id, code, lock)
                 .await
                 .ok()
-                .inspect(|data| {
-                    (job.raw_lock, job.raw_code) = (data.lock.clone(), Some(data.code.clone()))
-                });
-        }
+                .map(|data| (Some(data.code.clone()), data.lock.clone()))
+                .unwrap_or_default(),
+        };
     }
 
     async fn fetch_queued(
@@ -848,7 +834,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(job.as_ref().map(|job| job.created_by.as_str()))?;
         if let Some(job) = job.as_mut() {
-            self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
+            self.resolve_raw_values(db, job.job_kind, job.script_hash.map(|x| x.0), job)
                 .await;
         }
         if self.with_flow {
@@ -880,7 +866,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(cjob.as_ref().map(|job| job.created_by.as_str()))?;
         if let Some(job) = cjob.as_mut() {
-            self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
+            self.resolve_raw_values(db, job.job_kind, job.script_hash.map(|x| x.0), job)
                 .await;
         }
         if self.with_flow {
