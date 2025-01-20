@@ -396,11 +396,21 @@ pub struct WrappedError {
 
 pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
+    fn wm_labels(&self) -> Option<Vec<String>>;
+}
+
+#[derive(serde::Deserialize)]
+struct ResultLabels {
+    wm_labels: Vec<String>,
 }
 
 impl ValidableJson for WrappedError {
     fn is_valid_json(&self) -> bool {
         true
+    }
+
+    fn wm_labels(&self) -> Option<Vec<String>> {
+        None
     }
 }
 
@@ -408,11 +418,21 @@ impl ValidableJson for Box<RawValue> {
     fn is_valid_json(&self) -> bool {
         !self.get().is_empty()
     }
+
+    fn wm_labels(&self) -> Option<Vec<String>> {
+        serde_json::from_str::<ResultLabels>(self.get())
+            .ok()
+            .map(|r| r.wm_labels)
+    }
 }
 
-impl ValidableJson for Arc<Box<RawValue>> {
+impl<T: ValidableJson> ValidableJson for Arc<T> {
     fn is_valid_json(&self) -> bool {
-        !self.get().is_empty()
+        T::is_valid_json(&self)
+    }
+
+    fn wm_labels(&self) -> Option<Vec<String>> {
+        T::wm_labels(&self)
     }
 }
 
@@ -420,11 +440,21 @@ impl ValidableJson for serde_json::Value {
     fn is_valid_json(&self) -> bool {
         true
     }
+
+    fn wm_labels(&self) -> Option<Vec<String>> {
+        serde_json::from_value::<ResultLabels>(self.clone())
+            .ok()
+            .map(|r| r.wm_labels)
+    }
 }
 
 impl<T: ValidableJson> ValidableJson for Json<T> {
     fn is_valid_json(&self) -> bool {
         self.0.is_valid_json()
+    }
+
+    fn wm_labels(&self) -> Option<Vec<String>> {
+        self.0.wm_labels()
     }
 }
 
@@ -547,6 +577,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
         );
 
+        let labels = result.wm_labels();
         let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
         // add_time!(bench, "add_completed_job query START");
 
@@ -562,12 +593,13 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , flow_status
                     , memory_peak
                     , status
+                    , labels
                     )
                 VALUES ($1, $2, $3, COALESCE($12::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($3, now()))))*1000), $5, $7, $8, $9,\
                         $11, CASE WHEN $6::BOOL THEN 'canceled'::job_status
                         WHEN $10::BOOL THEN 'skipped'::job_status
                         WHEN $4::BOOL THEN 'success'::job_status
-                        ELSE 'failure'::job_status END)
+                        ELSE 'failure'::job_status END, $13)
             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $5 RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ queued_job.workspace_id,
             /* $2 */ queued_job.id,
@@ -581,6 +613,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $10 */ skipped,
             /* $11 */ if mem_peak > 0 { Some(mem_peak) } else { None },
             /* $12 */ duration,
+            /* $13 */ labels.as_ref().map(Vec::as_slice),
         )
         .fetch_one(&mut *tx)
         .await
