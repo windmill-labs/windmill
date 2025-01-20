@@ -29,7 +29,6 @@
 	export let allowRefresh = false
 	export let allowEdit = true
 	export let allowView = true
-	export let languages: string | undefined = undefined
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
@@ -52,7 +51,6 @@
 				await ScriptService.listScripts({
 					workspace: $workspaceStore!,
 					kinds: kinds.join(','),
-					languages
 				})
 			).map((script) => ({
 				value: script.path,

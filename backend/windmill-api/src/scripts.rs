@@ -202,6 +202,7 @@ async fn list_scripts(
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
     let (per_page, offset) = paginate(pagination);
+
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",
@@ -299,15 +300,6 @@ async fn list_scripts(
             sqlb.and_where_in("kind", safe_kinds.as_slice());
         }
     }
-
-    if let Some(languages) = lq.languages {
-        let languages = languages
-            .into_iter()
-            .map(quote)
-            .collect_vec();
-        sqlb.and_where_in("language", languages.as_slice());
-    }
-
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
     }

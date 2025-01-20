@@ -4067,11 +4067,6 @@ paths:
         - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
-        - name: languages
-          description: Filter scripts by comma-separated programming languages (e.g., "Python,JavaScript").
-          in: query
-          schema:
-            type: string
         - name: path_start
           description: mask to filter matching starting path
           in: query

@@ -19,7 +19,6 @@ use crate::{
 
 use crate::worker::HUB_CACHE_DIR;
 use anyhow::Context;
-use itertools::Itertools;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
@@ -73,35 +72,6 @@ impl ScriptLang {
             ScriptLang::Ansible => "ansible",
             ScriptLang::CSharp => "csharp",
         }
-    }
-}
-
-impl TryFrom<&str> for ScriptLang {
-    type Error = String;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let language = match value {
-            "bun" => Self::Bun,
-            "bunnative" => Self::Bunnative,
-            "nativets" => Self::Nativets,
-            "deno" => Self::Deno,
-            "python3" => Self::Python3,
-            "go" => Self::Go,
-            "bash" => Self::Bash,
-            "powershell" => Self::Powershell,
-            "postgresql" => Self::Postgresql,
-            "mysql" => Self::Mysql,
-            "bigquery" => Self::Bigquery,
-            "snowflake" => Self::Snowflake,
-            "mssql" => Self::Mssql,
-            "graphql" => Self::Graphql,
-            "php" => Self::Php,
-            "rust" => Self::Rust,
-            "ansible" => Self::Ansible,
-            "csharp" => Self::CSharp,
-            _ => return Err("Language not supported".to_string()),
-        };
-
-        Ok(language)
     }
 }
 
@@ -403,36 +373,6 @@ pub struct ListScriptQuery {
     pub include_without_main: Option<bool>,
     pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
-    #[serde(default, deserialize_with = "check_if_valid_language")]
-    pub languages: Option<Vec<String>>,
-}
-
-fn check_if_valid_language<'de, D>(
-    language: D,
-) -> std::result::Result<Option<Vec<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let languages: Option<String> = Option::deserialize(language)?;
-
-    let languages = languages.unwrap();
-    let languages = languages
-        .split(",")
-        .to_owned()
-        .collect_vec()
-        .into_iter()
-        .map(|language| language.to_string())
-        .collect_vec();
-
-    for language in languages.iter() {
-        if ScriptLang::try_from(language.as_str()).is_err() {
-            return Err(serde::de::Error::custom(format!(
-                "language {} is not supported",
-                language
-            )));
-        }
-    }
-    Ok(Some(languages))
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
