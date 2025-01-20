@@ -74,123 +74,116 @@ fn f64_to_json_number(raw_val: f64) -> Result<Value, ConverterError> {
 }
 
 impl Converter {
-    pub fn try_from_str(typ: Option<&Type>, str: &str) -> Result<Value, ConverterError> {
-        let value = match typ {
-            Some(typ) => match *typ {
-                Type::BOOL => Value::Bool(parse_bool(str)?),
-                Type::BOOL_ARRAY => {
-                    Converter::parse_array(str, |str| Ok(Value::Bool(parse_bool(str)?)))?
-                }
-                Type::CHAR | Type::BPCHAR | Type::VARCHAR | Type::NAME | Type::TEXT => {
-                    Value::String(str.to_string())
-                }
-                Type::CHAR_ARRAY
-                | Type::BPCHAR_ARRAY
-                | Type::VARCHAR_ARRAY
-                | Type::NAME_ARRAY
-                | Type::TEXT_ARRAY => {
-                    Converter::parse_array(str, |str| Ok(Value::String(str.to_string())))?
-                }
-                Type::INT2 => Value::Number(convert_into(str.parse::<i16>()?)),
-                Type::INT2_ARRAY => Converter::parse_array(str, |str| {
-                    Ok(Value::Number(convert_into(str.parse::<i16>()?)))
-                })?,
-                Type::INT4 => Value::Number(convert_into(str.parse::<i32>()?)),
-                Type::INT4_ARRAY => Converter::parse_array(str, |str| {
-                    Ok(Value::Number(convert_into(str.parse::<i32>()?)))
-                })?,
-                Type::INT8 => Value::Number(convert_into(str.parse::<i64>()?)),
-                Type::INT8_ARRAY => Converter::parse_array(str, |str| {
-                    Ok(Value::Number(convert_into(str.parse::<i64>()?)))
-                })?,
-                Type::FLOAT4 => f64_to_json_number(str.parse::<f64>()?)?,
-                Type::FLOAT4_ARRAY => {
-                    Converter::parse_array(str, |str| f64_to_json_number(str.parse::<f64>()?))?
-                }
-                Type::FLOAT8 => f64_to_json_number(str.parse::<f64>()?)?,
-                Type::FLOAT8_ARRAY => {
-                    Converter::parse_array(str, |str| f64_to_json_number(str.parse::<f64>()?))?
-                }
-                Type::NUMERIC => serde_json::json!(Decimal::from_str(str)?),
-                Type::NUMERIC_ARRAY => Converter::parse_array(str, |str| {
-                    Ok(serde_json::json!(Decimal::from_str(str)?))
-                })?,
-                Type::BYTEA => to_value(from_bytea_hex(str)?).unwrap(),
-                Type::BYTEA_ARRAY => {
-                    Converter::parse_array(str, |str| Ok(to_value(from_bytea_hex(str)?).unwrap()))?
-                }
-                Type::DATE => {
-                    let date = NaiveDate::parse_from_str(str, "%Y-%m-%d")?;
-                    Value::String(date.to_string())
-                }
-                Type::DATE_ARRAY => Converter::parse_array(str, |str| {
-                    let date = NaiveDate::parse_from_str(str, "%Y-%m-%d")?;
-                    Ok(Value::String(date.to_string()))
-                })?,
-                Type::TIME => {
-                    let time = NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?;
-                    Value::String(time.to_string())
-                }
-                Type::TIME_ARRAY => Converter::parse_array(str, |str| {
-                    let time = NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?;
-                    Ok(Value::String(time.to_string()))
-                })?,
-                Type::TIMESTAMP => {
-                    let timestamp = NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f")?;
-                    Value::String(timestamp.to_string())
-                }
-                Type::TIMESTAMP_ARRAY => Converter::parse_array(str, |str| {
-                    let timestamp = NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f")?;
-                    Ok(Value::String(timestamp.to_string()))
-                })?,
-                Type::TIMESTAMPTZ => {
-                    let val = match DateTime::<FixedOffset>::parse_from_str(
-                        str,
-                        "%Y-%m-%d %H:%M:%S%.f%#z",
-                    ) {
+    pub fn try_from_str(typ: Option<Type>, str: &str) -> Result<Value, ConverterError> {
+        let value = match typ.unwrap_or(Type::TEXT) {
+            Type::BOOL => Value::Bool(parse_bool(str)?),
+            Type::BOOL_ARRAY => {
+                Converter::parse_array(str, |str| Ok(Value::Bool(parse_bool(str)?)))?
+            }
+            Type::CHAR | Type::BPCHAR | Type::VARCHAR | Type::NAME | Type::TEXT => {
+                Value::String(str.to_string())
+            }
+            Type::CHAR_ARRAY
+            | Type::BPCHAR_ARRAY
+            | Type::VARCHAR_ARRAY
+            | Type::NAME_ARRAY
+            | Type::TEXT_ARRAY => {
+                Converter::parse_array(str, |str| Ok(Value::String(str.to_string())))?
+            }
+            Type::INT2 => Value::Number(convert_into(str.parse::<i16>()?)),
+            Type::INT2_ARRAY => Converter::parse_array(str, |str| {
+                Ok(Value::Number(convert_into(str.parse::<i16>()?)))
+            })?,
+            Type::INT4 => Value::Number(convert_into(str.parse::<i32>()?)),
+            Type::INT4_ARRAY => Converter::parse_array(str, |str| {
+                Ok(Value::Number(convert_into(str.parse::<i32>()?)))
+            })?,
+            Type::INT8 => Value::Number(convert_into(str.parse::<i64>()?)),
+            Type::INT8_ARRAY => Converter::parse_array(str, |str| {
+                Ok(Value::Number(convert_into(str.parse::<i64>()?)))
+            })?,
+            Type::FLOAT4 => f64_to_json_number(str.parse::<f64>()?)?,
+            Type::FLOAT4_ARRAY => {
+                Converter::parse_array(str, |str| f64_to_json_number(str.parse::<f64>()?))?
+            }
+            Type::FLOAT8 => f64_to_json_number(str.parse::<f64>()?)?,
+            Type::FLOAT8_ARRAY => {
+                Converter::parse_array(str, |str| f64_to_json_number(str.parse::<f64>()?))?
+            }
+            Type::NUMERIC => serde_json::json!(Decimal::from_str(str)?),
+            Type::NUMERIC_ARRAY => {
+                Converter::parse_array(str, |str| Ok(serde_json::json!(Decimal::from_str(str)?)))?
+            }
+            Type::BYTEA => to_value(from_bytea_hex(str)?).unwrap(),
+            Type::BYTEA_ARRAY => {
+                Converter::parse_array(str, |str| Ok(to_value(from_bytea_hex(str)?).unwrap()))?
+            }
+            Type::DATE => {
+                let date = NaiveDate::parse_from_str(str, "%Y-%m-%d")?;
+                Value::String(date.to_string())
+            }
+            Type::DATE_ARRAY => Converter::parse_array(str, |str| {
+                let date = NaiveDate::parse_from_str(str, "%Y-%m-%d")?;
+                Ok(Value::String(date.to_string()))
+            })?,
+            Type::TIME => {
+                let time = NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?;
+                Value::String(time.to_string())
+            }
+            Type::TIME_ARRAY => Converter::parse_array(str, |str| {
+                let time = NaiveTime::parse_from_str(str, "%H:%M:%S%.f")?;
+                Ok(Value::String(time.to_string()))
+            })?,
+            Type::TIMESTAMP => {
+                let timestamp = NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f")?;
+                Value::String(timestamp.to_string())
+            }
+            Type::TIMESTAMP_ARRAY => Converter::parse_array(str, |str| {
+                let timestamp = NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f")?;
+                Ok(Value::String(timestamp.to_string()))
+            })?,
+            Type::TIMESTAMPTZ => {
+                let val =
+                    match DateTime::<FixedOffset>::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f%#z") {
                         Ok(val) => val,
                         Err(_) => {
                             DateTime::<FixedOffset>::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f%:z")?
                         }
                     };
-                    let utc: DateTime<Utc> = val.into();
-                    Value::String(utc.to_string())
-                }
-                Type::TIMESTAMPTZ_ARRAY => {
-                    match Converter::parse_array(str, |str| {
+                let utc: DateTime<Utc> = val.into();
+                Value::String(utc.to_string())
+            }
+            Type::TIMESTAMPTZ_ARRAY => {
+                match Converter::parse_array(str, |str| {
+                    let utc: DateTime<Utc> =
+                        DateTime::<FixedOffset>::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f%#z")?
+                            .into();
+                    Ok(Value::String(utc.to_string()))
+                }) {
+                    Ok(val) => val,
+                    Err(_) => Converter::parse_array(str, |str| {
                         let utc: DateTime<Utc> = DateTime::<FixedOffset>::parse_from_str(
                             str,
                             "%Y-%m-%d %H:%M:%S%.f%#z",
                         )?
                         .into();
                         Ok(Value::String(utc.to_string()))
-                    }) {
-                        Ok(val) => val,
-                        Err(_) => Converter::parse_array(str, |str| {
-                            let utc: DateTime<Utc> = DateTime::<FixedOffset>::parse_from_str(
-                                str,
-                                "%Y-%m-%d %H:%M:%S%.f%#z",
-                            )?
-                            .into();
-                            Ok(Value::String(utc.to_string()))
-                        })?,
-                    }
+                    })?,
                 }
-                Type::UUID => Value::String(Uuid::parse_str(str)?.to_string()),
-                Type::UUID_ARRAY => Converter::parse_array(str, |str| {
-                    Ok(Value::String(Uuid::parse_str(str)?.to_string()))
-                })?,
-                Type::JSON | Type::JSONB => serde_json::from_str::<serde_json::Value>(str)?,
-                Type::JSON_ARRAY | Type::JSONB_ARRAY => Converter::parse_array(str, |str| {
-                    Ok(serde_json::from_str::<serde_json::Value>(str)?)
-                })?,
-                Type::OID => Value::Number(convert_into(str.parse::<u32>()?)),
-                Type::OID_ARRAY => Converter::parse_array(str, |str| {
-                    Ok(Value::Number(convert_into(str.parse::<u32>()?)))
-                })?,
-                _ => Value::String(str.to_string()),
-            },
-            None => Value::String(str.to_string()),
+            }
+            Type::UUID => Value::String(Uuid::parse_str(str)?.to_string()),
+            Type::UUID_ARRAY => Converter::parse_array(str, |str| {
+                Ok(Value::String(Uuid::parse_str(str)?.to_string()))
+            })?,
+            Type::JSON | Type::JSONB => serde_json::from_str::<serde_json::Value>(str)?,
+            Type::JSON_ARRAY | Type::JSONB_ARRAY => Converter::parse_array(str, |str| {
+                Ok(serde_json::from_str::<serde_json::Value>(str)?)
+            })?,
+            Type::OID => Value::Number(convert_into(str.parse::<u32>()?)),
+            Type::OID_ARRAY => Converter::parse_array(str, |str| {
+                Ok(Value::Number(convert_into(str.parse::<u32>()?)))
+            })?,
+            _ => Value::String(str.to_string()),
         };
 
         Ok(value)

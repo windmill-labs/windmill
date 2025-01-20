@@ -96,8 +96,8 @@ impl PostgresSimpleClient {
         logical_replication_slot_name: &str,
     ) -> Result<(CopyBothDuplex<Bytes>, LogicalReplicationSettings), Error> {
         let options = format!(
-                r#"("proto_version" '2', "publication_names" {})"#,
-                quote_literal(publication_name),
+            r#"("proto_version" '2', "publication_names" {})"#,
+            quote_literal(publication_name),
         );
 
         let query = format!(
@@ -451,7 +451,7 @@ async fn listen_to_unlistened_database_events(
             }
         }
         Err(err) => {
-            tracing::error!("Error fetching database triggers: {:?}", err);
+            tracing::error!("Error fetching postgres triggers: {:?}", err);
         }
     };
 }

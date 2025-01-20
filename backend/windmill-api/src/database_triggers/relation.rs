@@ -63,7 +63,7 @@ impl RelationConverter {
                 }
                 TupleData::Text(bytes) => {
                     let str = str::from_utf8(&bytes[..])?;
-                    Converter::try_from_str(column.type_o_id.as_ref(), str)?
+                    Converter::try_from_str(column.type_o_id.clone(), str)?
                 }
             };
 

@@ -77,7 +77,7 @@
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` database trigger: ${err.body}`,
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` postgres trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -261,7 +261,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No postgres triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { database_resource_path, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -278,8 +278,11 @@
 								on:click={() => databaseTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-secondary text-xs truncate text-left font-light">
+								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
 									{path}
+								</div>
+								<div class="text-secondary text-xs truncate text-left font-light">
+									{database_resource_path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
@@ -303,7 +306,7 @@
 										<div slot="text">
 											{#if enabled}
 												{#if !server_id}
-													Database Trigger is starting...
+													Postgres Trigger is starting...
 												{:else}
 													Could not connect to database{error ? ': ' + error : ''}
 												{/if}
@@ -317,7 +320,9 @@
 										<span class="flex h-4 w-4">
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
-										<div slot="text"> Connected to database{!server_id ? ' (shutting down...)' : ''}</div>
+										<div slot="text">
+											Connected to database{!server_id ? ' (shutting down...)' : ''}</div
+										>
 									</Popover>
 								{/if}
 							</div>

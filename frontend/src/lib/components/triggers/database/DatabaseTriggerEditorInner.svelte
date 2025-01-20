@@ -55,6 +55,7 @@
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let selectedTable: 'all' | 'specific' = 'specific'
 	let tab: 'advanced' | 'basic'
+	let config: { message: string | undefined; isLogical?: boolean } = { message: undefined }
 	$: table_to_track = selectedTable === 'all' ? [] : relations
 
 	async function createPublication() {
@@ -107,9 +108,10 @@
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
 			tab = 'basic'
+			config.message = undefined
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load database trigger: ${err}`, true)
+			sendUserToast(`Could not load postgres trigger: ${err}`, true)
 		} finally {
 			drawerLoading = false
 		}
@@ -139,6 +141,7 @@
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
 			transaction_to_track = ['Insert', 'Update', 'Delete']
+			config.message = undefined
 			relations = [
 				{
 					schema_name: 'public',
@@ -257,7 +260,7 @@
 			await goto(`${base}/scripts/add`)
 		} catch (error) {
 			loading = false
-			console.log({ error })
+			sendUserToast(error.body, true)
 		}
 	}
 
@@ -272,15 +275,13 @@
 				workspace: $workspaceStore!,
 				path: database_resource_path
 			})
+			config.isLogical = isLogical
 			if (isLogical) {
-				sendUserToast(
+				config.message =
 					'Your database is correctly configured with logical replication enabled. You can proceed with using the streaming feature'
-				)
 			} else {
-				sendUserToast(
-					"Logical replication is not enabled on your database. To use this feature, your Postgres database must have <code>wal_level</code> configured as 'logical' in your database configuration.",
-					true
-				)
+				config.message =
+					"Logical replication is not enabled on your database. To use this feature, your Postgres database must have <code>wal_level</code> configured as 'logical' in your database configuration."
 			}
 		} catch (error) {}
 	}
@@ -290,9 +291,9 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit Database trigger ${initialPath}`
-				: `Database trigger ${initialPath}`
-			: 'New Database trigger'}
+				? `Edit Postgres trigger ${initialPath}`
+				: `Postgres trigger ${initialPath}`
+			: 'New Postgres trigger'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
@@ -310,7 +311,7 @@
 									requestBody: { enabled: e.detail }
 								})
 								sendUserToast(
-									`${e.detail ? 'enabled' : 'disabled'} database trigger ${initialPath}`
+									`${e.detail ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`
 								)
 							}}
 						/>
@@ -352,7 +353,7 @@
 							bind:path
 							{initialPath}
 							checkInitialPathExistence={!edit}
-							namePlaceholder="database_trigger"
+							namePlaceholder="postgres_trigger"
 							kind="database_trigger"
 							disabled={!can_write}
 						/>
@@ -372,12 +373,20 @@
 									<p class="text-sm">
 										Verifies whether the database is configured with the required <strong
 											>settings</strong
-										>.<br> The <strong>logical wal_level</strong> setting is essential for the streaming
-										feature to works. If it is not set, the trigger feature will not work, and the
-										database configuration must be updated.
+										>.<br /> The <strong>logical wal_level</strong> setting is essential for the streaming
+										feature to works. If it is not set, the trigger feature will not work, and the database
+										configuration must be updated.
 									</p>
 								</Tooltip>
 							</Button>
+							{#if config.message}
+								<Alert
+									title="Postgres configuration"
+									type={config.isLogical === true ? 'success' : 'error'}
+								>
+									{config.message}
+								</Alert>
+							{/if}
 						{/if}
 					</div>
 				</Section>

@@ -8441,14 +8441,14 @@ paths:
 
   /w/{workspace}/database_triggers/create:
     post:
-      summary: create database trigger
+      summary: create postgres trigger
       operationId: createDatabaseTrigger
       tags:
         - database_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: new database trigger
+        description: new postgres trigger
         required: true
         content:
           application/json:
@@ -8456,7 +8456,7 @@ paths:
               $ref: "#/components/schemas/NewDatabaseTrigger"
       responses:
         "201":
-          description: database trigger created
+          description: postgres trigger created
           content:
             text/plain:
               schema:
@@ -8464,7 +8464,7 @@ paths:
 
   /w/{workspace}/database_triggers/update/{path}:
     post:
-      summary: update database trigger
+      summary: update postgres trigger
       operationId: updateDatabaseTrigger
       tags:
         - database_trigger
@@ -8480,7 +8480,7 @@ paths:
               $ref: "#/components/schemas/EditDatabaseTrigger"
       responses:
         "200":
-          description: database trigger updated
+          description: postgres trigger updated
           content:
             text/plain:
               schema:
@@ -8488,7 +8488,7 @@ paths:
 
   /w/{workspace}/database_triggers/delete/{path}:
     delete:
-      summary: delete database trigger
+      summary: delete postgres trigger
       operationId: deleteDatabaseTrigger
       tags:
         - database_trigger
@@ -8497,7 +8497,7 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: database trigger deleted
+          description: postgres trigger deleted
           content:
             text/plain:
               schema:
@@ -8505,7 +8505,7 @@ paths:
 
   /w/{workspace}/database_triggers/get/{path}:
     get:
-      summary: get database trigger
+      summary: get postgres trigger
       operationId: getDatabaseTrigger
       tags:
         - database_trigger
@@ -8514,7 +8514,7 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: get database trigger
+          description: get postgres trigger
           content:
             application/json:
               schema:
@@ -8522,7 +8522,7 @@ paths:
 
   /w/{workspace}/database_triggers/list:
     get:
-      summary: list database triggers
+      summary: list postgres triggers
       operationId: listDatabaseTriggers
       tags:
         - database_trigger
@@ -8546,7 +8546,7 @@ paths:
             type: string
       responses:
         "200":
-          description: database trigger list
+          description: postgres trigger list
           content:
             application/json:
               schema:
@@ -8556,7 +8556,7 @@ paths:
 
   /w/{workspace}/database_triggers/exists/{path}:
     get:
-      summary: does database trigger exists
+      summary: does postgres trigger exists
       operationId: existsDatabaseTrigger
       tags:
         - database_trigger
@@ -8565,7 +8565,7 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: database trigger exists
+          description: postgres trigger exists
           content:
             application/json:
               schema:
@@ -8573,7 +8573,7 @@ paths:
 
   /w/{workspace}/database_triggers/setenabled/{path}:
     post:
-      summary: set enabled database trigger
+      summary: set enabled postgres trigger
       operationId: setDatabaseTriggerEnabled
       tags:
         - database_trigger
@@ -8581,7 +8581,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
       requestBody:
-        description: updated database trigger enable
+        description: updated postgres trigger enable
         required: true
         content:
           application/json:
@@ -8594,7 +8594,7 @@ paths:
                 - enabled
       responses:
         "200":
-          description: database trigger enabled set
+          description: postgres trigger enabled set
           content:
             text/plain:
               schema:

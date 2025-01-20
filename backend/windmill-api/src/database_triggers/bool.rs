@@ -7,11 +7,9 @@ pub enum ParseBoolError {
 }
 
 pub fn parse_bool(s: &str) -> Result<bool, ParseBoolError> {
-    if s == "t" {
-        Ok(true)
-    } else if s == "f" {
-        Ok(false)
-    } else {
-        Err(ParseBoolError::InvalidInput(s.to_string()))
+    match s {
+        "t" => Ok(true),
+        "f" => Ok(false),
+        _ => Err(ParseBoolError::InvalidInput(s.to_string())),
     }
 }

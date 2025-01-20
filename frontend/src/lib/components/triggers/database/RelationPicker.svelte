@@ -65,7 +65,10 @@
 												</p></Tooltip
 											></div
 										>
-
+										<p class="text-xs mb-3 text-tertiary">
+											Enter the names of the <strong>columns</strong> you want to track.
+											<br />If no columns are specified, all columns in the table will be tracked.
+										</p>
 										<MultiSelect
 											options={table_to_track.columns_name ?? []}
 											allowUserOptions="append"
@@ -90,8 +93,8 @@
 													<strong class="font-semibold">Note:</strong>
 													<br />- If your trigger contains <strong>UPDATE</strong> or
 													<strong>DELETE</strong>
-													transactions, the row filter WHERE clause must contain only columns
-													covered by the <strong>replica identity</strong> (see REPLICA IDENTITY).
+													transactions, the row filter WHERE clause must contain only columns covered
+													by the <strong>replica identity</strong> (see REPLICA IDENTITY).
 													<br />- If your trigger contains only <strong>INSERT</strong> transactions,
 													the row filter WHERE clause can use any column.
 												</p>

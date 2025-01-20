@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'DB triggers' }
+		stuff: { title: 'Postgres triggers' }
 	}
 }

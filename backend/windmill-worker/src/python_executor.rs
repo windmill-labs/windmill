@@ -1520,10 +1520,10 @@ pub async fn handle_python_reqs(
     let pids = Arc::new(tokio::sync::Mutex::new(vec![None; total_to_install]));
     let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
     {
-        // when we cancel the job, it has up to 1 second window before actually getting cancelled 
-        // Thus the directory with wheel in windmill's cache cleaned only after that. 
+        // when we cancel the job, it has up to 1 second window before actually getting cancelled
+        // Thus the directory with wheel in windmill's cache cleaned only after that.
         // If we manage to start new job during that period windmill might see that wanted wheel is already there (because we have not cleaned it yet)
-        // and write it to installed wheels, meanwhile previous job will clean that wheel. 
+        // and write it to installed wheels, meanwhile previous job will clean that wheel.
         // To fix that we create lock, which will pipeline all uv installs on worker
         let _lock = lock;
         let pids = pids.clone();

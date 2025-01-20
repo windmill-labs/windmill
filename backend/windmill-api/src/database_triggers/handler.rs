@@ -152,7 +152,7 @@ pub async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, 
 
 #[derive(Deserialize, Debug)]
 pub enum Language {
-    #[serde(rename="typescript", alias="Typescript")]
+    #[serde(rename = "typescript", alias = "Typescript")]
     Typescript,
 }
 
@@ -259,7 +259,7 @@ pub async fn create_database_trigger(
 
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
-            "Database triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
+            "Postgres triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
         ));
     }
 
@@ -336,8 +336,7 @@ pub async fn create_database_trigger(
             email, 
             enabled, 
             database_resource_path, 
-            edited_by,
-            edited_at
+            edited_by
         ) 
         VALUES (
             $1, 
@@ -349,8 +348,7 @@ pub async fn create_database_trigger(
             $7, 
             $8, 
             $9, 
-            $10, 
-            now()
+            $10
         )"#,
         pub_name,
         slot_name,
@@ -1170,7 +1168,7 @@ pub async fn delete_database_trigger(
 
     tx.commit().await?;
 
-    Ok(format!("Database trigger {path} deleted"))
+    Ok(format!("Postgres trigger {path} deleted"))
 }
 
 pub async fn exists_database_trigger(
@@ -1231,7 +1229,7 @@ pub async fn set_enabled(
     .await?
     .flatten();
 
-    not_found_if_none(one_o, "Database trigger", path)?;
+    not_found_if_none(one_o, "Postgres trigger", path)?;
 
     audit_log(
         &mut *tx,
@@ -1247,7 +1245,7 @@ pub async fn set_enabled(
     tx.commit().await?;
 
     Ok(format!(
-        "succesfully updated database trigger at path {} to status {}",
+        "succesfully updated postgres trigger at path {} to status {}",
         path, payload.enabled
     ))
 }
