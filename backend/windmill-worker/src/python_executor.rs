@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use futures::lock::Mutex;
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
