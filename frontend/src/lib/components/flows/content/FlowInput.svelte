@@ -403,7 +403,9 @@
 									connectFirstNode()
 								}}
 							>
-								Update schema
+								{Object.values(diff).every((el) => el.diff === 'same')
+									? 'Apply args'
+									: 'Update schema'}
 							</Button>
 							<Button
 								variant="border"
