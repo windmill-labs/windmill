@@ -34,7 +34,7 @@
 			})
 			$triggersCount = { ...($triggersCount ?? {}), database_count: databaseTriggers?.length }
 		} catch (e) {
-			console.error('impossible to load Database triggers', e)
+			console.error('impossible to load Postgres triggers', e)
 		}
 	}
 </script>
@@ -50,7 +50,7 @@
 	{#if !newItem}
 		{#if isCloudHosted()}
 			<Alert title="Not compatible with multi-tenant cloud" type="warning">
-				Database triggers are disabled in the multi-tenant cloud.
+				Postgres triggers are disabled in the multi-tenant cloud.
 			</Alert>
 		{:else if $userStore?.is_admin || $userStore?.is_super_admin}
 			<Button
@@ -60,7 +60,7 @@
 				size="xs"
 				startIcon={{ icon: UnplugIcon }}
 			>
-				New Database Trigger
+				New Postgres Trigger
 			</Button>
 		{:else}
 			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />
@@ -69,7 +69,7 @@
 
 	{#if databaseTriggers}
 		{#if databaseTriggers.length == 0}
-			<div class="text-xs text-secondary"> No Database triggers </div>
+			<div class="text-xs text-secondary"> No Postgres triggers </div>
 		{:else}
 			<div class="flex flex-col divide-y pt-2">
 				{#each databaseTriggers as databaseTriggers (databaseTriggers.path)}
@@ -97,7 +97,7 @@
 
 	{#if newItem}
 		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the {isFlow ? 'flow' : 'script'} to add Database triggers.
+			Deploy the {isFlow ? 'flow' : 'script'} to add Posgtres triggers.
 		</Alert>
 	{/if}
 </div>

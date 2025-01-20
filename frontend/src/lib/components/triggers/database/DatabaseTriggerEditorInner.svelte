@@ -278,7 +278,7 @@
 				)
 			} else {
 				sendUserToast(
-					"Logical replication is not enabled on your database. To use this feature, your PostgreSQL database must have <code>wal_level</code> configured as 'logical' in your database configuration.",
+					"Logical replication is not enabled on your database. To use this feature, your Postgres database must have <code>wal_level</code> configured as 'logical' in your database configuration.",
 					true
 				)
 			}
@@ -339,7 +339,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New postgresql triggers can take up to 30 seconds to start listening.
+						New postgres triggers can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>

@@ -28,13 +28,11 @@ use super::{
 
 pub struct LogicalReplicationSettings {
     pub streaming: bool,
-    #[allow(unused)]
-    pub binary: bool,
 }
 
 impl LogicalReplicationSettings {
-    pub fn new(binary: bool, streaming: bool) -> Self {
-        Self { binary, streaming }
+    pub fn new(streaming: bool) -> Self {
+        Self { streaming }
     }
 }
 
@@ -97,18 +95,10 @@ impl PostgresSimpleClient {
         publication_name: &str,
         logical_replication_slot_name: &str,
     ) -> Result<(CopyBothDuplex<Bytes>, LogicalReplicationSettings), Error> {
-        let binary_format = true;
-        let options = match binary_format {
-            true => format!(
-                r#"("proto_version" '2', "publication_names" {})"#,
-                //r#"("proto_version" '2', "publication_names" {}, "binary")"#,
-                quote_literal(publication_name),
-            ),
-            false => format!(
+        let options = format!(
                 r#"("proto_version" '2', "publication_names" {})"#,
                 quote_literal(publication_name),
-            ),
-        };
+        );
 
         let query = format!(
             r#"START_REPLICATION SLOT {} LOGICAL 0/0 {}"#,
@@ -121,7 +111,7 @@ impl PostgresSimpleClient {
                 .copy_both_simple::<bytes::Bytes>(query.as_str())
                 .await
                 .map_err(Error::Postgres)?,
-            LogicalReplicationSettings::new(binary_format, false),
+            LogicalReplicationSettings::new(false),
         ))
     }
 
@@ -143,7 +133,7 @@ impl PostgresSimpleClient {
         buf.put_i64(ts);
         buf.put_u8(0);
         copy_both_stream.send(buf.freeze()).await.unwrap();
-        tracing::info!("Send update status message");
+        tracing::debug!("Send update status message");
     }
 }
 

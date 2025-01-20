@@ -70,7 +70,7 @@
 			<Tab value="database">
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<Unplug size={12} />
-					Database
+					Postgres
 				</span>
 			</Tab>
 			<Tab value="kafka" otherValues={['nats']}>
