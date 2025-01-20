@@ -1245,6 +1245,8 @@ async fn spawn_uv_install(
                 "--target",
                 venv_p,
                 "--no-cache",
+                // If we invoke uv pip install, then we want to overwrite existing data
+                "--reinstall",
             ]
         };
 
@@ -1486,16 +1488,7 @@ pub async fn handle_python_reqs(
             req_paths.push(venv_p);
             in_cache.push(req.to_string());
         } else {
-            // There is no valid or no wheel at all. Let's make sure path is not occupied before we try to do the installation 
-            if metadata(&venv_p).await.is_ok() {
-                if let Err(e) = fs::remove_dir_all(&venv_p) {
-                    tracing::warn!(
-                        workspace_id = %w_id,
-                        "Failed to remove cache dir: {:?}",
-                        e
-                    );
-                }
-            }
+            // There is no valid or no wheel at all. Regardless of if there is content or not, we will overwrite it with --reinstall flag
             req_with_penv.push((req.to_string(), venv_p));
         }
     }
@@ -1866,6 +1859,15 @@ pub async fn handle_python_reqs(
             );
 
             pids.lock().await.get_mut(i).and_then(|e| e.take());
+            // Create a file to indicate that installation was successfull
+            let valid_path = venv_p.clone() + "/.valid.windmill";
+            if let Err(e) = File::create(&valid_path).await{
+                tracing::error!(
+                workspace_id = %w_id,
+                job_id = %job_id,
+                    "Failed to create {}!\n{e}\n
+                    This file needed for python jobs to function", valid_path)
+            };
             Ok(())
         }));
     }
@@ -1882,23 +1884,7 @@ pub async fn handle_python_reqs(
                 "Env installation failed: {:?}",
                 e
             );
-            if let Err(e) = fs::remove_dir_all(&venv_p) {
-                tracing::warn!(
-                    workspace_id = %w_id,
-                    "Failed to remove cache dir: {:?}",
-                    e
-                );
-            }
         } else {
-            // Create a file to indicate that installation was successfull
-            let valid_path= venv_p.clone() + "/.valid.windmill";
-            if let Err(e) = File::create(&valid_path).await{
-                tracing::error!(
-                workspace_id = %w_id,
-                job_id = %job_id,
-                    "Failed to create {}!\n{e}\n
-                    This file needed for python jobs to function", valid_path)
-            };
             req_paths.push(venv_p);
         }
     }
