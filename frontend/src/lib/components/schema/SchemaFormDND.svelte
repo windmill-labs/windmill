@@ -16,6 +16,7 @@
 	export let disabled: boolean = false
 	export let schemaSkippedValues: string[] = []
 	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+	export let disableDnd: boolean = false
 
 	export let diff: Record<string, SchemaDiff> = {}
 
@@ -85,19 +86,23 @@
 	{disablePortal}
 	{disabled}
 	bind:schema
-	dndConfig={{
-		items,
-		flipDurationMs,
-		dropTargetStyle: {},
-		type: dndType ?? 'top-level'
-	}}
+	dndConfig={disableDnd
+		? undefined
+		: {
+				items,
+				flipDurationMs,
+				dropTargetStyle: {},
+				type: dndType ?? 'top-level'
+		  }}
 	{items}
 	{diff}
 	{nestedParent}
 >
 	<svelte:fragment slot="actions">
-		<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
-			<GripVertical size={16} />
-		</div>
+		{#if !disableDnd}
+			<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
+				<GripVertical size={16} />
+			</div>
+		{/if}
 	</svelte:fragment>
 </SchemaForm>

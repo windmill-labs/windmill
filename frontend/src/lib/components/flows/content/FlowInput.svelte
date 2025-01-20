@@ -348,6 +348,7 @@
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
 				{diff}
+				disableDnd={!!previewSchema}
 				on:rejectChange={(e) => {
 					rejectChange(e.detail).then(() => {
 						updatePreviewSchema(selectedSchema)

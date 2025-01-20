@@ -50,6 +50,7 @@
 	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
 	export let diff: Record<string, SchemaDiff> = {}
+	export let disableDnd: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -273,6 +274,7 @@
 					<SchemaFormDnd
 						schema={previewSchema ? previewSchema : schema}
 						{dndType}
+						{disableDnd}
 						bind:args
 						on:click={(e) => {
 							opened = e.detail
