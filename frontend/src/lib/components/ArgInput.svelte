@@ -745,6 +745,7 @@
 												}}
 												args={value}
 												dndType={`nested-${title}`}
+												schemaSkippedValues={['label']}
 												on:reorder={(e) => {
 													if (oneOf && oneOf[objIdx]) {
 														const keys = e.detail
