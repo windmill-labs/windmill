@@ -5,7 +5,7 @@ use std::{
     process::Command,
 };
 
-use openapiv3::{OpenAPI, Operation};
+use openapiv3::OpenAPI;
 
 fn main() {
     let src = "../windmill-api/openapi.yaml";

@@ -5530,10 +5530,6 @@ paths:
             schema:
               type: object
               properties:
-                js:
-                  type: string
-                css:
-                  type: string
                 app:
                   type: object
                   properties:
@@ -5555,6 +5551,10 @@ paths:
                     - value
                     - summary
                     - policy
+                js:
+                  type: string
+                css:
+                  type: string
       responses:
         "201":
           description: app created
@@ -5919,10 +5919,6 @@ paths:
             schema:
               type: object
               properties:
-                js:
-                  type: string
-                css:
-                  type: string
                 app:
                   type: object
                   properties:
@@ -5937,6 +5933,10 @@ paths:
                       type: string
                     custom_path:
                       type: string
+                js:
+                  type: string
+                css:
+                  type: string
       responses:
         "200":
           description: app updated
