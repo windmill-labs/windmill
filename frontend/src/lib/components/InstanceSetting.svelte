@@ -8,6 +8,7 @@
 		BadgeX,
 		Info,
 		Plus,
+		RefreshCcw,
 		Slack,
 		X
 	} from 'lucide-svelte'
@@ -16,7 +17,7 @@
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import ConfirmButton from './ConfirmButton.svelte'
-	import { IndexSearchService, SettingService } from '$lib/gen'
+	import { IndexSearchService, SettingService, TeamsService } from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
@@ -27,6 +28,8 @@
 	import { fade } from 'svelte/transition'
 	import { base } from '$lib/base'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import { onMount } from 'svelte'
+	import type { TeamInfo, ChannelInfo } from '../gen/types.gen'
 
 	export let setting: Setting
 	export let version: string
@@ -39,6 +42,11 @@
 		result: string
 		attempted_at: string
 	} | null
+
+	let teams: TeamInfo[] = []
+	let selectedTeam: TeamInfo | null = null
+	let selectedChannel: ChannelInfo | null = null
+	let isFetching = false
 
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
@@ -109,6 +117,55 @@
 		}
 		return {
 			valid: false
+		}
+	}
+
+	async function fetchTeams() {
+		isFetching = true
+		try {
+			teams = await TeamsService.syncTeams()
+		} catch (error) {
+			console.error('Error fetching teams:', error)
+		} finally {
+			isFetching = false
+		}
+	}
+
+	onMount(async () => {
+		await fetchTeams()
+		const storedTeams = $values['critical_error_channels']?.find((el) =>
+			el.hasOwnProperty('teams_channel')
+		)?.teams_channel
+		if (storedTeams) {
+			selectedTeam = teams.find((team) => team.team_name === storedTeams.team_name) || null
+			selectedChannel =
+				selectedTeam?.channels.find((channel) => channel.channel_id === storedTeams.channel_id) ||
+				null
+		}
+	})
+
+	function handleTeamChange(event: Event) {
+		const teamId = (event.target as HTMLSelectElement).value
+		selectedTeam = teams.find((team) => team.team_id === teamId) || null
+		selectedChannel = null
+		console.log(selectedTeam)
+	}
+
+	function handleChannelChange(event: Event, setting: Setting, i: number) {
+		const channelId = (event.target as HTMLSelectElement).value
+		if (selectedTeam) {
+			selectedChannel =
+				selectedTeam.channels.find((channel) => channel.channel_id === channelId) || null
+		}
+		if (event.target?.['value']) {
+			$values[setting.key][i] = {
+				teams_channel: {
+					team_id: selectedTeam?.team_id,
+					team_name: selectedTeam?.team_name,
+					channel_id: channelId,
+					channel_name: selectedChannel?.channel_name
+				}
+			}
 		}
 	}
 </script>
@@ -339,7 +396,7 @@
 							{#each $values[setting.key] ?? [] as v, i}
 								<div class="flex w-full max-w-lg mt-1 gap-2 items-center">
 									<select
-										class="w-20"
+										class="max-w-24"
 										on:change={(e) => {
 											if (e.target?.['value']) {
 												$values[setting.key][i] = {
@@ -347,10 +404,17 @@
 												}
 											}
 										}}
-										value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
+										value={!v
+											? 'email'
+											: 'slack_channel' in v
+											? 'slack_channel'
+											: 'teams_channel' in v
+											? 'teams_channel'
+											: 'email'}
 									>
 										<option value="email">Email</option>
 										<option value="slack_channel">Slack</option>
+										<option value="teams_channel">Teams</option>
 									</select>
 									{#if v && 'slack_channel' in v}
 										<input
@@ -365,6 +429,43 @@
 											}}
 											value={v?.slack_channel ?? ''}
 										/>
+									{:else if v && 'teams_channel' in v}
+										<div class="flex flex-row gap-2 w-full">
+											<select on:change={handleTeamChange}>
+												<option value="" disabled selected={!selectedTeam}>Select team</option>
+												{#each teams as team}
+													<option
+														value={team.team_id}
+														selected={selectedTeam?.team_id === team.team_id}
+													>
+														{team.team_name}
+													</option>
+												{/each}
+											</select>
+											{#if selectedTeam}
+												<select
+													id="channel-select"
+													on:change={(e) => handleChannelChange(e, setting, i)}
+												>
+													<option value="" disabled selected={!selectedChannel}
+														>Select channel</option
+													>
+													{#each selectedTeam.channels as channel}
+														<option
+															value={channel.channel_id}
+															selected={selectedChannel?.channel_id === channel.channel_id}
+														>
+															{channel.channel_name}
+														</option>
+													{/each}
+												</select>
+											{/if}
+											<div>
+												<button on:click={fetchTeams} class="flex items-center gap-1 mt-2">
+													<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
+												</button>
+											</div>
+										</div>
 									{:else}
 										<input
 											type="email"

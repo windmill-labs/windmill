@@ -37,6 +37,7 @@
 		'visma',
 		'spotify',
 		'snowflake_oauth',
+		'teams',
 		'xero'
 	]
 
@@ -170,10 +171,12 @@
 		<div class="py-1" />
 		<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 		<div class="py-1" />
+		<OAuthSetting login={false} name="teams" bind:value={oauths['teams']} />
+		<div class="py-1" />
 
 		{#each Object.keys(oauths) as k}
 			{#if oauths[k] && !('login_config' in oauths[k])}
-				{#if !['slack'].includes(k) && oauths[k]}
+				{#if !['slack', 'teams'].includes(k) && oauths[k]}
 					<div class="flex flex-col gap-2 pb-4">
 						<div class="flex flex-row items-center gap-2">
 							<!-- svelte-ignore a11y-label-has-associated-control -->

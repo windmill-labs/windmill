@@ -31,7 +31,7 @@ use windmill_common::{
 };
 
 use lazy_static::lazy_static;
-use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
+use windmill_common::variables::{decrypt, encrypt};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -675,18 +675,4 @@ pub async fn get_value_internal<'c>(
     };
 
     Ok(r)
-}
-
-pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
-    mc.encrypt_str_to_base64(value)
-}
-
-pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
-    mc.decrypt_base64_to_string(value).map_err(|e| match e {
-        MagicCryptError::DecryptError(_) => Error::InternalErr(
-            "Could not decrypt value. The value may have been encrypted with a different key."
-                .to_string(),
-        ),
-        _ => Error::InternalErr(e.to_string()),
-    })
 }
