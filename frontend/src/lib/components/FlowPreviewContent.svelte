@@ -41,6 +41,7 @@
 	let jobProgressReset: () => void
 
 	export function test() {
+		renderCount++
 		runPreview($previewArgs, undefined)
 	}
 

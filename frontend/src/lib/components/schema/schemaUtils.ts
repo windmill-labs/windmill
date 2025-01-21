@@ -21,6 +21,10 @@ function isCompatibleObject(a: any, b: any): boolean {
 		return false
 	}
 
+	if (a.type === 'null' || b.type === 'null') {
+		return true
+	}
+
 	if (a.type !== b.type) {
 		return false
 	}
