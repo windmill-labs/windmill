@@ -438,6 +438,7 @@
 							on:addNew={(e) => {
 								handleEditSchema('inputEditor')
 								editableSchemaForm?.openField(e.detail)
+								$flowStore = $flowStore
 							}}
 						>
 							<svelte:fragment slot="trigger">

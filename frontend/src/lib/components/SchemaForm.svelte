@@ -194,12 +194,12 @@
 							autofocus={i == 0 && autofocus ? true : null}
 							label={argName}
 							description={formerProperty?.description}
-							bind:value={args[argName]}
+							value={args[argName]}
 							type={formerProperty?.type}
 							oneOf={formerProperty?.oneOf}
 							required={formerProperty?.required}
 							pattern={formerProperty?.pattern}
-							bind:valid={inputCheck[argName]}
+							valid={inputCheck[argName]}
 							defaultValue={structuredClone(formerProperty?.default)}
 							enum_={formerProperty?.enum}
 							format={formerProperty?.format}
@@ -213,7 +213,7 @@
 							{compact}
 							{variableEditor}
 							{itemPicker}
-							bind:pickForField
+							{pickForField}
 							password={linkedSecret == argName}
 							extra={formerProperty}
 							{showSchemaExplorer}
