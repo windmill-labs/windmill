@@ -235,11 +235,15 @@ fn gen_cs_proj(
     let script_call = match (sig_meta.is_async, sig_meta.returns_void) {
         (true, true) => format!(
             r#"
-            {class_name}.Main({spread}).Wait();"#
+            {class_name}.Main({spread}).Wait();
+            File.WriteAllText("result.json", "null");
+            "#
         ),
         (false, true) => format!(
             r#"
-            {class_name}.Main({spread});"#
+            {class_name}.Main({spread});
+            File.WriteAllText("result.json", "null");
+            "#
         ),
 
         (false, false) => format!(
@@ -282,9 +286,15 @@ namespace WindmillScriptCSharpInternal {{
             using FileStream fs = File.OpenRead("args.json");
             Args parsedArgs = JsonSerializer.Deserialize<Args>(fs);
 
-            File.WriteAllText("result.json", "null");
-
-            {script_call}
+            try
+            {{
+                {script_call}
+            }}
+            catch (Exception ex)
+            {{
+                Console.Error.WriteLine("Unhandeled Exception: " + ex.ToString());
+                Environment.Exit(1);
+            }}
         }}
     }}
 }}
@@ -330,6 +340,7 @@ async fn build_cs_proj(
             job_dir,
             "--no-self-contained",
             "-p:PublishSingleFile=true",
+            "-p:IncludeNativeLibrariesForSelfExtract=true",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

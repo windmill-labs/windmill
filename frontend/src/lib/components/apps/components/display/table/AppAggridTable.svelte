@@ -56,6 +56,7 @@
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const editorContext = getContext('AppEditorContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const { app, worldStore, selectedComponent, componentControl, darkMode, mode } = context
@@ -236,7 +237,8 @@
 
 		const componentContext = new Map<string, any>([
 			['AppViewerContext', context],
-			['ContextPanel', contextPanel]
+			['ContextPanel', contextPanel],
+			['AppEditorContext', editorContext]
 		])
 
 		const sortedActions: TableAction[] | undefined = computedOrder
