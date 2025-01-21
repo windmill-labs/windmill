@@ -69,7 +69,7 @@ pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
 
 pub const EMPTY_FILE: &str = "<empty>";
 
-/// Returnes (lock,
+/// Returns (package.json, bun.lock(b), is_empty, is_binary)
 fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
     if let Some(index) = lockfile.find(BUN_LOCK_SPLIT) {
         // Split using "\n//bun.lock\n"
@@ -221,11 +221,9 @@ pub async fn gen_bun_lockfile(
                 let file = format!("{job_dir}/bun.lock");
                 if !empty_deps && tokio::fs::metadata(&file).await.is_ok() {
                     let mut file = File::open(&file).await?;
-                    // let mut buf = vec![];
                     let mut buf = String::default();
                     file.read_to_string(&mut buf).await?;
                     content.push_str(&buf);
-                    // content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
                 } else {
                     content.push_str(&EMPTY_FILE);
                 }
@@ -921,7 +919,7 @@ pub async fn handle_bun_job(
 
         if lock.is_none() && !annotation.npm {
             return Err(error::Error::ExecutionErr(
-                format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
+                format!("Invalid requirements, expected to find //bun.lock{} split pattern in reqs. Found: |{reqs}|", if is_binary {"b"} else {""})
             ));
         }
 
