@@ -13,11 +13,11 @@ export function htmlContent(workspace: string, version: number) {
             <head>
                 <meta charset="UTF-8" />
                 <title>App Preview</title>
-                <link rel="stylesheet" href="/api/w/${workspace}/apps/get_data/v/${version}/index.css" />
+                <link rel="stylesheet" href="/api/w/${workspace}/apps/get_data/v/${version}.css" />
             </head>
             <body>
                 <div id="root"></div>
-                <script src="/api/w/${workspace}/apps/get_data/v/${version}/index.js"></script>
+                <script src="/api/w/${workspace}/apps/get_data/v/${version}.js"></script>
             </body>
         </html>
     `
@@ -38,20 +38,20 @@ export function genWmillTs(runnables: Record<string, HiddenRunnable>) {
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 	
 ${Object.entries(runnables)
-	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
+			.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
 
-	.join('\n')}
+			.join('\n')}
 
 export const runBg = {
 ${Object.keys(runnables)
-	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<any>`)
-	.join(',\n')}
+			.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<any>`)
+			.join(',\n')}
 }
 	
 export const runBgAsync = {
 ${Object.keys(runnables)
-	.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<string>`)
-	.join(',\n')}
+			.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<string>`)
+			.join(',\n')}
 }
 	
 

@@ -5,7 +5,6 @@ import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
-import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
 
 export let isInitialized = false
 export let isInitializing = false

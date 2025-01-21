@@ -230,13 +230,10 @@
 		}
 		await computeTriggerables()
 		try {
-			console.log('Bundle:')
 			const { js, css } = await getBundle()
 			await AppService.createAppRaw({
 				workspace: $workspaceStore!,
 				formData: {
-					js,
-					css,
 					app: {
 						value: app,
 						path,
@@ -244,7 +241,9 @@
 						policy,
 						deployment_message: deploymentMsg,
 						custom_path: customPath
-					}
+					},
+					js,
+					css
 				}
 			})
 			savedApp = {
@@ -337,8 +336,6 @@
 			workspace: $workspaceStore!,
 			path: appPath!,
 			formData: {
-				js,
-				css,
 				app: {
 					value: app!,
 					summary: summary,
@@ -349,7 +346,9 @@
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
 						$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined
-				}
+				},
+				js,
+				css
 			}
 		})
 		savedApp = {
@@ -418,8 +417,6 @@
 			await AppService.createAppRaw({
 				workspace: $workspaceStore!,
 				formData: {
-					js,
-					css,
 					app: {
 						value: app,
 						path: newEditedPath,
@@ -427,7 +424,9 @@
 						policy,
 						draft_only: true,
 						custom_path: customPath
-					}
+					},
+					js,
+					css
 				}
 			})
 			await DraftService.createDraft({
@@ -513,8 +512,6 @@
 				await AppService.createAppRaw({
 					workspace: $workspaceStore!,
 					formData: {
-						js,
-						css,
 						app: {
 							value: app!,
 							summary: summary,
@@ -522,7 +519,9 @@
 							path: newEditedPath || path,
 							draft_only: true,
 							custom_path: customPath
-						}
+						},
+						js,
+						css
 					}
 				})
 			}

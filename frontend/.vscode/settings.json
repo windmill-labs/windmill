@@ -1,5 +1,9 @@
 {
-	"cSpell.words": ["semibold", "stylelint"],
-	"deno.enable": true,
-	"deno.unstable": true
+	"remote.portsAttributes": {
+		"3000": {
+			"label": "Development Server",
+			"onAutoForward": "openPreview"
+		}
+	},
+	"remote.autoForwardPorts": true
 }

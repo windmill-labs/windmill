@@ -43,7 +43,6 @@
 
 	let draftTimeout: NodeJS.Timeout | undefined = undefined
 	function saveFrontendDraft() {
-		console.log('BAR saveFrontendDraft')
 		draftTimeout && clearTimeout(draftTimeout)
 		draftTimeout = setTimeout(() => {
 			try {
@@ -98,14 +97,8 @@
 	let selectedRunnable: string | undefined = undefined
 
 	function listener(e: MessageEvent) {
-		// console.log('FOO message from parent', e.data)
-
 		if (e.data.type === 'setFiles') {
-			console.log('FOO parentsetting files', e.data.files)
 			files = e.data.files
-		} else if (e.data.type === 'setRunnables') {
-			console.log('FOO parentsetting runnables', e.data.runnables)
-			runnables.set(e.data.runnables)
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
 		}

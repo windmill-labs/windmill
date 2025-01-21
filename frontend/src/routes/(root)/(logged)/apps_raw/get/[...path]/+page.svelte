@@ -27,6 +27,9 @@
 	function getRunnables(app: AppWithLastVersion) {
 		return (app?.value?.runnables ?? {}) as Record<string, HiddenRunnable>
 	}
+	function getVersion(app: AppWithLastVersion) {
+		return app?.value?.version as number
+	}
 </script>
 
 <div class="h-full min-h-[600px] w-full relative p-2bg-white">
@@ -38,7 +41,7 @@
 			workspace={$workspaceStore}
 			user={$userStore}
 			runnables={getRunnables(app)}
-			version={app?.versions[app?.versions.length - 1]}
+			version={getVersion(app)}
 		/>
 	{/if}
 	{#if can_write && !hideEditBtn}
