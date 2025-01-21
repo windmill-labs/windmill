@@ -40,12 +40,11 @@ export function computeDiff(
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
 				if (previewProp.type === 'object' && currentProp.type === 'object') {
-					if (previewProp.oneOf && currentProp.oneOf) {
-						//TODO: handle oneOf
-					} else if (
-						(previewProp.oneOf && !currentProp.oneOf) ||
-						(!previewProp.oneOf && currentProp.oneOf)
-					) {
+					if (previewProp.oneOf || currentProp.oneOf) {
+						//TODO: handle oneOf compatibility
+						diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
+					} else if (previewProp.format || currentProp.format) {
+						//TODO: handle s3 object compatibility
 						diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
 					} else {
 						const diffProp = computeDiff(previewProp, currentProp)
