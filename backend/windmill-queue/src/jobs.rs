@@ -3550,6 +3550,12 @@ pub async fn push<'c, 'd>(
             _low_level_priority
         }; // else it remains empty, i.e. no priority
     }
+    // prioritize flow steps to drain the queue faster
+    let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
+        Some(0)
+    } else {
+        final_priority
+    };
 
     let is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
