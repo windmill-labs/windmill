@@ -16,28 +16,37 @@ function isCompatible(diff: Record<string, SchemaDiff>) {
 	return compatible
 }
 
-function isCompatibleObject(a: any, b: any) {
-	let compatible = false
-	if (a.type === b.type) {
-		if (a.type === 'object' && a.format === b.format) {
-			if (a.oneOf && b.oneOf) {
-				compatible = true
-			} else if (!a.oneOf && !b.oneOf) {
-				compatible = true
-			} else {
-				compatible = true
-			}
-		} else if (a.type === 'array' && a.items.type === b.items.type) {
-			compatible = true
-		} else if (a.type === 'string' && a.format === b.format) {
-			compatible = true
-		} else if (a.type === 'boolean') {
-			compatible = true
-		} else if (a.type === 'number') {
-			compatible = true
-		}
+function isCompatibleObject(a: any, b: any): boolean {
+	if (!a || !b) {
+		return false
 	}
-	return compatible
+
+	if (a.type !== b.type) {
+		return false
+	}
+
+	switch (a.type) {
+		case 'object':
+			if (a.oneOf || b.oneOf) {
+				//TODO: handle oneOf compatibility. here we assume that only b is oneOf
+				return true
+			}
+			return a.format === b.format
+
+		case 'array':
+			return a.items?.type === b.items?.type
+
+		case 'string':
+			return a.format === b.format
+
+		case 'boolean':
+		case 'number':
+		case 'integer':
+			return true
+
+		default:
+			return false
+	}
 }
 
 export function computeDiff(
@@ -60,9 +69,14 @@ export function computeDiff(
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
 				if (previewProp.type === 'object' && currentProp.type === 'object') {
-					if (previewProp.oneOf || currentProp.oneOf) {
-						//TODO: handle oneOf compatibility
-						diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
+					if (JSON.stringify(previewProp) === JSON.stringify(currentProp)) {
+						diff[key] = { diff: 'same', fullSchema: undefined }
+					} else if (previewProp.oneOf || currentProp.oneOf) {
+						if (isCompatibleObject(previewProp, currentProp)) {
+							diff[key] = { diff: 'same', fullSchema: undefined }
+						} else {
+							diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
+						}
 					} else if (previewProp.format || currentProp.format) {
 						//TODO: handle s3 object compatibility
 						diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }

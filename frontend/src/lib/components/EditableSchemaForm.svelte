@@ -455,7 +455,6 @@
 															{isAppInput}
 															on:change={() => {
 																schema = schema
-																// console.log('schema', schema)
 																dispatch('change', schema)
 															}}
 														>
@@ -469,8 +468,6 @@
 																			on:selected={(e) => {
 																				const isS3 = e.detail == 'S3'
 																				const isOneOf = e.detail == 'oneOf'
-
-																				selected = e.detail
 
 																				const emptyProperty = {
 																					contentEncoding: undefined,
@@ -538,8 +535,11 @@
 																						type: e.detail
 																					}
 																				}
-																				schema = schema
-																				dispatch('change', schema)
+																				// No better solution than this, needs future rework
+																				setTimeout(() => {
+																					schema = schema
+																					dispatch('change', schema)
+																				}, 100)
 																			}}
 																		>
 																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
