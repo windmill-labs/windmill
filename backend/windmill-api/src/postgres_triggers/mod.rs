@@ -93,7 +93,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_postgres_trigger))
         .route("/exists/*path", get(exists_postgres_trigger))
         .route("/setenabled/*path", post(set_enabled))
-        .route("/get_template_script/:id", post(get_template_script))
+        .route("/get_template_script/:id", get(get_template_script))
         .route("/create_template_script", post(create_template_script))
         .route(
             "/is_valid_database_configuration/*path",

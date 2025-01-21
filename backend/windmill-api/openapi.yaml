@@ -8267,12 +8267,13 @@ paths:
                 type: string
 
   /w/{workspace}/postgres_triggers/get_template_script/{id}:
-    post:
+    get:
       summary: get template script
       operationId: getTemplateScript
       tags:
         - postgres_trigger
       parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Id"
       responses:
         "200":
@@ -11000,6 +11001,12 @@ components:
       name: token
 
   parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
     Key:
       name: key
       in: path
@@ -11008,12 +11015,6 @@ components:
         type: string
     WorkspaceId:
       name: workspace
-      in: path
-      required: true
-      schema:
-        type: string
-    Id:
-      name: id
       in: path
       required: true
       schema:

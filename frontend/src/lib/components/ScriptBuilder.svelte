@@ -243,6 +243,7 @@
 		}
 		try {
 			getInitBlockTemplate = await PostgresTriggerService.getTemplateScript({
+				workspace: $workspaceStore!,
 				id: getInitBlockTemplate as string
 			})
 			return getInitBlockTemplate
