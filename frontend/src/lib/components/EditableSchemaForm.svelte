@@ -300,7 +300,9 @@
 							{diff}
 							on:acceptChange
 							on:rejectChange
-							on:nestedChange
+							on:nestedChange={() => {
+								dispatch('change', schema)
+							}}
 							{shouldDispatchChanges}
 						/>
 

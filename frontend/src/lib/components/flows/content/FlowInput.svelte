@@ -362,8 +362,11 @@
 					})
 				}}
 				shouldDispatchChanges={true}
-				on:nestedChange={() => {
+				on:change={() => {
 					previewArguments = previewArguments
+					if (!previewSchema) {
+						savedPreviewArgs = structuredClone(previewArguments)
+					}
 				}}
 			>
 				<svelte:fragment slot="openEditTab">
