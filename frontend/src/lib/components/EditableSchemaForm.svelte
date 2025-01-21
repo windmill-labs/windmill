@@ -51,6 +51,7 @@
 	export let editPanelSize = 0
 	export let diff: Record<string, SchemaDiff> = {}
 	export let disableDnd: boolean = false
+	export let shouldDispatchChanges: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -299,6 +300,8 @@
 							{diff}
 							on:acceptChange
 							on:rejectChange
+							on:nestedChange
+							{shouldDispatchChanges}
 						/>
 
 						<slot name="runButton" />

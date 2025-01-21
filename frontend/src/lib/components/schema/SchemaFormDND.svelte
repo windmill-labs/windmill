@@ -17,7 +17,7 @@
 	export let schemaSkippedValues: string[] = []
 	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
 	export let disableDnd: boolean = false
-
+	export let shouldDispatchChanges: boolean = false
 	export let diff: Record<string, SchemaDiff> = {}
 
 	const dispatch = createEventDispatcher()
@@ -79,6 +79,7 @@
 	on:finalize={handleFinalize}
 	on:acceptChange
 	on:rejectChange
+	on:nestedChange
 	{lightweightMode}
 	bind:args
 	{prettifyHeader}
@@ -97,6 +98,7 @@
 	{items}
 	{diff}
 	{nestedParent}
+	{shouldDispatchChanges}
 >
 	<svelte:fragment slot="actions">
 		{#if !disableDnd}

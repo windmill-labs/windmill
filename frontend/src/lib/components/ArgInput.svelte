@@ -743,7 +743,7 @@
 													required: obj.required ?? [],
 													type: 'object'
 												}}
-												args={value}
+												bind:args={value}
 												dndType={`nested-${title}`}
 												schemaSkippedValues={['label']}
 												on:reorder={(e) => {
@@ -752,7 +752,11 @@
 														oneOf[objIdx].order = keys
 													}
 												}}
-												on:change
+												on:change={() => {
+													dispatch('nestedChange')
+												}}
+												on:nestedChange
+												{shouldDispatchChanges}
 											/>
 										{:else}
 											<SchemaForm
@@ -768,6 +772,11 @@
 													type: 'object'
 												}}
 												bind:args={value}
+												{shouldDispatchChanges}
+												on:change={() => {
+													dispatch('nestedChange')
+												}}
+												on:nestedChange
 											/>
 										{/if}
 									</div>
@@ -818,13 +827,15 @@
 								type: 'object',
 								order
 							}}
-							args={value}
+							bind:args={value}
 							dndType={`nested-${title}`}
 							on:reorder={(e) => {
 								const keys = e.detail
 								order = keys
 							}}
-							on:change
+							on:change={() => {
+								dispatch('nestedChange')
+							}}
 							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
 							on:acceptChange={(e) => {
 								dispatch('acceptChange', e.detail)
@@ -832,7 +843,9 @@
 							on:rejectChange={(e) => {
 								dispatch('rejectChange', e.detail)
 							}}
+							on:nestedChange
 							nestedParent={{ label, nestedParent }}
+							{shouldDispatchChanges}
 						/>
 					{:else}
 						<SchemaForm
@@ -855,6 +868,11 @@
 							on:rejectChange={(e) => {
 								dispatch('rejectChange', e.detail)
 							}}
+							on:change={() => {
+								dispatch('nestedChange')
+							}}
+							on:nestedChange
+							{shouldDispatchChanges}
 						/>
 					{/if}
 				</div>

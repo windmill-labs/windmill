@@ -187,7 +187,7 @@
 
 	function runPreview() {
 		if (previewArguments) {
-			$previewArgs = previewArguments
+			$previewArgs = structuredClone(previewArguments)
 		}
 		previewOpen = true
 		flowPreviewContent?.test()
@@ -360,6 +360,10 @@
 					acceptChange(e.detail).then(() => {
 						updatePreviewSchema(selectedSchema)
 					})
+				}}
+				shouldDispatchChanges={true}
+				on:nestedChange={() => {
+					previewArguments = previewArguments
 				}}
 			>
 				<svelte:fragment slot="openEditTab">

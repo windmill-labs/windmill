@@ -49,6 +49,7 @@
 	export let lightHeader = false
 	export let diff: Record<string, SchemaDiff> = {}
 	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+	export let shouldDispatchChanges = false
 
 	const dispatch = createEventDispatcher()
 
@@ -296,7 +297,12 @@
 									</LightweightArgInput>
 								{:else}
 									<ArgInput
-										on:change={() => dispatch('change')}
+										on:change={() => {
+											dispatch('change')
+										}}
+										on:nestedChange={() => {
+											dispatch('nestedChange')
+										}}
 										on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
 										on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
 										{disablePortal}
@@ -341,6 +347,7 @@
 										{lightHeader}
 										diffStatus={diff[argName] ?? undefined}
 										{nestedParent}
+										{shouldDispatchChanges}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />
