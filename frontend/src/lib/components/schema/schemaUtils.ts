@@ -34,7 +34,7 @@ function isCompatibleObject(a: any, b: any): boolean {
 			return a.format === b.format
 
 		case 'array':
-			return a.items?.type === b.items?.type
+			return !a.items || !b.items || a.items?.type === b.items?.type
 
 		case 'string':
 			return a.format === b.format
