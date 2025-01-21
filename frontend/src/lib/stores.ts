@@ -46,9 +46,6 @@ export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined
 )
-export const databaseTrigger = writable<
-	{ codeTemplate: string; databaseTrigger?: CreateDatabaseTriggerData['requestBody'] } | undefined
->(undefined)
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
 export const isPremiumStore = writable<boolean>(false)

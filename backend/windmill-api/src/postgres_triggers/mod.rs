@@ -13,10 +13,10 @@ use axum::{
 };
 use handler::{
     alter_publication, create_postgres_trigger, create_publication, create_slot,
-    delete_postgres_trigger, delete_publication, drop_slot_name, exists_postgres_trigger,
-    get_postgres_trigger, get_publication_info, get_template_script, is_database_in_logical_level,
-    list_database_publication, list_postgres_triggers, list_slot_name, set_enabled,
-    update_postgres_trigger, Database, DatabaseTrigger,
+    create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
+    exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
+    is_database_in_logical_level, list_database_publication, list_postgres_triggers,
+    list_slot_name, set_enabled, update_postgres_trigger, Database, DatabaseTrigger,
 };
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -93,7 +93,8 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_postgres_trigger))
         .route("/exists/*path", get(exists_postgres_trigger))
         .route("/setenabled/*path", post(set_enabled))
-        .route("/get_template_script", post(get_template_script))
+        .route("/get_template_script/:id", post(get_template_script))
+        .route("/create_template_script", post(create_template_script))
         .route(
             "/is_valid_database_configuration/*path",
             get(is_database_in_logical_level),

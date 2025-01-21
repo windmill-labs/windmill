@@ -6,17 +6,13 @@
 		type NewScriptWithDraft,
 		ScheduleService,
 		type Script,
-		type TriggersCount
+		type TriggersCount,
+		PostgresTriggerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import {
-		databaseTrigger,
-		defaultScripts,
-		enterpriseLicense,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { page } from '$app/stores'
+	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
 		emptySchema,
@@ -236,21 +232,38 @@
 
 	$: !disableHistoryChange &&
 		replaceStateFn('#' + encodeState({ ...script, primarySchedule: $primaryScheduleStore }))
-
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
 	}
 
-	function initContent(
+	async function isTemplateScript() {
+		let getInitBlockTemplate = $page.url.searchParams.get('id')
+		if (getInitBlockTemplate === null) {
+			return undefined
+		}
+		try {
+			getInitBlockTemplate = await PostgresTriggerService.getTemplateScript({
+				id: getInitBlockTemplate as string
+			})
+			return getInitBlockTemplate
+		} catch (error) {
+			sendUserToast(
+				'An error occured when trying to load your template script, please try again later',
+				true
+			)
+		}
+	}
+
+	async function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
 		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
 	) {
 		scriptEditor?.disableCollaboration()
-		let getInitBlockTemplate = $databaseTrigger?.codeTemplate != undefined
-		script.content = initialCode(language, kind, template, getInitBlockTemplate)
-		if (getInitBlockTemplate) {
-			script.content += '\r\n' + $databaseTrigger?.codeTemplate
+		const templateScript = await isTemplateScript()
+		script.content = initialCode(language, kind, template, templateScript != undefined)
+		if (templateScript) {
+			script.content += '\r\n' + templateScript
 		}
 		scriptEditor?.inferSchema(script.content, language, true)
 		if (script.content != editor?.getCode()) {

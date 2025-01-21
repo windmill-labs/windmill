@@ -15,6 +15,15 @@ use serde_json::{to_value, Number, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
+/**
+* This implementation is inspired by Postgres replication functionality
+* from https://github.com/supabase/pg_replicate
+* 
+* Original implementation: 
+* - https://github.com/supabase/pg_replicate/blob/main/pg_replicate/src/conversions/text.rs
+* 
+*/
+
 #[derive(Debug, Error)]
 pub enum ConverterError {
     #[error("invalid bool value")]

@@ -6,6 +6,10 @@ use std::{
     str::FromStr,
 };
 
+use crate::{
+    db::{ApiAuthed, DB},
+    postgres_triggers::mapper::{Mapper, MappingInfo},
+};
 use axum::{
     extract::{Path, Query},
     Extension, Json,
@@ -14,6 +18,7 @@ use chrono::Utc;
 use http::StatusCode;
 use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
+use quick_cache::sync::Cache;
 use rand::Rng;
 use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -31,12 +36,8 @@ use windmill_common::{
     worker::CLOUD_HOSTED,
 };
 
-use crate::{
-    postgres_triggers::mapper::{Mapper, MappingInfo},
-    db::{ApiAuthed, DB},
-};
-
 use super::get_database_resource;
+use lazy_static::lazy_static;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct Database {
@@ -64,6 +65,10 @@ impl TableToTrack {
     ) -> TableToTrack {
         TableToTrack { table_name, where_clause, columns_name }
     }
+}
+
+lazy_static! {
+    pub static ref TEMPLATE: Cache<String, String> = Cache::new(50);
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -1250,15 +1255,22 @@ pub async fn set_enabled(
     ))
 }
 
-pub async fn get_template_script(
+pub async fn get_template_script(Path((_, id)): Path<(String, String)>) -> error::Result<String> {
+    let template = if let Some((_, template)) = TEMPLATE.remove(&id) {
+        template
+    } else {
+        "".to_string()
+    };
+    Ok(template)
+}
+
+pub async fn create_template_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(template_script): Json<TemplateScript>,
 ) -> error::Result<String> {
-    use windmill_common::error::Error;
-
     let TemplateScript { database_resource_path, relations, language } = template_script;
     if relations.is_none() {
         return Err(Error::BadRequest(
@@ -1398,8 +1410,19 @@ pub async fn get_template_script(
 
     let mapper = Mapper::new(mapper, language);
 
+    let create_template_id = |w_id: &str| -> String {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        let id = format!("{}-{}", &w_id, &uuid);
+
+        id
+    };
+
     let template = mapper.get_template();
-    Ok(template)
+    let id = create_template_id(&w_id);
+
+    TEMPLATE.insert(id.clone(), template);
+
+    Ok(id)
 }
 
 pub async fn is_database_in_logical_level(

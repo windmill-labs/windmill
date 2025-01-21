@@ -6,7 +6,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { PostgresTriggerService, type Language, type Relations } from '$lib/gen'
-	import { databaseTrigger, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
@@ -14,7 +14,6 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -237,7 +236,7 @@
 
 		try {
 			loading = true
-			let template = await PostgresTriggerService.getTemplateScript({
+			let templateId = await PostgresTriggerService.createTemplateScript({
 				workspace: $workspaceStore!,
 				requestBody: {
 					relations,
@@ -245,19 +244,8 @@
 					database_resource_path
 				}
 			})
-			databaseTrigger.set({
-				codeTemplate: template,
-				databaseTrigger: {
-					path,
-					script_path,
-					is_flow,
-					enabled: true,
-					database_resource_path,
-					replication_slot_name,
-					publication_name
-				}
-			})
-			await goto(`${base}/scripts/add`)
+			window.open(`${base}/scripts/add?id=${templateId}`)
+			loading = false
 		} catch (error) {
 			loading = false
 			sendUserToast(error.body, true)

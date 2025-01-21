@@ -17,6 +17,16 @@ use super::trigger::LogicalReplicationSettings;
 const PRIMARY_KEEPALIVE_BYTE: u8 = b'k';
 const X_LOG_DATA_BYTE: u8 = b'w';
 
+/**
+* This implementation is inspired by Postgres replication functionality
+* from https://github.com/supabase/pg_replicate
+* 
+* Original implementation: 
+* - https://github.com/supabase/pg_replicate/blob/main/pg_replicate/src/conversions/cdc_event.rs
+* 
+*/
+
+
 #[derive(Debug)]
 pub struct PrimaryKeepAliveBody {
     pub wal_end: u64,

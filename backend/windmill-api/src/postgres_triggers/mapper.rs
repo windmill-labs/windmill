@@ -109,6 +109,13 @@ impl Mapper {
         let struct_definition = match self.language {
             Language::Typescript => self.into_typescript_template(),
         };
+
+        let struct_definition = if struct_definition.is_empty() {
+            "any".to_string()
+        } else {
+            struct_definition.join("\t| ")
+        };
+
         format!(
             r#"
 
@@ -121,7 +128,7 @@ export async function main(
 ) {{
 }}
     "#,
-            struct_definition.join("\t| "),
+            struct_definition
         )
     }
 }
