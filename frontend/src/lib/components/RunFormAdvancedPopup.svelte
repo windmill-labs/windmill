@@ -4,7 +4,7 @@
 	import CloseButton from './common/CloseButton.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { userStore, workerTags } from '$lib/stores'
+	import { userStore, workerTags, workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import { WorkerService } from '$lib/gen'
 	import DateTimeInput from './DateTimeInput.svelte'
@@ -31,7 +31,7 @@
 
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
+			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 		}
 	}
 </script>
