@@ -40,15 +40,24 @@ export function computeDiff(
 				const previewProp = previewSchema.properties[key]
 				const currentProp = currentSchema.properties[key]
 				if (previewProp.type === 'object' && currentProp.type === 'object') {
-					const diffProp = computeDiff(previewProp, currentProp)
-					const checkIfSame = isCompatible(diffProp)
-					if (checkIfSame) {
-						diff[key] = { diff: 'same', fullSchema: undefined }
+					if (previewProp.oneOf && currentProp.oneOf) {
+						//TODO: handle oneOf
+					} else if (
+						(previewProp.oneOf && !currentProp.oneOf) ||
+						(!previewProp.oneOf && currentProp.oneOf)
+					) {
+						diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
 					} else {
-						diff[key] = {
-							diff: diffProp,
-							fullSchema: previewProp,
-							oldSchema: currentProp
+						const diffProp = computeDiff(previewProp, currentProp)
+						const checkIfSame = isCompatible(diffProp)
+						if (checkIfSame) {
+							diff[key] = { diff: 'same', fullSchema: undefined }
+						} else {
+							diff[key] = {
+								diff: diffProp,
+								fullSchema: previewProp,
+								oldSchema: currentProp
+							}
 						}
 					}
 				} else if (isCompatibleObject(previewProp, currentProp)) {
