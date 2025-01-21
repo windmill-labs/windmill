@@ -34,6 +34,7 @@
 				not exist because branch was not chosen)</li
 			>
 			<li><b>flow_input</b>: the object containing the flow input arguments</li>
+			<li><b>previous_result</b>: the result of previous step</li>
 			<li><b>params</b>: the object containing the current step static values</li>
 			<li>
 				<b>variable(path)</b>: the function returning the variable (including secrets) at given path

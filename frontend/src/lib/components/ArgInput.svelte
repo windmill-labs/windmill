@@ -7,7 +7,7 @@
 		getSchemaFromProperties
 	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher, tick } from 'svelte'
+	import { createEventDispatcher, onMount, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
@@ -97,6 +97,8 @@
 	export let otherArgs: Record<string, any> = {}
 	export let lightHeader = false
 
+	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
@@ -114,12 +116,12 @@
 			}
 		}
 	}
-	$: updateOneOfSelected(oneOf)
 	function updateOneOfSelectedValue(oneOfSelected: string | undefined) {
 		if (oneOfSelected) {
 			value = { label: oneOfSelected }
 		}
 	}
+	$: updateOneOfSelected(oneOf)
 	$: updateOneOfSelectedValue(oneOfSelected)
 
 	const dispatch = createEventDispatcher()
@@ -132,8 +134,6 @@
 	let hasIsListJsonChanged = false
 
 	let el: HTMLTextAreaElement | undefined = undefined
-
-	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
 	let rawValue: string | undefined = undefined
 
@@ -167,8 +167,6 @@
 			value = null
 		}
 	}
-
-	computeDefaultValue()
 
 	$: computeDefaultValue(value, inputCat, defaultValue, nullable)
 
@@ -219,14 +217,29 @@
 		oldDefaultValue = structuredClone(defaultValue)
 	}
 
-	function evalValueToRaw() {
-		rawValue =
+	function isObjectCat(inputCat?: string) {
+		return (
 			inputCat === 'object' || inputCat === 'resource-object' || (inputCat == 'list' && !isListJson)
-				? JSON.stringify(value, null, 2)
-				: undefined
+		)
 	}
 
-	evalValueToRaw()
+	function evalValueToRaw() {
+		rawValue = isObjectCat(inputCat) ? JSON.stringify(value, null, 2) : undefined
+		rawValue && editor?.getCode() != rawValue && editor?.setCode(rawValue)
+		// console.log('evalValueToRaw', value, rawValue, inputCat, label)
+	}
+
+	$: inputCat &&
+		isObjectCat(inputCat) &&
+		rawValue == undefined &&
+		value != undefined &&
+		evalValueToRaw()
+
+	onMount(() => {
+		computeDefaultValue()
+		// console.log('onMount', value, rawValue, inputCat)
+		evalValueToRaw()
+	})
 
 	function fileChanged(e: any, cb: (v: string | undefined) => void) {
 		let t = e.target
@@ -253,7 +266,7 @@
 		if (nullable && emptyString(v)) {
 			error = ''
 			valid && (valid = true)
-		} else if (required && (v == undefined || v == null || v === '')) {
+		} else if (required && (v == undefined || v == null || v === '') && inputCat != 'object') {
 			error = 'Required'
 			valid && (valid = false)
 		} else {
@@ -332,6 +345,7 @@
 	}}
 	readOnlyMode={false}
 />
+
 <!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
@@ -395,19 +409,21 @@
 					</div>
 				{/if}
 			{:else if inputCat == 'boolean'}
-				<Toggle
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					{disabled}
-					class={valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-					bind:checked={value}
-				/>
-				{#if type == 'boolean' && value == undefined}
-					<span>&nbsp; Not set</span>
-				{/if}
+				<div class="w-full">
+					<Toggle
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+						}}
+						{disabled}
+						class={valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+						bind:checked={value}
+					/>
+					{#if type == 'boolean' && value == undefined}
+						<span>&nbsp; Not set</span>
+					{/if}
+				</div>
 			{:else if inputCat == 'list' && !isListJson}
 				<div class="w-full flex gap-4">
 					<div class="w-full">
@@ -510,7 +526,7 @@
 														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 														aria-label="Clear"
 														on:click={() => {
-															value.splice(i, 1)
+															value = value.filter((_, index) => index !== i)
 															redraw += 1
 														}}
 													>

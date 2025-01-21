@@ -7,6 +7,7 @@
 	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
+	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false
@@ -35,7 +36,7 @@
 			{path}
 			hash={data?.hash}
 			token={data?.token}
-			{args}
+			runnableArgs={data?.args}
 			scopes={data?.scopes}
 			showCapture={false}
 		/>
@@ -43,9 +44,10 @@
 		<RouteEditorConfigSection
 			showCapture={false}
 			can_write={true}
-			bind:route_path={args.route_path}
-			bind:http_method={args.http_method}
+			bind:args
 			headless
+			{isFlow}
+			{path}
 		/>
 	{:else if triggerType === 'email'}
 		<EmailTriggerConfigSection
@@ -57,6 +59,8 @@
 			emailDomain={data?.emailDomain}
 		/>
 	{:else if triggerType === 'kafka'}
-		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} />
+		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
+	{:else if triggerType === 'nats'}
+		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{/if}
 </div>

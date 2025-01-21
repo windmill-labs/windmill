@@ -16,6 +16,7 @@ export type TriggerContext = {
 	simplifiedPoll: Writable<boolean | undefined>
 	defaultValues: Writable<Record<string, any> | undefined>
 	captureOn: Writable<boolean | undefined>
+	showCaptureHint: Writable<boolean | undefined>
 }
 
 export function setScheduledPollSchedule(
@@ -48,7 +49,7 @@ export type TriggerKind =
 	| 'websockets'
 	| 'scheduledPoll'
 	| 'kafka'
-
+	| 'nats'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':
@@ -61,6 +62,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'websockets'
 		case 'kafka':
 			return 'kafka'
+		case 'nats':
+			return 'nats'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

@@ -13,6 +13,7 @@
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
+	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -81,31 +82,21 @@
 				})
 				await getCaptureConfigs()
 			}
-			captureTable?.refreshCaptures()
 			i++
 			await sleep(1000)
+			captureTable?.loadCaptures(true)
 		}
 	}
 
+	let ready = false
 	function setDefaultArgs(captureConfigs: { [key: string]: CaptureConfig }) {
 		if (captureType in captureConfigs) {
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
-		} else if (captureType === 'kafka') {
-			args = {
-				...args,
-				brokers: [''],
-				topics: [''],
-				group_id: `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
-			}
-		} else if (captureType === 'http') {
-			args = {
-				route_path: '',
-				http_method: 'post'
-			}
 		} else {
 			args = {}
 		}
+		ready = true
 	}
 
 	onDestroy(() => {
@@ -131,15 +122,21 @@
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
 
-	let cloudDisabled = (captureType === 'websocket' || captureType === 'kafka') && isCloudHosted()
+	let cloudDisabled =
+		(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
+		isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if ((captureType === 'websocket' || captureType === 'kafka') && config && captureActive) {
+		if (
+			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
+			config &&
+			captureActive
+		) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
-				? `${capitalize(captureType)} is connected`
-				: `${capitalize(captureType)} is not connected${config.error ? ': ' + config.error : ''}`
+				? `Connected`
+				: `Not connected${config.error ? ': ' + config.error : ''}`
 			connectionInfo = {
 				connected,
 				message
@@ -163,93 +160,119 @@
 	$: args && (captureActive = false)
 </script>
 
-<div class="flex flex-col gap-4 w-full">
-	{#if cloudDisabled}
-		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-			{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.
-		</Alert>
-	{:else if captureType === 'websocket'}
-		<WebsocketEditorConfigSection
-			can_write={true}
-			headless={true}
-			bind:url={args.url}
-			bind:url_runnable_args={args.url_runnable_args}
-			{showCapture}
-			{captureInfo}
-			bind:captureTable
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:captureToggle={() => {
-				handleCapture()
-			}}
-		/>
-	{:else if captureType === 'webhook'}
-		<WebhooksConfigSection
-			{isFlow}
-			{path}
-			hash={data?.hash}
-			token={data?.token}
-			{args}
-			scopes={data?.scopes}
-			{showCapture}
-			{captureInfo}
-			bind:captureTable
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:captureToggle={() => {
-				handleCapture()
-			}}
-		/>
-	{:else if captureType === 'http'}
-		<RouteEditorConfigSection
-			{showCapture}
-			can_write={true}
-			bind:route_path={args.route_path}
-			bind:http_method={args.http_method}
-			headless
-			{captureInfo}
-			bind:captureTable
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:captureToggle={() => {
-				handleCapture()
-			}}
-		/>
-	{:else if captureType === 'email'}
-		<EmailTriggerConfigSection
-			hash={data?.hash}
-			token={data?.token}
-			{path}
-			{isFlow}
-			userSettings={data?.userSettings}
-			emailDomain={data?.emailDomain}
-			{showCapture}
-			{captureInfo}
-			bind:captureTable
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:captureToggle={() => {
-				handleCapture()
-			}}
-		/>
-	{:else if captureType === 'kafka'}
-		<KafkaTriggersConfigSection
-			headless={true}
-			bind:args
-			staticInputDisabled={false}
-			{showCapture}
-			{captureInfo}
-			bind:captureTable
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:captureToggle={() => {
-				handleCapture()
-			}}
-		/>
-	{/if}
-</div>
+{#key ready}
+	<div class="flex flex-col gap-4 w-full">
+		{#if cloudDisabled}
+			<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+				{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.
+			</Alert>
+		{:else if captureType === 'websocket'}
+			<WebsocketEditorConfigSection
+				can_write={true}
+				headless={true}
+				bind:url={args.url}
+				bind:url_runnable_args={args.url_runnable_args}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'webhook'}
+			<WebhooksConfigSection
+				{isFlow}
+				{path}
+				hash={data?.hash}
+				token={data?.token}
+				runnableArgs={data?.args}
+				scopes={data?.scopes}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'http'}
+			<RouteEditorConfigSection
+				{isFlow}
+				{path}
+				{showCapture}
+				can_write={true}
+				runnableArgs={data?.args}
+				bind:args
+				headless
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'email'}
+			<EmailTriggerConfigSection
+				hash={data?.hash}
+				token={data?.token}
+				{path}
+				{isFlow}
+				userSettings={data?.userSettings}
+				emailDomain={data?.emailDomain}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'kafka'}
+			<KafkaTriggersConfigSection
+				headless={true}
+				{path}
+				bind:args
+				staticInputDisabled={false}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'nats'}
+			<NatsTriggersConfigSection
+				headless={true}
+				bind:args
+				{path}
+				staticInputDisabled={false}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+			/>
+		{/if}
+	</div>
+{/key}

@@ -26,6 +26,7 @@ use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
+use windmill_common::utils::now_from_db;
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
@@ -223,6 +224,20 @@ pub async fn cancel_job<'c>(
                 }
                 None => break,
             }
+        }
+    }
+
+    // prevent cancelling a future tick of a schedule
+    if let Some(schedule_path) = job.schedule_path.as_ref() {
+        let now = now_from_db(&mut *tx).await?;
+        if job.scheduled_for > now {
+            return Err(Error::BadRequest(
+                format!(
+                    "Cannot cancel a future tick of a schedule, cancel the schedule direcly ({})",
+                    schedule_path
+                )
+                .to_string(),
+            ));
         }
     }
 
@@ -708,17 +723,26 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         _skip_downstream_error_handlers = schedule.ws_error_handler_muted;
                     }
 
-                    // script or flow that failed on start and might not have been rescheduled
+                    // for scripts, always try to schedule next tick
+                    // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()}) or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
+                    // otherwise flow rescheduling is done inside handle_flow
                     let schedule_next_tick = !queued_job.is_flow()
-                        || {
-                            let flow_status = queued_job.parse_flow_status();
-                            flow_status.is_some_and(|fs| {
-                            fs.step == 0
-                            && fs.modules.get(0).is_some_and(|m| {
-                                matches!(m, FlowStatusModule::WaitingForPriorSteps { .. }) || matches!(m, FlowStatusModule::Failure { job, ..} if job == &Uuid::nil())
-                            })
-                        })
-                        };
+                        || !success && sqlx::query_scalar!(
+                                    "SELECT 
+                                        flow_status->>'step' = '0' 
+                                        AND (
+                                            jsonb_array_length(flow_status->'modules') = 0 
+                                            OR flow_status->'modules'->0->>'type' = 'WaitingForPriorSteps' 
+                                            OR (
+                                                flow_status->'modules'->0->>'type' = 'Failure' 
+                                                AND flow_status->'modules'->0->>'job' = $1
+                                            )
+                                        )
+                                    FROM completed_job WHERE id = $2 AND workspace_id = $3",
+                                    Uuid::nil().to_string(),
+                                    &queued_job.id,
+                                    &queued_job.workspace_id
+                                ).fetch_optional(&mut *tx).await?.flatten().unwrap_or(false);
 
                     if schedule_next_tick {
                         if let Err(err) = handle_maybe_scheduled_job(
@@ -1310,7 +1334,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
                         Error::QuotaExceeded(_) => Err(err),
                         _ => {
                             report_error_to_workspace_handler_or_critical_side_channel(job, db,
-                                    format!("Could not schedule next job for {} and could not disable schedule with err {}. Will retry", schedule.path, disable_err)
+                                    format!("Could not schedule next job for {} and could not disable schedule with err {}.", schedule.path, disable_err)
                                 ).await;
                             Err(to_anyhow(disable_err).into())
                         }
@@ -1490,7 +1514,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     } else {
         w_id
     };
-    let (payload, tag) =
+    let (payload, tag, on_behalf_of) =
         get_payload_tag_from_prefixed_path(on_failure_path, db, handler_w_id).await?;
 
     let mut extra = HashMap::new();
@@ -1519,6 +1543,25 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
 
     let result = sanitize_result(result);
 
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else if is_global_error_handler {
+        (SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SECRET_EMAIL.to_string())
+    } else if is_schedule_error_handler {
+        (
+            SCHEDULE_ERROR_HANDLER_USER_EMAIL,
+            ERROR_HANDLER_USER_GROUP.to_string(),
+        )
+    } else {
+        (
+            ERROR_HANDLER_USER_EMAIL,
+            ERROR_HANDLER_USER_GROUP.to_string(),
+        )
+    };
+
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
     let (uuid, tx) = push(
         &db,
@@ -1533,18 +1576,8 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         } else {
             ERROR_HANDLER_USERNAME
         },
-        if is_global_error_handler {
-            SUPERADMIN_SECRET_EMAIL
-        } else if is_schedule_error_handler {
-            SCHEDULE_ERROR_HANDLER_USER_EMAIL
-        } else {
-            ERROR_HANDLER_USER_EMAIL
-        },
-        if is_global_error_handler {
-            SUPERADMIN_SECRET_EMAIL.to_string()
-        } else {
-            ERROR_HANDLER_USER_GROUP.to_string()
-        },
+        email,
+        permissioned_as,
         None,
         None,
         Some(job_id),
@@ -1595,7 +1628,8 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
     successful_job_started_at: DateTime<Utc>,
     extra_args: Option<Json<Box<RawValue>>>,
 ) -> windmill_common::error::Result<()> {
-    let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
+    let (payload, tag, on_behalf_of) =
+        get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
     let mut extra = HashMap::new();
     extra.insert(
@@ -1632,6 +1666,18 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         .and_then(|x| serde_json::from_str::<HashMap<String, Box<RawValue>>>(x.0.get()).ok())
         .unwrap_or_else(HashMap::new);
 
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (
+            SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
+            ERROR_HANDLER_USER_GROUP.to_string(),
+        )
+    };
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
@@ -1640,8 +1686,8 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         payload,
         PushArgs { extra: Some(extra), args: &args },
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
-        SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
-        ERROR_HANDLER_USER_GROUP.to_string(),
+        email,
+        permissioned_as,
         None,
         None,
         Some(job_id),
@@ -1680,7 +1726,8 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
     successful_job_started_at: DateTime<Utc>,
     extra_args: Option<Json<Box<RawValue>>>,
 ) -> windmill_common::error::Result<()> {
-    let (payload, tag) = get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
+    let (payload, tag, on_behalf_of) =
+        get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
 
     let mut extra = HashMap::new();
     extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
@@ -1707,6 +1754,18 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         }
     }
 
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (
+            SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
+            ERROR_HANDLER_USER_GROUP.to_string(),
+        )
+    };
+
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
     let (uuid, tx) = push(
         &db,
@@ -1715,8 +1774,8 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
         payload,
         PushArgs { extra: Some(extra), args: &HashMap::new() },
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
-        SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
-        ERROR_HANDLER_USER_GROUP.to_string(),
+        email,
+        permissioned_as,
         None,
         None,
         Some(job_id),
@@ -2208,6 +2267,82 @@ struct FlowJobResult {
     parent_job: Option<Uuid>,
 }
 
+pub async fn get_result_and_success_by_id_from_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    flow_id: &Uuid,
+    node_id: &str,
+    json_path: Option<String>,
+) -> error::Result<(Box<RawValue>, bool)> {
+    // used exclusively for sync webhook/routes, do not handle restarted_from like get_result_by_id
+    let mut job_result =
+        match get_result_by_id_from_running_flow_inner(db, w_id, flow_id, node_id).await {
+            Ok(res) => Some(res),
+            Err(err) => match err {
+                Error::NotFound(_) => None,
+                _ => return Err(err),
+            },
+        };
+
+    let mut completed = false;
+
+    if job_result.is_none() {
+        job_result =
+            match get_result_by_id_from_original_flow_inner(db, w_id, flow_id, node_id).await {
+                Ok(res) => Some(res),
+                Err(err) => match err {
+                    Error::NotFound(_) => None,
+                    _ => return Err(err),
+                },
+            };
+        completed = job_result.is_some();
+    }
+
+    let job_result = not_found_if_none(
+        job_result,
+        "Node result",
+        format!("flow: {}, node: {}", flow_id, node_id),
+    )?;
+
+    let success = match &job_result {
+        JobResult::SingleJob(job_id) => {
+            sqlx::query_scalar!(
+                "SELECT success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                w_id
+            )
+            .fetch_one(db)
+            .await?
+        }
+        JobResult::ListJob(_) => {
+            let query = format!(
+                r#"WITH modules AS (
+                    SELECT jsonb_array_elements(flow_status->'modules') AS module
+                    FROM {}
+                    WHERE id = $1 AND workspace_id = $2
+                )
+                SELECT module->>'type' = 'Success'
+                FROM modules
+                WHERE module->>'id' = $3"#,
+                if completed { "completed_job" } else { "queue" }
+            );
+            sqlx::query_scalar(&query)
+                .bind(flow_id)
+                .bind(w_id)
+                .bind(node_id)
+                .fetch_optional(db)
+                .await?
+                .ok_or_else(|| {
+                    error::Error::InternalErr(format!("Could not get success from flow job status"))
+                })?
+        }
+    };
+
+    let result = extract_result_from_job_result(db, w_id, job_result, json_path).await?;
+
+    Ok((result, success))
+}
+
 #[async_recursion]
 pub async fn get_result_by_id_from_running_flow(
     db: &Pool<Postgres>,
@@ -2216,6 +2351,18 @@ pub async fn get_result_by_id_from_running_flow(
     node_id: &str,
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
+    let result_id = get_result_by_id_from_running_flow_inner(db, w_id, flow_id, node_id).await?;
+
+    extract_result_from_job_result(db, w_id, result_id, json_path).await
+}
+
+#[async_recursion]
+pub async fn get_result_by_id_from_running_flow_inner(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    flow_id: &Uuid,
+    node_id: &str,
+) -> error::Result<JobResult> {
     let flow_job_result = sqlx::query_as::<_, FlowJobResult>(
         "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3")
     .bind(node_id)
@@ -2242,7 +2389,7 @@ pub async fn get_result_by_id_from_running_flow(
             .await?
             .flatten()
             .unwrap_or(parent_job);
-        return get_result_by_id_from_running_flow(db, w_id, &root_job, node_id, json_path).await;
+        return get_result_by_id_from_running_flow_inner(db, w_id, &root_job, node_id).await;
     }
 
     let result_id = windmill_common::utils::not_found_if_none(
@@ -2251,7 +2398,7 @@ pub async fn get_result_by_id_from_running_flow(
         format!("parent: {}, id: {}", flow_id, node_id),
     )?;
 
-    extract_result_from_job_result(db, w_id, result_id, json_path).await
+    Ok(result_id)
 }
 
 #[async_recursion]
@@ -2260,8 +2407,7 @@ async fn get_completed_flow_node_result_rec(
     w_id: &str,
     subflows: Vec<CompletedJob>,
     node_id: &str,
-    json_path: Option<String>,
-) -> error::Result<Option<Box<RawValue>>> {
+) -> error::Result<Option<JobResult>> {
     for subflow in subflows {
         let flow_status = subflow.parse_flow_status().ok_or_else(|| {
             error::Error::InternalErr(format!("Could not parse flow status of {}", subflow.id))
@@ -2273,22 +2419,8 @@ async fn get_completed_flow_node_result_rec(
             .find(|module| module.id() == node_id)
         {
             return match (node_status.job(), node_status.flow_jobs()) {
-                (Some(leaf_job_uuid), None) => extract_result_from_job_result(
-                    db,
-                    w_id,
-                    JobResult::SingleJob(leaf_job_uuid),
-                    json_path.clone(),
-                )
-                .await
-                .map(Some),
-                (Some(_), Some(jobs)) => extract_result_from_job_result(
-                    db,
-                    w_id,
-                    JobResult::ListJob(jobs),
-                    json_path.clone(),
-                )
-                .await
-                .map(Some),
+                (Some(leaf_job_uuid), None) => Ok(Some(JobResult::SingleJob(leaf_job_uuid))),
+                (Some(_), Some(jobs)) => Ok(Some(JobResult::ListJob(jobs))),
                 _ => Err(error::Error::NotFound(format!(
                     "Flow result by id not found going top-down in subflows (currently: {}), (id: {})",
                     subflow.id,
@@ -2299,9 +2431,7 @@ async fn get_completed_flow_node_result_rec(
             let subflows = sqlx::query_as::<_, CompletedJob>(
                 "SELECT *, null as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
             ).bind(subflow.id).bind(w_id).fetch_all(db).await?;
-            match get_completed_flow_node_result_rec(db, w_id, subflows, node_id, json_path.clone())
-                .await?
-            {
+            match get_completed_flow_node_result_rec(db, w_id, subflows, node_id).await? {
                 Some(res) => return Ok(Some(res)),
                 None => continue,
             };
@@ -2311,13 +2441,12 @@ async fn get_completed_flow_node_result_rec(
     Ok(None)
 }
 
-async fn get_result_by_id_from_original_flow(
+async fn get_result_by_id_from_original_flow_inner(
     db: &Pool<Postgres>,
     w_id: &str,
     completed_flow_id: &Uuid,
     node_id: &str,
-    json_path: Option<String>,
-) -> error::Result<Box<RawValue>> {
+) -> error::Result<JobResult> {
     let flow_job = sqlx::query_as::<_, CompletedJob>(
         "SELECT *, null as labels FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
@@ -2332,13 +2461,25 @@ async fn get_result_by_id_from_original_flow(
         format!("root: {}, id: {}", completed_flow_id, node_id),
     )?;
 
-    match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id, json_path).await? {
+    match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id).await? {
         Some(res) => Ok(res),
         None => Err(error::Error::NotFound(format!(
             "Flow result by id not found going top-down from {}, (id: {})",
             completed_flow_id, node_id
         ))),
     }
+}
+
+async fn get_result_by_id_from_original_flow(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    completed_flow_id: &Uuid,
+    node_id: &str,
+    json_path: Option<String>,
+) -> error::Result<Box<RawValue>> {
+    let job_result =
+        get_result_by_id_from_original_flow_inner(db, w_id, completed_flow_id, node_id).await?;
+    extract_result_from_job_result(db, w_id, job_result, json_path).await
 }
 
 async fn extract_result_from_job_result(
@@ -3409,6 +3550,12 @@ pub async fn push<'c, 'd>(
             _low_level_priority
         }; // else it remains empty, i.e. no priority
     }
+    // prioritize flow steps to drain the queue faster
+    let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
+        Some(0)
+    } else {
+        final_priority
+    };
 
     let is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
