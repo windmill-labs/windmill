@@ -17,7 +17,27 @@ function isCompatible(diff: Record<string, SchemaDiff>) {
 }
 
 function isCompatibleObject(a: any, b: any) {
-	return JSON.stringify(a.type) === JSON.stringify(b.type)
+	let compatible = false
+	if (a.type === b.type) {
+		if (a.type === 'object' && a.format === b.format) {
+			if (a.oneOf && b.oneOf) {
+				compatible = true
+			} else if (!a.oneOf && !b.oneOf) {
+				compatible = true
+			} else {
+				compatible = true
+			}
+		} else if (a.type === 'array' && a.items.type === b.items.type) {
+			compatible = true
+		} else if (a.type === 'string' && a.format === b.format) {
+			compatible = true
+		} else if (a.type === 'boolean') {
+			compatible = true
+		} else if (a.type === 'number') {
+			compatible = true
+		}
+	}
+	return compatible
 }
 
 export function computeDiff(
