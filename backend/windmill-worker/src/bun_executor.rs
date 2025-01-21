@@ -123,7 +123,7 @@ pub async fn gen_bun_lockfile(
         let _ = write_file(
             &job_dir,
             "build.js",
-            &dbg!(format!(
+            &format!(
                 r#"
 {}
 
@@ -138,7 +138,7 @@ pub async fn gen_bun_lockfile(
                         &crate::common::use_flow_root_path(script_path)
                     )
                     .replace("RAW_GET_ENDPOINT", "raw")
-            )),
+            ),
         )?;
 
         gen_bunfig(job_dir).await?;
@@ -1025,7 +1025,6 @@ pub async fn handle_bun_job(
         }
     } else if codebase.is_some() {
         "\n\n--- NODE CODEBASE SNAPSHOT EXECUTION ---\n".to_string()
-    // TODO: Isn't it dead code? :/
     } else if annotation.native {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if annotation.nodejs {
