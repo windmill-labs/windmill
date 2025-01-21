@@ -4,7 +4,6 @@ import {
 	type WorkspaceDefaultScripts,
 	type TokenResponse,
 	type UserWorkspaceList,
-	type CreateDatabaseTriggerData
 } from './gen'
 import type { IntrospectionQuery } from 'graphql'
 import { getLocalSetting } from './utils'
