@@ -166,6 +166,10 @@
 	let drawer: Drawer
 
 	let dirtyPath = false
+
+	let args: Record<string, any> = { route_path: '' }
+
+	$: args && (route_path = args.route_path)
 </script>
 
 {#if static_asset_config}
@@ -220,7 +224,10 @@
 				</div>
 
 				<RouteEditorConfigSection
+					isFlow={is_flow}
+					{path}
 					bind:route_path
+					bind:args
 					bind:isValid
 					bind:dirtyRoutePath
 					bind:http_method

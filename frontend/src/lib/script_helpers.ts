@@ -267,6 +267,14 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
+const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- :name1 (text) = default arg
+-- :name2 (int)
+-- :name3 (int)
+INSERT INTO demo VALUES (:name1, :name2);
+UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
+`
+
 const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
@@ -278,11 +286,11 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 
 const MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
--- @p1 name1 (varchar) = default arg
--- @p2 name2 (int)
--- @p3 name3 (int)
-INSERT INTO demo VALUES (@p1, @p2);
-UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
+-- @P1 name1 (varchar) = default arg
+-- @P2 name2 (int)
+-- @P3 name3 (int)
+INSERT INTO demo VALUES (@P1, @P2);
+UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -564,7 +572,7 @@ export async function main(approver?: string) {
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -580,6 +588,14 @@ export async function preprocessor(
 			brokers: string[]
 			topic: string
 			group_id: string
+		},
+		nats?: {
+			servers: string[]
+			subject: string
+			headers?: Record<string, string[]>
+			status?: number
+			description?: string
+			length: number
 		}
 	},
 	/* your other args */ 
@@ -593,7 +609,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -609,6 +625,14 @@ export async function preprocessor(
 			brokers: string[]
 			topic: string
 			group_id: string
+		},
+		nats?: {
+			servers: string[]
+			subject: string
+			headers?: Record<string, string[]>
+			status?: number
+			description?: string
+			length: number
 		}
 	},
 	/* your other args */ 
@@ -664,11 +688,20 @@ class Kafka(TypedDict):
 	brokers: list[str]
 	group_id: str
 
+class Nats(TypedDict):
+	servers: list[str]
+	subject: str
+	headers: dict[str, list[str]] | None
+	status: int | None
+	description: str | None
+	length: int
+
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka"]
+	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
 	http: Http | None
 	websocket: Websocket | None
 	kafka: Kafka | None
+	nats: Nats | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,
@@ -813,6 +846,9 @@ export const INITIAL_CODE = {
 	graphql: {
 		script: GRAPHQL_INIT_CODE
 	},
+	oracledb: {
+		script: ORACLEDB_INIT_CODE
+	},
 	php: {
 		script: PHP_INIT_CODE
 	},
@@ -857,7 +893,6 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
-		| 'preprocessor'
 		| undefined
 ): string {
 	if (!kind) {
@@ -875,8 +910,6 @@ export function initialCode(
 				return INITIAL_CODE.mysql.script
 			} else if (subkind === 'fetch') {
 				return INITIAL_CODE.deno.fetch
-			} else if (subkind === 'preprocessor') {
-				return INITIAL_CODE.deno.preprocessor
 			} else {
 				return INITIAL_CODE.deno.script
 			}
@@ -884,6 +917,8 @@ export function initialCode(
 			return INITIAL_CODE.deno.failure
 		} else if (kind === 'approval') {
 			return INITIAL_CODE.deno.approval
+		} else if (kind === 'preprocessor') {
+			return INITIAL_CODE.deno.preprocessor
 		} else {
 			return INITIAL_CODE.deno.script
 		}
@@ -894,10 +929,10 @@ export function initialCode(
 			return INITIAL_CODE.python3.approval
 		} else if (kind === 'failure') {
 			return INITIAL_CODE.python3.failure
+		} else if (kind === 'preprocessor') {
+			return INITIAL_CODE.python3.preprocessor
 		} else if (subkind === 'flow') {
 			return INITIAL_CODE.python3.clear
-		} else if (subkind === 'preprocessor') {
-			return INITIAL_CODE.python3.preprocessor
 		} else {
 			return INITIAL_CODE.python3.script
 		}
@@ -917,6 +952,8 @@ export function initialCode(
 		return INITIAL_CODE.mysql.script
 	} else if (language == 'bigquery') {
 		return INITIAL_CODE.bigquery.script
+	} else if (language == 'oracledb') {
+		return INITIAL_CODE.oracledb.script
 	} else if (language == 'snowflake') {
 		return INITIAL_CODE.snowflake.script
 	} else if (language == 'mssql') {
@@ -940,7 +977,7 @@ export function initialCode(
 			return INITIAL_CODE.bun.approval
 		} else if (kind === 'failure') {
 			return INITIAL_CODE.bun.failure
-		} else if (subkind === 'preprocessor') {
+		} else if (kind === 'preprocessor') {
 			return INITIAL_CODE.bun.preprocessor
 		} else if (subkind === 'flow') {
 			return INITIAL_CODE.bun.clear

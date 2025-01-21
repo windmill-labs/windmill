@@ -214,7 +214,12 @@ export function getStepPropPicker(
 	}
 
 	return {
-		extraLib: buildExtraLib(flowInput, priorIds, previousModule?.suspend != undefined),
+		extraLib: buildExtraLib(
+			flowInput,
+			priorIds,
+			previousModule?.suspend != undefined,
+			previousModule?.id
+		),
 		pickableProperties
 	}
 }
@@ -222,7 +227,8 @@ export function getStepPropPicker(
 export function buildExtraLib(
 	flowInput: Record<string, any>,
 	results: Record<string, any>,
-	resume: boolean
+	resume: boolean,
+	previousId: string | undefined
 ): string {
 	return `
 /**
@@ -251,6 +257,11 @@ declare const params: any;
  * result by id
  */
 declare const results = ${JSON.stringify(results)};
+
+/**
+ * Result of the previous step
+ */
+declare const previous_result: ${previousId ? JSON.stringify(results[previousId]) : 'any'};
 
 ${
 	resume

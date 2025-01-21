@@ -7,13 +7,13 @@
  */
 
 use crate::{
+    auth::AuthCache,
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
     triggers::{
         get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
     },
     users::{maybe_refresh_folders, require_owner_of_path},
-    auth::AuthCache,
     utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -28,6 +28,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -109,6 +110,8 @@ pub struct ScriptWDraft {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of_email: Option<String>,
 }
 
 pub fn global_service() -> Router {
@@ -236,7 +239,19 @@ async fn list_scripts(
         .limit(per_page)
         .clone();
 
-    if !lq.include_without_main.unwrap_or(false) || authed.is_operator {
+    let lowercased_kinds: Option<Vec<String>> = lq
+        .kinds
+        .map(|x| x.split(",").map(&str::to_lowercase).collect());
+
+    if (!lq.include_without_main.unwrap_or(false)
+        && lowercased_kinds
+            .as_ref()
+            .map(|x| !x.contains(&"preprocessor".to_string()))
+            .unwrap_or(true))
+        || authed.is_operator
+    {
+        // only include scripts that have a main function
+        // do not hide scripts without main if preprocessor is in the kinds
         sqlb.and_where("o.no_main_func IS NOT TRUE");
     }
 
@@ -276,14 +291,13 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(kinds_val) = &lq.kinds {
-        let lowercased_kinds: Vec<String> = kinds_val
-            .split(",")
-            .map(&str::to_lowercase)
+    if let Some(lowercased_kinds) = lowercased_kinds {
+        let safe_kinds = lowercased_kinds
+            .into_iter()
             .map(sql_builder::quote)
-            .collect();
-        if lowercased_kinds.len() > 0 {
-            sqlb.and_where_in("kind", lowercased_kinds.as_slice());
+            .collect_vec();
+        if safe_kinds.len() > 0 {
+            sqlb.and_where_in("kind", safe_kinds.as_slice());
         }
     }
     if lq.starred_only.unwrap_or(false) {
@@ -616,8 +630,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)",
         &w_id,
         &hash.0,
         ns.path,
@@ -649,6 +663,11 @@ async fn create_script_internal<'c>(
         ns.no_main_func,
         codebase,
         ns.has_preprocessor,
+        if ns.on_behalf_of_email.is_some() {
+            Some(&authed.email)
+        } else {
+            None
+        }
     )
     .execute(&mut *tx)
     .await?;
@@ -670,7 +689,7 @@ async fn create_script_internal<'c>(
         )
         .execute(&mut *tx)
         .await?;
-    
+
         sqlx::query!(
             "UPDATE capture SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
             ns.path,
@@ -917,7 +936,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \

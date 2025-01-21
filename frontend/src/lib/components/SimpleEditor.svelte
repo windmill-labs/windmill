@@ -26,6 +26,18 @@
 		schemas: [],
 		enableSchemaRequest: true
 	})
+	languages.json.jsonDefaults.setModeConfiguration({
+		documentRangeFormattingEdits: false,
+		documentFormattingEdits: true,
+		hovers: true,
+		completionItems: true,
+		documentSymbols: true,
+		tokens: true,
+		colors: true,
+		foldingRanges: true,
+		selectionRanges: true,
+		diagnostics: true
+	})
 </script>
 
 <script lang="ts">
@@ -41,11 +53,6 @@
 		type IRange,
 		type IDisposable
 	} from 'monaco-editor'
-
-	import '@codingame/monaco-vscode-standalone-languages'
-	import '@codingame/monaco-vscode-standalone-json-language-features'
-	import '@codingame/monaco-vscode-standalone-css-language-features'
-	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
@@ -73,6 +80,7 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let extraLib: string = ''
+	export let placeholder: string = ''
 
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
@@ -104,6 +112,12 @@
 		if (editor) {
 			editor.setValue(ncode)
 		}
+	}
+
+	let placeholderVisible = false
+	function updatePlaceholderVisibility(value: string) {
+		if (!value) return
+		placeholderVisible = value.trim() === ''
 	}
 
 	export function format() {
@@ -302,6 +316,13 @@
 			$tailwindClassesLoaded = true
 			addTailwindClassCompletions()
 		}
+
+		if (placeholder) {
+			editor.onDidChangeModelContent(() => {
+				const value = editor.getValue()
+				updatePlaceholderVisibility(value)
+			})
+		}
 	}
 
 	function addCSSClassCompletions() {
@@ -417,10 +438,11 @@
 			editor.focus()
 		}
 	}
+
+	updatePlaceholderVisibility(code)
 </script>
 
 <EditorTheme />
-
 {#if editor && suggestion && code.length === 0}
 	<div
 		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
@@ -431,9 +453,20 @@
 {/if}
 <div
 	bind:this={divEl}
-	class="{$$props.class ?? ''} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	class="relative {$$props.class ?? ''} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
 	bind:clientWidth={width}
-/>
+>
+	{#if placeholder}
+		<div
+			id="placeholder"
+			class="absolute left-[24px] text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+				? ''
+				: 'hidden'}"
+		>
+			{@html placeholder}
+		</div>
+	{/if}
+</div>
 {#if allowVim && $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
 {/if}

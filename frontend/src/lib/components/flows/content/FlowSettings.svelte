@@ -5,7 +5,7 @@
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -46,6 +46,7 @@
 		{ name: 'Early Return', active: Boolean($flowStore.value.early_return) },
 		{ name: 'Dedicated Worker', active: Boolean($flowStore.dedicated_worker) },
 		{ name: 'Concurrent Limit', active: Boolean($flowStore.value.concurrent_limit) },
+		{ name: 'Run on Behalf of Last Editor', active: Boolean($flowStore.on_behalf_of_email) },
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
 	]
 
@@ -348,6 +349,27 @@
 					class="py-1"
 				/>
 
+				<!-- On behalf of last editor section -->
+				<Toggle
+					textClass="font-normal text-sm"
+					color="nord"
+					size="xs"
+					checked={Boolean($flowStore.on_behalf_of_email)}
+					on:change={() => {
+						if ($flowStore.on_behalf_of_email) {
+							$flowStore.on_behalf_of_email = undefined
+						} else {
+							$flowStore.on_behalf_of_email = $userStore?.email
+						}
+					}}
+					options={{
+						right: 'Run on behalf of last editor',
+						rightTooltip:
+							'When this option is enabled, the flow will be run with the permissions of the last editor.'
+					}}
+					class="py-1"
+				/>
+
 				<!-- Error Handler Section -->
 				<div class="flex flex-row items-center py-1">
 					<ErrorHandlerToggleButtonV2
@@ -358,7 +380,7 @@
 					/>
 					{#if !$enterpriseLicense}
 						<span
-							class="inline-flex text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+							class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
 						>
 							<AlertTriangle size={16} />
 							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
@@ -479,7 +501,7 @@
 						/>
 						{#if !$enterpriseLicense || isCloudHosted()}
 							<span
-								class="inline-flex absolute top-0 left-72 text-xs text-primary items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+								class="inline-flex absolute top-0 left-72 text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
 							>
 								<AlertTriangle size={16} />
 								EE only <Tooltip>Enterprise Edition only feature</Tooltip>

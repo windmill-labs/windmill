@@ -22,9 +22,13 @@
 
 	export let retries: number | undefined = undefined
 	export let flowJobs:
-		| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[], selectedManually: boolean | undefined }
+		| {
+				flowJobs: string[]
+				selected: number
+				flowJobsSuccess: (boolean | undefined)[]
+				selectedManually: boolean | undefined
+		  }
 		| undefined
-
 
 	const { selectedId } = getContext<{ selectedId: Writable<string> }>('FlowGraphContext')
 	const dispatch = createEventDispatcher<{

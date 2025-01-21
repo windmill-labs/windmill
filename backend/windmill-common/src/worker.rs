@@ -87,7 +87,7 @@ lazy_static::lazy_static! {
 
     pub static ref ALL_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
 
-    static ref CUSTOM_TAG_REGEX: Regex =  Regex::new(r"^(\w+)\(((?:\w+)\+?)+\)$").unwrap();
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-])+\+?)+\)$").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -296,7 +296,12 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         let mut l = ALL_TAGS.write().await;
         *l = [
             custom_tags.0.clone(),
-            custom_tags.1.keys().map(|x| x.to_string()).collect_vec(),
+            custom_tags
+                .1
+                .values()
+                .flatten()
+                .map(|x| x.to_string())
+                .collect_vec(),
         ]
         .concat();
     }

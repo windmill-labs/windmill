@@ -12,7 +12,9 @@
 		| 'cli'
 		| 'routes'
 		| 'websockets'
-		| 'scheduledPoll' = 'webhooks'
+		| 'scheduledPoll'
+		| 'kafka'
+		| 'nats' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let simplfiedPoll: boolean = false
 
@@ -23,23 +25,23 @@
 
 <HighlightTheme />
 
-<Tabs bind:selected>
-	<Tab value="saved_inputs">Saved Inputs</Tab>
-	{#if !isOperator}
-		<Tab value="triggers">Triggers</Tab>
-	{/if}
-	{#if flow_json}
-		<Tab value="raw">Export</Tab>
-	{:else}
-		<Tab value="script">Script</Tab>
-	{/if}
-	{#if selected == 'flow_step'}
-		<Tab value="flow_step">Step</Tab>
-	{/if}
+<div class="flex flex-col h-full">
+	<Tabs bind:selected wrapperClass="flex-none w-full">
+		<Tab value="saved_inputs">Saved Inputs</Tab>
+		{#if !isOperator}
+			<Tab value="triggers">Triggers</Tab>
+		{/if}
+		{#if flow_json}
+			<Tab value="raw">Export</Tab>
+		{:else}
+			<Tab value="script">Script</Tab>
+		{/if}
+		{#if selected == 'flow_step'}
+			<Tab value="flow_step">Step</Tab>
+		{/if}
 
-	<svelte:fragment slot="content">
-		<div class="h-[calc(100%-32px)]">
-			<div class="h-full overflow-auto">
+		<svelte:fragment slot="content">
+			<div class="min-h-0 grow">
 				<TabContent value="saved_inputs" class="h-full">
 					<slot name="save_inputs" />
 				</TabContent>
@@ -52,6 +54,7 @@
 						<slot slot="routes" name="routes" />
 						<slot slot="websockets" name="websockets" />
 						<slot slot="kafka" name="kafka" />
+						<slot slot="nats" name="nats" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />
 						<slot slot="cli" name="cli" />
@@ -66,6 +69,6 @@
 					</TabContent>
 				{/if}
 			</div>
-		</div>
-	</svelte:fragment>
-</Tabs>
+		</svelte:fragment>
+	</Tabs>
+</div>

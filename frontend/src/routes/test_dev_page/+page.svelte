@@ -2,7 +2,8 @@
 	// import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 
 	// import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	// import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
 	// import type { OpenFlow } from '$lib/gen'
 	// import { writable, type Writable } from 'svelte/store'
 
@@ -50,7 +51,7 @@
 	}}
 /> -->
 
-<ScriptBuilder
+<!-- <ScriptBuilder
 	script={{
 		summary: 'foo',
 		path: 'u/admin/foo',
@@ -58,4 +59,12 @@
 		language: 'python3',
 		content: 'print("foo")'
 	}}
-/>
+/> -->
+
+<!-- path: "/path/to/script",
+code: "console.log('Hello, world!');",
+lang: "bun",
+tag: "", -->
+<div class="h-screen">
+	<ScriptEditor path="/path/to/script" code="console.log('Hello, world!');" lang="bun" tag="" />
+</div>

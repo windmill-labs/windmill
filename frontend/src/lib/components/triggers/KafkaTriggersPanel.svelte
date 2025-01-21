@@ -91,6 +91,8 @@
 			}}
 			on:applyArgs
 			on:addPreprocessor
+			on:updateSchema
+			on:testWithArgs
 			cloudDisabled={false}
 			triggerType="kafka"
 			{isFlow}

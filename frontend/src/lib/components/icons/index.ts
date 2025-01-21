@@ -63,6 +63,7 @@ import RssIcon from './RssIcon.svelte'
 import ShopifyIcon from './ShopifyIcon.svelte'
 import TypeformIcon from './TypeformIcon.svelte'
 import BigQueryIcon from './BigQueryIcon.svelte'
+import OracleDBIcon from './OracleDBIcon.svelte'
 import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
@@ -94,6 +95,8 @@ import KeycloakIcon from './KeycloakIcon.svelte'
 import ZitadelIcon from './ZitadelIcon.svelte'
 import SpotifyIcon from './SpotifyIcon.svelte'
 import XeroIcon from './XeroIcon.svelte'
+import KafkaIcon from './KafkaIcon.svelte'
+import NatsIcon from './NatsIcon.svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,
@@ -162,6 +165,7 @@ export const APP_TO_ICON_COMPONENT = {
 	shopify: ShopifyIcon,
 	typeform: TypeformIcon,
 	bigquery: BigQueryIcon,
+	oracledb: OracleDBIcon,
 	graphql: GraphqlIcon,
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
@@ -192,7 +196,9 @@ export const APP_TO_ICON_COMPONENT = {
 	keycloak: KeycloakIcon,
 	zitadel: ZitadelIcon,
 	spotify: SpotifyIcon,
-	xero: XeroIcon
+	xero: XeroIcon,
+	kafka: KafkaIcon,
+	nats: NatsIcon
 } as const
 
 export {
@@ -256,6 +262,7 @@ export {
 	ShopifyIcon,
 	TypeformIcon,
 	BigQueryIcon,
+	OracleDBIcon,
 	GraphqlIcon,
 	NocoDbIcon,
 	AzureIcon,
@@ -285,5 +292,7 @@ export {
 	JumpCloudIcon,
 	KeycloakIcon,
 	ZitadelIcon,
-	XeroIcon
+	XeroIcon,
+	KafkaIcon,
+	NatsIcon
 }

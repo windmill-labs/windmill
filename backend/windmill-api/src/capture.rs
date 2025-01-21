@@ -27,7 +27,7 @@ use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
-    utils::{not_found_if_none, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 use windmill_queue::{PushArgs, PushArgsOwned};
@@ -36,6 +36,8 @@ use windmill_queue::{PushArgs, PushArgsOwned};
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaResourceSecurity;
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+use crate::nats_triggers_ee::NatsResourceAuth;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
@@ -84,6 +86,7 @@ pub enum TriggerKind {
     Websocket,
     Kafka,
     Email,
+    Nats,
 }
 
 impl fmt::Display for TriggerKind {
@@ -94,6 +97,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Websocket => "websocket",
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
+            TriggerKind::Nats => "nats",
         };
         write!(f, "{}", s)
     }
@@ -123,6 +127,27 @@ pub struct KafkaTriggerConfig {
     pub group_id: String,
 }
 
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum NatsTriggerConfigConnection {
+    Resource { nats_resource_path: String },
+    Static { servers: Vec<String>, auth: NatsResourceAuth, require_tls: bool },
+}
+
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[derive(Serialize, Deserialize)]
+pub struct NatsTriggerConfig {
+    #[serde(flatten)]
+    pub connection: NatsTriggerConfigConnection,
+    pub subjects: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consumer_name: Option<String>,
+    pub use_jetstream: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
@@ -138,6 +163,8 @@ enum TriggerConfig {
     Websocket(WebsocketTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "nats"))]
+    Nats(NatsTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -193,7 +220,7 @@ async fn set_config(
             (workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (workspace_id, path, is_flow, trigger_kind)
-            DO UPDATE SET trigger_config = $5, owner = $6, email = $7, server_id = NULL, last_server_ping = NULL, error = NULL",
+            DO UPDATE SET trigger_config = $5, owner = $6, email = $7, server_id = NULL, error = NULL",
         &w_id,
         &nc.path,
         nc.is_flow,
@@ -253,6 +280,8 @@ enum RunnableKind {
 #[derive(Deserialize)]
 struct ListCapturesQuery {
     trigger_kind: Option<TriggerKind>,
+    page: Option<usize>,
+    per_page: Option<usize>,
 }
 
 async fn list_captures(
@@ -263,6 +292,8 @@ async fn list_captures(
 ) -> JsonResult<Vec<Capture>> {
     let mut tx = user_db.begin(&authed).await?;
 
+    let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
+
     let captures = sqlx::query_as!(
         Capture,
         r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", payload as "payload: _", trigger_extra as "trigger_extra: _"
@@ -270,11 +301,15 @@ async fn list_captures(
         WHERE workspace_id = $1
             AND path = $2 AND is_flow = $3
             AND ($4::trigger_kind IS NULL OR trigger_kind = $4)
-        ORDER BY created_at DESC"#,
+        ORDER BY created_at DESC
+        OFFSET $5
+        LIMIT $6"#,
         &w_id,
         &path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
         query.trigger_kind as Option<TriggerKind>,
+        offset as i64,
+        per_page as i64,
     )
     .fetch_all(&mut *tx)
     .await?;

@@ -15,7 +15,8 @@
 		HttpTriggerService,
 		VariableService,
 		WebsocketTriggerService,
-		KafkaTriggerService
+		KafkaTriggerService,
+		NatsTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -39,6 +40,7 @@
 		| 'http_trigger'
 		| 'websocket_trigger'
 		| 'kafka_trigger'
+		| 'nats_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -229,6 +231,11 @@
 			})
 		} else if (kind == 'kafka_trigger') {
 			return await KafkaTriggerService.existsKafkaTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'nats_trigger') {
+			return await NatsTriggerService.existsNatsTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

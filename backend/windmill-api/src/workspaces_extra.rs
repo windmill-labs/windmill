@@ -112,6 +112,38 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
+        "UPDATE http_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE websocket_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE kafka_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE nats_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
         "UPDATE completed_job SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -153,8 +185,8 @@ pub(crate) async fn change_workspace_id(
 
     sqlx::query!(
         "INSERT INTO flow 
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at) 
-        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at) 
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
             FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -404,9 +436,9 @@ pub(crate) async fn delete_workspace(
     sqlx::query!("DELETE FROM capture WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query!("DELETE FROM capture_config WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
+
+    // capture_config has on delete cascade
+
     sqlx::query!("DELETE FROM draft WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -496,6 +528,23 @@ pub(crate) async fn delete_workspace(
     sqlx::query!("DELETE FROM token WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query!("DELETE FROM http_trigger WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM websocket_trigger WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM kafka_trigger WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // NATS triggers have on delete cascade
 
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
