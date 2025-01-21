@@ -20,7 +20,7 @@ pub struct TriggersCount {
     websocket_count: i64,
     kafka_count: i64,
     nats_count: i64,
-    database_count: i64,
+    postgres_count: i64,
 }
 pub(crate) async fn get_triggers_count_internal(
     db: &DB,
@@ -87,7 +87,7 @@ pub(crate) async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
-    let database_count = sqlx::query_scalar!(
+    let postgres_count = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM postgres_trigger WHERE script_path = $1 AND is_flow = $2 AND workspace_id = $3",
         path,
         is_flow,
@@ -140,7 +140,7 @@ pub(crate) async fn get_triggers_count_internal(
         websocket_count,
         kafka_count,
         nats_count,
-        database_count,
+        postgres_count,
     }))
 }
 

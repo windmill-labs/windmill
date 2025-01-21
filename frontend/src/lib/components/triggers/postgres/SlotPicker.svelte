@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/common'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
-	import { DatabaseTriggerService } from '$lib/gen'
+	import { PostgresTriggerService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
@@ -15,7 +15,7 @@
 	let items: (string | undefined)[] = []
 	async function listDatabaseSlot() {
 		try {
-			const result = await DatabaseTriggerService.listDatabaseSlot({
+			const result = await PostgresTriggerService.listDatabaseSlot({
 				path: database_resource_path,
 				workspace: $workspaceStore!
 			})
@@ -45,7 +45,7 @@
 
 	async function deleteSlot() {
 		try {
-			const message = await DatabaseTriggerService.deleteDatabaseSlot({
+			const message = await PostgresTriggerService.deleteDatabaseSlot({
 				path: database_resource_path,
 				workspace: $workspaceStore!,
 				requestBody: {

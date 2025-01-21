@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { DatabaseTriggerService, type Language, type Relations } from '$lib/gen'
+	import { PostgresTriggerService, type Language, type Relations } from '$lib/gen'
 	import { databaseTrigger, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -60,7 +60,7 @@
 
 	async function createPublication() {
 		try {
-			const message = await DatabaseTriggerService.createDatabasePublication({
+			const message = await PostgresTriggerService.createDatabasePublication({
 				path: database_resource_path,
 				publication: publication_name as string,
 				workspace: $workspaceStore!,
@@ -78,7 +78,7 @@
 
 	async function createSlot() {
 		try {
-			const message = await DatabaseTriggerService.createDatabaseSlot({
+			const message = await PostgresTriggerService.createDatabaseSlot({
 				path: database_resource_path,
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -154,7 +154,7 @@
 	}
 
 	async function loadTrigger(): Promise<void> {
-		const s = await DatabaseTriggerService.getDatabaseTrigger({
+		const s = await PostgresTriggerService.getDatabaseTrigger({
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
@@ -168,7 +168,7 @@
 		publication_name = s.publication_name
 		replication_slot_name = s.replication_slot_name
 
-		const publication_data = await DatabaseTriggerService.getDatabasePublication({
+		const publication_data = await PostgresTriggerService.getDatabasePublication({
 			path: database_resource_path,
 			workspace: $workspaceStore!,
 			publication: publication_name
@@ -181,7 +181,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		if (edit) {
-			await DatabaseTriggerService.updateDatabaseTrigger({
+			await PostgresTriggerService.updateDatabaseTrigger({
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
@@ -203,7 +203,7 @@
 			})
 			sendUserToast(`Database ${path} updated`)
 		} else {
-			await DatabaseTriggerService.createDatabaseTrigger({
+			await PostgresTriggerService.createDatabaseTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
@@ -237,7 +237,7 @@
 
 		try {
 			loading = true
-			let template = await DatabaseTriggerService.getTemplateScript({
+			let template = await PostgresTriggerService.getTemplateScript({
 				workspace: $workspaceStore!,
 				requestBody: {
 					relations,
@@ -271,7 +271,7 @@
 				return
 			}
 
-			const isLogical = await DatabaseTriggerService.isValidDatabaseConfiguration({
+			const isLogical = await PostgresTriggerService.isValidDatabaseConfiguration({
 				workspace: $workspaceStore!,
 				path: database_resource_path
 			})
@@ -305,7 +305,7 @@
 							checked={enabled}
 							options={{ right: 'enable', left: 'disable' }}
 							on:change={async (e) => {
-								await DatabaseTriggerService.setDatabaseTriggerEnabled({
+								await PostgresTriggerService.setDatabaseTriggerEnabled({
 									path: initialPath,
 									workspace: $workspaceStore ?? '',
 									requestBody: { enabled: e.detail }

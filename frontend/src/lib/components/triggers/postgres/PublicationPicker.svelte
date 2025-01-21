@@ -4,7 +4,7 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import type { Relations } from '$lib/gen'
-	import { DatabaseTriggerService } from '$lib/gen/services.gen'
+	import { PostgresTriggerService } from '$lib/gen/services.gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
@@ -19,7 +19,7 @@
 
 	async function listDatabasePublication() {
 		try {
-			const publications = await DatabaseTriggerService.listDatabasePublication({
+			const publications = await PostgresTriggerService.listDatabasePublication({
 				path: database_resource_path,
 				workspace: $workspaceStore!
 			})
@@ -32,7 +32,7 @@
 
 	async function updatePublication() {
 		try {
-			const message = await DatabaseTriggerService.updateDatabasePublication({
+			const message = await PostgresTriggerService.updateDatabasePublication({
 				path: database_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name,
@@ -49,7 +49,7 @@
 
 	async function deletePublication() {
 		try {
-			const message = await DatabaseTriggerService.deleteDatabasePublication({
+			const message = await PostgresTriggerService.deleteDatabasePublication({
 				path: database_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name
@@ -65,7 +65,7 @@
 
 	async function getAllRelations() {
 		try {
-			const publication_data = await DatabaseTriggerService.getDatabasePublication({
+			const publication_data = await PostgresTriggerService.getDatabasePublication({
 				path: database_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name

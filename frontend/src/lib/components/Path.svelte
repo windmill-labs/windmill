@@ -16,7 +16,7 @@
 		VariableService,
 		WebsocketTriggerService,
 		KafkaTriggerService,
-		DatabaseTriggerService,
+		PostgresTriggerService,
 		NatsTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -237,7 +237,7 @@
 				path: path
 			})
 		} else if (kind == 'postgres_trigger') {
-			return await DatabaseTriggerService.existsDatabaseTrigger({
+			return await PostgresTriggerService.existsDatabaseTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

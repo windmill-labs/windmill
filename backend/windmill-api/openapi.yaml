@@ -2429,14 +2429,14 @@ paths:
                     type: boolean
                   nats_used:
                     type: boolean
-                  database_used:
+                  postgres_used:
                     type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
                   - kafka_used
                   - nats_used
-                  - database_used
+                  - postgres_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -12923,7 +12923,7 @@ components:
           type: number
         websocket_count:
           type: number
-        database_count:
+        postgres_count:
           type: number
         kafka_count:
           type: number

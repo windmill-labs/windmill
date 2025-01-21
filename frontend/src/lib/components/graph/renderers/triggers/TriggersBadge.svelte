@@ -63,7 +63,7 @@
 		routes: { icon: Route, countKey: 'http_routes_count' },
 		websockets: { icon: Unplug, countKey: 'websocket_count' },
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
-		database: { icon: Database, countKey: 'database_count' },
+		database: { icon: Database, countKey: 'postgres_count' },
 		emails: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count' },
 		eventStreams: { icon: PlugZap }

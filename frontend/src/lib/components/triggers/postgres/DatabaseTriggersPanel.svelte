@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { DatabaseTriggerService, type DatabaseTrigger } from '$lib/gen'
+	import { PostgresTriggerService, type DatabaseTrigger } from '$lib/gen'
 	import { UnplugIcon } from 'lucide-svelte'
 
 	import { canWrite } from '$lib/utils'
@@ -24,7 +24,7 @@
 	export async function loadTriggers() {
 		try {
 			databaseTriggers = (
-				await DatabaseTriggerService.listDatabaseTriggers({
+				await PostgresTriggerService.listDatabaseTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
 					isFlow
@@ -32,7 +32,7 @@
 			).map((x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
-			$triggersCount = { ...($triggersCount ?? {}), database_count: databaseTriggers?.length }
+			$triggersCount = { ...($triggersCount ?? {}), postgres_count: databaseTriggers?.length }
 		} catch (e) {
 			console.error('impossible to load Postgres triggers', e)
 		}

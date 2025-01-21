@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { DatabaseTriggerService, type DatabaseTrigger } from '$lib/gen'
+	import { PostgresTriggerService, type DatabaseTrigger } from '$lib/gen'
 	import {
 		canWrite,
 		displayDate,
@@ -38,7 +38,7 @@
 
 	async function loadTriggers(): Promise<void> {
 		triggers = (
-			await DatabaseTriggerService.listDatabaseTriggers({ workspace: $workspaceStore! })
+			await PostgresTriggerService.listDatabaseTriggers({ workspace: $workspaceStore! })
 		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
@@ -47,7 +47,7 @@
 
 	let interval = setInterval(async () => {
 		try {
-			const newTriggers = await DatabaseTriggerService.listDatabaseTriggers({
+			const newTriggers = await PostgresTriggerService.listDatabaseTriggers({
 				workspace: $workspaceStore!
 			})
 			for (let i = 0; i < triggers.length; i++) {
@@ -70,7 +70,7 @@
 
 	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await DatabaseTriggerService.setDatabaseTriggerEnabled({
+			await PostgresTriggerService.setDatabaseTriggerEnabled({
 				path,
 				workspace: $workspaceStore!,
 				requestBody: { enabled }
@@ -363,7 +363,7 @@
 											icon: Trash,
 											disabled: !canWrite,
 											action: async () => {
-												await DatabaseTriggerService.deleteDatabaseTrigger({
+												await PostgresTriggerService.deleteDatabaseTrigger({
 													workspace: $workspaceStore ?? '',
 													path
 												})
