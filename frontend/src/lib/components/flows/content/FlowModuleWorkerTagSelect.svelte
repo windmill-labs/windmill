@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { workerTags } from '$lib/stores'
+	import { workerTags, workspaceStore } from '$lib/stores'
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
@@ -14,7 +14,7 @@
 
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
+			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 		}
 	}
 </script>
