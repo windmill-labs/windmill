@@ -296,7 +296,12 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         let mut l = ALL_TAGS.write().await;
         *l = [
             custom_tags.0.clone(),
-            custom_tags.1.keys().map(|x| x.to_string()).collect_vec(),
+            custom_tags
+                .1
+                .values()
+                .flatten()
+                .map(|x| x.to_string())
+                .collect_vec(),
         ]
         .concat();
     }
