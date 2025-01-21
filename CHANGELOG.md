@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.447.6](https://github.com/windmill-labs/windmill/compare/v1.447.5...v1.447.6) (2025-01-21)
+
+
+### Bug Fixes
+
+* improve uv dependency install reliability with an atomic success file ([5831822](https://github.com/windmill-labs/windmill/commit/5831822afeb9919b8af3dc6ce60100736cab9d01))
+* **python:** Replace Inf with null ([#5099](https://github.com/windmill-labs/windmill/issues/5099)) ([8eb5e72](https://github.com/windmill-labs/windmill/commit/8eb5e72ccdcc037d94209632f3e64742c809fd7e))
+
 ## [1.447.5](https://github.com/windmill-labs/windmill/compare/v1.447.4...v1.447.5) (2025-01-17)
 
 
