@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, created_at, created_by, status = 'success'::job_status AS \"success!\"\n        FROM v2_job_completed c JOIN v2_job USING (id)\n        WHERE (runnable_id = $1 OR runnable_path = $2) AND kind = ANY($3) AND c.workspace_id = $4\n        ORDER BY created_at DESC LIMIT $5 OFFSET $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "success!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        {
+          "Custom": {
+            "name": "job_kind[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "job_kind",
+                  "kind": {
+                    "Enum": [
+                      "script",
+                      "preview",
+                      "flow",
+                      "dependencies",
+                      "flowpreview",
+                      "script_hub",
+                      "identity",
+                      "flowdependencies",
+                      "http",
+                      "graphql",
+                      "postgresql",
+                      "noop",
+                      "appdependencies",
+                      "deploymentcallback",
+                      "singlescriptflow",
+                      "flowscript",
+                      "flownode",
+                      "appscript"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "28837bb394c70e0bdbc269eb7cd3c457d176c09f626b5a98657089951bb50a08"
+}

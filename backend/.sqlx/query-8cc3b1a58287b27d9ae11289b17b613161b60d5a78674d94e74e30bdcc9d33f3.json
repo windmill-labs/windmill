@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, 'null'::JSONB AS args, created_by, created_at, is_public,\n            TRUE AS \"success!\"\n        FROM input\n        WHERE runnable_id = $1 AND runnable_type = $2 AND workspace_id = $3\n            AND (is_public IS TRUE OR created_by = $4)\n        ORDER BY created_at DESC LIMIT $5 OFFSET $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_public",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "success!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "runnable_type",
+            "kind": {
+              "Enum": [
+                "ScriptHash",
+                "ScriptPath",
+                "FlowPath"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "8cc3b1a58287b27d9ae11289b17b613161b60d5a78674d94e74e30bdcc9d33f3"
+}

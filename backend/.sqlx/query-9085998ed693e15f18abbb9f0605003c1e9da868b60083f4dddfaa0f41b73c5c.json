@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO input (id, workspace_id, runnable_id, runnable_type, name, args, created_by)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "runnable_type",
+            "kind": {
+              "Enum": [
+                "ScriptHash",
+                "ScriptPath",
+                "FlowPath"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9085998ed693e15f18abbb9f0605003c1e9da868b60083f4dddfaa0f41b73c5c"
+}
