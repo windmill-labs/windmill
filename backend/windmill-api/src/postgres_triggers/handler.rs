@@ -32,7 +32,7 @@ use windmill_common::{
 };
 
 use crate::{
-    database_triggers::mapper::{Mapper, MappingInfo},
+    postgres_triggers::mapper::{Mapper, MappingInfo},
     db::{ApiAuthed, DB},
 };
 
@@ -239,12 +239,12 @@ pub struct SetEnabled {
     pub enabled: bool,
 }
 
-pub async fn create_database_trigger(
+pub async fn create_postgres_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(new_database_trigger): Json<NewDatabaseTrigger>,
+    Json(new_postgres_trigger): Json<NewDatabaseTrigger>,
 ) -> error::Result<(StatusCode, String)> {
     let NewDatabaseTrigger {
         database_resource_path,
@@ -255,7 +255,7 @@ pub async fn create_database_trigger(
         publication_name,
         replication_slot_name,
         publication,
-    } = new_database_trigger;
+    } = new_postgres_trigger;
 
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
@@ -326,7 +326,7 @@ pub async fn create_database_trigger(
 
     sqlx::query!(
         r#"
-        INSERT INTO database_trigger (
+        INSERT INTO postgres_trigger (
             publication_name,
             replication_slot_name,
             workspace_id, 
@@ -367,7 +367,7 @@ pub async fn create_database_trigger(
     audit_log(
         &mut *tx,
         &authed,
-        "database_triggers.create",
+        "postgres_triggers.create",
         ActionKind::Create,
         &w_id,
         Some(path.as_str()),
@@ -380,7 +380,7 @@ pub async fn create_database_trigger(
     Ok((StatusCode::CREATED, path.to_string()))
 }
 
-pub async fn list_database_triggers(
+pub async fn list_postgres_triggers(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
@@ -388,7 +388,7 @@ pub async fn list_database_triggers(
 ) -> error::JsonResult<Vec<DatabaseTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
-    let mut sqlb = SqlBuilder::select_from("database_trigger")
+    let mut sqlb = SqlBuilder::select_from("postgres_trigger")
         .fields(&[
             "workspace_id",
             "path",
@@ -427,11 +427,11 @@ pub async fn list_database_triggers(
         .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
-            tracing::debug!("Error fetching database_trigger: {:#?}", e);
+            tracing::debug!("Error fetching postgres_trigger: {:#?}", e);
             windmill_common::error::Error::InternalErr("server error".to_string())
         })?;
     tx.commit().await.map_err(|e| {
-        tracing::debug!("Error commiting database_trigger: {:#?}", e);
+        tracing::debug!("Error commiting postgres_trigger: {:#?}", e);
         windmill_common::error::Error::InternalErr("server error".to_string())
     })?;
 
@@ -1011,7 +1011,7 @@ async fn get_tracked_relations(
     Ok(table_to_track.into_values().collect_vec())
 }
 
-pub async fn get_database_trigger(
+pub async fn get_postgres_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -1038,7 +1038,7 @@ pub async fn get_database_trigger(
             publication_name,
             database_resource_path
         FROM 
-            database_trigger
+            postgres_trigger
         WHERE 
             workspace_id = $1 AND 
             path = $2
@@ -1055,12 +1055,12 @@ pub async fn get_database_trigger(
     Ok(Json(trigger))
 }
 
-pub async fn update_database_trigger(
+pub async fn update_postgres_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(database_trigger): Json<EditDatabaseTrigger>,
+    Json(postgres_trigger): Json<EditDatabaseTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
     let EditDatabaseTrigger {
@@ -1071,7 +1071,7 @@ pub async fn update_database_trigger(
         is_flow,
         database_resource_path,
         publication,
-    } = database_trigger;
+    } = postgres_trigger;
 
     if let Some(publication) = publication {
         let mut connection = get_database_connection(
@@ -1088,7 +1088,7 @@ pub async fn update_database_trigger(
 
     sqlx::query!(
         r#"
-            UPDATE database_trigger 
+            UPDATE postgres_trigger 
             SET 
                 script_path = $1, 
                 path = $2, 
@@ -1122,7 +1122,7 @@ pub async fn update_database_trigger(
     audit_log(
         &mut *tx,
         &authed,
-        "database_triggers.update",
+        "postgres_triggers.update",
         ActionKind::Create,
         &w_id,
         Some(&path),
@@ -1135,7 +1135,7 @@ pub async fn update_database_trigger(
     Ok(workspace_path.to_string())
 }
 
-pub async fn delete_database_trigger(
+pub async fn delete_postgres_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -1144,7 +1144,7 @@ pub async fn delete_database_trigger(
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         r#"
-        DELETE FROM database_trigger 
+        DELETE FROM postgres_trigger 
         WHERE 
             workspace_id = $1 AND 
             path = $2
@@ -1158,7 +1158,7 @@ pub async fn delete_database_trigger(
     audit_log(
         &mut *tx,
         &authed,
-        "database_triggers.delete",
+        "postgres_triggers.delete",
         ActionKind::Delete,
         &w_id,
         Some(path),
@@ -1171,7 +1171,7 @@ pub async fn delete_database_trigger(
     Ok(format!("Postgres trigger {path} deleted"))
 }
 
-pub async fn exists_database_trigger(
+pub async fn exists_postgres_trigger(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
@@ -1180,7 +1180,7 @@ pub async fn exists_database_trigger(
         r#"
         SELECT EXISTS(
             SELECT 1 
-            FROM database_trigger 
+            FROM postgres_trigger 
             WHERE 
                 path = $1 AND 
                 workspace_id = $2
@@ -1206,7 +1206,7 @@ pub async fn set_enabled(
     // important to set server_id, last_server_ping and error to NULL to stop current database listener
     let one_o = sqlx::query_scalar!(
         r#"
-        UPDATE database_trigger 
+        UPDATE postgres_trigger 
         SET 
             enabled = $1, 
             email = $2, 
@@ -1234,7 +1234,7 @@ pub async fn set_enabled(
     audit_log(
         &mut *tx,
         &authed,
-        "database_triggers.setenabled",
+        "postgres_triggers.setenabled",
         ActionKind::Update,
         &w_id,
         Some(path),

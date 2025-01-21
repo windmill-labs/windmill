@@ -103,7 +103,7 @@
 		},
 		{
 			label: 'Postgres',
-			href: '/database_triggers',
+			href: '/postgres_triggers',
 			icon: Database,
 			disabled: $userStore?.operator,
 			kind: 'database'

@@ -89,7 +89,7 @@
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
-	import DatabaseTriggersPanel from '$lib/components/triggers/database/DatabaseTriggersPanel.svelte'
+	import DatabaseTriggersPanel from '$lib/components/triggers/postgres/DatabaseTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 

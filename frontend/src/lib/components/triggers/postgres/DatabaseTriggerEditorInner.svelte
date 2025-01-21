@@ -354,7 +354,7 @@
 							{initialPath}
 							checkInitialPathExistence={!edit}
 							namePlaceholder="postgres_trigger"
-							kind="database_trigger"
+							kind="postgres_trigger"
 							disabled={!can_write}
 						/>
 					</Label>

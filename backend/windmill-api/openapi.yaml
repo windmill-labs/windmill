@@ -8226,12 +8226,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/is_valid_database_configuration/{path}:
+  /w/{workspace}/postgres_triggers/is_valid_database_configuration/{path}:
     get:
       summary: check if database configuration is set to logical
       operationId: isValidDatabaseConfiguration
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
           - $ref: "#/components/parameters/WorkspaceId"
           - $ref: "#/components/parameters/Path"
@@ -8243,12 +8243,12 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/database_triggers/get_template_script:
+  /w/{workspace}/postgres_triggers/get_template_script:
     post:
       summary: get template script
       operationId: getTemplateScript
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -8266,12 +8266,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/slot/list/{path}:
+  /w/{workspace}/postgres_triggers/slot/list/{path}:
     get:
       summary: list database slot
       operationId: listDatabaseSlot
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8285,12 +8285,12 @@ paths:
                 items:
                   $ref: "#/components/schemas/SlotList"
 
-  /w/{workspace}/database_triggers/slot/create/{path}:
+  /w/{workspace}/postgres_triggers/slot/create/{path}:
     post:
       summary: create slot for database
       operationId: createDatabaseSlot
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8309,12 +8309,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/slot/delete/{path}:
+  /w/{workspace}/postgres_triggers/slot/delete/{path}:
     delete:
       summary: delete database slot
       operationId: deleteDatabaseSlot
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8333,12 +8333,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/publication/list/{path}:
+  /w/{workspace}/postgres_triggers/publication/list/{path}:
     get:
       summary: list database publication
       operationId: listDatabasePublication
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8352,12 +8352,12 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/database_triggers/publication/get/{publication}/{path}:
+  /w/{workspace}/postgres_triggers/publication/get/{publication}/{path}:
     get:
       summary: get database publication
       operationId: getDatabasePublication
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8370,12 +8370,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicationData"
 
-  /w/{workspace}/database_triggers/publication/create/{publication}/{path}:
+  /w/{workspace}/postgres_triggers/publication/create/{publication}/{path}:
     post:
       summary: create publication for database
       operationId: createDatabasePublication
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8395,12 +8395,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/publication/update/{publication}/{path}:
+  /w/{workspace}/postgres_triggers/publication/update/{publication}/{path}:
     post:
       summary: update publication for database
       operationId: updateDatabasePublication
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8421,12 +8421,12 @@ paths:
                 type: string
 
 
-  /w/{workspace}/database_triggers/publication/delete/{publication}/{path}:
+  /w/{workspace}/postgres_triggers/publication/delete/{publication}/{path}:
     delete:
       summary: delete database publication
       operationId: deleteDatabasePublication
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8439,12 +8439,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/create:
+  /w/{workspace}/postgres_triggers/create:
     post:
       summary: create postgres trigger
       operationId: createDatabaseTrigger
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -8462,12 +8462,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/update/{path}:
+  /w/{workspace}/postgres_triggers/update/{path}:
     post:
       summary: update postgres trigger
       operationId: updateDatabaseTrigger
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8486,12 +8486,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/delete/{path}:
+  /w/{workspace}/postgres_triggers/delete/{path}:
     delete:
       summary: delete postgres trigger
       operationId: deleteDatabaseTrigger
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8503,12 +8503,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/database_triggers/get/{path}:
+  /w/{workspace}/postgres_triggers/get/{path}:
     get:
       summary: get postgres trigger
       operationId: getDatabaseTrigger
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8520,12 +8520,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/DatabaseTrigger"
 
-  /w/{workspace}/database_triggers/list:
+  /w/{workspace}/postgres_triggers/list:
     get:
       summary: list postgres triggers
       operationId: listDatabaseTriggers
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
           required: true
@@ -8554,12 +8554,12 @@ paths:
                 items:
                   $ref: "#/components/schemas/DatabaseTrigger"
 
-  /w/{workspace}/database_triggers/exists/{path}:
+  /w/{workspace}/postgres_triggers/exists/{path}:
     get:
       summary: does postgres trigger exists
       operationId: existsDatabaseTrigger
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8571,12 +8571,12 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/database_triggers/setenabled/{path}:
+  /w/{workspace}/postgres_triggers/setenabled/{path}:
     post:
       summary: set enabled postgres trigger
       operationId: setDatabaseTriggerEnabled
       tags:
-        - database_trigger
+        - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -9467,7 +9467,7 @@ paths:
                 websocket_trigger,
                 kafka_trigger,
                 nats_trigger,
-                database_trigger,
+                postgres_trigger,
               ]
       responses:
         "200":
@@ -9508,7 +9508,7 @@ paths:
                 websocket_trigger,
                 kafka_trigger,
                 nats_trigger,
-                database_trigger,
+                postgres_trigger,
               ]
       requestBody:
         description: acl to add
@@ -9560,7 +9560,7 @@ paths:
                 websocket_trigger,
                 kafka_trigger,
                 nats_trigger,
-                database_trigger,
+                postgres_trigger,
               ]
       requestBody:
         description: acl to add

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            \n            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS \"websocket_used!\", \n           \n            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS \"http_routes_used!\",\n            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as \"kafka_used!\",\n            EXISTS(SELECT 1 FROM database_trigger WHERE workspace_id = $1) AS \"database_used!\"\n        ",
+  "query": "\n        SELECT \n            \n            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS \"websocket_used!\", \n           \n            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS \"http_routes_used!\",\n            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as \"kafka_used!\",\n            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS \"database_used!\"\n        ",
   "describe": {
     "columns": [
       {

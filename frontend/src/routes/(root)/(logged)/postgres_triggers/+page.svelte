@@ -28,7 +28,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import DatabaseTriggerEditor from '$lib/components/triggers/database/DatabaseTriggerEditor.svelte'
+	import DatabaseTriggerEditor from '$lib/components/triggers/postgres/DatabaseTriggerEditor.svelte'
 
 	type TriggerD = DatabaseTrigger & { canWrite: boolean }
 

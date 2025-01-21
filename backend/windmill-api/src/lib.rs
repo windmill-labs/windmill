@@ -60,7 +60,7 @@ mod capture;
 mod concurrency_groups;
 mod configs;
 #[cfg(feature = "database")]
-mod database_triggers;
+mod postgres_triggers;
 mod db;
 mod drafts;
 pub mod ee;
@@ -311,7 +311,7 @@ pub async fn run_server(
         #[cfg(feature = "database")]
         {
             let db_killpill_rx = rx.resubscribe();
-            database_triggers::start_database(db.clone(), db_killpill_rx).await;
+            postgres_triggers::start_database(db.clone(), db_killpill_rx).await;
         }
     }
 
@@ -383,10 +383,10 @@ pub async fn run_server(
                         })
                         .nest("/kafka_triggers", kafka_triggers_service)
                         .nest("/nats_triggers", nats_triggers_service)
-                        .nest("/database_triggers", {
+                        .nest("/postgres_triggers", {
                             #[cfg(feature = "database")]
                             {
-                                database_triggers::workspaced_service()
+                                postgres_triggers::workspaced_service()
                             }
 
                             #[cfg(not(feature = "database"))]

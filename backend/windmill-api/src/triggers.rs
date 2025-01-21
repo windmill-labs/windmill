@@ -88,7 +88,7 @@ pub(crate) async fn get_triggers_count_internal(
     .unwrap_or(0);
 
     let database_count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM database_trigger WHERE script_path = $1 AND is_flow = $2 AND workspace_id = $3",
+        "SELECT COUNT(*) FROM postgres_trigger WHERE script_path = $1 AND is_flow = $2 AND workspace_id = $3",
         path,
         is_flow,
         w_id

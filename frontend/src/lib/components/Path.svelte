@@ -41,7 +41,7 @@
 		| 'http_trigger'
 		| 'websocket_trigger'
 		| 'kafka_trigger'
-		| 'database_trigger'
+		| 'postgres_trigger'
 		| 'nats_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
@@ -236,7 +236,7 @@
 				workspace: $workspaceStore!,
 				path: path
 			})
-		} else if (kind == 'database_trigger') {
+		} else if (kind == 'postgres_trigger') {
 			return await DatabaseTriggerService.existsDatabaseTrigger({
 				workspace: $workspaceStore!,
 				path: path

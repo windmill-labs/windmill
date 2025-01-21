@@ -1,7 +1,7 @@
 use std::{collections::HashMap, pin::Pin};
 
 use crate::{
-    database_triggers::{
+    postgres_triggers::{
         get_database_resource,
         relation::RelationConverter,
         replication_message::{
@@ -139,13 +139,13 @@ impl PostgresSimpleClient {
 
 async fn update_ping(
     db: &DB,
-    database_trigger: &DatabaseTrigger,
+    postgres_trigger: &DatabaseTrigger,
     error: Option<&str>,
 ) -> Option<()> {
     match sqlx::query_scalar!(
         r#"
         UPDATE 
-            database_trigger
+            postgres_trigger
         SET 
             last_server_ping = now(),
             error = $1
@@ -157,8 +157,8 @@ async fn update_ping(
         RETURNING 1
         "#,
         error,
-        &database_trigger.workspace_id,
-        &database_trigger.path,
+        &postgres_trigger.workspace_id,
+        &postgres_trigger.path,
         *INSTANCE_NAME
     )
     .fetch_optional(db)
@@ -170,22 +170,22 @@ async fn update_ping(
                 sqlx::query!(
                     r#"
                 UPDATE 
-                    database_trigger 
+                    postgres_trigger 
                 SET
                     last_server_ping = NULL 
                 WHERE 
                     workspace_id = $1 
                     AND path = $2 
                     AND server_id IS NULL"#,
-                    &database_trigger.workspace_id,
-                    &database_trigger.path,
+                    &postgres_trigger.workspace_id,
+                    &postgres_trigger.path,
                 )
                 .execute(db)
                 .await
                 .ok();
                 tracing::info!(
                     "Database {} changed, disabled, or deleted, stopping...",
-                    database_trigger.path
+                    postgres_trigger.path
                 );
                 return None;
             }
@@ -193,7 +193,7 @@ async fn update_ping(
         Err(err) => {
             tracing::warn!(
                 "Error updating ping of database {}: {:?}",
-                database_trigger.path,
+                postgres_trigger.path,
                 err
             );
             return None;
@@ -203,9 +203,9 @@ async fn update_ping(
     Some(())
 }
 
-async fn loop_ping(db: &DB, database_trigger: &DatabaseTrigger, error: Option<&str>) {
+async fn loop_ping(db: &DB, postgres_trigger: &DatabaseTrigger, error: Option<&str>) {
     loop {
-        if update_ping(db, database_trigger, error).await.is_none() {
+        if update_ping(db, postgres_trigger, error).await.is_none() {
             return;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -213,14 +213,14 @@ async fn loop_ping(db: &DB, database_trigger: &DatabaseTrigger, error: Option<&s
 }
 
 async fn listen_to_transactions(
-    database_trigger: &DatabaseTrigger,
+    postgres_trigger: &DatabaseTrigger,
     db: DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<(), Error> {
     let authed = fetch_api_authed(
-        database_trigger.edited_by.clone(),
-        database_trigger.email.clone(),
-        &database_trigger.workspace_id,
+        postgres_trigger.edited_by.clone(),
+        postgres_trigger.email.clone(),
+        &postgres_trigger.workspace_id,
         &db,
         None,
     )
@@ -231,8 +231,8 @@ async fn listen_to_transactions(
         authed,
         Some(UserDB::new(db.clone())),
         &db,
-        &database_trigger.database_resource_path,
-        &database_trigger.workspace_id,
+        &postgres_trigger.database_resource_path,
+        &postgres_trigger.workspace_id,
     )
     .await
     .map_err(Error::Common)?;
@@ -241,8 +241,8 @@ async fn listen_to_transactions(
 
     let (logical_replication_stream, logicail_replication_settings) = client
         .get_logical_replication_stream(
-            &database_trigger.publication_name,
-            &database_trigger.replication_slot_name,
+            &postgres_trigger.publication_name,
+            &postgres_trigger.replication_slot_name,
         )
         .await?;
 
@@ -253,7 +253,7 @@ async fn listen_to_transactions(
         _ = killpill_rx.recv() => {
             Ok(())
         }
-        _ = loop_ping(&db, database_trigger, None) => {
+        _ = loop_ping(&db, postgres_trigger, None) => {
             Ok(())
         }
         _ = async {
@@ -271,7 +271,7 @@ async fn listen_to_transactions(
 
                     if let Err(err) = &message {
                         tracing::debug!("{}", err.to_string());
-                        update_ping(&db, database_trigger, Some(&err.to_string())).await;
+                        update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
                         return;
                     }
 
@@ -281,7 +281,7 @@ async fn listen_to_transactions(
                         Ok(logical_message) => logical_message,
                         Err(err) => {
                             tracing::debug!("{}", err.to_string());
-                            update_ping(&db, database_trigger, Some(&err.to_string())).await;
+                            update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
                             return;
                         }
                     };
@@ -297,7 +297,7 @@ async fn listen_to_transactions(
                             let logical_replication_message = match x_log_data.parse(&logicail_replication_settings) {
                                 Ok(logical_replication_message) => logical_replication_message,
                                 Err(err) => {
-                                    update_ping(&db, database_trigger, Some(&err.to_string())).await;
+                                    update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
                                     return;
                                 }
                             };
@@ -325,7 +325,7 @@ async fn listen_to_transactions(
                                 let relation = match relations.get_relation(o_id) {
                                     Ok(relation) => relation,
                                     Err(err) => {
-                                        update_ping(&db, database_trigger, Some(&err.to_string())).await;
+                                        update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
                                         return;
                                     }
                                 };
@@ -339,7 +339,7 @@ async fn listen_to_transactions(
                                     "wm_trigger".to_string(),
                                     to_raw_value(&serde_json::json!({"kind": "database", })),
                                 )]));
-                                let _ = run_job(Some(database_info), extra, &db, database_trigger).await;
+                                let _ = run_job(Some(database_info), extra, &db, postgres_trigger).await;
                                 continue;
                             }
 
@@ -353,13 +353,13 @@ async fn listen_to_transactions(
 }
 
 async fn try_to_listen_to_database_transactions(
-    db_trigger: DatabaseTrigger,
+    pg_trigger: DatabaseTrigger,
     db: DB,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    let database_trigger = sqlx::query_scalar!(
+    let postgres_trigger = sqlx::query_scalar!(
         r#"
-        UPDATE database_trigger 
+        UPDATE postgres_trigger 
         SET 
             server_id = $1, 
             last_server_ping = now(),
@@ -374,29 +374,29 @@ async fn try_to_listen_to_database_transactions(
         RETURNING true
         "#,
         *INSTANCE_NAME,
-        db_trigger.workspace_id,
-        db_trigger.path,
+        pg_trigger.workspace_id,
+        pg_trigger.path,
     )
     .fetch_optional(&db)
     .await;
-    match database_trigger {
+    match postgres_trigger {
         Ok(has_lock) => {
             if has_lock.flatten().unwrap_or(false) {
                 tracing::info!("Spawning new task to listen_to_database_transaction");
                 tokio::spawn(async move {
-                    let result = listen_to_transactions(&db_trigger, db.clone(), killpill_rx).await;
+                    let result = listen_to_transactions(&pg_trigger, db.clone(), killpill_rx).await;
                     if let Err(e) = result {
-                        update_ping(&db, &db_trigger, Some(e.to_string().as_str())).await;
+                        update_ping(&db, &pg_trigger, Some(e.to_string().as_str())).await;
                     };
                 });
             } else {
-                tracing::info!("Database {} already being listened to", db_trigger.path);
+                tracing::info!("Database {} already being listened to", pg_trigger.path);
             }
         }
         Err(err) => {
             tracing::error!(
                 "Error acquiring lock for database {}: {:?}",
-                db_trigger.path,
+                pg_trigger.path,
                 err
             );
         }
@@ -407,7 +407,7 @@ async fn listen_to_unlistened_database_events(
     db: &DB,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) {
-    let database_triggers = sqlx::query_as!(
+    let postgres_triggers = sqlx::query_as!(
         DatabaseTrigger,
         r#"
             SELECT
@@ -427,7 +427,7 @@ async fn listen_to_unlistened_database_events(
                 enabled,
                 database_resource_path
             FROM
-                database_trigger
+                postgres_trigger
             WHERE
                 enabled IS TRUE
                 AND (last_server_ping IS NULL OR
@@ -438,7 +438,7 @@ async fn listen_to_unlistened_database_events(
     .fetch_all(db)
     .await;
 
-    match database_triggers {
+    match postgres_triggers {
         Ok(mut triggers) => {
             triggers.shuffle(&mut rand::thread_rng());
             for trigger in triggers {
