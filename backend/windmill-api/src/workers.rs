@@ -148,9 +148,10 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
         let workspace_tags = tags_o
             .1
-            .get(&workspace)
-            .map(|x| x.clone())
-            .unwrap_or_default();
+            .iter()
+            .filter(|(_, workspaces)| workspaces.contains(&workspace))
+            .map(|(tag, _)| tag.clone())
+            .collect::<Vec<String>>();
         let all_tags = tags_o.0.clone();
         return Ok(Json(
             all_tags
@@ -163,8 +164,7 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
         let workspace_tags = tags_o
             .1
             .iter()
-            .map(|(workspace, tags)| tags.iter().map(move |tag| format!("{tag}({workspace})")))
-            .flatten()
+            .map(|(tag, workspaces)| format!("{}({})", tag, workspaces.join("+")))
             .collect::<Vec<String>>();
         let all_tags = tags_o.0.clone();
         return Ok(Json(
