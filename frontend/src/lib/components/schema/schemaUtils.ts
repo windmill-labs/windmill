@@ -26,6 +26,12 @@ function isCompatibleObject(a: any, b: any): boolean {
 	}
 
 	if (a.type !== b.type) {
+		if (
+			(a.type === 'number' || a.type === 'integer') &&
+			(b.type === 'number' || b.type === 'integer')
+		) {
+			return true
+		}
 		return false
 	}
 
