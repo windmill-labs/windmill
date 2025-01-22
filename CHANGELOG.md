@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.448.0](https://github.com/windmill-labs/windmill/compare/v1.447.6...v1.448.0) (2025-01-22)
+
+
+### Features
+
+* Migrate to bun.lock ([#5112](https://github.com/windmill-labs/windmill/issues/5112)) ([fcfad69](https://github.com/windmill-labs/windmill/commit/fcfad69195a776d4958c035dca16100368966a66))
+
+
+### Bug Fixes
+
+* improve workspace specific tags behavior ([669a1ff](https://github.com/windmill-labs/windmill/commit/669a1ff8e6ab782ce1168170db684deb5f0ec99a))
+* improve workspace specific tags behavior ([e81c2c9](https://github.com/windmill-labs/windmill/commit/e81c2c983d139cd24e983f6a76de56c10a694954))
+
 ## [1.447.6](https://github.com/windmill-labs/windmill/compare/v1.447.5...v1.447.6) (2025-01-21)
 
 
