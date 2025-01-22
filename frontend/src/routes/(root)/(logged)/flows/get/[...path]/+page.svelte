@@ -549,7 +549,7 @@
 			</div>
 		</svelte:fragment>
 
-		<svelte:fragment slot="database">
+		<svelte:fragment slot="postgres">
 			<div class="p-2">
 				<DatabaseTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>

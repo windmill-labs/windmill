@@ -221,8 +221,8 @@
 			sendUserToast(`PostgresTrigger ${path} created`)
 		}
 
-		if (!$usedTriggerKinds.includes('database')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'database']
+		if (!$usedTriggerKinds.includes('postgres')) {
+			$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
 		}
 		dispatch('update')
 		drawer.closeDrawer()

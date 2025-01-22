@@ -207,7 +207,7 @@
 			usedKinds.push('kafka')
 		}
 		if (postgres_used) {
-			usedKinds.push('database')
+			usedKinds.push('postgres')
 		}
 		if (nats_used) {
 			usedKinds.push('nats')

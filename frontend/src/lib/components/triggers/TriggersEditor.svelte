@@ -54,7 +54,7 @@
 				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
-				<Tab value="database" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
+				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
 				<Tab
 					value="kafka"
 					otherValues={['nats']}
@@ -138,7 +138,7 @@
 									{hasPreprocessor}
 								/>
 							</div>
-						{:else if $selectedTrigger === 'database'}
+						{:else if $selectedTrigger === 'postgres'}
 							<div class="p-4">
 								<DatabaseTriggersPanel {newItem} path={currentPath} {isFlow} />
 							</div>

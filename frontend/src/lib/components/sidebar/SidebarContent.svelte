@@ -106,7 +106,7 @@
 			href: '/postgres_triggers',
 			icon: Database,
 			disabled: $userStore?.operator,
-			kind: 'database'
+			kind: 'postgres'
 		},
 		{
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),

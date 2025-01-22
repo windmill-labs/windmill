@@ -50,7 +50,7 @@ export type TriggerKind =
 	| 'scheduledPoll'
 	| 'kafka'
 	| 'nats'
-	| 'database'
+	| 'postgres'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':

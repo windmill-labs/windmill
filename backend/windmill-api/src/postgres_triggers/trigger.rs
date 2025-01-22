@@ -343,7 +343,7 @@ async fn listen_to_transactions(
                                 ]);
                                 let extra = Some(HashMap::from([(
                                     "wm_trigger".to_string(),
-                                    to_raw_value(&serde_json::json!({"kind": "database", })),
+                                    to_raw_value(&serde_json::json!({"kind": "postgres", })),
                                 )]));
                                 let _ = run_job(Some(database_info), extra, &db, postgres_trigger).await;
                                 continue;

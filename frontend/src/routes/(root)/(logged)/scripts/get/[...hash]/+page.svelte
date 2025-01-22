@@ -734,7 +734,7 @@
 					<KafkaTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
-			<svelte:fragment slot="database">
+			<svelte:fragment slot="postgres">
 				<div class="p-2">
 					<DatabaseTriggersPanel path={script.path ?? ''} isFlow={false} />
 			</svelte:fragment>

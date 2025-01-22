@@ -580,7 +580,7 @@ export async function main(approver?: string) {
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'database',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -623,7 +623,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'database',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
