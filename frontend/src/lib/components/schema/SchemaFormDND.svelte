@@ -5,7 +5,7 @@
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
-
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	export let dndType: string | undefined = undefined
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -15,6 +15,11 @@
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
 	export let schemaSkippedValues: string[] = []
+	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+	export let disableDnd: boolean = false
+	export let shouldDispatchChanges: boolean = false
+	export let diff: Record<string, SchemaDiff> = {}
+	export let nestedClasses = ''
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
@@ -66,12 +71,16 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <SchemaForm
+	{nestedClasses}
 	{schemaSkippedValues}
 	on:click
 	on:change
 	on:reorder
 	on:consider={handleConsider}
 	on:finalize={handleFinalize}
+	on:acceptChange
+	on:rejectChange
+	on:nestedChange
 	{lightweightMode}
 	bind:args
 	{prettifyHeader}
@@ -79,17 +88,24 @@
 	{disablePortal}
 	{disabled}
 	bind:schema
-	dndConfig={{
-		items,
-		flipDurationMs,
-		dropTargetStyle: {},
-		type: dndType ?? 'top-level'
-	}}
+	dndConfig={disableDnd
+		? undefined
+		: {
+				items,
+				flipDurationMs,
+				dropTargetStyle: {},
+				type: dndType ?? 'top-level'
+		  }}
 	{items}
+	{diff}
+	{nestedParent}
+	{shouldDispatchChanges}
 >
 	<svelte:fragment slot="actions">
-		<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
-			<GripVertical size={16} />
-		</div>
+		{#if !disableDnd}
+			<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
+				<GripVertical size={16} />
+			</div>
+		{/if}
 	</svelte:fragment>
 </SchemaForm>
