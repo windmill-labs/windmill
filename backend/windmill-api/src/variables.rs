@@ -691,29 +691,27 @@ pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
     })
 }
 
-struct Variable {
-    value: String,
-    is_secret: bool,
-}
-
 pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<String> {
     if !path.starts_with("$var:") {
         return Ok(path);
     }
     let path = path.strip_prefix("$var:").unwrap().to_string();
-    let mut variable = sqlx::query_as!(
-        Variable,
-        "SELECT value, is_secret
-        FROM variable
-        WHERE path = $1 AND workspace_id = $2",
+
+    let record = sqlx::query!(
+        "SELECT value, is_secret 
+         FROM variable 
+         WHERE path = $1 AND workspace_id = $2",
         &path,
         &w_id
     )
     .fetch_one(db)
     .await?;
-    if variable.is_secret {
+
+    let mut value = record.value;
+    if record.is_secret {
         let mc = build_crypt(db, w_id).await?;
-        variable.value = decrypt(&mc, variable.value)?;
+        value = decrypt(&mc, value)?;
     }
-    Ok(variable.value)
+
+    Ok(value)
 }

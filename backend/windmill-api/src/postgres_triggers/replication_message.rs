@@ -3,13 +3,12 @@
 use core::str;
 use std::{
     cmp,
-    io::{self, Read},
+    io::{self, Cursor, Read},
     str::Utf8Error,
 };
 
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
-use memchr::memchr;
 use rust_postgres::types::{Oid, Type};
 use thiserror::Error;
 
@@ -20,12 +19,11 @@ const X_LOG_DATA_BYTE: u8 = b'w';
 /**
 * This implementation is inspired by Postgres replication functionality
 * from https://github.com/supabase/pg_replicate
-* 
-* Original implementation: 
+*
+* Original implementation:
 * - https://github.com/supabase/pg_replicate/blob/main/pg_replicate/src/conversions/cdc_event.rs
-* 
+*
 */
-
 
 #[derive(Debug)]
 pub struct PrimaryKeepAliveBody {
@@ -255,7 +253,7 @@ impl Buffer {
     }
 
     fn read_cstr(&mut self) -> Result<String, ConversionError> {
-        match memchr(0, self.slice()) {
+        match self.slice().iter().position(|&x| x == 0) {
             Some(pos) => {
                 let start = self.idx;
                 let end = start + pos;

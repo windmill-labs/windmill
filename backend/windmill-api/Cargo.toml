@@ -28,7 +28,7 @@ zip = ["dep:async_zip"]
 oauth2 = ["dep:async-oauth2"]
 http_trigger = ["dep:matchit"]
 static_frontend = ["dep:rust-embed"]
-database = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:memchr", "dep:thiserror", "dep:rust_decimal"]
+database = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -115,6 +115,5 @@ ulid.workspace = true
 rust-postgres = { workspace = true, optional = true }
 pg_escape = { workspace = true, optional = true }
 byteorder = { workspace = true, optional = true }
-memchr = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 rust_decimal = { workspace = true, optional = true }

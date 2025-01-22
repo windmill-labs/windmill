@@ -10864,7 +10864,6 @@ dependencies = [
  "magic-crypt",
  "mail-parser",
  "matchit",
- "memchr",
  "mime_guess",
  "native-tls",
  "nkeys",
