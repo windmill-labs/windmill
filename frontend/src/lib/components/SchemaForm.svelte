@@ -50,6 +50,7 @@
 	export let diff: Record<string, SchemaDiff> = {}
 	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
 	export let shouldDispatchChanges = false
+	export let nestedClasses = ''
 
 	const dispatch = createEventDispatcher()
 
@@ -170,7 +171,9 @@
 {/if}
 
 <div
-	class="w-full {$$props.class} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
+	class="w-full {$$props.class} {flexWrap
+		? 'flex flex-row flex-wrap gap-x-6 '
+		: ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
 	on:finalize
 	on:consider
@@ -348,6 +351,7 @@
 										diffStatus={diff[argName] ?? undefined}
 										{nestedParent}
 										{shouldDispatchChanges}
+										{nestedClasses}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />

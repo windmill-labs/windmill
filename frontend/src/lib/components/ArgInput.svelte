@@ -100,6 +100,7 @@
 	export let diffStatus: SchemaDiff | undefined = undefined
 	export let hideNested = false
 	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+	export let nestedClasses = ''
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
@@ -733,6 +734,7 @@
 									<div class="py-4 pr-2 pl-6 border rounded w-full">
 										{#if orderEditable}
 											<SchemaFormDnd
+												{nestedClasses}
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
@@ -760,6 +762,7 @@
 											/>
 										{:else}
 											<SchemaForm
+												{nestedClasses}
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
@@ -817,6 +820,7 @@
 				<div class={hideNested ? 'hidden' : 'py-4 pr-2 pl-6 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
+							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
@@ -849,6 +853,7 @@
 						/>
 					{:else}
 						<SchemaForm
+							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}

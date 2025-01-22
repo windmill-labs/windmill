@@ -19,6 +19,7 @@
 	export let disableDnd: boolean = false
 	export let shouldDispatchChanges: boolean = false
 	export let diff: Record<string, SchemaDiff> = {}
+	export let nestedClasses = ''
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
@@ -70,7 +71,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <SchemaForm
-	class="flex flex-col gap-1"
+	{nestedClasses}
 	{schemaSkippedValues}
 	on:click
 	on:change

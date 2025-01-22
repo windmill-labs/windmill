@@ -278,6 +278,7 @@
 							: ''}"
 					>
 						<SchemaFormDnd
+							nestedClasses={'flex flex-col gap-1'}
 							schema={previewSchema ? previewSchema : schema}
 							{dndType}
 							{disableDnd}
