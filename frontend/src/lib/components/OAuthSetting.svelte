@@ -179,7 +179,7 @@
 			{:else if name == 'teams'}
 				<CollapseLink text="Instructions">
 					<div class="text-sm text-secondary border p-2">
-						Follow this guide on <a href="https://www.windmill.dev/docs/misc/setup_oauth#teams" target="_blank"
+						Follow this guide on <a href="https://www.windmill.dev/docs/misc/setup_oauth#microsoft-teams" target="_blank"
 							>Windmill Docs</a> to create a new Microsoft Teams App. Then paste Client ID, Tenant ID, and Client Secret here.
 					</div>
 				</CollapseLink>
