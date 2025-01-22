@@ -12,7 +12,6 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
-
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -23,6 +22,7 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -49,6 +49,9 @@
 	export let previewSchema: Record<string, any> | undefined = undefined
 	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
+	export let diff: Record<string, SchemaDiff> = {}
+	export let disableDnd: boolean = false
+	export let shouldDispatchChanges: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -232,6 +235,11 @@
 
 	let pannelButtonWidth: number = 0
 	export let pannelExtraButtonWidth: number = 0
+
+	export function updateJson() {
+		schemaString = JSON.stringify(schema, null, '\t')
+		editor?.setCode(schemaString)
+	}
 </script>
 
 <div class="w-full h-full">
@@ -247,37 +255,60 @@
 	<Splitpanes class="splitter-hidden w-full">
 		{#if !noPreview}
 			<Pane bind:size={inputPanelSize} minSize={20}>
-				<div class="flex flex-col pr-2 gap-2">
+				<div
+					class="h-full flex flex-col gap-2 {$$slots.openEditTab && editPanelSize > 0
+						? 'pr-[38px]'
+						: 'pr-2'}"
+				>
 					{#if $$slots.addProperty}
-						<div class="w-full justify-left pr-2">
-							<div style={`width: calc(100% - ${pannelButtonWidth - pannelExtraButtonWidth}px);`}>
+						<div class="w-full justify-left pr-2 grow-0">
+							<div
+								style={editPanelSize > 0
+									? `width: 100%;`
+									: `width: calc(100% - ${pannelButtonWidth - pannelExtraButtonWidth}px);`}
+							>
 								<slot name="addProperty" />
 							</div>
 						</div>
 					{/if}
 
-					<SchemaFormDnd
-						schema={previewSchema ? previewSchema : schema}
-						{dndType}
-						bind:args
-						on:click={(e) => {
-							opened = e.detail
-						}}
-						on:reorder={(e) => {
-							schema.order = e.detail
-							schema = schema
-							dispatch('change', schema)
-						}}
-						on:change={() => {
-							schema = schema
-							dispatch('change', schema)
-						}}
-						{lightweightMode}
-						prettifyHeader={isAppInput}
-						disabled={!!previewSchema}
-					/>
+					<div
+						class="min-h-0 overflow-y-auto grow rounded-md {$$slots.runButton
+							? 'flex flex-col gap-2'
+							: ''}"
+					>
+						<SchemaFormDnd
+							nestedClasses={'flex flex-col gap-1'}
+							schema={previewSchema ? previewSchema : schema}
+							{dndType}
+							{disableDnd}
+							bind:args
+							on:click={(e) => {
+								opened = e.detail
+							}}
+							on:reorder={(e) => {
+								schema.order = e.detail
+								schema = schema
+								dispatch('change', schema)
+							}}
+							on:change={() => {
+								schema = schema
+								dispatch('change', schema)
+							}}
+							{lightweightMode}
+							prettifyHeader={isAppInput}
+							disabled={!!previewSchema}
+							{diff}
+							on:acceptChange
+							on:rejectChange
+							on:nestedChange={() => {
+								dispatch('change', schema)
+							}}
+							{shouldDispatchChanges}
+						/>
 
-					<slot name="runButton" />
+						<slot name="runButton" />
+					</div>
 				</div>
 			</Pane>
 		{/if}
@@ -425,7 +456,6 @@
 															{isAppInput}
 															on:change={() => {
 																schema = schema
-																// console.log('schema', schema)
 																dispatch('change', schema)
 															}}
 														>
@@ -439,8 +469,6 @@
 																			on:selected={(e) => {
 																				const isS3 = e.detail == 'S3'
 																				const isOneOf = e.detail == 'oneOf'
-
-																				selected = e.detail
 
 																				const emptyProperty = {
 																					contentEncoding: undefined,
@@ -508,8 +536,12 @@
 																						type: e.detail
 																					}
 																				}
-																				schema = schema
-																				dispatch('change', schema)
+																				// No better solution than this, needs future rework
+																				setTimeout(() => {
+																					schema = schema
+																					dispatch('change', schema)
+																				}, 100)
+																				dispatch('schemaChange')
 																			}}
 																		>
 																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
@@ -558,6 +590,7 @@
 																	on:schemaChange={(e) => {
 																		schema = schema
 																		dispatch('change', schema)
+																		dispatch('schemaChange')
 																	}}
 																/>
 															{/if}

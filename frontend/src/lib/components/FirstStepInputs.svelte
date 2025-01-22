@@ -27,7 +27,7 @@
 			error = e
 		}
 	}
-	loadSchema()
+	$: $flowStore && $flowStateStore && loadSchema()
 
 	function handleClick() {
 		selected = !selected
@@ -51,6 +51,8 @@
 		if (event.key === 'Escape' && selected) {
 			selected = false
 			dispatch('select', undefined)
+			event.stopPropagation()
+			event.preventDefault()
 		}
 	}
 

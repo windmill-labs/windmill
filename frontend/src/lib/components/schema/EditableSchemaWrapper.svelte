@@ -19,6 +19,7 @@
 
 	let resourceIsTextFile: boolean = false
 	let addProperty: AddPropertyV2 | undefined = undefined
+	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -90,6 +91,9 @@
 				bind:schema
 				bind:this={addProperty}
 				on:change={() => dispatch('change', schema)}
+				on:addNew={(e) => {
+					editableSchemaForm?.openField(e.detail)
+				}}
 			>
 				<svelte:fragment slot="trigger">
 					<div
@@ -101,6 +105,7 @@
 			</AddPropertyV2>
 		{/if}
 		<EditableSchemaForm
+			bind:this={editableSchemaForm}
 			bind:schema
 			on:change={() => dispatch('change', schema)}
 			isFlowInput

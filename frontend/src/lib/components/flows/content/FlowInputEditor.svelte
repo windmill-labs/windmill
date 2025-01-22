@@ -1,51 +1,26 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import Section from '$lib/components/Section.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { CornerDownLeft, Save } from 'lucide-svelte'
-
-	export let name: string = ''
-	export let disabled = false
-	export let preventEnter = false
 
 	const dispatch = createEventDispatcher()
 
-	function applySchemaAndArgs() {
-		dispatch('applySchemaAndArgs')
-	}
+	export let title: string = ''
 
 	onDestroy(() => {
 		dispatch('destroy')
 	})
 </script>
 
-<svelte:window
-	on:keydown={(e) => {
-		if (e.key === 'Enter' && !preventEnter) {
-			applySchemaAndArgs()
-			e.preventDefault()
-		}
-	}}
-/>
+<div class="flex flex-col h-full px-3 pb-3">
+	<div
+		class="items-center grow-0 flex flex-row justify-between gap-2 data-schema-picker min-h-[40px]"
+	>
+		<h2 class="font-semibold text-secondary text-sm flex flex-row items-center gap-1 leading-6">
+			{title}
+		</h2>
+		<slot name="action" />
+	</div>
 
-<div class="h-full p-2">
-	<Section label={name} class="h-full" small={true}>
-		<svelte:fragment slot="header">
-			<slot name="header" />
-		</svelte:fragment>
-		<svelte:fragment slot="action">
-			<div class="flex flex-row gap-2 data-schema-picker">
-				<slot name="action" />
-				<Button
-					size="xs2"
-					color="dark"
-					{disabled}
-					shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
-					startIcon={{ icon: Save }}
-					on:click={applySchemaAndArgs}>Update schema</Button
-				>
-			</div>
-		</svelte:fragment>
+	<div class="w-full min-h-0 grow">
 		<slot />
-	</Section>
+	</div>
 </div>

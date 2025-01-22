@@ -119,16 +119,22 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isEditing) {
 			setEditing(null)
+			event.stopPropagation()
+			event.preventDefault()
 		} else if (event.key === 'Escape' && selectedInput) {
 			selectedInput = null
 			selectedArgs = undefined
 			dispatch('select', undefined)
+			event.stopPropagation()
+			event.preventDefault()
 		}
 
 		if (event.key === 'Enter' && isEditing) {
 			updateInput(isEditing).then(() => {
 				setEditing(null)
 			})
+			event.stopPropagation()
+			event.preventDefault()
 		}
 	}
 

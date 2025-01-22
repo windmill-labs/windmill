@@ -6,7 +6,7 @@
 		emptyString,
 		getSchemaFromProperties
 	} from '$lib/utils'
-	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
+	import { DollarSign, Pipette, Plus, X, Check } from 'lucide-svelte'
 	import { createEventDispatcher, onMount, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
@@ -37,6 +37,7 @@
 	import { deepEqual } from 'fast-equals'
 	import DynSelect from './DynSelect.svelte'
 	import type { Script } from '$lib/gen'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 
 	export let label: string = ''
 	export let value: any
@@ -96,6 +97,10 @@
 		| undefined = undefined
 	export let otherArgs: Record<string, any> = {}
 	export let lightHeader = false
+	export let diffStatus: SchemaDiff | undefined = undefined
+	export let hideNested = false
+	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+	export let nestedClasses = ''
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
@@ -347,464 +352,323 @@
 />
 
 <!-- svelte-ignore a11y-autofocus -->
-<div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
-	<div>
-		{#if displayHeader}
-			<FieldHeader
-				prettify={prettifyHeader}
-				label={title && !emptyString(title) ? title : label}
-				{disabled}
-				{required}
-				{type}
-				{contentEncoding}
-				{format}
-				{simpleTooltip}
-				{lightHeader}
-			/>
-		{/if}
+<div
+	class={twMerge(
+		'flex flex-col w-full rounded-md px-2 relative',
+		minW ? 'min-w-[250px]' : '',
+		diffStatus?.diff == 'added'
+			? 'bg-green-300 dark:bg-green-800'
+			: diffStatus?.diff === 'removed'
+			? 'bg-red-300 dark:bg-red-800'
+			: diffStatus?.diff === 'same'
+			? 'bg-surface'
+			: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
+			? 'border-2 border-green-500 bg-surface'
+			: ''
+	)}
+>
+	{#if diffStatus && typeof diffStatus === 'object' && diffStatus.diff !== 'same'}
+		<div
+			class="absolute top-0 right-2 rounded-md rounded-t-none flex flex-row overflow-hidden bg-surface"
+			data-schema-picker
+		>
+			<button
+				class="p-1 bg-green-500 text-white hover:bg-green-600"
+				on:click|preventDefault|stopPropagation={() => {
+					dispatch('acceptChange', { label, nestedParent })
+				}}
+			>
+				<Check size={14} />
+			</button>
+			<button
+				class="p-1 hover:bg-red-500 hover:text-white"
+				on:click|preventDefault|stopPropagation={() => {
+					dispatch('rejectChange', { label, nestedParent })
+				}}
+			>
+				<X size={14} />
+			</button>
+		</div>
+	{/if}
+	{#if displayHeader}
+		<FieldHeader
+			prettify={prettifyHeader}
+			label={title && !emptyString(title) ? title : label}
+			{disabled}
+			{required}
+			{type}
+			{contentEncoding}
+			{format}
+			{simpleTooltip}
+			{lightHeader}
+		/>
+	{/if}
 
-		{#if description}
-			<div class="text-xs italic pb-1 text-secondary">
-				<pre class="font-main whitespace-normal">{description}</pre>
-			</div>
-		{/if}
+	{#if description}
+		<div class="text-xs italic pb-1 text-secondary">
+			<pre class="font-main whitespace-normal">{description}</pre>
+		</div>
+	{/if}
 
-		<div class="flex space-x-1">
-			{#if inputCat == 'number'}
-				{#if extra['min'] != undefined && extra['max'] != undefined}
-					<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
-				{:else if extra['seconds'] !== undefined}
-					<SecondsInput bind:seconds={value} on:focus />
-				{:else if extra?.currency}
-					<CurrencyInput
-						inputClasses={{
-							formatted: 'px-2 w-full py-1.5 text-black dark:text-white',
-							wrapper: 'w-full windmillapp',
-							formattedZero: 'text-black dark:text-white'
-						}}
-						noColor
-						bind:value
-						currency={extra?.currency}
-						locale={extra?.currencyLocale ?? 'en-US'}
-					/>
-				{:else}
-					<div class="relative w-full">
-						<input
-							{autofocus}
-							on:focus
-							on:blur
-							{disabled}
-							type="number"
-							on:keydown={() => {
-								ignoreValueUndefined = true
-							}}
-							class={valid
-								? ''
-								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-							placeholder={placeholder ?? defaultValue ?? ''}
-							bind:value
-							min={extra['min']}
-							max={extra['max']}
-						/>
-					</div>
-				{/if}
-			{:else if inputCat == 'boolean'}
-				<div class="w-full">
-					<Toggle
-						on:pointerdown={(e) => {
-							e?.stopPropagation()
-						}}
+	<div class="flex space-x-1">
+		{#if inputCat == 'number'}
+			{#if extra['min'] != undefined && extra['max'] != undefined}
+				<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
+			{:else if extra['seconds'] !== undefined}
+				<SecondsInput bind:seconds={value} on:focus />
+			{:else if extra?.currency}
+				<CurrencyInput
+					inputClasses={{
+						formatted: 'px-2 w-full py-1.5 text-black dark:text-white',
+						wrapper: 'w-full windmillapp',
+						formattedZero: 'text-black dark:text-white'
+					}}
+					noColor
+					bind:value
+					currency={extra?.currency}
+					locale={extra?.currencyLocale ?? 'en-US'}
+				/>
+			{:else}
+				<div class="relative w-full">
+					<input
+						{autofocus}
+						on:focus
+						on:blur
 						{disabled}
+						type="number"
+						on:keydown={() => {
+							ignoreValueUndefined = true
+						}}
 						class={valid
 							? ''
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-						bind:checked={value}
+						placeholder={placeholder ?? defaultValue ?? ''}
+						bind:value
+						min={extra['min']}
+						max={extra['max']}
 					/>
-					{#if type == 'boolean' && value == undefined}
-						<span>&nbsp; Not set</span>
-					{/if}
 				</div>
-			{:else if inputCat == 'list' && !isListJson}
-				<div class="w-full flex gap-4">
-					<div class="w-full">
-						{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
-							<div class="items-start">
-								<Multiselect
-									ulOptionsClass={'p-2 !bg-surface-secondary'}
-									{disabled}
-									bind:selected={value}
-									options={itemsType?.multiselect ?? []}
-									selectedOptionsDraggable={true}
-									on:open={() => {
-										dispatch('focus')
-									}}
-								/>
-							</div>
-						{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
-							<div class="items-start">
-								<Multiselect
-									ulOptionsClass={'p-2 !bg-surface-secondary'}
-									{disabled}
-									bind:selected={value}
-									options={itemsType?.enum ?? []}
-									selectedOptionsDraggable={true}
-									on:open={() => {
-										dispatch('focus')
-									}}
-								/>
-							</div>
-						{:else}
-							<div class="w-full">
-								{#key redraw}
-									{#if Array.isArray(value)}
-										{#each value ?? [] as v, i}
-											{#if i < itemsLimit}
-												<div class="flex max-w-md mt-1 w-full items-center">
-													{#if itemsType?.type == 'number'}
-														<input type="number" bind:value={v} id="arg-input-number-array" />
-													{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-														<input
-															type="file"
-															class="my-6"
-															on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-															multiple={false}
-														/>
-													{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
-														<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
-													{:else if Array.isArray(itemsType?.enum)}
-														<ArgEnum
-															required
-															create={extra['disableCreate'] != true}
-															on:focus={() => {
-																dispatch('focus')
-															}}
-															on:blur={(e) => {
-																dispatch('blur')
-															}}
-															{defaultValue}
-															{valid}
-															{disabled}
-															{autofocus}
-															bind:value={v}
-															enum_={itemsType?.enum ?? []}
-															enumLabels={extra['enumLabels']}
-														/>
-													{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
-														<ObjectResourceInput
-															value={v ? `$res:${v}` : undefined}
-															bind:path={v}
-															format={'resource-' + itemsType?.resourceType}
-															defaultValue={undefined}
-														/>
-													{:else if itemsType?.type == 'resource'}
-														<JsonEditor
-															bind:editor
-															on:focus={(e) => {
-																dispatch('focus')
-															}}
-															on:blur={(e) => {
-																dispatch('blur')
-															}}
-															code={JSON.stringify(v, null, 2)}
-															bind:value={v}
-														/>
-													{:else if itemsType?.type === 'object' && itemsType?.properties}
-														<div class="p-8 border rounded-md w-full">
-															<SchemaForm
-																{onlyMaskPassword}
-																{disablePortal}
-																{disabled}
-																schema={getSchemaFromProperties(itemsType?.properties)}
-																bind:args={v}
-															/>
-														</div>
-													{:else}
-														<input type="text" bind:value={v} id="arg-input-array" />
-													{/if}
-													<button
-														transition:fade|local={{ duration: 100 }}
-														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-														aria-label="Clear"
-														on:click={() => {
-															value = value.filter((_, index) => index !== i)
-															redraw += 1
-														}}
-													>
-														<X size={14} />
-													</button>
-												</div>
-											{/if}
-										{/each}
-										{#if value.length > itemsLimit}
-											<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
-												>{itemsLimit}/{value.length}: Load 50 more...</button
-											>
-										{/if}
-									{/if}
-								{/key}
-							</div>
-							<div class="flex mt-2 gap-20 items-baseline">
-								<Button
-									variant="border"
-									color="light"
-									size="xs"
-									btnClasses="mt-1"
-									on:click={() => {
-										if (value == undefined || !Array.isArray(value)) {
-											value = []
-										}
-										if (itemsType?.type == 'number') {
-											value = value.concat(0)
-										} else if (
-											itemsType?.type == 'object' ||
-											(itemsType?.type == 'resource' &&
-												!(
-													itemsType?.resourceType &&
-													resourceTypes?.includes(itemsType?.resourceType)
-												))
-										) {
-											value = value.concat({})
-										} else {
-											value = value.concat('')
-										}
-									}}
-									id="arg-input-add-item"
-									startIcon={{ icon: Plus }}
-								>
-									Add item
-								</Button>
-							</div>
-						{/if}
-					</div>
-					<div class="mt-2 mr-4">
-						<Toggle
-							on:change={(e) => {
-								// Once the user has changed the input type, we should not change it back automatically
-								if (!hasIsListJsonChanged) {
-									hasIsListJsonChanged = true
-								}
-
-								evalValueToRaw()
-								isListJson = !isListJson
-							}}
-							checked={isListJson}
-							textClass="text-secondary"
-							size="xs"
-							options={{ right: 'json' }}
-						/>
-					</div>
-				</div>
-			{:else if inputCat == 'dynselect'}
-				<DynSelect
-					name={label}
-					args={otherArgs}
-					{helperScript}
-					bind:value
-					entrypoint={format.substring('dynselect_'.length)}
-				/>
-			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
-				<span class="text-2xs text-tertiary">Loading resource types...</span>
-			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-				<ObjectResourceInput
-					{defaultValue}
-					selectFirst={!noDefaultOnSelectFirst}
-					{disablePortal}
-					{format}
-					bind:value
-					bind:editor
-					on:clear={() => {
-						defaultValue = null
+			{/if}
+		{:else if inputCat == 'boolean'}
+			<div class="w-full">
+				<Toggle
+					on:pointerdown={(e) => {
+						e?.stopPropagation()
 					}}
-					{showSchemaExplorer}
+					{disabled}
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+					bind:checked={value}
 				/>
-			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
-					.replace('resource-', '')
-					.replace('_', '')
-					.toLowerCase() == 's3object'}
-				<div class="flex flex-col w-full gap-1">
-					<Toggle
-						class="flex justify-end"
-						bind:checked={s3FileUploadRawMode}
-						size="xs"
-						options={{ left: 'Raw S3 object input' }}
-					/>
-					{#if s3FileUploadRawMode}
-						<JsonEditor
-							bind:editor
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
-							on:blur={(e) => {
-								dispatch('blur')
-							}}
-							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
-							bind:value
-						/>
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							btnClasses="mt-1"
-							on:click={() => {
-								s3FilePicker?.open?.(value)
-							}}
-							startIcon={{ icon: Pipette }}
-						>
-							Choose an object from the catalog
-						</Button>
-					{:else}
-						<FileUpload
-							allowMultiple={false}
-							randomFileKey={true}
-							on:addition={(evt) => {
-								value = {
-									s3: evt.detail?.path ?? '',
-									filename: evt.detail?.filename ?? ''
-								}
-							}}
-							on:deletion={(evt) => {
-								value = {
-									s3: ''
-								}
-							}}
-							defaultValue={defaultValue?.s3}
-						/>
-					{/if}
-				</div>
-			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
-				{#if oneOf && oneOf.length >= 2}
-					<div class="flex flex-col gap-2 w-full">
-						{#if oneOf && oneOf.length >= 2}
-							<ToggleButtonGroup
-								bind:selected={oneOfSelected}
-								on:selected={() => {
-									value = { label: oneOfSelected }
-									redraw += 1
-								}}
-							>
-								{#each oneOf as obj}
-									<ToggleButton value={obj.title} label={obj.title} />
-								{/each}
-							</ToggleButtonGroup>
-							{#if oneOfSelected}
-								{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
-								{@const obj = oneOf[objIdx]}
-								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
-									{#key redraw}
-										<div class="p-4 pl-8 border rounded w-full">
-											{#if orderEditable}
-												<SchemaFormDnd
-													{onlyMaskPassword}
-													{disablePortal}
-													{disabled}
-													schema={{
-														properties: obj.properties,
-														order: obj.order,
-														$schema: '',
-														required: obj.required ?? [],
-														type: 'object'
-													}}
-													args={value}
-													dndType={`nested-${title}`}
-													on:reorder={(e) => {
-														if (oneOf && oneOf[objIdx]) {
-															const keys = e.detail
-															oneOf[objIdx].order = keys
-														}
-													}}
-													on:change
-												/>
-											{:else}
-												<SchemaForm
-													{onlyMaskPassword}
-													{disablePortal}
-													{disabled}
-													schemaSkippedValues={['label']}
-													schema={{
-														properties: obj.properties,
-														order: obj.order,
-														$schema: '',
-														required: obj.required ?? [],
-														type: 'object'
-													}}
-													bind:args={value}
-												/>
-											{/if}
-										</div>
-									{/key}
-								{:else if disabled}
-									<textarea disabled />
-								{:else}
-									<JsonEditor
-										bind:editor
-										on:focus={(e) => {
-											dispatch('focus')
-										}}
-										on:blur={(e) => {
-											dispatch('blur')
-										}}
-										code={rawValue}
-										bind:value
-									/>
-								{/if}
-							{/if}
-						{:else if disabled}
-							<textarea disabled />
-						{:else}
-							<JsonEditor
-								bind:editor
-								on:focus={(e) => {
+				{#if type == 'boolean' && value == undefined}
+					<span>&nbsp; Not set</span>
+				{/if}
+			</div>
+		{:else if inputCat == 'list' && !isListJson}
+			<div class="w-full flex gap-4">
+				<div class="w-full">
+					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
+						<div class="items-start">
+							<Multiselect
+								ulOptionsClass={'p-2 !bg-surface-secondary'}
+								{disabled}
+								bind:selected={value}
+								options={itemsType?.multiselect ?? []}
+								selectedOptionsDraggable={true}
+								on:open={() => {
 									dispatch('focus')
 								}}
-								on:blur={(e) => {
-									dispatch('blur')
-								}}
-								code={rawValue}
-								bind:value
 							/>
-						{/if}
-					</div>
-				{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-					<div class="p-4 pl-8 border rounded-md w-full">
-						{#if orderEditable}
-							<SchemaFormDnd
-								{onlyMaskPassword}
-								{disablePortal}
+						</div>
+					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
+						<div class="items-start">
+							<Multiselect
+								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								{disabled}
-								schema={{
-									properties,
-									$schema: '',
-									required: nestedRequired ?? [],
-									type: 'object',
-									order
+								bind:selected={value}
+								options={itemsType?.enum ?? []}
+								selectedOptionsDraggable={true}
+								on:open={() => {
+									dispatch('focus')
 								}}
-								args={value}
-								dndType={`nested-${title}`}
-								on:reorder={(e) => {
-									const keys = e.detail
-									order = keys
-								}}
-								on:change
 							/>
-						{:else}
-							<SchemaForm
-								{onlyMaskPassword}
-								{disablePortal}
-								{disabled}
-								schema={{
-									properties,
-									order,
-									$schema: '',
-									required: nestedRequired ?? [],
-									type: 'object'
+						</div>
+					{:else}
+						<div class="w-full">
+							{#key redraw}
+								{#if Array.isArray(value)}
+									{#each value ?? [] as v, i}
+										{#if i < itemsLimit}
+											<div class="flex max-w-md mt-1 w-full items-center">
+												{#if itemsType?.type == 'number'}
+													<input type="number" bind:value={v} id="arg-input-number-array" />
+												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+													<input
+														type="file"
+														class="my-6"
+														on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+														multiple={false}
+													/>
+												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
+													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+												{:else if Array.isArray(itemsType?.enum)}
+													<ArgEnum
+														required
+														create={extra['disableCreate'] != true}
+														on:focus={() => {
+															dispatch('focus')
+														}}
+														on:blur={(e) => {
+															dispatch('blur')
+														}}
+														{defaultValue}
+														{valid}
+														{disabled}
+														{autofocus}
+														bind:value={v}
+														enum_={itemsType?.enum ?? []}
+														enumLabels={extra['enumLabels']}
+													/>
+												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+													<ObjectResourceInput
+														value={v ? `$res:${v}` : undefined}
+														bind:path={v}
+														format={'resource-' + itemsType?.resourceType}
+														defaultValue={undefined}
+													/>
+												{:else if itemsType?.type == 'resource'}
+													<JsonEditor
+														bind:editor
+														on:focus={(e) => {
+															dispatch('focus')
+														}}
+														on:blur={(e) => {
+															dispatch('blur')
+														}}
+														code={JSON.stringify(v, null, 2)}
+														bind:value={v}
+													/>
+												{:else if itemsType?.type === 'object' && itemsType?.properties}
+													<div class="p-8 border rounded-md w-full">
+														<SchemaForm
+															{onlyMaskPassword}
+															{disablePortal}
+															{disabled}
+															schema={getSchemaFromProperties(itemsType?.properties)}
+															bind:args={v}
+														/>
+													</div>
+												{:else}
+													<input type="text" bind:value={v} id="arg-input-array" />
+												{/if}
+												<button
+													transition:fade|local={{ duration: 100 }}
+													class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+													aria-label="Clear"
+													on:click={() => {
+														value = value.filter((_, index) => index !== i)
+														redraw += 1
+													}}
+												>
+													<X size={14} />
+												</button>
+											</div>
+										{/if}
+									{/each}
+									{#if value.length > itemsLimit}
+										<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
+											>{itemsLimit}/{value.length}: Load 50 more...</button
+										>
+									{/if}
+								{/if}
+							{/key}
+						</div>
+						<div class="flex mt-2 gap-20 items-baseline">
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								btnClasses="mt-1"
+								on:click={() => {
+									if (value == undefined || !Array.isArray(value)) {
+										value = []
+									}
+									if (itemsType?.type == 'number') {
+										value = value.concat(0)
+									} else if (
+										itemsType?.type == 'object' ||
+										(itemsType?.type == 'resource' &&
+											!(
+												itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)
+											))
+									) {
+										value = value.concat({})
+									} else {
+										value = value.concat('')
+									}
 								}}
-								bind:args={value}
-							/>
-						{/if}
-					</div>
-				{:else if disabled}
-					<textarea disabled />
-				{:else}
+								id="arg-input-add-item"
+								startIcon={{ icon: Plus }}
+							>
+								Add item
+							</Button>
+						</div>
+					{/if}
+				</div>
+				<div class="mt-2 mr-4">
+					<Toggle
+						on:change={(e) => {
+							// Once the user has changed the input type, we should not change it back automatically
+							if (!hasIsListJsonChanged) {
+								hasIsListJsonChanged = true
+							}
+
+							evalValueToRaw()
+							isListJson = !isListJson
+						}}
+						checked={isListJson}
+						textClass="text-secondary"
+						size="xs"
+						options={{ right: 'json' }}
+					/>
+				</div>
+			</div>
+		{:else if inputCat == 'dynselect'}
+			<DynSelect
+				name={label}
+				args={otherArgs}
+				{helperScript}
+				bind:value
+				entrypoint={format.substring('dynselect_'.length)}
+			/>
+		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
+			<span class="text-2xs text-tertiary">Loading resource types...</span>
+		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
+			<ObjectResourceInput
+				{defaultValue}
+				selectFirst={!noDefaultOnSelectFirst}
+				{disablePortal}
+				{format}
+				bind:value
+				bind:editor
+				on:clear={() => {
+					defaultValue = null
+				}}
+				{showSchemaExplorer}
+			/>
+		{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
+				.replace('resource-', '')
+				.replace('_', '')
+				.toLowerCase() == 's3object'}
+			<div class="flex flex-col w-full gap-1">
+				<Toggle
+					class="flex justify-end"
+					bind:checked={s3FileUploadRawMode}
+					size="xs"
+					options={{ left: 'Raw S3 object input' }}
+				/>
+				{#if s3FileUploadRawMode}
 					<JsonEditor
 						bind:editor
 						on:focus={(e) => {
@@ -813,189 +677,403 @@
 						on:blur={(e) => {
 							dispatch('blur')
 						}}
-						code={rawValue}
+						code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
 						bind:value
 					/>
-				{/if}
-				{#if inputCat == 'list'}
-					<div class="block">
-						<Toggle
-							on:change={(e) => {
-								isListJson = !isListJson
-							}}
-							checked={isListJson}
-							textClass="text-secondary"
-							size="xs"
-							options={{ right: 'json' }}
-						/>
-					</div>
-				{/if}
-			{:else if inputCat == 'enum'}
-				<div class="flex flex-row w-full gap-1">
-					<ArgEnum
-						{required}
-						create={extra['disableCreate'] != true}
-						{defaultValue}
-						{valid}
-						{disabled}
-						bind:value
-						{enum_}
-						{autofocus}
-						on:focus={() => {
-							dispatch('focus')
+					<Button
+						variant="border"
+						color="light"
+						size="xs"
+						btnClasses="mt-1"
+						on:click={() => {
+							s3FilePicker?.open?.(value)
 						}}
-						on:blur={(e) => {
-							dispatch('blur')
-						}}
-						enumLabels={extra['enumLabels']}
-					/>
-				</div>
-			{:else if inputCat == 'date'}
-				{#if format === 'date'}
-					<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+						startIcon={{ icon: Pipette }}
+					>
+						Choose an object from the catalog
+					</Button>
 				{:else}
-					<DateTimeInput useDropdown {autofocus} bind:value />
+					<FileUpload
+						allowMultiple={false}
+						randomFileKey={true}
+						on:addition={(evt) => {
+							value = {
+								s3: evt.detail?.path ?? '',
+								filename: evt.detail?.filename ?? ''
+							}
+						}}
+						on:deletion={(evt) => {
+							value = {
+								s3: ''
+							}
+						}}
+						defaultValue={defaultValue?.s3}
+					/>
 				{/if}
-			{:else if inputCat == 'sql' || inputCat == 'yaml'}
-				<div class="border my-1 mb-4 w-full border-primary">
-					<SimpleEditor
-						on:focus={(e) => {
-							dispatch('focus')
-						}}
-						on:blur={(e) => {
-							dispatch('blur')
-						}}
-						bind:this={editor}
-						lang={inputCat}
-						bind:code={value}
-						autoHeight
-					/>
-				</div>
-			{:else if inputCat == 'base64'}
-				<div class="flex flex-col my-6 w-full">
-					<input
-						{autofocus}
-						type="file"
-						on:change={(x) => fileChanged(x, (val) => (value = val))}
-						multiple={false}
-					/>
-					{#if value?.length}
-						<div class="text-2xs text-tertiary mt-1"
-							>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
-								2
-							)}MB)</div
+			</div>
+		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
+			{#if oneOf && oneOf.length >= 2}
+				<div class="flex flex-col gap-2 w-full">
+					{#if oneOf && oneOf.length >= 2}
+						<ToggleButtonGroup
+							bind:selected={oneOfSelected}
+							on:selected={() => {
+								value = { label: oneOfSelected }
+								redraw += 1
+							}}
 						>
-					{/if}
-				</div>
-			{:else if inputCat == 'resource-string'}
-				<ResourcePicker
-					selectFirst={noDefaultOnSelectFirst}
-					{disablePortal}
-					bind:value
-					initialValue={defaultValue}
-					resourceType={format && format.split('-').length > 1
-						? format.substring('resource-'.length)
-						: undefined}
-					{showSchemaExplorer}
-				/>
-			{:else if inputCat == 'email'}
-				<input
-					{autofocus}
-					on:focus
-					on:blur
-					{disabled}
-					type="email"
-					class={valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
-					placeholder={placeholder ?? defaultValue ?? ''}
-					bind:value
-				/>
-			{:else if inputCat == 'string'}
-				<div class="flex flex-col w-full">
-					<div class="flex flex-row w-full items-center justify-between relative">
-						{#if password || extra?.['password'] == true}
-							{#if onlyMaskPassword}
-								{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-									<input type="text" bind:value />
-								{:else}
-									<Password
-										{disabled}
-										bind:password={value}
-										placeholder={placeholder ?? defaultValue ?? ''}
-									/>
-								{/if}
+							{#each oneOf as obj}
+								<ToggleButton value={obj.title} label={obj.title} />
+							{/each}
+						</ToggleButtonGroup>
+						{#if oneOfSelected}
+							{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
+							{@const obj = oneOf[objIdx]}
+							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
+								{#key redraw}
+									<div class="py-4 pr-2 pl-6 border rounded w-full">
+										{#if orderEditable}
+											<SchemaFormDnd
+												{nestedClasses}
+												{onlyMaskPassword}
+												{disablePortal}
+												{disabled}
+												schema={{
+													properties: obj.properties,
+													order: obj.order,
+													$schema: '',
+													required: obj.required ?? [],
+													type: 'object'
+												}}
+												bind:args={value}
+												dndType={`nested-${title}`}
+												schemaSkippedValues={['label']}
+												on:reorder={(e) => {
+													if (oneOf && oneOf[objIdx]) {
+														const keys = e.detail
+														oneOf[objIdx].order = keys
+													}
+												}}
+												on:change={() => {
+													dispatch('nestedChange')
+												}}
+												on:nestedChange
+												{shouldDispatchChanges}
+											/>
+										{:else}
+											<SchemaForm
+												{nestedClasses}
+												{onlyMaskPassword}
+												{disablePortal}
+												{disabled}
+												schemaSkippedValues={['label']}
+												schema={{
+													properties: obj.properties,
+													order: obj.order,
+													$schema: '',
+													required: obj.required ?? [],
+													type: 'object'
+												}}
+												bind:args={value}
+												{shouldDispatchChanges}
+												on:change={() => {
+													dispatch('nestedChange')
+												}}
+												on:nestedChange
+											/>
+										{/if}
+									</div>
+								{/key}
+							{:else if disabled}
+								<textarea disabled />
 							{:else}
-								<PasswordArgInput {disabled} bind:value />
-							{/if}
-						{:else}
-							{#key extra?.['minRows']}
-								<textarea
-									{autofocus}
-									rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
-									bind:this={el}
+								<JsonEditor
+									bind:editor
 									on:focus={(e) => {
 										dispatch('focus')
 									}}
 									on:blur={(e) => {
 										dispatch('blur')
 									}}
-									use:autosize
-									on:keydown={onKeyDown}
-									{disabled}
-									class={twMerge(
-										'w-full',
-										valid
-											? ''
-											: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
-									)}
-									placeholder={placeholder ?? defaultValue ?? ''}
+									code={rawValue}
 									bind:value
 								/>
-							{/key}
-							{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<button
-									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
-									on:click={() => {
-										pickForField = label
-										itemPicker?.openDrawer?.()
-									}}
-									title="Insert a Variable"
-								>
-									<DollarSign class="!text-tertiary" size={14} />
-								</button>
 							{/if}
 						{/if}
-					</div>
-					{#if variableEditor}
-						<div class="text-sm text-tertiary">
-							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-								Linked to variable <button
-									class="text-blue-500 underline"
-									on:click={() => variableEditor?.editVariable?.(value.slice(5))}
-									>{value.slice(5)}</button
-								>
-							{/if}
-						</div>
+					{:else if disabled}
+						<textarea disabled />
+					{:else}
+						<JsonEditor
+							bind:editor
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							on:blur={(e) => {
+								dispatch('blur')
+							}}
+							code={rawValue}
+							bind:value
+						/>
 					{/if}
 				</div>
+			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
+				<div class={hideNested ? 'hidden' : 'py-4 pr-2 pl-6 border rounded-md w-full'}>
+					{#if orderEditable}
+						<SchemaFormDnd
+							{nestedClasses}
+							{onlyMaskPassword}
+							{disablePortal}
+							{disabled}
+							schema={{
+								properties,
+								$schema: '',
+								required: nestedRequired ?? [],
+								type: 'object',
+								order
+							}}
+							bind:args={value}
+							dndType={`nested-${title}`}
+							on:reorder={(e) => {
+								const keys = e.detail
+								order = keys
+							}}
+							on:change={() => {
+								dispatch('nestedChange')
+							}}
+							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
+							on:acceptChange={(e) => {
+								dispatch('acceptChange', e.detail)
+							}}
+							on:rejectChange={(e) => {
+								dispatch('rejectChange', e.detail)
+							}}
+							on:nestedChange
+							nestedParent={{ label, nestedParent }}
+							{shouldDispatchChanges}
+						/>
+					{:else}
+						<SchemaForm
+							{nestedClasses}
+							{onlyMaskPassword}
+							{disablePortal}
+							{disabled}
+							schema={{
+								properties,
+								order,
+								$schema: '',
+								required: nestedRequired ?? [],
+								type: 'object'
+							}}
+							bind:args={value}
+							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
+							nestedParent={{ label, nestedParent }}
+							on:acceptChange={(e) => {
+								dispatch('acceptChange', e.detail)
+							}}
+							on:rejectChange={(e) => {
+								dispatch('rejectChange', e.detail)
+							}}
+							on:change={() => {
+								dispatch('nestedChange')
+							}}
+							on:nestedChange
+							{shouldDispatchChanges}
+						/>
+					{/if}
+				</div>
+			{:else if disabled}
+				<textarea disabled />
+			{:else}
+				<JsonEditor
+					bind:editor
+					on:focus={(e) => {
+						dispatch('focus')
+					}}
+					on:blur={(e) => {
+						dispatch('blur')
+					}}
+					code={rawValue}
+					bind:value
+				/>
 			{/if}
-			<slot name="actions" />
-		</div>
-
-		{#if !compact || (error && error != '')}
-			<div class="text-right text-xs text-red-600 dark:text-red-400">
-				{#if disabled || error === ''}
-					&nbsp;
-				{:else}
-					{error}
+			{#if inputCat == 'list'}
+				<div class="block">
+					<Toggle
+						on:change={(e) => {
+							isListJson = !isListJson
+						}}
+						checked={isListJson}
+						textClass="text-secondary"
+						size="xs"
+						options={{ right: 'json' }}
+					/>
+				</div>
+			{/if}
+		{:else if inputCat == 'enum'}
+			<div class="flex flex-row w-full gap-1">
+				<ArgEnum
+					{required}
+					create={extra['disableCreate'] != true}
+					{defaultValue}
+					{valid}
+					{disabled}
+					bind:value
+					{enum_}
+					{autofocus}
+					on:focus={() => {
+						dispatch('focus')
+					}}
+					on:blur={(e) => {
+						dispatch('blur')
+					}}
+					enumLabels={extra['enumLabels']}
+				/>
+			</div>
+		{:else if inputCat == 'date'}
+			{#if format === 'date'}
+				<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+			{:else}
+				<DateTimeInput useDropdown {autofocus} bind:value />
+			{/if}
+		{:else if inputCat == 'sql' || inputCat == 'yaml'}
+			<div class="border my-1 mb-4 w-full border-primary">
+				<SimpleEditor
+					on:focus={(e) => {
+						dispatch('focus')
+					}}
+					on:blur={(e) => {
+						dispatch('blur')
+					}}
+					bind:this={editor}
+					lang={inputCat}
+					bind:code={value}
+					autoHeight
+				/>
+			</div>
+		{:else if inputCat == 'base64'}
+			<div class="flex flex-col my-6 w-full">
+				<input
+					{autofocus}
+					type="file"
+					on:change={(x) => fileChanged(x, (val) => (value = val))}
+					multiple={false}
+				/>
+				{#if value?.length}
+					<div class="text-2xs text-tertiary mt-1"
+						>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
+							2
+						)}MB)</div
+					>
 				{/if}
 			</div>
-		{:else if !noMargin}
-			<div class="mb-2" />
+		{:else if inputCat == 'resource-string'}
+			<ResourcePicker
+				selectFirst={noDefaultOnSelectFirst}
+				{disablePortal}
+				bind:value
+				initialValue={defaultValue}
+				resourceType={format && format.split('-').length > 1
+					? format.substring('resource-'.length)
+					: undefined}
+				{showSchemaExplorer}
+			/>
+		{:else if inputCat == 'email'}
+			<input
+				{autofocus}
+				on:focus
+				on:blur
+				{disabled}
+				type="email"
+				class={valid
+					? ''
+					: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
+				placeholder={placeholder ?? defaultValue ?? ''}
+				bind:value
+			/>
+		{:else if inputCat == 'string'}
+			<div class="flex flex-col w-full">
+				<div class="flex flex-row w-full items-center justify-between relative">
+					{#if password || extra?.['password'] == true}
+						{#if onlyMaskPassword}
+							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+								<input type="text" bind:value />
+							{:else}
+								<Password
+									{disabled}
+									bind:password={value}
+									placeholder={placeholder ?? defaultValue ?? ''}
+								/>
+							{/if}
+						{:else}
+							<PasswordArgInput {disabled} bind:value />
+						{/if}
+					{:else}
+						{#key extra?.['minRows']}
+							<textarea
+								{autofocus}
+								rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
+								bind:this={el}
+								on:focus={(e) => {
+									dispatch('focus')
+								}}
+								on:blur={(e) => {
+									dispatch('blur')
+								}}
+								use:autosize
+								on:keydown={onKeyDown}
+								{disabled}
+								class={twMerge(
+									'w-full',
+									valid
+										? ''
+										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
+								)}
+								placeholder={placeholder ?? defaultValue ?? ''}
+								bind:value
+							/>
+						{/key}
+						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<button
+								class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+								on:click={() => {
+									pickForField = label
+									itemPicker?.openDrawer?.()
+								}}
+								title="Insert a Variable"
+							>
+								<DollarSign class="!text-tertiary" size={14} />
+							</button>
+						{/if}
+					{/if}
+				</div>
+				{#if variableEditor}
+					<div class="text-sm text-tertiary">
+						{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+							Linked to variable <button
+								class="text-blue-500 underline"
+								on:click={() => variableEditor?.editVariable?.(value.slice(5))}
+								>{value.slice(5)}</button
+							>
+						{/if}
+					</div>
+				{/if}
+			</div>
 		{/if}
+		<slot name="actions" />
 	</div>
+
+	{#if !compact || (error && error != '')}
+		<div class="text-right text-xs text-red-600 dark:text-red-400">
+			{#if disabled || error === ''}
+				&nbsp;
+			{:else}
+				{error}
+			{/if}
+		</div>
+	{:else if !noMargin}
+		<div class="mb-2" />
+	{/if}
 </div>
 
 <style>
