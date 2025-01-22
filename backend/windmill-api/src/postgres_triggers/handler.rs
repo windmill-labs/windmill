@@ -88,7 +88,7 @@ impl Relations {
 }
 
 #[derive(Deserialize)]
-pub struct EditDatabaseTrigger {
+pub struct EditPostgresTrigger {
     replication_slot_name: String,
     publication_name: String,
     path: String,
@@ -100,7 +100,7 @@ pub struct EditDatabaseTrigger {
 
 #[derive(Deserialize, Serialize, Debug)]
 
-pub struct NewDatabaseTrigger {
+pub struct NewPostgresTrigger {
     path: String,
     script_path: String,
     is_flow: bool,
@@ -212,7 +212,7 @@ where
 }
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]
-pub struct DatabaseTrigger {
+pub struct PostgresTrigger {
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
@@ -231,7 +231,7 @@ pub struct DatabaseTrigger {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct ListDatabaseTriggerQuery {
+pub struct ListPostgresTriggerQuery {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
     pub path: Option<String>,
@@ -249,9 +249,9 @@ pub async fn create_postgres_trigger(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(new_postgres_trigger): Json<NewDatabaseTrigger>,
+    Json(new_postgres_trigger): Json<NewPostgresTrigger>,
 ) -> error::Result<(StatusCode, String)> {
-    let NewDatabaseTrigger {
+    let NewPostgresTrigger {
         database_resource_path,
         path,
         script_path,
@@ -389,8 +389,8 @@ pub async fn list_postgres_triggers(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Query(lst): Query<ListDatabaseTriggerQuery>,
-) -> error::JsonResult<Vec<DatabaseTrigger>> {
+    Query(lst): Query<ListPostgresTriggerQuery>,
+) -> error::JsonResult<Vec<PostgresTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
     let mut sqlb = SqlBuilder::select_from("postgres_trigger")
@@ -428,7 +428,7 @@ pub async fn list_postgres_triggers(
     let sql = sqlb
         .sql()
         .map_err(|e| error::Error::InternalErr(e.to_string()))?;
-    let rows = sqlx::query_as::<_, DatabaseTrigger>(&sql)
+    let rows = sqlx::query_as::<_, PostgresTrigger>(&sql)
         .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
@@ -1020,11 +1020,11 @@ pub async fn get_postgres_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<DatabaseTrigger> {
+) -> JsonResult<PostgresTrigger> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     let trigger = sqlx::query_as!(
-        DatabaseTrigger,
+        PostgresTrigger,
         r#"
         SELECT
             workspace_id,
@@ -1065,10 +1065,10 @@ pub async fn update_postgres_trigger(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(postgres_trigger): Json<EditDatabaseTrigger>,
+    Json(postgres_trigger): Json<EditPostgresTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    let EditDatabaseTrigger {
+    let EditPostgresTrigger {
         replication_slot_name,
         publication_name,
         script_path,
@@ -1208,7 +1208,7 @@ pub async fn set_enabled(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
 
-    // important to set server_id, last_server_ping and error to NULL to stop current database listener
+    // important to set server_id, last_server_ping and error to NULL to stop current postgres listener
     let one_o = sqlx::query_scalar!(
         r#"
         UPDATE postgres_trigger 

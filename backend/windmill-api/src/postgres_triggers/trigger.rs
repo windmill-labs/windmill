@@ -22,7 +22,7 @@ use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
 use windmill_common::{db::UserDB, worker::to_raw_value, INSTANCE_NAME};
 
 use super::{
-    handler::{Database, DatabaseTrigger},
+    handler::{Database, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
 };
 
@@ -139,7 +139,7 @@ impl PostgresSimpleClient {
 
 async fn update_ping(
     db: &DB,
-    postgres_trigger: &DatabaseTrigger,
+    postgres_trigger: &PostgresTrigger,
     error: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
     let updated = sqlx::query_scalar!(
@@ -197,7 +197,7 @@ async fn update_ping(
     Ok(true)
 }
 
-async fn loop_ping(db: &DB, postgres_trigger: &DatabaseTrigger, error: Option<&str>) {
+async fn loop_ping(db: &DB, postgres_trigger: &PostgresTrigger, error: Option<&str>) {
     loop {
         let result = update_ping(db, postgres_trigger, error).await;
 
@@ -219,7 +219,7 @@ async fn loop_ping(db: &DB, postgres_trigger: &DatabaseTrigger, error: Option<&s
 }
 
 async fn listen_to_transactions(
-    postgres_trigger: &DatabaseTrigger,
+    postgres_trigger: &PostgresTrigger,
     db: DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<(), Error> {
@@ -359,7 +359,7 @@ async fn listen_to_transactions(
 }
 
 async fn try_to_listen_to_database_transactions(
-    pg_trigger: DatabaseTrigger,
+    pg_trigger: PostgresTrigger,
     db: DB,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
@@ -414,7 +414,7 @@ async fn listen_to_unlistened_database_events(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
 ) {
     let postgres_triggers = sqlx::query_as!(
-        DatabaseTrigger,
+        PostgresTrigger,
         r#"
             SELECT
                 workspace_id,

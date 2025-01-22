@@ -54,7 +54,7 @@
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let selectedTable: 'all' | 'specific' = 'specific'
 	let tab: 'advanced' | 'basic'
-	let config: { message: string | undefined; isLogical?: boolean } = { message: undefined }
+	let config: { isLogical: boolean; show: boolean } = { isLogical: false, show: false }
 	$: table_to_track = selectedTable === 'all' ? [] : relations
 
 	async function createPublication() {
@@ -104,10 +104,10 @@
 			dirtyPath = false
 			selectedPublicationAction = 'get'
 			selectedSlotAction = 'get'
+			config.show = false
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
 			tab = 'basic'
-			config.message = undefined
 			await loadTrigger()
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err}`, true)
@@ -137,10 +137,10 @@
 			database_resource_path = ''
 			edit = false
 			dirtyPath = false
+			config.show = false
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
 			transaction_to_track = ['Insert', 'Update', 'Delete']
-			config.message = undefined
 			relations = [
 				{
 					schema_name: 'public',
@@ -200,7 +200,7 @@
 							: undefined
 				}
 			})
-			sendUserToast(`Database ${path} updated`)
+			sendUserToast(`PostgresTrigger ${path} updated`)
 		} else {
 			await PostgresTriggerService.createDatabaseTrigger({
 				workspace: $workspaceStore!,
@@ -218,7 +218,7 @@
 					}
 				}
 			})
-			sendUserToast(`Database ${path} created`)
+			sendUserToast(`PostgresTrigger ${path} created`)
 		}
 
 		if (!$usedTriggerKinds.includes('database')) {
@@ -259,19 +259,14 @@
 				return
 			}
 
-			const isLogical = await PostgresTriggerService.isValidDatabaseConfiguration({
+			config.isLogical = await PostgresTriggerService.isValidDatabaseConfiguration({
 				workspace: $workspaceStore!,
 				path: database_resource_path
 			})
-			config.isLogical = isLogical
-			if (isLogical) {
-				config.message =
-					'Your database is correctly configured with logical replication enabled. You can proceed with using the streaming feature'
-			} else {
-				config.message =
-					"Logical replication is not enabled on your database. To use this feature, your Postgres database must have <code>wal_level</code> configured as 'logical' in your database configuration."
-			}
-		} catch (error) {}
+			config.show = true
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
 	}
 </script>
 
@@ -367,12 +362,19 @@
 									</p>
 								</Tooltip>
 							</Button>
-							{#if config.message}
+							{#if config.show}
 								<Alert
 									title="Postgres configuration"
 									type={config.isLogical === true ? 'success' : 'error'}
 								>
-									{config.message}
+									{#if config.isLogical}
+										Your database is correctly configured with logical replication enabled. You can
+										proceed with using the streaming feature
+									{:else}
+										Logical replication is not enabled on your database. To use this feature, your
+										Postgres database must have <code>wal_level</code> configured as 'logical' in your
+										database configuration.
+									{/if}
 								</Alert>
 							{/if}
 						{/if}

@@ -16,7 +16,7 @@ use handler::{
     create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
     exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
     is_database_in_logical_level, list_database_publication, list_postgres_triggers,
-    list_slot_name, set_enabled, update_postgres_trigger, Database, DatabaseTrigger,
+    list_slot_name, set_enabled, update_postgres_trigger, Database, PostgresTrigger,
 };
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -107,7 +107,7 @@ async fn run_job(
     args: Option<HashMap<String, Box<RawValue>>>,
     extra: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
-    trigger: &DatabaseTrigger,
+    trigger: &PostgresTrigger,
 ) -> anyhow::Result<()> {
     let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
     let label_prefix = Some(format!("db-{}-", trigger.path));
