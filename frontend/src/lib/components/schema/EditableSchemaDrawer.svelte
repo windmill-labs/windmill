@@ -190,7 +190,13 @@
 				editTab="inputEditor"
 			>
 				<svelte:fragment slot="addProperty">
-					<AddPropertyV2 bind:schema on:change>
+					<AddPropertyV2
+						bind:schema
+						on:change
+						on:addNew={(e) => {
+							editableSchemaForm?.openField(e.detail)
+						}}
+					>
 						<svelte:fragment slot="trigger">
 							<div
 								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
