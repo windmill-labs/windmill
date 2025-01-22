@@ -1,1 +1,5 @@
-/Users/alex/windmill/dev/repos/windmill/../windmill-ee-private//windmill-api/src/teams_ee.rs
+use axum::Router;
+
+pub fn teams_service() -> Router {
+    Router::new()
+}
