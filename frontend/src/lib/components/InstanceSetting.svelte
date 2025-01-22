@@ -44,8 +44,8 @@
 	} | null
 
 	let teams: TeamInfo[] = []
-	let selectedTeam: TeamInfo | null = null
-	let selectedChannel: ChannelInfo | null = null
+	let selectedTeam: (TeamInfo | null)[] = []
+	let selectedChannel: (ChannelInfo | null)[] = []
 	let isFetching = false
 
 	function showSetting(setting: string, values: Record<string, any>) {
@@ -133,37 +133,41 @@
 
 	onMount(async () => {
 		await fetchTeams()
-		const storedTeams = $values['critical_error_channels']?.find((el) =>
-			el.hasOwnProperty('teams_channel')
-		)?.teams_channel
-		if (storedTeams) {
-			selectedTeam = teams.find((team) => team.team_name === storedTeams.team_name) || null
-			selectedChannel =
-				selectedTeam?.channels.find((channel) => channel.channel_id === storedTeams.channel_id) ||
-				null
-		}
+		const storedTeams =
+			$values['critical_error_channels']
+				?.map((el, index) => ({ ...el, originalIndex: index }))
+				.filter((el) => el.hasOwnProperty('teams_channel')) || []
+
+		storedTeams.forEach((storedTeam) => {
+			const originalIndex = storedTeam.originalIndex
+			selectedTeam[originalIndex] =
+				teams.find((team) => team.team_name === storedTeam.teams_channel.team_name) || null
+			selectedChannel[originalIndex] =
+				selectedTeam[originalIndex]?.channels.find(
+					(channel) => channel.channel_id === storedTeam.teams_channel.channel_id
+				) || null
+		})
 	})
 
-	function handleTeamChange(event: Event) {
+	function handleTeamChange(event: Event, i: number) {
 		const teamId = (event.target as HTMLSelectElement).value
-		selectedTeam = teams.find((team) => team.team_id === teamId) || null
-		selectedChannel = null
-		console.log(selectedTeam)
+		selectedTeam[i] = teams.find((team) => team.team_id === teamId) || null
+		selectedChannel[i] = null
 	}
 
 	function handleChannelChange(event: Event, setting: Setting, i: number) {
 		const channelId = (event.target as HTMLSelectElement).value
-		if (selectedTeam) {
-			selectedChannel =
-				selectedTeam.channels.find((channel) => channel.channel_id === channelId) || null
+		if (selectedTeam[i]) {
+			selectedChannel[i] =
+				selectedTeam[i].channels.find((channel) => channel.channel_id === channelId) || null
 		}
 		if (event.target?.['value']) {
 			$values[setting.key][i] = {
 				teams_channel: {
-					team_id: selectedTeam?.team_id,
-					team_name: selectedTeam?.team_name,
+					team_id: selectedTeam[i]?.team_id,
+					team_name: selectedTeam[i]?.team_name,
 					channel_id: channelId,
-					channel_name: selectedChannel?.channel_name
+					channel_name: selectedChannel[i]?.channel_name
 				}
 			}
 		}
@@ -404,13 +408,10 @@
 												}
 											}
 										}}
-										value={!v
-											? 'email'
-											: 'slack_channel' in v
-											? 'slack_channel'
-											: 'teams_channel' in v
-											? 'teams_channel'
-											: 'email'}
+										value={(() => {
+											if (!v) return 'email'
+											return ['slack_channel', 'teams_channel'].find((type) => type in v) || 'email'
+										})()}
 									>
 										<option value="email">Email</option>
 										<option value="slack_channel">Slack</option>
@@ -431,18 +432,18 @@
 										/>
 									{:else if v && 'teams_channel' in v}
 										<div class="flex flex-row gap-2 w-full">
-											<select on:change={handleTeamChange}>
+											<select on:change={(e) => handleTeamChange(e, i)}>
 												<option value="" disabled selected={!selectedTeam}>Select team</option>
 												{#each teams as team}
 													<option
 														value={team.team_id}
-														selected={selectedTeam?.team_id === team.team_id}
+														selected={selectedTeam[i]?.team_id === team.team_id}
 													>
 														{team.team_name}
 													</option>
 												{/each}
 											</select>
-											{#if selectedTeam}
+											{#if selectedTeam[i]}
 												<select
 													id="channel-select"
 													on:change={(e) => handleChannelChange(e, setting, i)}
@@ -450,10 +451,10 @@
 													<option value="" disabled selected={!selectedChannel}
 														>Select channel</option
 													>
-													{#each selectedTeam.channels as channel}
+													{#each selectedTeam[i]?.channels as channel}
 														<option
 															value={channel.channel_id}
-															selected={selectedChannel?.channel_id === channel.channel_id}
+															selected={selectedChannel[i]?.channel_id === channel.channel_id}
 														>
 															{channel.channel_name}
 														</option>
