@@ -36,8 +36,8 @@ pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
-#[cfg(feature = "enterprise")]
-pub mod teams_ee;
+// #[cfg(feature = "enterprise")]
+// pub mod teams_ee;
 pub mod otel_ee;
 pub mod queue;
 pub mod s3_helpers;
