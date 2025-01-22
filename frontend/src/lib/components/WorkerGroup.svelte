@@ -668,6 +668,9 @@
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
+							on:keypress={(e) => {
+								dirty = true
+							}}
 						/>
 						<ToggleButtonGroup
 							disabled={!$superadmin}
@@ -859,6 +862,23 @@
 								sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
 								return
 							}
+							// Remove duplicate env vars by keeping only the last occurrence of each key
+							const seenKeys = new Set()
+							customEnvVars = customEnvVars
+								.reverse()
+								.filter((envVar) => {
+									if (envVar.key == '') {
+										return false
+									}
+									if (seenKeys.has(envVar.key)) {
+										return false
+									}
+									seenKeys.add(envVar.key)
+									return true
+								})
+								.reverse()
+							nconfig.env_vars_static = new Map()
+							nconfig.env_vars_allowlist = []
 							customEnvVars.forEach((envvar) => {
 								if (
 									nconfig.env_vars_static !== undefined &&
@@ -872,6 +892,7 @@
 									}
 								}
 							})
+
 							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
 							sendUserToast('Configuration set')
 							dispatch('reload')
