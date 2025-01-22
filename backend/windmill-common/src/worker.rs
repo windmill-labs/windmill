@@ -512,16 +512,43 @@ pub fn get_vcpus() -> Option<i64> {
     }
 }
 
-pub fn get_memory() -> Option<i64> {
-    if Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
-        // cgroup v1
-        parse_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
-    } else {
-        // cgroup v2
-        let cgroup_path = get_cgroupv2_path()?;
-        let memory_max_path = format!("{cgroup_path}/memory.max");
+fn get_memory_from_meminfo() -> Option<i64> {
+    let memory_info = parse_file::<String>("/proc/meminfo")?;
+    if memory_info.contains("MemTotal") {
+        let memory_total = memory_info
+            .split("MemTotal:")
+            .nth(1)?
+            .split("kB")
+            .next()?
+            .trim()
+            .parse::<i64>()
+            .ok()?;
+        return Some(memory_total * 1024);
+    }
+    None
+}
 
-        parse_file(&memory_max_path)
+pub fn get_memory() -> Option<i64> {
+    let memory_limit: Option<i64> =
+        if Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
+            // cgroup v1
+            parse_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        } else {
+            // cgroup v2
+            let cgroup_path = get_cgroupv2_path()?;
+            let memory_max_path = format!("{cgroup_path}/memory.max");
+
+            parse_file(&memory_max_path)
+        };
+
+    // if memory_max is super high, read machine total memory (meminfo)
+    if memory_limit
+        .as_ref()
+        .is_some_and(|x| x > &(1024 * 1024 * 1024 * 1024 * 1024))
+    {
+        get_memory_from_meminfo()
+    } else {
+        memory_limit
     }
 }
 
