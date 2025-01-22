@@ -541,6 +541,7 @@
 																					schema = schema
 																					dispatch('change', schema)
 																				}, 100)
+																				dispatch('schemaChange')
 																			}}
 																		>
 																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
@@ -589,6 +590,7 @@
 																	on:schemaChange={(e) => {
 																		schema = schema
 																		dispatch('change', schema)
+																		dispatch('schemaChange')
 																	}}
 																/>
 															{/if}

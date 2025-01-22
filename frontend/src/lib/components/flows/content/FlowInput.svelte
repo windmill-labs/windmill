@@ -313,6 +313,13 @@
 		diff = computeDiff(selectedSchema, $flowStore.schema)
 		previewSchema = schemaFromDiff(diff, $flowStore.schema)
 	}
+
+	function resetArgs() {
+		if (!previewSchema) {
+			previewArguments = undefined
+			savedPreviewArgs = undefined
+		}
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -367,6 +374,9 @@
 					if (!previewSchema) {
 						savedPreviewArgs = structuredClone(previewArguments)
 					}
+				}}
+				on:schemaChange={() => {
+					resetArgs()
 				}}
 			>
 				<svelte:fragment slot="openEditTab">
