@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.448.1](https://github.com/windmill-labs/windmill/compare/v1.448.0...v1.448.1) (2025-01-22)
+
+
+### Bug Fixes
+
+* improve environment variables config ([737e664](https://github.com/windmill-labs/windmill/commit/737e6647926bfad88ef28ddbfe91aa56d58569b8))
+
 ## [1.448.0](https://github.com/windmill-labs/windmill/compare/v1.447.6...v1.448.0) (2025-01-22)
 
 
