@@ -154,8 +154,11 @@
 							<div class="flex flex-col w-full mt-2">
 								<Label label="Nested properties">
 									<svelte:self
-										on:change={() => (schema = schema)}
-										schema={schema.properties[item.value]}
+										on:change={() => {
+											schema = schema
+											dispatch('change', schema)
+										}}
+										bind:schema={schema.properties[item.value]}
 										parentId={item.value}
 									/>
 								</Label>
