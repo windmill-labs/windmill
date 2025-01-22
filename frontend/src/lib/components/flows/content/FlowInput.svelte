@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { ButtonType } from '$lib/components/common/button/model'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -18,21 +18,30 @@
 		CornerDownLeft,
 		Pen,
 		ChevronRight,
-		ChevronDown,
 		Plus,
 		History,
 		Braces,
 		Code,
 		Save,
-		X
+		X,
+		Check
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
 	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import ButtonDropDown from '$lib/components/meltComponents/ButtonDropDown.svelte'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
+	import {
+		type SchemaDiff,
+		getFullPath,
+		setNestedProperty,
+		getNestedProperty,
+		schemaFromDiff,
+		computeDiff,
+		applyDiff
+	} from '$lib/components/schema/schemaUtils'
+	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -45,14 +54,18 @@
 	let previewSchema: Record<string, any> | undefined = undefined
 	let payloadData: Record<string, any> | undefined = undefined
 	let previewArguments: Record<string, any> | undefined = $previewArgs
-	let editOptionsOpen = false
 	let dropdownItems: Array<{
 		label: string
 		onClick: () => void
 		disabled?: boolean
 	}> = []
-
+	let diff: Record<string, SchemaDiff> = {}
 	let editPanelSize = $flowInputEditorState?.editPanelSize ?? 0
+	let selectedSchema: Record<string, any> | undefined = undefined
+	let runDisabled: boolean = false
+	let editableSchemaForm: EditableSchemaForm | undefined = undefined
+	let savedPreviewArgs: Record<string, any> | undefined = undefined
+
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
 		if (!size || size === 0) {
@@ -73,7 +86,8 @@
 				disabled:
 					!$flowInputEditorState?.selectedTab ||
 					$flowInputEditorState?.selectedTab === 'inputEditor',
-				icon: Pen
+				icon: Pen,
+				selected: $flowInputEditorState?.selectedTab === 'inputEditor'
 			},
 			{
 				label: 'Trigger captures',
@@ -81,7 +95,8 @@
 					handleEditSchema('captures')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'captures',
-				icon: CaptureIcon
+				icon: CaptureIcon,
+				selected: $flowInputEditorState?.selectedTab === 'captures'
 			},
 			{
 				label: 'History',
@@ -89,7 +104,8 @@
 					handleEditSchema('history')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'history',
-				icon: History
+				icon: History,
+				selected: $flowInputEditorState?.selectedTab === 'history'
 			},
 			{
 				label: 'Json payload',
@@ -97,14 +113,16 @@
 					handleEditSchema('json')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'json',
-				icon: Braces
+				icon: Braces,
+				selected: $flowInputEditorState?.selectedTab === 'json'
 			},
 			{
 				label: "First step's inputs",
 				onClick: () => {
 					handleEditSchema('firstStepInputs')
 				},
-				icon: Code
+				icon: Code,
+				selected: $flowInputEditorState?.selectedTab === 'firstStepInputs'
 			},
 			{
 				label: 'Saved inputs',
@@ -112,9 +130,10 @@
 					handleEditSchema('savedInputs')
 				},
 				disabled: $flowInputEditorState?.selectedTab === 'savedInputs',
-				icon: Save
+				icon: Save,
+				selected: $flowInputEditorState?.selectedTab === 'savedInputs'
 			}
-		].filter((item) => !item.disabled)
+		]
 	}
 
 	function handleEditSchema(editTab?: any) {
@@ -130,7 +149,8 @@
 		}
 	}
 
-	function schemaFromPayload(payload: any) {
+	function schemaFromPayload(payloadData: any) {
+		const payload = structuredClone(payloadData)
 		const parsed = JSON.parse(JSON.stringify(payload))
 
 		if (!parsed) {
@@ -157,43 +177,59 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 			runPreview()
+		} else if (event.key === 'Enter' && previewSchema && !preventEnter) {
+			applySchemaAndArgs()
+			connectFirstNode()
+			event.stopPropagation()
+			event.preventDefault()
 		}
 	}
 
 	function runPreview() {
 		if (previewArguments) {
-			$previewArgs = previewArguments
+			$previewArgs = structuredClone(previewArguments)
 		}
 		previewOpen = true
 		flowPreviewContent?.test()
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
-		payloadData = payload
 		if (!payload) {
+			payloadData = undefined
+			selectedSchema = undefined
 			updatePreviewArguments(undefined)
+			updatePreviewSchema(undefined)
+			return
+		}
+		payloadData = structuredClone(payload)
+		selectedSchema = schemaFromPayload(payloadData)
+		updatePreviewSchema(selectedSchema)
+		updatePreviewArguments(payloadData)
+	}
+
+	async function updatePreviewSchema(newSchema: Record<string, any> | undefined) {
+		if (!newSchema) {
 			previewSchema = undefined
+			if (runDisabled) {
+				await tick()
+				runDisabled = false
+			}
+			diff = {}
 			return
 		}
-		previewSchema = schemaFromPayload(payload)
-		updatePreviewArguments(payload)
+		diff = {}
+		const diffSchema = computeDiff(newSchema, $flowStore.schema)
+		diff = diffSchema
+		previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+		runDisabled = true
 	}
 
-	function applySchemaAndArgs() {
-		if (!previewSchema) {
-			return
-		}
-		$flowStore.schema = previewSchema
+	async function applySchemaAndArgs() {
+		$flowStore.schema = applyDiff($flowStore.schema, diff)
 		if (previewArguments) {
-			$previewArgs = previewArguments
+			savedPreviewArgs = structuredClone(previewArguments)
 		}
-		if ($flowInputEditorState) {
-			$flowInputEditorState.selectedTab = undefined
-		}
-	}
-
-	function applySchema() {
-		$flowStore.schema = previewSchema
+		updatePreviewSchemaAndArgs(undefined)
 		if ($flowInputEditorState) {
 			$flowInputEditorState.selectedTab = undefined
 		}
@@ -201,40 +237,27 @@
 
 	function updatePreviewArguments(payloadData: Record<string, any> | undefined) {
 		if (!payloadData) {
-			previewArguments = $previewArgs
+			previewArguments = savedPreviewArgs
 			return
 		}
-		previewArguments = payloadData
+		savedPreviewArgs = structuredClone(previewArguments)
+		previewArguments = structuredClone(payloadData)
 	}
 
-	let jsonValid = false
 	function updatePayloadFromJson(jsonInput: string) {
 		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
 			updatePreviewSchemaAndArgs(undefined)
-			jsonValid = false
 			return
 		}
 		try {
 			const parsed = JSON.parse(jsonInput)
 			updatePreviewSchemaAndArgs(parsed)
-			jsonValid = true
 		} catch (error) {
 			updatePreviewSchemaAndArgs(undefined)
-			jsonValid = false
 		}
 	}
 
 	let tabButtonWidth = 0
-
-	const TAB_TITLES: Record<string, string> = {
-		inputEditor: 'Input editor',
-		captures: 'Captures',
-		history: 'History',
-		savedInputs: 'Saved inputs',
-		json: 'JSON',
-		firstStepInputs: 'First step',
-		undefined: ''
-	}
 
 	let connectFirstNode: () => void = () => {}
 
@@ -249,6 +272,54 @@
 	$: $flowInputEditorState && ((dropdownItems = getDropdownItems()), initPayloadData())
 
 	let preventEnter = false
+
+	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
+		handleChange(arg, $flowStore.schema, diff, (newSchema) => {
+			$flowStore.schema = newSchema
+		})
+	}
+
+	async function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
+		const revertDiff = computeDiff($flowStore.schema, selectedSchema)
+		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
+			selectedSchema = newSchema
+		})
+	}
+
+	function handleChange(
+		arg: { label: string; nestedParent: any | undefined },
+		currentSchema: Record<string, any> | undefined,
+		diffSchema: Record<string, SchemaDiff> | undefined,
+		updateCurrentSchema: (newSchema: Record<string, any> | undefined) => void
+	) {
+		if (!diff || !currentSchema) {
+			return
+		}
+
+		const path = getFullPath(arg)
+		const parentPath = path.slice(0, -1)
+		const diffStatus = getNestedProperty({ diff: diffSchema }, path, 'diff')
+		const schema = getNestedProperty(currentSchema, parentPath, 'properties')
+		const localDiff = {
+			[arg.label]: diffStatus
+		}
+		const schemaUpdated = applyDiff(schema, localDiff)
+		if (parentPath.length > 0) {
+			setNestedProperty(currentSchema, parentPath, schemaUpdated)
+		} else {
+			updateCurrentSchema(schemaUpdated)
+		}
+
+		diff = computeDiff(selectedSchema, $flowStore.schema)
+		previewSchema = schemaFromDiff(diff, $flowStore.schema)
+	}
+
+	function resetArgs() {
+		if (!previewSchema) {
+			previewArguments = undefined
+			savedPreviewArgs = undefined
+		}
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -269,6 +340,7 @@
 	{#if !disabled}
 		<div class="py-2 px-4 h-full">
 			<EditableSchemaForm
+				bind:this={editableSchemaForm}
 				bind:schema={$flowStore.schema}
 				isFlowInput
 				on:edit={(e) => {
@@ -284,84 +356,98 @@
 				bind:editPanelSize
 				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
 				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
+				{diff}
+				disableDnd={!!previewSchema}
+				on:rejectChange={(e) => {
+					rejectChange(e.detail).then(() => {
+						updatePreviewSchema(selectedSchema)
+					})
+				}}
+				on:acceptChange={(e) => {
+					acceptChange(e.detail).then(() => {
+						updatePreviewSchema(selectedSchema)
+					})
+				}}
+				shouldDispatchChanges={true}
+				on:change={() => {
+					previewArguments = previewArguments
+					if (!previewSchema) {
+						savedPreviewArgs = structuredClone(previewArguments)
+					}
+				}}
+				on:schemaChange={() => {
+					resetArgs()
+				}}
 			>
 				<svelte:fragment slot="openEditTab">
-					<div
-						class={twMerge(
-							'flex flex-row divide-x rounded-md bg-surface overflow-hidden',
-							!!$flowInputEditorState?.selectedTab ? 'rounded-r-none' : '',
-							ButtonType.ColorVariants.blue.divider
-						)}
-					>
-						<button
-							on:click={() => {
-								handleEditSchema()
-							}}
-							title={!!$flowInputEditorState?.selectedTab
-								? 'Close input editor'
-								: 'Open input editor'}
-							class={ButtonType.ColorVariants.blue.contained}
-						>
-							<div class="p-2 center-center">
-								<svelte:component
-									this={!!$flowInputEditorState?.selectedTab ? ChevronRight : Pen}
-									size={14}
-								/>
-							</div>
-						</button>
-
-						<ButtonDropDown
-							{dropdownItems}
-							closeOnClick={true}
-							bind:open={editOptionsOpen}
-							placement="bottom-end"
-						>
-							<div
-								class={twMerge(
-									'p-2 center-center hover:bg-surface-hover',
-									ButtonType.ColorVariants.blue.contained,
-									'flex flex-row items-center rounded-br-md',
-									'transition-all duration-150 ease-in-out overflow-hidden whitespace-nowrap',
-									!!$flowInputEditorState?.selectedTab ? 'w-[122px] px-3' : 'w-[30px]'
-								)}
-								bind:clientWidth={tabButtonWidth}
-							>
-								<div class="flex flex-row items-center gap-1 justify-between w-full">
-									{#if !!$flowInputEditorState?.selectedTab}
-										<h2 class="text-xs">{TAB_TITLES[$flowInputEditorState?.selectedTab]}</h2>
-									{/if}
-									<ChevronDown size={14} />
-								</div>
-							</div>
-						</ButtonDropDown>
+					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
+						<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
+							<svelte:fragment slot="close button">
+								<button
+									on:click={() => {
+										handleEditSchema()
+									}}
+									title={!!$flowInputEditorState?.selectedTab
+										? 'Close input editor'
+										: 'Open input editor'}
+									class={twMerge(
+										ButtonType.ColorVariants.blue.contained,
+										!!$flowInputEditorState?.selectedTab
+											? 'rounded-tl-md border-l border-t'
+											: 'rounded-md border'
+									)}
+								>
+									<div class="p-2 center-center">
+										<svelte:component
+											this={!!$flowInputEditorState?.selectedTab ? ChevronRight : Pen}
+											size={14}
+										/>
+									</div>
+								</button>
+							</svelte:fragment>
+						</SideBarTab>
 					</div>
 				</svelte:fragment>
 				<svelte:fragment slot="addProperty">
 					{#if !!previewSchema}
-						<div
-							class={twMerge(
-								'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40 text-xs p-2 w-full flex flex-row gap-2 items-center justify-left rounded-md',
-								'text-blue-700 dark:text-blue-100',
-								'relative'
-							)}
-						>
-							<span> Preview only, update schema to save.</span>
-							<div class="flex flex-row items-center gap-2 absolute right-2">
-								<Button
-									variant="contained"
-									color="light"
-									size="xs2"
-									startIcon={{ icon: X }}
-									shortCut={{ key: 'esc', withoutModifier: true }}
-									nonCaptureEvent
-								/>
-							</div>
+						<div class="flex flex-row items-center gap-2 right-2 justify-end">
+							<Button
+								size="xs"
+								color="green"
+								disabled={!previewSchema}
+								shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
+								startIcon={{ icon: Check }}
+								on:click={() => {
+									applySchemaAndArgs()
+									connectFirstNode()
+								}}
+							>
+								{Object.values(diff).every((el) => el.diff === 'same')
+									? 'Apply args'
+									: 'Update schema'}
+							</Button>
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								startIcon={{ icon: X }}
+								shortCut={{ key: 'esc', withoutModifier: true }}
+								nonCaptureEvent
+							/>
 						</div>
 					{:else}
 						<AddPropertyV2
 							bind:schema={$flowStore.schema}
 							bind:this={addProperty}
 							on:change={() => {
+								$flowStore = $flowStore
+								if (editableSchemaForm) {
+									editableSchemaForm.updateJson()
+								}
+							}}
+							on:addNew={(e) => {
+								handleEditSchema('inputEditor')
+								editableSchemaForm?.openField(e.detail)
 								$flowStore = $flowStore
 							}}
 						>
@@ -378,9 +464,7 @@
 				<svelte:fragment slot="extraTab">
 					{#if $flowInputEditorState?.selectedTab === 'history'}
 						<FlowInputEditor
-							disabled={!payloadData}
-							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
+							title="History"
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
@@ -396,12 +480,10 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
 						<FlowInputEditor
-							disabled={!payloadData}
-							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
+							title="Trigger captures"
 						>
 							<svelete:fragment slot="action">
 								<div class="center-center">
@@ -417,13 +499,10 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
-							{preventEnter}
-							disabled={!payloadData}
-							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
+							title="Saved inputs"
 						>
 							<SavedInputsPicker
 								flowPath={initialPath}
@@ -438,13 +517,10 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
 						<FlowInputEditor
-							{preventEnter}
-							disabled={!jsonValid}
-							on:applySchemaAndArgs={applySchemaAndArgs}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
 							}}
+							title="Json payload"
 						>
 							<SimpleEditor
 								on:focus={() => {
@@ -470,22 +546,25 @@
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
 						<FlowInputEditor
-							disabled={!previewSchema}
-							on:applySchemaAndArgs={() => {
-								applySchemaAndArgs()
-								connectFirstNode()
-							}}
-							on:applySchema={applySchema}
 							on:destroy={() => {
 								updatePreviewSchemaAndArgs(undefined)
+								connectFirstNode = () => {}
 							}}
+							title="First step's inputs"
 						>
 							<FirstStepInputs
 								on:connectFirstNode={({ detail }) => {
 									connectFirstNode = detail.connectFirstNode
 								}}
 								on:select={(e) => {
-									previewSchema = e.detail ?? undefined
+									if (e.detail) {
+										const diffSchema = computeDiff(e.detail, $flowStore.schema)
+										diff = diffSchema
+										previewSchema = schemaFromDiff(diffSchema, $flowStore.schema)
+										runDisabled = true
+									} else {
+										updatePreviewSchemaAndArgs(undefined)
+									}
 								}}
 							/>
 						</FlowInputEditor>
@@ -496,7 +575,7 @@
 						<Button
 							color="dark"
 							btnClasses="w-fit"
-							disabled={!!previewSchema}
+							disabled={runDisabled}
 							size="xs"
 							shortCut={{ Icon: CornerDownLeft, hide: false }}
 							on:click={() => {

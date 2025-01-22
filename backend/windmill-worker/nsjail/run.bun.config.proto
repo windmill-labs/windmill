@@ -77,6 +77,12 @@ mount {
     mandatory: false
 }
 
+mount {
+    src: "{JOB_DIR}/bun.lock"
+    dst: "/tmp/{LANG}/bun.lock"
+    is_bind: true
+    mandatory: false
+}
 
 mount {
     src: "{JOB_DIR}/wrapper.mjs"
