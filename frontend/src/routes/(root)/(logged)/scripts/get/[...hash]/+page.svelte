@@ -41,7 +41,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
-	import SavedInputs from '$lib/components/SavedInputs.svelte'
+	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
 	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -689,14 +689,13 @@
 			</svelte:fragment>
 			<svelte:fragment slot="save_inputs">
 				{#if args}
-					<SavedInputs
+					<SavedInputsV2
 						scriptPath={script?.path}
 						scriptHash={topHash}
 						{isValid}
 						{args}
 						on:selected_args={(e) => {
 							const nargs = JSON.parse(JSON.stringify(e.detail))
-							runForm?.setArgs(nargs)
 							args = nargs
 						}}
 					/>

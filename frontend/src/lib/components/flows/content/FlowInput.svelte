@@ -5,7 +5,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
 	import { sendUserToast } from '$lib/toast'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
@@ -49,7 +49,6 @@
 	const { flowStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let pendingJson: string
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
 	let payloadData: Record<string, any> | undefined = undefined
@@ -242,19 +241,6 @@
 		}
 		savedPreviewArgs = structuredClone(previewArguments)
 		previewArguments = structuredClone(payloadData)
-	}
-
-	function updatePayloadFromJson(jsonInput: string) {
-		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
-			updatePreviewSchemaAndArgs(undefined)
-			return
-		}
-		try {
-			const parsed = JSON.parse(jsonInput)
-			updatePreviewSchemaAndArgs(parsed)
-		} catch (error) {
-			updatePreviewSchemaAndArgs(undefined)
-		}
 	}
 
 	let tabButtonWidth = 0
@@ -470,9 +456,8 @@
 							}}
 						>
 							<HistoricInputs
-								scriptHash={null}
-								scriptPath={null}
-								flowPath={$pathStore}
+								runnableId={initialPath ?? undefined}
+								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
@@ -505,7 +490,8 @@
 							title="Saved inputs"
 						>
 							<SavedInputsPicker
-								flowPath={initialPath}
+								runnableId={initialPath ?? undefined}
+								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
@@ -522,26 +508,16 @@
 							}}
 							title="Json payload"
 						>
-							<SimpleEditor
+							<JsonInputs
 								on:focus={() => {
 									preventEnter = true
-									updatePayloadFromJson(pendingJson)
 								}}
 								on:blur={async () => {
 									preventEnter = false
-									setTimeout(() => {
-										if (payloadData) {
-											updatePayloadFromJson('')
-										}
-									}, 100)
 								}}
-								on:change={(e) => {
-									updatePayloadFromJson(e.detail.code)
+								on:select={(e) => {
+									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
-								bind:code={pendingJson}
-								lang="json"
-								class="h-full"
-								placeholder={'Write a JSON payload. The input schema will be inferred.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}'}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}

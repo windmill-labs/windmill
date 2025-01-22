@@ -10,9 +10,8 @@
 	import { clickOutside } from '$lib/utils'
 	import InfiniteList from './InfiniteList.svelte'
 
-	export let scriptHash: string | null = null
-	export let scriptPath: string | null = null
-	export let flowPath: string | null = null
+	export let runnableId: string | undefined = undefined
+	export let runnableType: RunnableType | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -23,19 +22,7 @@
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
 
-	let runnableType: RunnableType | undefined = undefined
-	$: runnableType = scriptHash
-		? 'ScriptHash'
-		: scriptPath
-		? 'ScriptPath'
-		: flowPath
-		? 'FlowPath'
-		: undefined
-
-	let runnableId: string | undefined = undefined
 	function initLoadInputs() {
-		runnableId = scriptHash || scriptPath || flowPath || undefined
-
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.getInputHistory({
 				workspace: $workspaceStore!,
@@ -122,7 +109,7 @@
 	}
 
 	$: !loading && refresh()
-	$: $workspaceStore && (scriptHash || scriptPath || flowPath) && infiniteList && initLoadInputs()
+	$: $workspaceStore && runnableId && runnableType && infiniteList && initLoadInputs()
 </script>
 
 <svelte:window on:keydown={handleKeydown} />

@@ -27,7 +27,7 @@
 
 <div class="flex flex-col h-full">
 	<Tabs bind:selected wrapperClass="flex-none w-full">
-		<Tab value="saved_inputs">Saved Inputs</Tab>
+		<Tab value="saved_inputs">Saved inputs</Tab>
 		{#if !isOperator}
 			<Tab value="triggers">Triggers</Tab>
 		{/if}

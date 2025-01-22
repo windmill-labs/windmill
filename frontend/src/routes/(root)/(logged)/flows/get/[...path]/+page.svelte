@@ -22,7 +22,7 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import SavedInputs from '$lib/components/SavedInputs.svelte'
+	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
 	import {
 		FolderOpen,
 		Archive,
@@ -498,13 +498,12 @@
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="save_inputs">
-			<SavedInputs
+			<SavedInputsV2
 				flowPath={flow?.path}
 				{isValid}
 				args={args ?? {}}
 				on:selected_args={(e) => {
 					const nargs = JSON.parse(JSON.stringify(e.detail))
-					runForm?.setArgs(nargs)
 					args = nargs
 				}}
 			/>

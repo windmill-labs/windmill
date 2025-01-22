@@ -13,8 +13,11 @@
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let flowPath: string | null = null
 	export let previewArgs: any = undefined
+	export let runnableId: string | undefined = undefined
+	export let runnableType: RunnableType | undefined = undefined
+	export let isValid: boolean = false
+	export let noButton: boolean = false
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -29,10 +32,6 @@
 	let isEditing: EditableInput | null = null
 
 	const dispatch = createEventDispatcher()
-
-	$: runnableId = flowPath || undefined
-	let runnableType: RunnableType | undefined = undefined
-	$: runnableType = flowPath ? 'FlowPath' : undefined
 
 	async function updateInput(input: EditableInput | null) {
 		if (!input) return
@@ -151,13 +150,20 @@
 		}
 	}
 
-	$: $workspaceStore && flowPath && (infiniteList && initLoadInputs(), (draft = false))
+	export function refresh() {
+		infiniteList?.loadData('refresh')
+	}
+
+	$: $workspaceStore &&
+		runnableId &&
+		runnableType &&
+		(infiniteList && initLoadInputs(), (draft = false))
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
 
 <div
-	class="w-full flex flex-col gap-1 h-full overflow-y-auto p"
+	class="w-full flex flex-col gap-1 h-full overflow-y-auto"
 	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 	on:click_outside={() => {
 		selectedInput = null
@@ -165,27 +171,29 @@
 		dispatch('select', undefined)
 	}}
 >
-	<div>
-		<Popover class="w-full" placement="bottom" disablePopup={flowPath && previewArgs}>
-			<svelte:fragment slot="text">
-				{#if !flowPath}
-					Save draft first before you can save inputs
-				{:else if !previewArgs}
-					Add inputs before saving
-				{/if}
-			</svelte:fragment>
-			<SaveInputsButton
-				{runnableId}
-				{runnableType}
-				args={previewArgs ?? {}}
-				disabled={!previewArgs || !flowPath}
-				on:update={() => {
-					infiniteList?.loadData('refresh')
-				}}
-				showTooltip={true}
-			/>
-		</Popover>
-	</div>
+	{#if !noButton}
+		<div>
+			<Popover class="w-full" placement="bottom" disablePopup={runnableId && previewArgs}>
+				<svelte:fragment slot="text">
+					{#if !runnableId}
+						Save draft first before you can save inputs
+					{:else if !previewArgs}
+						Add inputs before saving
+					{/if}
+				</svelte:fragment>
+				<SaveInputsButton
+					{runnableId}
+					{runnableType}
+					args={previewArgs ?? {}}
+					disabled={!previewArgs || !runnableId || !isValid}
+					on:update={() => {
+						refresh()
+					}}
+					showTooltip={true}
+				/>
+			</Popover>
+		</div>
+	{/if}
 	<div class="grow min-h-0">
 		{#if !draft}
 			<InfiniteList
