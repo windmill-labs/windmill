@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.445.1
+  version: 1.447.6
   title: Windmill API
 
   contact:
@@ -1812,10 +1812,12 @@ paths:
                     type: number
                   automatic_billing:
                     type: boolean
+                  owner:
+                    type: string
                 required:
                   - premium
                   - automatic_billing
-
+                  - owner
   /w/{workspace}/workspaces/set_automatic_billing:
     post:
       summary: set automatic billing
@@ -1838,6 +1840,55 @@ paths:
                   type: number
               required:
                 - automatic_billing
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  
+  /w/{workspace}/workspaces/threshold_alert:
+    get:
+      summary: get threshold alert info
+      operationId: getThresholdAlert
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  threshold_alert_amount:
+                    type: number
+                  last_alert_sent:
+                    type: string
+                    format: date-time
+    post:
+      summary: set threshold alert info
+      operationId: setThresholdAlert
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: threshold alert info
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                threshold_alert_amount:
+                  type: number
 
       responses:
         "200":
@@ -4262,6 +4313,17 @@ paths:
       operationId: getCustomTags
       tags:
         - worker
+      parameters:
+        - name: workspace
+          in: query
+          schema:
+            type: string
+          required: false
+        - name: show_workspace_restriction
+          in: query
+          schema:
+            type: boolean
+          required: false
       responses:
         "200":
           description: list of custom tags
@@ -11008,6 +11070,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -11018,7 +11081,7 @@ components:
             ]
         kind:
           type: string
-          enum: [script, failure, trigger, command, approval]
+          enum: [script, failure, trigger, command, approval, preprocessor]
         starred:
           type: boolean
         tag:
@@ -11059,6 +11122,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
 
       required:
         - hash
@@ -11111,6 +11176,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -11121,7 +11187,7 @@ components:
             ]
         kind:
           type: string
-          enum: [script, failure, trigger, command, approval]
+          enum: [script, failure, trigger, command, approval, preprocessor]
         tag:
           type: string
         draft_only:
@@ -11160,6 +11226,8 @@ components:
           type: string
         has_preprocessor:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - summary
@@ -11336,6 +11404,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -11459,6 +11528,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -12015,6 +12085,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,
@@ -13209,6 +13280,8 @@ components:
           type: number
         visible_to_runner_only:
           type: boolean
+        on_behalf_of_email:
+          type: string
       required:
         - path
         - edited_by
@@ -13235,6 +13308,8 @@ components:
               type: number
             visible_to_runner_only:
               type: boolean
+            on_behalf_of_email:
+              type: string
           required:
             - path
 
@@ -13755,6 +13830,7 @@ components:
               bigquery,
               snowflake,
               mssql,
+              oracledb,
               graphql,
               nativets,
               bun,

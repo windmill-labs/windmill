@@ -40,9 +40,10 @@ use windmill_common::flow_status::{
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId};
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobKind, JobPayload,
-    QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
+    OnBehalfOf, QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::scripts::ScriptHash;
+use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
@@ -2547,6 +2548,13 @@ async fn push_next_flow_job(
         } else {
             Some(flow_job.tag.clone())
         };
+
+        let (email, permissioned_as) = if let Some(on_behalf_of) = payload_tag.on_behalf_of.as_ref()
+        {
+            (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
+        } else {
+            (&flow_job.email, flow_job.permissioned_as.to_owned())
+        };
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
@@ -2555,8 +2563,8 @@ async fn push_next_flow_job(
             payload_tag.payload.clone(),
             push_args,
             &flow_job.created_by,
-            &flow_job.email,
-            flow_job.permissioned_as.to_owned(),
+            email,
+            permissioned_as,
             scheduled_for_o,
             flow_job.schedule_path.clone(),
             Some(flow_job.id),
@@ -2913,6 +2921,7 @@ struct JobPayloadWithTag {
     tag: Option<String>,
     delete_after_use: bool,
     timeout: Option<i32>,
+    on_behalf_of: Option<OnBehalfOf>,
 }
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
@@ -3010,6 +3019,7 @@ async fn compute_next_flow_transform(
                 tag: None,
                 delete_after_use: false,
                 timeout: None,
+                on_behalf_of: None,
             }),
             NextStatus::NextStep,
         ));
@@ -3021,6 +3031,7 @@ async fn compute_next_flow_transform(
                 tag: None,
                 delete_after_use: false,
                 timeout: None,
+                on_behalf_of: None,
             }),
             NextStatus::NextStep,
         ))
@@ -3035,7 +3046,8 @@ async fn compute_next_flow_transform(
     match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
-            let payload = flow_to_payload(path, delete_after_use);
+            let payload =
+                flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?;
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
@@ -3105,6 +3117,7 @@ async fn compute_next_flow_transform(
                 tag: tag.clone(),
                 delete_after_use,
                 timeout: module.timeout,
+                on_behalf_of: None,
             };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
@@ -3229,6 +3242,7 @@ async fn compute_next_flow_transform(
                                 tag: None,
                                 delete_after_use,
                                 timeout: None,
+                                on_behalf_of: None,
                             })
                         })
                         .collect::<Vec<_>>();
@@ -3323,6 +3337,7 @@ async fn compute_next_flow_transform(
                     tag: None,
                     delete_after_use,
                     timeout: None,
+                    on_behalf_of: None,
                 }),
                 NextStatus::BranchChosen(branch),
             ))
@@ -3356,6 +3371,7 @@ async fn compute_next_flow_transform(
                                     tag: None,
                                     delete_after_use,
                                     timeout: None,
+                                    on_behalf_of: None,
                                 })
                             })
                             .collect::<Vec<_>>();
@@ -3427,6 +3443,7 @@ async fn compute_next_flow_transform(
                     tag: None,
                     delete_after_use,
                     timeout: None,
+                    on_behalf_of: None,
                 }),
                 NextStatus::NextBranchStep(NextBranch {
                     status: branch_status,
@@ -3488,6 +3505,7 @@ async fn next_loop_iteration(
             tag: None,
             delete_after_use,
             timeout: None,
+            on_behalf_of: None,
         }),
         NextStatus::NextLoopIteration { next: ns, simple_input_transforms: None },
     ))
@@ -3659,7 +3677,9 @@ async fn payload_from_simple_module(
 ) -> Result<JobPayloadWithTag, Error> {
     let delete_after_use = module.delete_after_use.unwrap_or(false);
     Ok(match value {
-        FlowModuleValue::Flow { path, .. } => flow_to_payload(path, delete_after_use),
+        FlowModuleValue::Flow { path, .. } => {
+            flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?
+        }
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             script_to_payload(script_hash, script_path, db, flow_job, module, tag_override).await?
         }
@@ -3707,6 +3727,7 @@ async fn payload_from_simple_module(
             tag,
             delete_after_use,
             timeout: module.timeout,
+            on_behalf_of: None,
         },
         _ => unreachable!("is simple flow"),
     })
@@ -3740,12 +3761,31 @@ fn raw_script_to_payload(
         tag,
         delete_after_use,
         timeout: module.timeout,
+        on_behalf_of: None,
     }
 }
 
-fn flow_to_payload(path: String, delete_after_use: bool) -> JobPayloadWithTag {
+async fn flow_to_payload(
+    path: String,
+    delete_after_use: bool,
+    w_id: &str,
+    db: &DB,
+) -> Result<JobPayloadWithTag, Error> {
+    let record = sqlx::query!(
+        "SELECT on_behalf_of_email, edited_by FROM flow WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id,
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::NotFound(format!("fetching flow: {e:#}")))?;
+    let on_behalf_of = if let Some(email) = record.on_behalf_of_email {
+        Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&record.edited_by) })
+    } else {
+        None
+    };
     let payload = JobPayload::Flow { path, dedicated_worker: None, apply_preprocessor: false };
-    JobPayloadWithTag { payload, tag: None, delete_after_use, timeout: None }
+    Ok(JobPayloadWithTag { payload, tag: None, delete_after_use, timeout: None, on_behalf_of })
 }
 
 async fn script_to_payload(
@@ -3761,14 +3801,15 @@ async fn script_to_payload(
     } else {
         tag_override
     };
-    let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
-        let (jp, tag, delete_after_use, script_timeout) =
+    let (payload, tag, delete_after_use, script_timeout, on_behalf_of) = if script_hash.is_none() {
+        let (jp, tag, delete_after_use, script_timeout, on_behalf_of) =
             script_path_to_payload(&script_path, db, &flow_job.workspace_id, Some(true)).await?;
         (
             jp,
             tag_override.to_owned().or(tag),
             delete_after_use,
             script_timeout,
+            on_behalf_of,
         )
     } else {
         let hash = script_hash.unwrap();
@@ -3784,7 +3825,14 @@ async fn script_to_payload(
             priority,
             delete_after_use,
             script_timeout,
+            on_behalf_of_email,
+            created_by,
         ) = script_hash_to_tag_and_limits(&hash, &mut tx, &flow_job.workspace_id).await?;
+        let on_behalf_of = if let Some(email) = on_behalf_of_email {
+            Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&created_by) })
+        } else {
+            None
+        };
         (
             JobPayload::ScriptHash {
                 hash,
@@ -3801,6 +3849,7 @@ async fn script_to_payload(
             tag_override.to_owned().or(tag),
             delete_after_use,
             script_timeout,
+            on_behalf_of,
         )
     };
     // the module value overrides the value set at the script level. Defaults to false if both are unset.
@@ -3812,6 +3861,7 @@ async fn script_to_payload(
         tag,
         delete_after_use: final_delete_after_user,
         timeout: flow_step_timeout,
+        on_behalf_of,
     })
 }
 

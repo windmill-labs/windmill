@@ -18,6 +18,7 @@
 
 	export let snowflakeAccountIdentifier = ''
 	export let oauths: Record<string, any> = {}
+	export let requirePreexistingUserForOauth: boolean = false
 
 	const windmillBuiltins = [
 		'github',
@@ -47,8 +48,6 @@
 	let resourceName = ''
 
 	let tab: 'sso' | 'oauth' | 'scim' = 'sso'
-
-	let requirePreexistingUserForOauth: boolean = false
 </script>
 
 <div>

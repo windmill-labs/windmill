@@ -1,4 +1,4 @@
-import { useWorkerFactory } from 'monaco-editor-wrapper/workerFactory'
+import { initEnhancedMonacoEnvironment } from 'monaco-languageclient/vscode/services'
 
 // import cssWorker from 'monaco-editor-wrapper/workers/module/css?worker&url'
 // import htmlWorker from 'monaco-editor-wrapper/workers/module/html?worker&url'
@@ -6,9 +6,13 @@ import { useWorkerFactory } from 'monaco-editor-wrapper/workerFactory'
 // import editorWorker from 'monaco-editor-wrapper/workers/module/editor?worker&url'
 
 export function buildWorkerDefinition() {
-	useWorkerFactory({
-		ignoreMapping: true,
-		workerLoaders: {
+	const envEnhanced = initEnhancedMonacoEnvironment()
+
+	const getWorker = (moduleId: string, label: string) => {
+		console.log(`getWorker: moduleId: ${moduleId} label: ${label}`)
+
+		let selector = label
+		let workerLoaders = {
 			editorWorkerService: () => {
 				return new Worker(new URL('monaco-editor-wrapper/workers/module/editor', import.meta.url), {
 					type: 'module'
@@ -46,5 +50,12 @@ export function buildWorkerDefinition() {
 				})
 			}
 		}
-	})
+		const workerFunc = workerLoaders[selector]
+		if (workerFunc !== undefined) {
+			return workerFunc()
+		} else {
+			throw new Error(`Unimplemented worker ${label} (${moduleId})`)
+		}
+	}
+	envEnhanced.getWorker = getWorker
 }

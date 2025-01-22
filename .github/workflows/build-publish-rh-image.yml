@@ -64,7 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,http_trigger,zip,oauth2,kafka,nats,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,http_trigger,zip,oauth2,kafka,nats,php,mysql,mssql,bigquery,oracledb,websocket,python,smtp,csharp,static_frontend,rust
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -81,7 +81,7 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,http_trigger,zip,oauth2,kafka,nats,php,mysql,mssql,bigquery,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,http_trigger,zip,oauth2,kafka,nats,php,mysql,mssql,bigquery,oracledb,websocket,python,smtp,csharp,static_frontend,rust
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -97,16 +97,16 @@ jobs:
           image: ${{ steps.meta-ee-public.outputs.tags}}-amd64
           path: "/windmill/target/release/windmill"
 
-      - uses: shrink/actions-docker-extract@v3
-        id: extract-ee-arm64
-        with:
-          image: ${{ steps.meta-ee-public.outputs.tags}}-arm64
-          path: "/windmill/target/release/windmill"
+      # - uses: shrink/actions-docker-extract@v3
+      #   id: extract-ee-arm64
+      #   with:
+      #     image: ${{ steps.meta-ee-public.outputs.tags}}-arm64
+      #     path: "/windmill/target/release/windmill"
 
       - name: Rename binary with corresponding architecture
         run: |
           mv "${{ steps.extract-ee-amd64.outputs.destination }}/windmill" "${{ steps.extract-ee-amd64.outputs.destination }}/windmill-ee-amd64-rhel9"
-          mv "${{ steps.extract-ee-arm64.outputs.destination }}/windmill" "${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9"
+          # mv "${{ steps.extract-ee-arm64.outputs.destination }}/windmill" "${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -115,12 +115,12 @@ jobs:
             ${{ steps.extract-ee-amd64.outputs.destination
             }}/windmill-ee-amd64-rhel9
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: RHEL9-arm64 build
-          path:
-            ${{ steps.extract-ee-arm64.outputs.destination
-            }}/windmill-ee-arm64-rhel9
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: RHEL9-arm64 build
+      #     path:
+      #       ${{ steps.extract-ee-arm64.outputs.destination
+      #       }}/windmill-ee-arm64-rhel9
 
       # - name: Attach binary to release
       #   uses: softprops/action-gh-release@v2

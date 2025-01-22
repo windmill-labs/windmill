@@ -710,9 +710,15 @@
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
 						{#if job.script_hash}
-							<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
-								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
-							>
+							{#if job.job_kind == 'script'}
+								<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+									><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
+								>
+							{:else}
+								<div>
+									<Badge color="gray">{truncateHash(job.script_hash)}</Badge>
+								</div>
+							{/if}
 						{/if}
 						{#if job && 'job_kind' in job}
 							<div>
@@ -732,7 +738,7 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'dependency'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>

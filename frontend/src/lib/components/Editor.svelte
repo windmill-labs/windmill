@@ -163,6 +163,7 @@
 		BIGQUERY_TYPES,
 		MSSQL_TYPES,
 		MYSQL_TYPES,
+		ORACLEDB_TYPES,
 		POSTGRES_TYPES,
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
@@ -462,6 +463,8 @@
 							? BIGQUERY_TYPES
 							: scriptLang === 'mssql'
 							? MSSQL_TYPES
+							: scriptLang === 'oracledb'
+							? ORACLEDB_TYPES
 							: []
 					).map((t) => ({
 						label: t,
@@ -699,6 +702,7 @@
 		) {
 			const client = new MonacoLanguageClient({
 				name: name,
+				messageTransports: transports,
 				clientOptions: {
 					outputChannel,
 					documentSelector: [lang],
@@ -728,11 +732,6 @@
 									return [{ enabled: true }]
 								})
 						}
-					}
-				},
-				connectionProvider: {
-					get: () => {
-						return Promise.resolve(transports)
 					}
 				}
 			})

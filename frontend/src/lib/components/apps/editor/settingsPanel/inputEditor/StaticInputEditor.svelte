@@ -73,7 +73,7 @@
 			<IconSelectInput bind:value={componentInput.value} />
 		{:else if fieldType === 'tab-select'}
 			<TabSelectInput bind:componentInput />
-		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'snowflake_oauth', 'bigquery'].includes(subFieldType)}
+		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'snowflake_oauth', 'bigquery', 'oracledb'].includes(subFieldType)}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
@@ -91,6 +91,7 @@
 			/>
 		{:else if fieldType === 'resource' && subFieldType === 's3'}
 			<ResourcePicker
+				placeholder="S3 resource (workspace s3 if empty)"
 				initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 				on:change={(e) => {
 					let path = e.detail

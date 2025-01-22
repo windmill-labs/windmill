@@ -43,11 +43,12 @@
 				content: string
 				schema?: any
 				tag?: string
-				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
+				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | 'preprocessor' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
+				on_behalf_of_email?: string
 				no_main_func?: boolean
 				has_preprocessor?: boolean
 		  }
@@ -63,11 +64,12 @@
 				content: string
 				schema?: any
 				tag?: string
-				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
+				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | 'preprocessor' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
+				on_behalf_of_email?: string
 				no_main_func?: boolean
 				has_preprocessor?: boolean
 		  }

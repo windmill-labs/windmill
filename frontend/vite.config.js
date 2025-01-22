@@ -13,7 +13,7 @@ const version = JSON.parse(json)
 const config = {
 	server: {
 		https: false,
-		port: 3000,
+		port: 3006,
 		proxy: {
 			'^/api/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
@@ -43,8 +43,7 @@ const config = {
 		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
-			'@codingame/monaco-vscode-standalone-languages',
-			'monaco-graphql'
+			'@codingame/monaco-vscode-standalone-languages'
 		],
 		esbuildOptions: {
 			plugins: [importMetaUrlPlugin]
@@ -53,10 +52,13 @@ const config = {
 	resolve: {
 		alias: {
 			path: 'path-browserify',
-			'vscode/vscode/vs/editor/contrib/hover/browser/hover':
-				'vscode/vscode/vs/editor/contrib/hover/browser/hoverController'
+			'monaco-editor/esm/vs/editor/contrib/hover/browser/hover':
+				'vscode/vscode/vs/editor/contrib/hover/browser/hoverContribution'
 		},
 		dedupe: ['vscode', 'monaco-editor']
+	},
+	worker: {
+		format: 'es'
 	},
 	assetsInclude: ['**/*.wasm']
 }

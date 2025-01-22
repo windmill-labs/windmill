@@ -96,8 +96,7 @@
 		on:applyArgs
 		on:addPreprocessor={async () => {
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
-				language: 'bun',
-				subkind: 'preprocessor'
+				language: 'bun'
 			})
 			$selectedId = 'preprocessor'
 		}}
@@ -113,6 +112,7 @@
 			}
 		}}
 		on:testWithArgs
+		args={$previewArgs}
 		currentPath={$pathStore}
 		{initialPath}
 		schema={$flowStore.schema}
