@@ -8,7 +8,7 @@ CREATE TABLE postgres_trigger(
     email VARCHAR(255) NOT NULL,
     edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     extra_perms JSONB NULL,
-    database_resource_path VARCHAR(255) NOT NULL,
+    postgres_resource_path VARCHAR(255) NOT NULL,
     error TEXT NULL,
     server_id VARCHAR(50) NULL,
     last_server_ping TIMESTAMPTZ NULL,

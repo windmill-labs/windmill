@@ -61,9 +61,9 @@
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
-	import DatabaseTriggersPanel from '$lib/components/triggers/postgres/DatabaseTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
+	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -551,7 +551,7 @@
 
 		<svelte:fragment slot="postgres">
 			<div class="p-2">
-				<DatabaseTriggersPanel path={flow.path ?? ''} isFlow />
+				<PostgresTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="nats">

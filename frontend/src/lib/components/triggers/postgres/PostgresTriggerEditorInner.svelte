@@ -40,7 +40,7 @@
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
-	let database_resource_path = ''
+	let postgres_resource_path = ''
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
 	let relations: Relations[] = []
@@ -59,8 +59,8 @@
 
 	async function createPublication() {
 		try {
-			const message = await PostgresTriggerService.createDatabasePublication({
-				path: database_resource_path,
+			const message = await PostgresTriggerService.createPostgresPublication({
+				path: postgres_resource_path,
 				publication: publication_name as string,
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -77,8 +77,8 @@
 
 	async function createSlot() {
 		try {
-			const message = await PostgresTriggerService.createDatabaseSlot({
-				path: database_resource_path,
+			const message = await PostgresTriggerService.createPostgresReplicationSlot({
+				path: postgres_resource_path,
 				workspace: $workspaceStore!,
 				requestBody: {
 					name: replication_slot_name
@@ -134,7 +134,7 @@
 			initialPath = ''
 			replication_slot_name = ''
 			publication_name = ''
-			database_resource_path = ''
+			postgres_resource_path = ''
 			edit = false
 			dirtyPath = false
 			config.show = false
@@ -153,7 +153,7 @@
 	}
 
 	async function loadTrigger(): Promise<void> {
-		const s = await PostgresTriggerService.getDatabaseTrigger({
+		const s = await PostgresTriggerService.getPostgresTrigger({
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
@@ -163,12 +163,12 @@
 		is_flow = s.is_flow
 		path = s.path
 		enabled = s.enabled
-		database_resource_path = s.database_resource_path
+		postgres_resource_path = s.postgres_resource_path
 		publication_name = s.publication_name
 		replication_slot_name = s.replication_slot_name
 
-		const publication_data = await PostgresTriggerService.getDatabasePublication({
-			path: database_resource_path,
+		const publication_data = await PostgresTriggerService.getPostgresPublication({
+			path: postgres_resource_path,
 			workspace: $workspaceStore!,
 			publication: publication_name
 		})
@@ -180,14 +180,14 @@
 
 	async function updateTrigger(): Promise<void> {
 		if (edit) {
-			await PostgresTriggerService.updateDatabaseTrigger({
+			await PostgresTriggerService.updatePostgresTrigger({
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
 					path,
 					script_path,
 					is_flow,
-					database_resource_path,
+					postgres_resource_path,
 					enabled,
 					replication_slot_name,
 					publication_name,
@@ -202,14 +202,14 @@
 			})
 			sendUserToast(`PostgresTrigger ${path} updated`)
 		} else {
-			await PostgresTriggerService.createDatabaseTrigger({
+			await PostgresTriggerService.createPostgresTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
 					script_path,
 					is_flow,
 					enabled: true,
-					database_resource_path,
+					postgres_resource_path,
 					replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
 					publication_name: tab === 'basic' ? undefined : publication_name,
 					publication: {
@@ -229,7 +229,7 @@
 	}
 
 	const getTemplateScript = async () => {
-		if (relations.length === 0 || emptyString(database_resource_path)) {
+		if (relations.length === 0 || emptyString(postgres_resource_path)) {
 			sendUserToast('You must pick a database resource and choose at least one schema', true)
 			return
 		}
@@ -241,7 +241,7 @@
 				requestBody: {
 					relations,
 					language,
-					database_resource_path
+					postgres_resource_path
 				}
 			})
 			window.open(`${base}/scripts/add?id=${templateId}`)
@@ -254,14 +254,14 @@
 
 	const checkDatabaseConfiguration = async () => {
 		try {
-			if (emptyString(database_resource_path)) {
+			if (emptyString(postgres_resource_path)) {
 				sendUserToast('You must first pick a database resource', true)
 				return
 			}
 
-			config.isLogical = await PostgresTriggerService.isValidDatabaseConfiguration({
+			config.isLogical = await PostgresTriggerService.isValidPostgresConfiguration({
 				workspace: $workspaceStore!,
-				path: database_resource_path
+				path: postgres_resource_path
 			})
 			config.show = true
 		} catch (error) {
@@ -288,7 +288,7 @@
 							checked={enabled}
 							options={{ right: 'enable', left: 'disable' }}
 							on:change={async (e) => {
-								await PostgresTriggerService.setDatabaseTriggerEnabled({
+								await PostgresTriggerService.setPostgresTriggerEnabled({
 									path: initialPath,
 									workspace: $workspaceStore ?? '',
 									requestBody: { enabled: e.detail }
@@ -303,7 +303,7 @@
 				<Button
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' ||
-						emptyString(database_resource_path) ||
+						emptyString(postgres_resource_path) ||
 						emptyString(script_path) ||
 						((emptyString(replication_slot_name) || emptyString(publication_name)) &&
 							tab === 'advanced') ||
@@ -348,8 +348,8 @@
 						Pick a database to connect to <Required required={true} />
 					</p>
 					<div class="flex flex-col mb-2 gap-3">
-						<ResourcePicker bind:value={database_resource_path} resourceType={'postgresql'} />
-						{#if database_resource_path}
+						<ResourcePicker bind:value={postgres_resource_path} resourceType={'postgresql'} />
+						{#if postgres_resource_path}
 							<Button on:click={checkDatabaseConfiguration} color="gray" size="sm"
 								>Check Database Configuration
 								<Tooltip>
@@ -416,7 +416,7 @@
 						{/if}
 					</div>
 				</Section>
-				{#if database_resource_path}
+				{#if postgres_resource_path}
 					<Section label="Configuration">
 						<div class="flex flex-col gap-5">
 							<p class="text-xs mb-3 text-tertiary">
@@ -521,7 +521,7 @@
 															{:else}
 																<SlotPicker
 																	bind:edit
-																	{database_resource_path}
+																	{postgres_resource_path}
 																	bind:replication_slot_name
 																/>
 															{/if}
@@ -569,9 +569,10 @@
 																</div>
 															{:else}
 																<PublicationPicker
-																	{database_resource_path}
+																	{postgres_resource_path}
 																	bind:transaction_to_track
 																	bind:table_to_track
+																	bind:relations
 																	bind:items={publicationItems}
 																	bind:publication_name
 																	bind:selectedTable

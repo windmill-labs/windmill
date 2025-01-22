@@ -96,7 +96,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_template_script/:id", get(get_template_script))
         .route("/create_template_script", post(create_template_script))
         .route(
-            "/is_valid_database_configuration/*path",
+            "/is_valid_postgres_configuration/*path",
             get(is_database_in_logical_level),
         )
         .nest("/publication", publication_service())

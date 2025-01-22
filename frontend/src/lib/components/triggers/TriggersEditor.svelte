@@ -12,7 +12,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
-	import DatabaseTriggersPanel from './postgres/DatabaseTriggersPanel.svelte'
+	import DatabaseTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { KafkaIcon, NatsIcon } from '../icons'

@@ -237,7 +237,7 @@
 				path: path
 			})
 		} else if (kind == 'postgres_trigger') {
-			return await PostgresTriggerService.existsDatabaseTrigger({
+			return await PostgresTriggerService.existsPostgresTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

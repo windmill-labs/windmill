@@ -94,7 +94,7 @@ pub struct EditPostgresTrigger {
     path: String,
     script_path: String,
     is_flow: bool,
-    database_resource_path: String,
+    postgres_resource_path: String,
     publication: Option<PublicationData>,
 }
 
@@ -105,7 +105,7 @@ pub struct NewPostgresTrigger {
     script_path: String,
     is_flow: bool,
     enabled: bool,
-    database_resource_path: String,
+    postgres_resource_path: String,
     replication_slot_name: Option<String>,
     publication_name: Option<String>,
     publication: Option<PublicationData>,
@@ -115,10 +115,10 @@ pub async fn get_database_connection(
     authed: ApiAuthed,
     user_db: Option<UserDB>,
     db: &DB,
-    database_resource_path: &str,
+    postgres_resource_path: &str,
     w_id: &str,
 ) -> Result<PgConnection, windmill_common::error::Error> {
-    let database = get_database_resource(authed, user_db, db, database_resource_path, w_id).await?;
+    let database = get_database_resource(authed, user_db, db, postgres_resource_path, w_id).await?;
 
     Ok(get_raw_postgres_connection(&database).await?)
 }
@@ -163,7 +163,7 @@ pub enum Language {
 
 #[derive(Debug, Deserialize)]
 pub struct TemplateScript {
-    database_resource_path: String,
+    postgres_resource_path: String,
     #[serde(deserialize_with = "check_if_not_duplication_relation")]
     relations: Option<Vec<Relations>>,
     language: Language,
@@ -221,7 +221,7 @@ pub struct PostgresTrigger {
     pub email: String,
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: Option<serde_json::Value>,
-    pub database_resource_path: String,
+    pub postgres_resource_path: String,
     pub error: Option<String>,
     pub server_id: Option<String>,
     pub replication_slot_name: String,
@@ -252,7 +252,7 @@ pub async fn create_postgres_trigger(
     Json(new_postgres_trigger): Json<NewPostgresTrigger>,
 ) -> error::Result<(StatusCode, String)> {
     let NewPostgresTrigger {
-        database_resource_path,
+        postgres_resource_path,
         path,
         script_path,
         enabled,
@@ -307,7 +307,7 @@ pub async fn create_postgres_trigger(
             authed.clone(),
             Some(user_db.clone()),
             &db,
-            &database_resource_path,
+            &postgres_resource_path,
             &w_id,
         )
         .await?;
@@ -340,7 +340,7 @@ pub async fn create_postgres_trigger(
             is_flow, 
             email, 
             enabled, 
-            database_resource_path, 
+            postgres_resource_path, 
             edited_by
         ) 
         VALUES (
@@ -363,7 +363,7 @@ pub async fn create_postgres_trigger(
         is_flow,
         &authed.email,
         enabled,
-        database_resource_path,
+        postgres_resource_path,
         &authed.username
     )
     .execute(&mut *tx)
@@ -407,7 +407,7 @@ pub async fn list_postgres_triggers(
             "extra_perms",
             "error",
             "enabled",
-            "database_resource_path",
+            "postgres_resource_path",
             "replication_slot_name",
             "publication_name",
         ])
@@ -503,13 +503,13 @@ pub async fn list_slot_name(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> error::Result<Json<Vec<SlotList>>> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -557,14 +557,14 @@ pub async fn create_slot(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -578,14 +578,14 @@ pub async fn drop_slot_name(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -604,13 +604,13 @@ pub async fn list_database_publication(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> error::Result<Json<Vec<String>>> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -634,13 +634,13 @@ pub async fn get_publication_info(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
+    Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
 ) -> error::Result<Json<PublicationData>> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -740,7 +740,7 @@ pub async fn create_publication(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
+    Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> error::Result<String> {
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
@@ -749,7 +749,7 @@ pub async fn create_publication(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -784,13 +784,13 @@ pub async fn delete_publication(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
+    Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -903,14 +903,14 @@ pub async fn alter_publication(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, publication_name, database_resource_path)): Path<(String, String, String)>,
+    Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> error::Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -1041,7 +1041,7 @@ pub async fn get_postgres_trigger(
             enabled,
             replication_slot_name,
             publication_name,
-            database_resource_path
+            postgres_resource_path
         FROM 
             postgres_trigger
         WHERE 
@@ -1074,7 +1074,7 @@ pub async fn update_postgres_trigger(
         script_path,
         path,
         is_flow,
-        database_resource_path,
+        postgres_resource_path,
         publication,
     } = postgres_trigger;
 
@@ -1083,7 +1083,7 @@ pub async fn update_postgres_trigger(
             authed.clone(),
             Some(user_db.clone()),
             &db,
-            &database_resource_path,
+            &postgres_resource_path,
             &w_id,
         )
         .await?;
@@ -1100,7 +1100,7 @@ pub async fn update_postgres_trigger(
                 is_flow = $3, 
                 edited_by = $4, 
                 email = $5, 
-                database_resource_path = $6, 
+                postgres_resource_path = $6, 
                 replication_slot_name = $7,
                 publication_name = $8,
                 edited_at = now(), 
@@ -1115,7 +1115,7 @@ pub async fn update_postgres_trigger(
         is_flow,
         &authed.username,
         &authed.email,
-        database_resource_path,
+        postgres_resource_path,
         replication_slot_name,
         publication_name,
         w_id,
@@ -1271,7 +1271,7 @@ pub async fn create_template_script(
     Path(w_id): Path<String>,
     Json(template_script): Json<TemplateScript>,
 ) -> error::Result<String> {
-    let TemplateScript { database_resource_path, relations, language } = template_script;
+    let TemplateScript { postgres_resource_path, relations, language } = template_script;
     if relations.is_none() {
         return Err(Error::BadRequest(
             "You must at least choose schema to fetch table from".to_string(),
@@ -1282,7 +1282,7 @@ pub async fn create_template_script(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;
@@ -1429,13 +1429,13 @@ pub async fn is_database_in_logical_level(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Path((w_id, database_resource_path)): Path<(String, String)>,
+    Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> error::JsonResult<bool> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
         &db,
-        &database_resource_path,
+        &postgres_resource_path,
         &w_id,
     )
     .await?;

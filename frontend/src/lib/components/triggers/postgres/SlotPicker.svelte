@@ -11,12 +11,12 @@
 
 	export let edit: boolean
 	export let replication_slot_name: string = ''
-	export let database_resource_path: string = ''
+	export let postgres_resource_path: string = ''
 	let items: (string | undefined)[] = []
 	async function listDatabaseSlot() {
 		try {
-			const result = await PostgresTriggerService.listDatabaseSlot({
-				path: database_resource_path,
+			const result = await PostgresTriggerService.listPostgresReplicationSlot({
+				path: postgres_resource_path,
 				workspace: $workspaceStore!
 			})
 
@@ -45,8 +45,8 @@
 
 	async function deleteSlot() {
 		try {
-			const message = await PostgresTriggerService.deleteDatabaseSlot({
-				path: database_resource_path,
+			const message = await PostgresTriggerService.deletePostgresReplicationSlot({
+				path: postgres_resource_path,
 				workspace: $workspaceStore!,
 				requestBody: {
 					name: replication_slot_name

@@ -12,15 +12,16 @@
 
 	export let items: string[] = []
 	export let publication_name: string = ''
-	export let database_resource_path: string = ''
+	export let postgres_resource_path: string = ''
 	export let table_to_track: Relations[] = []
+	export let relations: Relations[] = []
 	export let transaction_to_track: string[] = []
 	export let selectedTable: 'all' | 'specific' = 'specific'
 
 	async function listDatabasePublication() {
 		try {
-			const publications = await PostgresTriggerService.listDatabasePublication({
-				path: database_resource_path,
+			const publications = await PostgresTriggerService.listPostgresPublication({
+				path: postgres_resource_path,
 				workspace: $workspaceStore!
 			})
 
@@ -32,8 +33,8 @@
 
 	async function updatePublication() {
 		try {
-			const message = await PostgresTriggerService.updateDatabasePublication({
-				path: database_resource_path,
+			const message = await PostgresTriggerService.updatePostgresPublication({
+				path: postgres_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name,
 				requestBody: {
@@ -49,8 +50,8 @@
 
 	async function deletePublication() {
 		try {
-			const message = await PostgresTriggerService.deleteDatabasePublication({
-				path: database_resource_path,
+			const message = await PostgresTriggerService.deletePostgresPublication({
+				path: postgres_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name
 			})
@@ -65,14 +66,14 @@
 
 	async function getAllRelations() {
 		try {
-			const publication_data = await PostgresTriggerService.getDatabasePublication({
-				path: database_resource_path,
+			const publication_data = await PostgresTriggerService.getPostgresPublication({
+				path: postgres_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name
 			})
 			transaction_to_track = [...publication_data.transaction_to_track]
-			table_to_track = publication_data.table_to_track ?? []
-			if (table_to_track.length === 0) {
+			relations = publication_data.table_to_track ?? []
+			if (relations.length === 0) {
 				selectedTable = 'all'
 			} else {
 				selectedTable = 'specific'

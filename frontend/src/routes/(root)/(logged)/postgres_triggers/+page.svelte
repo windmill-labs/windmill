@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PostgresTriggerService, type DatabaseTrigger } from '$lib/gen'
+	import { PostgresTriggerService, type PostgresTrigger } from '$lib/gen'
 	import {
 		canWrite,
 		displayDate,
@@ -28,9 +28,9 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import DatabaseTriggerEditor from '$lib/components/triggers/postgres/DatabaseTriggerEditor.svelte'
+	import PostgresTriggerEditor from '$lib/components/triggers/postgres/PostgresTriggerEditor.svelte'
 
-	type TriggerD = DatabaseTrigger & { canWrite: boolean }
+	type TriggerD = PostgresTrigger & { canWrite: boolean }
 
 	let triggers: TriggerD[] = []
 	let shareModal: ShareModal
@@ -38,7 +38,7 @@
 
 	async function loadTriggers(): Promise<void> {
 		triggers = (
-			await PostgresTriggerService.listDatabaseTriggers({ workspace: $workspaceStore! })
+			await PostgresTriggerService.listPostgresTriggers({ workspace: $workspaceStore! })
 		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
@@ -47,11 +47,12 @@
 
 	let interval = setInterval(async () => {
 		try {
-			const newTriggers = await PostgresTriggerService.listDatabaseTriggers({
+			const newTriggers = await PostgresTriggerService.listPostgresTriggers({
 				workspace: $workspaceStore!
 			})
 			for (let i = 0; i < triggers.length; i++) {
 				const newTrigger = newTriggers.find((x) => x.path === triggers[i].path)
+				console.log({ newTrigger })
 				if (newTrigger) {
 					triggers[i] = {
 						...triggers[i],
@@ -70,7 +71,7 @@
 
 	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await PostgresTriggerService.setDatabaseTriggerEnabled({
+			await PostgresTriggerService.setPostgresTriggerEnabled({
 				path,
 				workspace: $workspaceStore!,
 				requestBody: { enabled }
@@ -90,7 +91,7 @@
 			loadTriggers()
 		}
 	}
-	let databaseTriggerEditor: DatabaseTriggerEditor
+	let postgresTriggerEditor: PostgresTriggerEditor
 
 	let filteredItems: (TriggerD & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
@@ -195,7 +196,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
-<DatabaseTriggerEditor on:update={loadTriggers} bind:this={databaseTriggerEditor} />
+<PostgresTriggerEditor on:update={loadTriggers} bind:this={postgresTriggerEditor} />
 
 <SearchItems
 	{filter}
@@ -212,7 +213,7 @@
 		<Button
 			size="md"
 			startIcon={{ icon: Plus }}
-			on:click={() => databaseTriggerEditor.openNew(false)}
+			on:click={() => postgresTriggerEditor.openNew(false)}
 		>
 			New&nbsp;Postgres trigger
 		</Button>
@@ -261,7 +262,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No postgres triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { database_resource_path, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { postgres_resource_path, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -275,14 +276,14 @@
 
 							<a
 								href="#{path}"
-								on:click={() => databaseTriggerEditor?.openEdit(path, is_flow)}
+								on:click={() => postgresTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									{database_resource_path}
+									{postgres_resource_path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
@@ -337,7 +338,7 @@
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => databaseTriggerEditor?.openEdit(path, is_flow)}
+									on:click={() => postgresTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -363,7 +364,7 @@
 											icon: Trash,
 											disabled: !canWrite,
 											action: async () => {
-												await PostgresTriggerService.deleteDatabaseTrigger({
+												await PostgresTriggerService.deletePostgresTrigger({
 													workspace: $workspaceStore ?? '',
 													path
 												})
@@ -374,7 +375,7 @@
 											displayName: canWrite ? 'Edit' : 'View',
 											icon: canWrite ? Pen : Eye,
 											action: () => {
-												databaseTriggerEditor?.openEdit(path, is_flow)
+												postgresTriggerEditor?.openEdit(path, is_flow)
 											}
 										},
 										{

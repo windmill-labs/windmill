@@ -89,9 +89,9 @@
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
-	import DatabaseTriggersPanel from '$lib/components/triggers/postgres/DatabaseTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
+	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -736,7 +736,7 @@
 			</svelte:fragment>
 			<svelte:fragment slot="postgres">
 				<div class="p-2">
-					<DatabaseTriggersPanel path={script.path ?? ''} isFlow={false} />
+					<PostgresTriggersPanel path={script.path ?? ''} isFlow={false} />
 			</svelte:fragment>
 			<svelte:fragment slot="nats">
 				<div class="p-2">

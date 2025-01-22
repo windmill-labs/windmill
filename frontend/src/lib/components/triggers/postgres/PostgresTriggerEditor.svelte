@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte'
-	import DatabaseTriggerEditorInner from './DatabaseTriggerEditorInner.svelte'
+	import PostgresTriggerEditorInner from './PostgresTriggerEditorInner.svelte'
 
 	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -15,9 +15,9 @@
 		drawer?.openNew(is_flow, initial_script_path)
 	}
 
-	let drawer: DatabaseTriggerEditorInner
+	let drawer: PostgresTriggerEditorInner
 </script>
 
 {#if open}
-	<DatabaseTriggerEditorInner on:update bind:this={drawer} />
+	<PostgresTriggerEditorInner on:update bind:this={drawer} />
 {/if}

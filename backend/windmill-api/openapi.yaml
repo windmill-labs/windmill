@@ -8226,10 +8226,10 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/postgres_triggers/is_valid_database_configuration/{path}:
+  /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
-      summary: check if database configuration is set to logical
-      operationId: isValidDatabaseConfiguration
+      summary: check if postgres configuration is set to logical
+      operationId: isValidPostgresConfiguration
       tags:
         - postgres_trigger
       parameters:
@@ -8237,7 +8237,7 @@ paths:
           - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: boolean that indicates if database is set to logical level or not
+          description: boolean that indicates if postgres is set to logical level or not
           content:
             application/json:
               schema:
@@ -8285,8 +8285,8 @@ paths:
 
   /w/{workspace}/postgres_triggers/slot/list/{path}:
     get:
-      summary: list database slot
-      operationId: listDatabaseSlot
+      summary: list postgres replication slot
+      operationId: listPostgresReplicationSlot
       tags:
         - postgres_trigger
       parameters:
@@ -8294,7 +8294,7 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: list database slot
+          description: list postgres slot
           content:
             application/json:
               schema:
@@ -8304,15 +8304,15 @@ paths:
 
   /w/{workspace}/postgres_triggers/slot/create/{path}:
     post:
-      summary: create slot for database
-      operationId: createDatabaseSlot
+      summary: create replication slot for postgres 
+      operationId: createPostgresReplicationSlot
       tags:
         - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
       requestBody:
-        description: new slot for database
+        description: new slot for postgres
         required: true
         content:
           application/json:
@@ -8328,15 +8328,15 @@ paths:
 
   /w/{workspace}/postgres_triggers/slot/delete/{path}:
     delete:
-      summary: delete database slot
-      operationId: deleteDatabaseSlot
+      summary: delete postgres replication slot
+      operationId: deletePostgresReplicationSlot
       tags:
         - postgres_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
       requestBody:
-        description: delete slot of database
+        description: replication slot of postgres
         required: true
         content:
           application/json:
@@ -8344,7 +8344,7 @@ paths:
               $ref: "#/components/schemas/Slot"
       responses:
         "200":
-          description: database slot deleted
+          description: postgres replication slot deleted
           content:
             text/plain:
               schema:
@@ -8352,8 +8352,8 @@ paths:
 
   /w/{workspace}/postgres_triggers/publication/list/{path}:
     get:
-      summary: list database publication
-      operationId: listDatabasePublication
+      summary: list postgres publication
+      operationId: listPostgresPublication
       tags:
         - postgres_trigger
       parameters:
@@ -8371,8 +8371,8 @@ paths:
 
   /w/{workspace}/postgres_triggers/publication/get/{publication}/{path}:
     get:
-      summary: get database publication
-      operationId: getDatabasePublication
+      summary: get postgres publication
+      operationId: getPostgresPublication
       tags:
         - postgres_trigger
       parameters:
@@ -8381,7 +8381,7 @@ paths:
         - $ref: "#/components/parameters/PublicationName"
       responses:
         "200":
-          description: database publication get
+          description: postgres publication get
           content:
             application/json:
               schema:
@@ -8389,8 +8389,8 @@ paths:
 
   /w/{workspace}/postgres_triggers/publication/create/{publication}/{path}:
     post:
-      summary: create publication for database
-      operationId: createDatabasePublication
+      summary: create publication for postgres
+      operationId: createPostgresPublication
       tags:
         - postgres_trigger
       parameters:
@@ -8398,7 +8398,7 @@ paths:
         - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/PublicationName"
       requestBody:
-        description: new publication for database
+        description: new publication for postgres
         required: true
         content:
           application/json:
@@ -8414,8 +8414,8 @@ paths:
 
   /w/{workspace}/postgres_triggers/publication/update/{publication}/{path}:
     post:
-      summary: update publication for database
-      operationId: updateDatabasePublication
+      summary: update publication for postgres
+      operationId: updatePostgresPublication
       tags:
         - postgres_trigger
       parameters:
@@ -8423,7 +8423,7 @@ paths:
         - $ref: "#/components/parameters/Path"
         - $ref: "#/components/parameters/PublicationName"
       requestBody:
-        description: update publication for database
+        description: update publication for postgres
         required: true
         content:
           application/json:
@@ -8440,8 +8440,8 @@ paths:
 
   /w/{workspace}/postgres_triggers/publication/delete/{publication}/{path}:
     delete:
-      summary: delete database publication
-      operationId: deleteDatabasePublication
+      summary: delete postgres publication
+      operationId: deletePostgresPublication
       tags:
         - postgres_trigger
       parameters:
@@ -8450,7 +8450,7 @@ paths:
         - $ref: "#/components/parameters/PublicationName"
       responses:
         "200":
-          description: database publication deleted
+          description: postgres publication deleted
           content:
             text/plain:
               schema:
@@ -8459,7 +8459,7 @@ paths:
   /w/{workspace}/postgres_triggers/create:
     post:
       summary: create postgres trigger
-      operationId: createDatabaseTrigger
+      operationId: createPostgresTrigger
       tags:
         - postgres_trigger
       parameters:
@@ -8470,7 +8470,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/NewDatabaseTrigger"
+              $ref: "#/components/schemas/NewPostgresTrigger"
       responses:
         "201":
           description: postgres trigger created
@@ -8482,7 +8482,7 @@ paths:
   /w/{workspace}/postgres_triggers/update/{path}:
     post:
       summary: update postgres trigger
-      operationId: updateDatabaseTrigger
+      operationId: updatePostgresTrigger
       tags:
         - postgres_trigger
       parameters:
@@ -8494,7 +8494,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/EditDatabaseTrigger"
+              $ref: "#/components/schemas/EditPostgresTrigger"
       responses:
         "200":
           description: postgres trigger updated
@@ -8506,7 +8506,7 @@ paths:
   /w/{workspace}/postgres_triggers/delete/{path}:
     delete:
       summary: delete postgres trigger
-      operationId: deleteDatabaseTrigger
+      operationId: deletePostgresTrigger
       tags:
         - postgres_trigger
       parameters:
@@ -8523,7 +8523,7 @@ paths:
   /w/{workspace}/postgres_triggers/get/{path}:
     get:
       summary: get postgres trigger
-      operationId: getDatabaseTrigger
+      operationId: getPostgresTrigger
       tags:
         - postgres_trigger
       parameters:
@@ -8535,12 +8535,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DatabaseTrigger"
+                $ref: "#/components/schemas/PostgresTrigger"
 
   /w/{workspace}/postgres_triggers/list:
     get:
       summary: list postgres triggers
-      operationId: listDatabaseTriggers
+      operationId: listPostgresTriggers
       tags:
         - postgres_trigger
       parameters:
@@ -8569,12 +8569,12 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/DatabaseTrigger"
+                  $ref: "#/components/schemas/PostgresTrigger"
 
   /w/{workspace}/postgres_triggers/exists/{path}:
     get:
       summary: does postgres trigger exists
-      operationId: existsDatabaseTrigger
+      operationId: existsPostgresTrigger
       tags:
         - postgres_trigger
       parameters:
@@ -8591,7 +8591,7 @@ paths:
   /w/{workspace}/postgres_triggers/setenabled/{path}:
     post:
       summary: set enabled postgres trigger
-      operationId: setDatabaseTriggerEnabled
+      operationId: setPostgresTriggerEnabled
       tags:
         - postgres_trigger
       parameters:
@@ -13169,7 +13169,7 @@ components:
     TemplateScript:
       type: object
       properties:
-        database_resource_path:
+        postgres_resource_path:
           type: string
         relations:
           type: array
@@ -13178,11 +13178,11 @@ components:
         language:
           $ref: "#/components/schemas/Language"
       required:
-        - database_resource_path
+        - postgres_resource_path
         - relations
         - language
   
-    DatabaseTrigger:
+    PostgresTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
@@ -13195,7 +13195,7 @@ components:
           type: boolean
         enabled:
           type: boolean
-        database_resource_path:
+        postgres_resource_path:
           type: string
         publication_name:
           type: string
@@ -13210,11 +13210,11 @@ components:
         - script_path
         - is_flow
         - enabled
-        - database_resource_path
+        - postgres_resource_path
         - replication_slot_name
         - publication_name
 
-    NewDatabaseTrigger:
+    NewPostgresTrigger:
       type: object
       properties:
         replication_slot_name:
@@ -13229,7 +13229,7 @@ components:
           type: boolean
         enabled:
           type: boolean
-        database_resource_path:
+        postgres_resource_path:
           type: string
         publication:
           $ref: "#/components/schemas/PublicationData"
@@ -13238,9 +13238,9 @@ components:
         - script_path
         - is_flow
         - enabled
-        - database_resource_path
+        - postgres_resource_path
   
-    EditDatabaseTrigger:
+    EditPostgresTrigger:
       type: object
       properties:
         replication_slot_name:
@@ -13255,7 +13255,7 @@ components:
           type: boolean
         enabled:
           type: boolean
-        database_resource_path:
+        postgres_resource_path:
           type: string
         publication:
           $ref: "#/components/schemas/PublicationData"
@@ -13264,7 +13264,7 @@ components:
         - script_path
         - is_flow
         - enabled
-        - database_resource_path
+        - postgres_resource_path
         - publication_name
         - replication_slot_name
 

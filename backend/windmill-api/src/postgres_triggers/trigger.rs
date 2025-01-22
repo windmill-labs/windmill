@@ -237,7 +237,7 @@ async fn listen_to_transactions(
         authed,
         Some(UserDB::new(db.clone())),
         &db,
-        &postgres_trigger.database_resource_path,
+        &postgres_trigger.postgres_resource_path,
         &postgres_trigger.workspace_id,
     )
     .await
@@ -431,7 +431,7 @@ async fn listen_to_unlistened_database_events(
                 extra_perms,
                 error,
                 enabled,
-                database_resource_path
+                postgres_resource_path
             FROM
                 postgres_trigger
             WHERE

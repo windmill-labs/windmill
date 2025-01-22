@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { PostgresTriggerService, type DatabaseTrigger } from '$lib/gen'
+	import { PostgresTriggerService, type PostgresTrigger } from '$lib/gen'
 	import { UnplugIcon } from 'lucide-svelte'
 
 	import { canWrite } from '$lib/utils'
@@ -8,23 +8,23 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert, Button, Skeleton } from '$lib/components/common'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import DatabaseTriggerEditor from './DatabaseTriggerEditor.svelte'
+	import PostgresTriggerEditor from './PostgresTriggerEditor.svelte'
 
 	export let isFlow: boolean
 	export let path: string
 	export let newItem: boolean = false
 
-	let databaseTriggerEditor: DatabaseTriggerEditor
+	let postgresTriggerEditor: PostgresTriggerEditor
 
 	$: path && loadTriggers()
 
 	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 
-	let databaseTriggers: (DatabaseTrigger & { canWrite: boolean })[] | undefined = undefined
+	let databaseTriggers: (PostgresTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {
 		try {
 			databaseTriggers = (
-				await PostgresTriggerService.listDatabaseTriggers({
+				await PostgresTriggerService.listPostgresTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
 					isFlow
@@ -39,11 +39,11 @@
 	}
 </script>
 
-<DatabaseTriggerEditor
+<PostgresTriggerEditor
 	on:update={() => {
 		loadTriggers()
 	}}
-	bind:this={databaseTriggerEditor}
+	bind:this={postgresTriggerEditor}
 />
 
 <div class="flex flex-col gap-4">
@@ -54,7 +54,7 @@
 			</Alert>
 		{:else if $userStore?.is_admin || $userStore?.is_super_admin}
 			<Button
-				on:click={() => databaseTriggerEditor?.openNew(isFlow, path)}
+				on:click={() => postgresTriggerEditor?.openNew(isFlow, path)}
 				variant="border"
 				color="light"
 				size="xs"
@@ -77,7 +77,7 @@
 						<div class="col-span-2 truncate">{databaseTriggers.path}</div>
 						<div class="flex justify-end">
 							<button
-								on:click={() => databaseTriggerEditor?.openEdit(databaseTriggers.path, isFlow)}
+								on:click={() => postgresTriggerEditor?.openEdit(databaseTriggers.path, isFlow)}
 								class="px-2"
 							>
 								{#if databaseTriggers.canWrite}
