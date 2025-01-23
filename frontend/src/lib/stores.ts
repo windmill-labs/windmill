@@ -1,6 +1,6 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
-import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList } from './gen'
+import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList, type OperatorSettings } from './gen'
 import type { IntrospectionQuery } from 'graphql'
 import { getLocalSetting } from './utils'
 
@@ -56,6 +56,7 @@ export const userWorkspaces: Readable<
 		name: string
 		username: string
 		color: string | null
+		operator_settings?: OperatorSettings
 	}>
 > = derived([usersWorkspaceStore, superadmin], ([store, superadmin]) => {
 	const originalWorkspaces = store?.workspaces ?? []
@@ -66,7 +67,8 @@ export const userWorkspaces: Readable<
 				id: 'admins',
 				name: 'Admins',
 				username: 'superadmin',
-				color: null
+				color: null,
+				operator_settings: null
 			}
 		]
 	} else {
