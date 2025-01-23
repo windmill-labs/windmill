@@ -39,8 +39,11 @@ jobs:
   build:
     uses: ./.github/workflows/multi-build-arch.yml
     with:
-      registry: ${{ env.REGISTRY }}
-      image_name: ${{ env.IMAGE_NAME }}
+      registry: ghcr.io
+      image_name:
+        ${{ github.event_name != 'pull_request' && github.event_name !=
+        'workflow_dispatch' && github.repository ||
+        'windmill-labs/windmill-test' }}
       fetch_depth: 0
       push_image: true
       build_runner_cpus: 16
