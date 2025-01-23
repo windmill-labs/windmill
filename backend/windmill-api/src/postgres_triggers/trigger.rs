@@ -276,8 +276,7 @@ async fn listen_to_transactions(
                     let message = message.unwrap();
 
                     if let Err(err) = &message {
-                        tracing::debug!("{}", err.to_string());
-                        let _ = update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
+                        tracing::debug!("{}: {}", &postgres_trigger.path, err.to_string());
                         return;
                     }
 
