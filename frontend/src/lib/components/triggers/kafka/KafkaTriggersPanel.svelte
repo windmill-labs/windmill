@@ -106,7 +106,7 @@
 
 		{#if !newItem}
 			{#if kafkaTriggers}
-				<Section label="Kafka Triggers">
+				<Section label="Kafka triggers">
 					{#if kafkaTriggers.length == 0}
 						<div class="text-xs text-secondary text-center"> No kafka triggers </div>
 					{:else}

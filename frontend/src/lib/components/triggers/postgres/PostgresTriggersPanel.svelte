@@ -60,7 +60,7 @@
 				size="xs"
 				startIcon={{ icon: UnplugIcon }}
 			>
-				New Postgres Trigger
+				New Postgres trigger
 			</Button>
 		{:else}
 			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />

@@ -16,7 +16,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, Database } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -207,7 +207,7 @@
 
 <CenteredPage>
 	<PageHeader
-		title="Postgres Triggers"
+		title="Postgres triggers"
 		tooltip="Windmill enables real-time responsiveness by listening to specific database transactions—such as inserts, updates, and deletes—and automatically triggering scripts or workflows in response."
 	>
 		<Button
@@ -236,7 +236,7 @@
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Postgres Trigger" icon={Unplug} />
+					<ToggleButton small value="trigger" label="Postgres trigger" icon={Database} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -307,7 +307,7 @@
 										<div slot="text">
 											{#if enabled}
 												{#if !server_id}
-													Postgres Trigger is starting...
+													Postgres trigger is starting...
 												{:else}
 													Could not connect to database{error ? ': ' + error : ''}
 												{/if}
