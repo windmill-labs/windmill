@@ -75,7 +75,6 @@
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
-	let oauthApi = true
 	let path: string
 	let description = ''
 
@@ -108,12 +107,13 @@
 	}
 
 	async function loadConnects() {
-		try {
-			if (!connects) {
+		if (!connects) {
+			try {
 				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+			} catch (e) {
+				connects = []
+				console.error('Error loading OAuth connects', e)
 			}
-		} catch (error) {
-			oauthApi = false
 		}
 	}
 
@@ -392,32 +392,30 @@
 			/>
 		</div>
 
-		{#if oauthApi}
-			<h2 class="mb-4">OAuth APIs</h2>
-			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#if filteredConnects}
-					{#each filteredConnects as { key }}
-						<Button
-							size="sm"
-							variant="border"
-							color={key === resourceType ? 'blue' : 'light'}
-							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
-							on:click={() => {
-								manual = false
-								resourceType = key
-								next()
-							}}
-						>
-							<IconedResourceType name={key} after={true} width="20px" height="20px" />
-						</Button>
-					{/each}
-				{:else}
-					{#each new Array(3) as _}
-						<Skeleton layout={[[2]]} />
-					{/each}
-				{/if}
-			</div>
-		{/if}
+		<h2 class="mb-4">OAuth APIs</h2>
+		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+			{#if filteredConnects}
+				{#each filteredConnects as { key }}
+					<Button
+						size="sm"
+						variant="border"
+						color={key === resourceType ? 'blue' : 'light'}
+						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+						on:click={() => {
+							manual = false
+							resourceType = key
+							next()
+						}}
+					>
+						<IconedResourceType name={key} after={true} width="20px" height="20px" />
+					</Button>
+				{/each}
+			{:else}
+				{#each new Array(3) as _}
+					<Skeleton layout={[[2]]} />
+				{/each}
+			{/if}
+		</div>
 		{#if connects && connects.length == 0}
 			<div class="text-secondary text-sm w-full"
 				>No OAuth APIs has been setup on the instance. To add oauth APIs, first sync the resource
