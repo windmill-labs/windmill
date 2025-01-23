@@ -4,6 +4,5 @@
 			"label": "Development Server",
 			"onAutoForward": "openPreview"
 		}
-	},
-	"remote.autoForwardPorts": true
+	}
 }
