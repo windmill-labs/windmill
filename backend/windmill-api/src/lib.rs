@@ -96,6 +96,8 @@ mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
+#[cfg(feature = "enterprise")]
+mod teams_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
 mod static_assets;
@@ -435,6 +437,17 @@ pub async fn run_server(
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
+                .nest("/teams", {
+                    #[cfg(feature = "enterprise")]  
+                    {
+                        teams_ee::teams_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route(
                     "/w/:workspace_id/jobs/slack_approval/:job_id",
                     get(slack_approvals::request_slack_approval),

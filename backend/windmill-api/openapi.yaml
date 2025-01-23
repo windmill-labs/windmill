@@ -3259,6 +3259,22 @@ paths:
                     type: array
                     items:
                       type: string
+                      
+  /teams/sync:
+    post:
+      operationId: syncTeams
+      summary: synchronize Microsoft Teams information (teams/channels)
+      tags:
+        - teams
+      responses:
+        '200':
+          description: Teams information successfully synchronized
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeamInfo'
 
   /w/{workspace}/resources/create:
     post:
@@ -14039,6 +14055,7 @@ components:
           format: date-time
       required:
         - trigger_kind
+
     OperatorSettings:
       nullable: true
       type: object
@@ -14080,3 +14097,49 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+
+    TeamInfo:
+      type: object
+      required:
+        - team_id
+        - team_name
+        - channels
+      properties:
+        team_id:
+          type: string
+          description: The unique identifier of the Microsoft Teams team
+          example: "19:abc123def456@thread.tacv2"
+        team_name:
+          type: string
+          description: The display name of the Microsoft Teams team
+          example: "Engineering Team"
+        channels:
+          type: array
+          description: List of channels within the team
+          items:
+            $ref: '#/components/schemas/ChannelInfo'
+
+    ChannelInfo:
+      type: object
+      required:
+        - channel_id
+        - channel_name
+        - tenant_id
+        - service_url
+      properties:
+        channel_id:
+          type: string
+          description: The unique identifier of the channel
+          example: "19:channel123@thread.tacv2"
+        channel_name:
+          type: string
+          description: The display name of the channel
+          example: "General"
+        tenant_id:
+          type: string
+          description: The Microsoft Teams tenant identifier
+          example: "12345678-1234-1234-1234-123456789012"
+        service_url:
+          type: string
+          description: The service URL for the channel
+          example: "https://smba.trafficmanager.net/amer/12345678-1234-1234-1234-123456789012/"

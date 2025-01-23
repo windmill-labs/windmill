@@ -40,7 +40,7 @@ use windmill_common::{
         NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, TEAMS_SETTING
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -733,6 +733,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 }
                                                 SMTP_SETTING => {
                                                     reload_smtp_config(&db).await;
+                                                },
+                                                TEAMS_SETTING => {
+                                                    tracing::info!("Teams setting changed.");
                                                 },
                                                 INDEXER_SETTING => {
                                                     reload_indexer_config(&db).await;
