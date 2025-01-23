@@ -39,9 +39,8 @@ jobs:
   build:
     uses: ./.github/workflows/multi-build-arch.yml
     with:
-      registry: docker.io
-      registry_username: ubicloud
-      image_name: "ubicloud/windmill-test"
+      registry: ${{ env.REGISTRY }}
+      image_name: ${{ env.IMAGE_NAME }}
       fetch_depth: 0
       push_image: true
       build_runner_cpus: 16

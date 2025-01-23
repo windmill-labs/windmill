@@ -96,12 +96,12 @@ jobs:
           tags: ${{ inputs.metadata_tags }}
           labels: ${{ inputs.metadata_labels }}
 
-      - name: Log in to registry
+      - name: Login to registry
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ inputs.registry_username }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build
