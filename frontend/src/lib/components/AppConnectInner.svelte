@@ -112,8 +112,8 @@
 			try {
 				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
 			} catch (e) {
-				sendUserToast('Error loading connects', true)
 				connects = []
+				console.error('Error loading OAuth connects', e)
 			}
 		}
 	}
