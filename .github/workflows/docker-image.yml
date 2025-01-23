@@ -37,7 +37,7 @@ permissions: write-all
 
 jobs:
   build:
-    uses: ./.github/workflows/docker-multi-platform.yml
+    uses: ./.github/workflows/multi-build-arch.yml
     with:
       registry: docker.io
       registry_username: ubicloud
