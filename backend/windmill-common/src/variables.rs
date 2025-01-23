@@ -9,6 +9,7 @@
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
+use crate::error;
 
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 
@@ -155,6 +156,20 @@ pub async fn decrypt_value_with_mc(
         ),
         _ => crate::error::Error::InternalErr(e.to_string()),
     })?)
+}
+
+pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
+    mc.encrypt_str_to_base64(value)
+}
+
+pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
+    mc.decrypt_base64_to_string(value).map_err(|e| match e {
+        MagicCryptError::DecryptError(_) => error::Error::InternalErr(
+            "Could not decrypt value. The value may have been encrypted with a different key."
+                .to_string(),
+        ),
+        _ => error::Error::InternalErr(e.to_string()),
+    })
 }
 
 pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
