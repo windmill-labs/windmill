@@ -17,7 +17,6 @@ use crate::{
     db::DB,
     users::{WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
-    variables::{decrypt, encrypt},
     webhook_util::WebhookShared,
 };
 
@@ -36,7 +35,7 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::build_crypt;
+use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::to_raw_value;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;

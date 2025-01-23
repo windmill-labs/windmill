@@ -677,20 +677,6 @@ pub async fn get_value_internal<'c>(
     Ok(r)
 }
 
-pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
-    mc.encrypt_str_to_base64(value)
-}
-
-pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
-    mc.decrypt_base64_to_string(value).map_err(|e| match e {
-        MagicCryptError::DecryptError(_) => Error::InternalErr(
-            "Could not decrypt value. The value may have been encrypted with a different key."
-                .to_string(),
-        ),
-        _ => Error::InternalErr(e.to_string()),
-    })
-}
-
 pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<String> {
     if !path.starts_with("$var:") {
         return Ok(path);

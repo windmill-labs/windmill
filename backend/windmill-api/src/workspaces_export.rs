@@ -15,7 +15,6 @@ use crate::{
     db::DB,
     folders::Folder,
     resources::{Resource, ResourceType},
-    variables::decrypt,
 };
 
 use axum::{
@@ -26,6 +25,7 @@ use axum::{
 use http::HeaderName;
 use itertools::Itertools;
 
+use windmill_common::variables::decrypt;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
