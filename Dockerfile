@@ -50,9 +50,9 @@ FROM rust_base AS planner
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
+# RUN --mount=type=cache,target=/usr/local/cargo/registry \
+#     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+#     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
 
 FROM rust_base AS builder
 ARG features=""
@@ -63,9 +63,9 @@ RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* 
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
+# RUN --mount=type=cache,target=/usr/local/cargo/registry \
+#     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+#     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
