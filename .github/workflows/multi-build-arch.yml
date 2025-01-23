@@ -6,9 +6,6 @@ on:
       registry:
         required: true
         type: string
-      registry_username:
-        required: true
-        type: string
       image_name:
         required: true
         type: string
@@ -160,8 +157,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ inputs.registry_username }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
