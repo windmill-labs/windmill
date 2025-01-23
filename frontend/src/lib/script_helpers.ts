@@ -597,12 +597,6 @@ export async function preprocessor(
 			topic: string
 			group_id: string
 		},
-		database?: {
-			schema_name: string,
-			table_name: string,
-			transaction_type : 'insert' | 'update' | 'delete',
-			row: unknown
-		}
 		nats?: {
 			servers: string[]
 			subject: string
@@ -640,12 +634,6 @@ export async function preprocessor(
 			topic: string
 			group_id: string
 		},
-		database?: {
-			schema_name: string,
-			table_name: string,
-			transaction_type : 'insert' | 'update' | 'delete',
-			row: unknown
-		}
 		nats?: {
 			servers: string[]
 			subject: string
