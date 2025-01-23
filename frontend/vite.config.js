@@ -13,7 +13,7 @@ const version = JSON.parse(json)
 const config = {
 	server: {
 		https: false,
-		port: 3006,
+		port: 3000,
 		proxy: {
 			'^/api/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
