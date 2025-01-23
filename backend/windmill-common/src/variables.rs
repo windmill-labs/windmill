@@ -11,6 +11,7 @@ use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
+use crate::error;
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -151,6 +152,20 @@ pub async fn decrypt_value_with_mc(value: String, mc: MagicCrypt256) -> Result<S
                 .to_string(),
         ),
         _ => crate::error::Error::InternalErr(e.to_string()),
+    })
+}
+
+pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
+    mc.encrypt_str_to_base64(value)
+}
+
+pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
+    mc.decrypt_base64_to_string(value).map_err(|e| match e {
+        MagicCryptError::DecryptError(_) => error::Error::InternalErr(
+            "Could not decrypt value. The value may have been encrypted with a different key."
+                .to_string(),
+        ),
+        _ => error::Error::InternalErr(e.to_string()),
     })
 }
 
