@@ -44,7 +44,7 @@ jobs:
       image_name: "ubicloud/windmill-test"
       fetch_depth: 0
       push_image: true
-      build_runner_cpus: 32
+      build_runner_cpus: 16
       metadata_flavor: |
         latest=false
       metadata_labels: |
