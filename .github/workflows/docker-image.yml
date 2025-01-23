@@ -9,7 +9,7 @@ env:
 name: Build windmill:main
 on:
   push:
-    branches: [main]
+    branches: [main, rf/migrateFromDepot]
     tags: ["*"]
   pull_request:
     types: [opened, synchronize, reopened]
