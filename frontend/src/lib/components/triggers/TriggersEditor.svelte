@@ -12,7 +12,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
-	import DatabaseTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
+	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { KafkaIcon, NatsIcon } from '../icons'
@@ -140,7 +140,7 @@
 							</div>
 						{:else if $selectedTrigger === 'postgres'}
 							<div class="p-4">
-								<DatabaseTriggersPanel {newItem} path={currentPath} {isFlow} />
+								<PostgresTriggersPanel {newItem} path={currentPath} {isFlow} />
 							</div>
 						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats'}
 							<div class="p-4 flex flex-col gap-2">
