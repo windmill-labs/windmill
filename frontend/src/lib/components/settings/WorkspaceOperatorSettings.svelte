@@ -3,8 +3,8 @@
 	import { onMount } from 'svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
+    import Section from '$lib/components/Section.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import List from '$lib/components/common/layout/List.svelte'
@@ -28,6 +28,7 @@
 	
 	let originalSettings = { ...operatorWorkspaceSettings }
 	let isChanged = false
+    let currentWorkspace = $workspaceStore
 
 	async function saveSettings() {
 		try {
@@ -45,26 +46,30 @@
 	}
 
 	const descriptions = {
-		runs: { title: 'Runs', description: 'Manage and execute runs' },
-		schedules: { title: 'Schedules', description: 'Manage schedules' },
-		resources: { title: 'Resources', description: 'Access resources' },
-		variables: { title: 'Variables', description: 'Manage variables' },
-		triggers: { title: 'Triggers', description: 'Manage all triggers (HTTP, Websocket, Kafka)' },
+		runs: { title: 'Runs', description: 'View runs' },
+		schedules: { title: 'Schedules', description: 'View schedules' },
+		resources: { title: 'Resources', description: 'View resources' },
+		variables: { title: 'Variables', description: 'View variables' },
+		triggers: { title: 'Triggers', description: 'View all triggers (HTTP, Websocket, Kafka)' },
 		audit_logs: { title: 'Audit Logs', description: 'View audit logs' },
-		groups: { title: 'Groups', description: 'Manage groups' },
-		folders: { title: 'Folders', description: 'Organize folders' },
-		workers: { title: 'Workers', description: 'Manage workers' }
+		groups: { title: 'Groups', description: 'View groups and group members' },
+		folders: { title: 'Folders', description: 'View folders' },
+		workers: { title: 'Workers', description: 'View workers and worker groups' }
 	}
 
-	onMount(async () => {
-		const settings = await WorkspaceService.getSettings({
-			workspace: $workspaceStore!
-		})
-		if (settings.operator_settings !== null) {
-			operatorWorkspaceSettings = settings.operator_settings
-			originalSettings = { ...operatorWorkspaceSettings }
-		}
-	})
+	$: if ($workspaceStore !== currentWorkspace) {
+		(async () => {
+            currentWorkspace = $workspaceStore
+            console.log('getting settings')
+			const settings = await WorkspaceService.getSettings({
+				workspace: $workspaceStore
+			})
+			if (settings.operator_settings !== null) {
+				operatorWorkspaceSettings = settings.operator_settings
+				originalSettings = { ...operatorWorkspaceSettings }
+			}
+		})()
+	}
 
 	$: isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
 
@@ -85,13 +90,11 @@
 </script>
 
 <div class="mt-6">
-	<PageHeader
-		title="Operator Settings"
-		primary={true}
-		tooltip="Manage operator visibility settings for your workspace."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
-	/>
-
+    <Section
+        label="Operator Settings"
+        collapsable={true}
+        tooltip="Configure the operator visibility settings for your workspace. Toggle the settings you want to enable."
+    >
 	<div class="flex flex-col gap-4 my-4">
 		<div class="flex flex-col gap-1">
 			<div class="text-tertiary text-xs">
@@ -141,4 +144,5 @@
 			Save
 		</Button>
 	</div>
+    </Section>
 </div>
