@@ -18,6 +18,9 @@ pub const WORKSPACE_SLACK_BOT_TOKEN_PATH: &str = "f/slack_bot/bot_token";
 
 pub const GLOBAL_SLACK_BOT_TOKEN_PATH: &str = "f/slack_bot/global_bot_token";
 
+pub const GLOBAL_TEAMS_BOT_TOKEN_PATH: &str = "f/teams_bot/global_bot_token";
+
+pub const GLOBAL_TEAMS_API_TOKEN_PATH: &str = "f/teams_bot/global_api_token";
 lazy_static::lazy_static! {
 
     pub static ref REQUIRE_PREEXISTING_USER_FOR_OAUTH: AtomicBool = AtomicBool::new(std::env::var("REQUIRE_PREEXISTING_USER_FOR_OAUTH")

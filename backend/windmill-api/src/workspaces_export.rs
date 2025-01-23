@@ -36,7 +36,7 @@ use windmill_common::{
     variables::ExportableListableVariable,
 };
 
-use crate::variables::decrypt;
+use windmill_common::variables::decrypt;
 use hyper::header;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

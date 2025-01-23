@@ -13,10 +13,10 @@ use crate::{
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
-    variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
+use windmill_common::variables::encrypt;
 #[cfg(feature = "parquet")]
 use crate::{
     job_helpers_ee::{

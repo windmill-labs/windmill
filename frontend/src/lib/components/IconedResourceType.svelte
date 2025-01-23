@@ -9,7 +9,10 @@
 	export let center = false
 	export let isSelected = false
 	export let formatExtension = undefined
-	$: iconComponent = APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+
+	$: iconComponent = name === "teams" 
+		? APP_TO_ICON_COMPONENT.ms_teams_webhook 
+		: APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
 </script>
 
 <div class="truncate flex flex-row gap-2 {center ? 'justify-center items-center' : ''}  -pl-2">

@@ -1,7 +1,5 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    variables::decrypt,
-};
+use crate::db::{ApiAuthed, DB};
+use windmill_common::variables::decrypt;
 use anthropic::AnthropicCache;
 use axum::{
     body::Bytes,
