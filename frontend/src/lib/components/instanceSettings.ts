@@ -307,7 +307,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Critical alert channels',
 			description:
-				'Channels to send critical alerts to. SMTP and Slack must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
+				'Channels to send critical alerts to. SMTP, Slack or Microsoft Teams must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',

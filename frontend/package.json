@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.447.5",
+	"version": "1.448.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -119,9 +119,9 @@
 		"lucide-svelte": "^0.399.0",
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@~11.1.2",
-		"monaco-editor-wrapper": "^6.1.0",
+		"monaco-editor-wrapper": "6.1.1",
+		"monaco-languageclient": "9.1.1",
 		"monaco-graphql": "^1.6.0",
-		"monaco-languageclient": "~9.1.0",
 		"monaco-vim": "^0.4.1",
 		"ol": "^7.4.0",
 		"openai": "^4.57.2",
@@ -368,6 +368,11 @@
 			"types": "./package/components/flows/FlowHistoryInner.svelte.d.ts",
 			"svelte": "./package/components/flows/FlowHistoryInner.svelte",
 			"default": "./package/components/flows/FlowHistoryInner.svelte"
+		},
+		"./components/SimpleEditor.svelte": {
+			"types": "./package/components/SimpleEditor.svelte.d.ts",
+			"svelte": "./package/components/SimpleEditor.svelte",
+			"default": "./package/components/SimpleEditor.svelte"
 		}
 	},
 	"files": [
@@ -458,6 +463,9 @@
 			],
 			"components/flows/FlowHistoryInner.svelte": [
 				"./package/components/flows/FlowHistoryInner.svelte.d.ts"
+			],
+			"components/SimpleEditor.svelte": [
+				"./package/components/SimpleEditor.svelte.d.ts"
 			],
 			"utils": [
 				"./package/utils.d.ts"

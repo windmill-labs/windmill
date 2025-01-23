@@ -18,6 +18,7 @@ pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
+pub const TEAMS_SETTING: &str = "teams";
 pub const INDEXER_SETTING: &str = "indexer_settings";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
@@ -96,3 +97,21 @@ pub const ENV_SETTINGS: [&str; 55] = [
     "OTEL_TRACING",
     "OTEL_LOGS",
 ];
+
+use crate::error;
+use sqlx::Pool;
+use sqlx::postgres::Postgres;
+
+pub async fn load_value_from_global_settings(
+    db: &Pool<Postgres>,
+    setting_name: &str,
+) -> error::Result<Option<serde_json::Value>> {
+    let r = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        setting_name
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|x| x.value);
+    Ok(r)
+}

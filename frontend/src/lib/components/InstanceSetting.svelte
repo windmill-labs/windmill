@@ -8,6 +8,7 @@
 		BadgeX,
 		Info,
 		Plus,
+		RefreshCcw,
 		Slack,
 		X
 	} from 'lucide-svelte'
@@ -16,7 +17,7 @@
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import ConfirmButton from './ConfirmButton.svelte'
-	import { IndexSearchService, SettingService } from '$lib/gen'
+	import { IndexSearchService, SettingService, TeamsService } from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
@@ -44,6 +45,8 @@
 		result: string
 		attempted_at: string
 	} | null
+
+	let isFetching = false
 
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
@@ -114,6 +117,49 @@
 		}
 		return {
 			valid: false
+		}
+	}
+
+	async function fetchTeams() {
+		if (isFetching) return
+		isFetching = true
+		try {
+			$values['teams'] = await TeamsService.syncTeams()
+		} catch (error) {
+			console.error('Error fetching teams:', error)
+		} finally {
+			isFetching = false
+		}
+	}
+
+	function handleTeamChange(event: Event, i: number) {
+		const teamId = (event.target as HTMLSelectElement).value
+		const team = $values['teams'].find((team) => team.team_id === teamId) || null
+		$values['critical_error_channels'][i] = {
+			teams_channel: {
+				team_id: team?.team_id,
+				team_name: team?.team_name,
+				channel_id: team?.channels[0]?.channel_id,
+				channel_name: team?.channels[0]?.channel_name
+			}
+		}
+	}
+
+	function handleChannelChange(event: Event, setting: Setting, i: number) {
+		const channelId = (event.target as HTMLSelectElement).value
+		const team = $values['teams'].find(
+			(team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id
+		)
+		const channel = team?.channels.find((channel) => channel.channel_id === channelId) || null
+		if (channelId) {
+			$values['critical_error_channels'][i] = {
+				teams_channel: {
+					team_id: team?.team_id,
+					team_name: team?.team_name,
+					channel_id: channel?.channel_id,
+					channel_name: channel?.channel_name
+				}
+			}
 		}
 	}
 </script>
@@ -362,7 +408,7 @@
 							{#each $values[setting.key] ?? [] as v, i}
 								<div class="flex w-full max-w-lg mt-1 gap-2 items-center">
 									<select
-										class="w-20"
+										class="max-w-24"
 										on:change={(e) => {
 											if (e.target?.['value']) {
 												$values[setting.key][i] = {
@@ -370,10 +416,14 @@
 												}
 											}
 										}}
-										value={v && 'slack_channel' in v ? 'slack_channel' : 'email'}
+										value={(() => {
+											if (!v) return 'email'
+											return ['slack_channel', 'teams_channel'].find((type) => type in v) || 'email'
+										})()}
 									>
 										<option value="email">Email</option>
 										<option value="slack_channel">Slack</option>
+										<option value="teams_channel">Teams</option>
 									</select>
 									{#if v && 'slack_channel' in v}
 										<input
@@ -388,6 +438,53 @@
 											}}
 											value={v?.slack_channel ?? ''}
 										/>
+									{:else if v && 'teams_channel' in v}
+										<div class="flex flex-row gap-2 w-full">
+											<select on:change={(e) => handleTeamChange(e, i)}>
+												<option
+													value=""
+													disabled
+													selected={!$values['critical_error_channels'][i]?.teams_channel?.team_id}
+													>Select team</option
+												>
+												{#each $values['teams'] as team}
+													<option
+														value={team.team_id}
+														selected={$values['critical_error_channels'][i]?.teams_channel
+															?.team_id === team.team_id}
+													>
+														{team.team_name}
+													</option>
+												{/each}
+											</select>
+											{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
+												<select
+													id="channel-select"
+													on:change={(e) => handleChannelChange(e, setting, i)}
+												>
+													<option
+														value=""
+														disabled
+														selected={!$values['critical_error_channels'][i]?.teams_channel
+															?.channel_id}>Select channel</option
+													>
+													{#each $values['teams'].find((team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id)?.channels ?? [] as channel}
+														<option
+															value={channel.channel_id}
+															selected={$values['critical_error_channels'][i]?.teams_channel
+																?.channel_id === channel.channel_id}
+														>
+															{channel.channel_name}
+														</option>
+													{/each}
+												</select>
+											{/if}
+											<div>
+												<button on:click={fetchTeams} class="flex items-center gap-1 mt-2">
+													<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
+												</button>
+											</div>
+										</div>
 									{:else}
 										<input
 											type="email"

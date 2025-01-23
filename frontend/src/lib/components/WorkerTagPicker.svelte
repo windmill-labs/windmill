@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { ExternalLink, RotateCw, Loader2 } from 'lucide-svelte'
-	import { workerTags } from '$lib/stores'
+	import { workerTags, workspaceStore } from '$lib/stores'
 	import AssignableTags from './AssignableTags.svelte'
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -13,7 +13,7 @@
 	loadWorkerGroups()
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
+			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
 		}
 	}
 </script>

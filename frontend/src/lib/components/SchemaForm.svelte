@@ -15,6 +15,7 @@
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -46,6 +47,10 @@
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
 	export let lightHeader = false
+	export let diff: Record<string, SchemaDiff> = {}
+	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+	export let shouldDispatchChanges = false
+	export let nestedClasses = ''
 
 	const dispatch = createEventDispatcher()
 
@@ -166,7 +171,9 @@
 {/if}
 
 <div
-	class="w-full {$$props.class} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
+	class="w-full {$$props.class} {flexWrap
+		? 'flex flex-row flex-wrap gap-x-6 '
+		: ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
 	on:finalize
 	on:consider
@@ -174,12 +181,61 @@
 	{#if keys.length > 0}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
-			<div>
+			<div
+				class={typeof diff[argName] === 'object' && diff[argName].diff !== 'same'
+					? 'bg-red-300 dark:bg-red-800 rounded-md'
+					: ''}
+			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && keys.includes(argName)}
+					{#if typeof diff[argName] === 'object' && diff[argName].oldSchema}
+						{@const formerProperty = diff[argName].oldSchema}
+						<ArgInput
+							{disablePortal}
+							{resourceTypes}
+							{prettifyHeader}
+							autofocus={i == 0 && autofocus ? true : null}
+							label={argName}
+							description={formerProperty?.description}
+							value={args[argName]}
+							type={formerProperty?.type}
+							oneOf={formerProperty?.oneOf}
+							required={formerProperty?.required}
+							pattern={formerProperty?.pattern}
+							valid={inputCheck[argName]}
+							defaultValue={structuredClone(formerProperty?.default)}
+							enum_={formerProperty?.enum}
+							format={formerProperty?.format}
+							contentEncoding={formerProperty?.contentEncoding}
+							customErrorMessage={formerProperty?.customErrorMessage}
+							properties={formerProperty?.properties}
+							order={formerProperty?.order}
+							nestedRequired={formerProperty?.required}
+							itemsType={formerProperty?.items}
+							disabled={disabledArgs.includes(argName) || disabled || formerProperty?.disabled}
+							{compact}
+							{variableEditor}
+							{itemPicker}
+							{pickForField}
+							password={linkedSecret == argName}
+							extra={formerProperty}
+							{showSchemaExplorer}
+							simpleTooltip={schemaFieldTooltip[argName]}
+							{onlyMaskPassword}
+							nullable={formerProperty?.nullable}
+							title={formerProperty?.title}
+							placeholder={formerProperty?.placeholder}
+							orderEditable={dndConfig != undefined}
+							otherArgs={args}
+							{helperScript}
+							{lightHeader}
+							hideNested={typeof diff[argName].diff === 'object'}
+							diffStatus={undefined}
+						/>
+					{/if}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
-						class="flex flex-row items-center bg-surface"
+						class="flex flex-row items-center"
 						on:click={() => {
 							dispatch('click', argName)
 						}}
@@ -244,7 +300,14 @@
 									</LightweightArgInput>
 								{:else}
 									<ArgInput
-										on:change={() => dispatch('change')}
+										on:change={() => {
+											dispatch('change')
+										}}
+										on:nestedChange={() => {
+											dispatch('nestedChange')
+										}}
+										on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
+										on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
 										{disablePortal}
 										{resourceTypes}
 										{prettifyHeader}
@@ -285,6 +348,10 @@
 										otherArgs={args}
 										{helperScript}
 										{lightHeader}
+										diffStatus={diff[argName] ?? undefined}
+										{nestedParent}
+										{shouldDispatchChanges}
+										{nestedClasses}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />

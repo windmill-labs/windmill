@@ -1490,7 +1490,7 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     #[cfg(feature = "oauth2")]
     {
         let mut l = windmill_api::OAUTH_CLIENTS.write().await;
-        *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths)
+        *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths, db).await
         .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
         .unwrap();
     }
