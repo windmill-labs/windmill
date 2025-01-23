@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace_settings.operator_settings\n         FROM workspace\n         JOIN usr ON usr.workspace_id = workspace.id\n         JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id\n         WHERE usr.email = $1 AND workspace.deleted = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "operator_settings",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "93556d210ca8f84ef824f94e31603c4116e7ff5d463db6d20092657342f8d12f"
+}
