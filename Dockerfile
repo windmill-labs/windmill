@@ -12,7 +12,7 @@ RUN apt-get -y update \
 
 RUN rustup component add rustfmt
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version 0.1.68
 RUN cargo install sccache --version ^0.8
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/backend/sccache
 
