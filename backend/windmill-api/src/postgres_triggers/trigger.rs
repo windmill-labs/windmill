@@ -185,7 +185,7 @@ async fn update_ping(
                 .await
                 .ok();
                 tracing::info!(
-                    "Database {} changed, disabled, or deleted, stopping...",
+                    "Postgres trigger {} changed, disabled, or deleted, stopping...",
                     postgres_trigger.path
                 );
                 return Ok(false);
@@ -205,7 +205,7 @@ async fn loop_ping(db: &DB, postgres_trigger: &PostgresTrigger, error: Option<&s
             Ok(false) => return,
             Err(err) => {
                 tracing::warn!(
-                    "Error updating ping of database {}: {:?}",
+                    "Error updating ping of postgres trigger {}: {:?}",
                     postgres_trigger.path,
                     err
                 );
@@ -264,12 +264,12 @@ async fn listen_to_transactions(
         }
         _ = async {
                 let mut relations = RelationConverter::new();
-                tracing::info!("Start to listen for database transaction");
+                tracing::info!("Starting to listen for postgres trigger {}", postgres_trigger.path);
                 loop {
                     let message = logical_replication_stream.next().await;
 
                     if message.is_none() {
-                        tracing::info!("Stream is empty leaving....");
+                        tracing::info!("Stream for postgres trigger {} is empty, leaving....", postgres_trigger.path);
                         return;
                     }
 
@@ -396,12 +396,15 @@ async fn try_to_listen_to_database_transactions(
                     };
                 });
             } else {
-                tracing::info!("Database {} already being listened to", pg_trigger.path);
+                tracing::info!(
+                    "Postgres trigger {} already being listened to",
+                    pg_trigger.path
+                );
             }
         }
         Err(err) => {
             tracing::error!(
-                "Error acquiring lock for database {}: {:?}",
+                "Error acquiring lock for postgres trigger {}: {:?}",
                 pg_trigger.path,
                 err
             );
