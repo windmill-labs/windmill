@@ -52,7 +52,6 @@
 			})
 			for (let i = 0; i < triggers.length; i++) {
 				const newTrigger = newTriggers.find((x) => x.path === triggers[i].path)
-				console.log({ newTrigger })
 				if (newTrigger) {
 					triggers[i] = {
 						...triggers[i],

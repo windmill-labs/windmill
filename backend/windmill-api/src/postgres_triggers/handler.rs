@@ -25,7 +25,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{
     postgres::{types::Oid, PgConnectOptions, PgSslMode},
-    Connection, FromRow, PgConnection, QueryBuilder,
+    Connection, Execute, FromRow, PgConnection, QueryBuilder,
 };
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::Error;
@@ -689,7 +689,10 @@ async fn new_publication(
                 } else {
                     query.push(" TABLE ONLY ");
                     for (j, table) in schema.table_to_track.iter().enumerate() {
-                        query.push(quote_identifier(&table.table_name));
+                        let table_name = quote_identifier(&table.table_name);
+                        let schema_name = quote_identifier(&schema.schema_name);
+                        let full_name = format!("{}.{}", &schema_name, &table_name);
+                        query.push(full_name);
                         if !table.columns_name.is_empty() {
                             query.push(" (");
                             let columns = table
@@ -730,7 +733,6 @@ async fn new_publication(
     }
 
     let query = query.build();
-
     query.execute(&mut *connection).await?;
 
     Ok(())
@@ -831,16 +833,18 @@ async fn update_publication(
                 query.push("ALTER PUBLICATION ");
                 query.push(&quoted_publication_name);
                 query.push(" SET");
-                for (i, relation) in relations.iter().enumerate() {
-                    if relation.table_to_track.is_empty() {
+                for (i, schema) in relations.iter().enumerate() {
+                    if schema.table_to_track.is_empty() {
                         query.push(" TABLES IN SCHEMA ");
-                        let quoted_schema = quote_identifier(&relation.schema_name);
+                        let quoted_schema = quote_identifier(&schema.schema_name);
                         query.push(&quoted_schema);
                     } else {
                         query.push(" TABLE ONLY ");
-                        for (j, table) in relation.table_to_track.iter().enumerate() {
-                            let quoted_table = quote_identifier(&table.table_name);
-                            query.push(&quoted_table);
+                        for (j, table) in schema.table_to_track.iter().enumerate() {
+                            let table_name = quote_identifier(&table.table_name);
+                            let schema_name = quote_identifier(&schema.schema_name);
+                            let full_name = format!("{}.{}", &schema_name, &table_name);
+                            query.push(&full_name);
                             if !table.columns_name.is_empty() {
                                 query.push(" (");
                                 let columns = table
@@ -858,7 +862,7 @@ async fn update_publication(
                                 query.push(')');
                             }
 
-                            if j + 1 != relation.table_to_track.len() {
+                            if j + 1 != schema.table_to_track.len() {
                                 query.push(", ");
                             }
                         }

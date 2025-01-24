@@ -19,7 +19,9 @@ use futures::{pin_mut, SinkExt, StreamExt};
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
 use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
-use windmill_common::{db::UserDB, worker::to_raw_value, INSTANCE_NAME};
+use windmill_common::{
+    db::UserDB, utils::report_critical_error, worker::to_raw_value, INSTANCE_NAME,
+};
 
 use super::{
     handler::{Database, PostgresTrigger},
@@ -141,7 +143,7 @@ async fn update_ping(
     db: &DB,
     postgres_trigger: &PostgresTrigger,
     error: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Option<()> {
     let updated = sqlx::query_scalar!(
         r#"
         UPDATE 
@@ -188,33 +190,50 @@ async fn update_ping(
                     "Postgres trigger {} changed, disabled, or deleted, stopping...",
                     postgres_trigger.path
                 );
-                return Ok(false);
+                return None;
             }
         }
-        Err(err) => return Err(err),
+        Err(err) => {
+            tracing::warn!(
+                "Error updating ping of postgres trigger {}: {:?}",
+                postgres_trigger.path,
+                err
+            );
+        }
     };
 
-    Ok(true)
+    Some(())
 }
 
 async fn loop_ping(db: &DB, postgres_trigger: &PostgresTrigger, error: Option<&str>) {
     loop {
-        let result = update_ping(db, postgres_trigger, error).await;
-
-        match result {
-            Ok(false) => return,
-            Err(err) => {
-                tracing::warn!(
-                    "Error updating ping of postgres trigger {}: {:?}",
-                    postgres_trigger.path,
-                    err
-                );
-                return;
-            }
-            _ => {}
+        if update_ping(db, postgres_trigger, error).await.is_none() {
+            return;
         }
 
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    }
+}
+
+async fn disable_with_error(postgres_trigger: &PostgresTrigger, db: &DB, error: String) -> () {
+    match sqlx::query!(
+        "UPDATE postgres_trigger SET enabled = FALSE, error = $1, server_id = NULL, last_server_ping = NULL WHERE workspace_id = $2 AND path = $3",
+        error,
+        postgres_trigger.workspace_id,
+        postgres_trigger.path,
+    )
+    .execute(db).await {
+        Ok(_) => {
+            report_critical_error(format!("Disabling postgres trigger {} because of error: {}", postgres_trigger.path, error), db.clone(), Some(&postgres_trigger.workspace_id), None).await;
+        },
+        Err(disable_err) => {
+            report_critical_error(
+                format!("Could not disable postgres trigger {} with err {}, disabling because of error {}", postgres_trigger.path, disable_err, error), 
+                db.clone(),
+                Some(&postgres_trigger.workspace_id),
+                None,
+            ).await;
+        }
     }
 }
 
@@ -222,137 +241,162 @@ async fn listen_to_transactions(
     postgres_trigger: &PostgresTrigger,
     db: DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-) -> Result<(), Error> {
-    let authed = fetch_api_authed(
-        postgres_trigger.edited_by.clone(),
-        postgres_trigger.email.clone(),
-        &postgres_trigger.workspace_id,
-        &db,
-        None,
-    )
-    .await
-    .map_err(Error::Common)?;
-
-    let database = get_database_resource(
-        authed,
-        Some(UserDB::new(db.clone())),
-        &db,
-        &postgres_trigger.postgres_resource_path,
-        &postgres_trigger.workspace_id,
-    )
-    .await
-    .map_err(Error::Common)?;
-
-    let client = PostgresSimpleClient::new(&database).await?;
-
-    let (logical_replication_stream, logicail_replication_settings) = client
-        .get_logical_replication_stream(
-            &postgres_trigger.publication_name,
-            &postgres_trigger.replication_slot_name,
+) {
+    let start_logical_replication_streaming = async {
+        let authed = fetch_api_authed(
+            postgres_trigger.edited_by.clone(),
+            postgres_trigger.email.clone(),
+            &postgres_trigger.workspace_id,
+            &db,
+            None,
         )
-        .await?;
+        .await
+        .map_err(Error::Common)?;
 
-    pin_mut!(logical_replication_stream);
+        let database = get_database_resource(
+            authed,
+            Some(UserDB::new(db.clone())),
+            &db,
+            &postgres_trigger.postgres_resource_path,
+            &postgres_trigger.workspace_id,
+        )
+        .await
+        .map_err(Error::Common)?;
+
+        let client = PostgresSimpleClient::new(&database).await?;
+
+        let (logical_replication_stream, logical_replication_settings) = client
+            .get_logical_replication_stream(
+                &postgres_trigger.publication_name,
+                &postgres_trigger.replication_slot_name,
+            )
+            .await?;
+
+        Ok::<_, Error>((logical_replication_stream, logical_replication_settings))
+    };
 
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
-            Ok(())
+            return;
         }
-        _ = loop_ping(&db, postgres_trigger, None) => {
-            Ok(())
+        _ = loop_ping(&db, postgres_trigger, Some("Connecting...")) => {
+            return;
         }
-        _ = async {
-                let mut relations = RelationConverter::new();
-                tracing::info!("Starting to listen for postgres trigger {}", postgres_trigger.path);
-                loop {
-                    let message = logical_replication_stream.next().await;
-
-                    if message.is_none() {
-                        tracing::info!("Stream for postgres trigger {} is empty, leaving....", postgres_trigger.path);
-                        return;
-                    }
-
-                    let message = message.unwrap();
-
-                    if let Err(err) = &message {
-                        tracing::debug!("{}: {}", &postgres_trigger.path, err.to_string());
-                        return;
-                    }
-
-                    let message = message.unwrap();
-
-                    let logical_message = match ReplicationMessage::parse(message) {
-                        Ok(logical_message) => logical_message,
-                        Err(err) => {
-                            tracing::debug!("{}", err.to_string());
-                            let _ = update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
-                            return;
-                        }
-                    };
-
-
-                    match logical_message {
-                        ReplicationMessage::PrimaryKeepAlive(primary_keep_alive) => {
-                            if primary_keep_alive.reply {
-                                PostgresSimpleClient::send_status_update(primary_keep_alive, &mut logical_replication_stream).await;
-                            }
-                        }
-                        ReplicationMessage::XLogData(x_log_data) => {
-                            let logical_replication_message = match x_log_data.parse(&logicail_replication_settings) {
-                                Ok(logical_replication_message) => logical_replication_message,
-                                Err(err) => {
-                                    let _ = update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
-                                    return;
-                                }
-                            };
-
-                            let json = match logical_replication_message {
-                                Relation(relation_body) => {
-                                    relations.add_relation(relation_body);
-                                    None
-                                }
-                                Begin | Type | Commit => {
-                                    None
-                                }
-                                Insert(insert) => {
-                                    Some((insert.o_id, relations.body_to_json((insert.o_id, insert.tuple)), "insert"))
-                                }
-                                Update(update) => {
-                                    Some((update.o_id, relations.body_to_json((update.o_id, update.new_tuple)), "update"))
-                                }
-                                Delete(delete) => {
-                                    let body = delete.old_tuple.unwrap_or(delete.key_tuple.unwrap());
-                                    Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
-                                }
-                            };
-                            if let Some((o_id, Ok(body), transaction_type)) = json {
-                                let relation = match relations.get_relation(o_id) {
-                                    Ok(relation) => relation,
-                                    Err(err) => {
-                                        let _ = update_ping(&db, postgres_trigger, Some(&err.to_string())).await;
-                                        return;
-                                    }
-                                };
-                                let database_info = HashMap::from([
-                                    ("schema_name".to_string(), to_raw_value(&relation.namespace)),
-                                    ("table_name".to_string(), to_raw_value(&relation.name)),
-                                    ("transaction_type".to_string(), to_raw_value(&transaction_type)),
-                                    ("row".to_string(), to_raw_value(&body)),
-                                ]);
-                                let extra = Some(HashMap::from([(
-                                    "wm_trigger".to_string(),
-                                    to_raw_value(&serde_json::json!({"kind": "postgres", })),
-                                )]));
-                                let _ = run_job(Some(database_info), extra, &db, postgres_trigger).await;
-                                continue;
-                            }
-
-                        }
-                    }
+        result = start_logical_replication_streaming => {
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv() => {
+                    return;
                 }
-        } => {
-            Ok(())
+                _ = loop_ping(&db, postgres_trigger, None) => {
+                    return;
+                }
+                _ = {
+                    async {
+                        match result {
+                            Ok((logical_replication_stream, logical_replication_settings)) => {
+                                pin_mut!(logical_replication_stream);
+                                let mut relations = RelationConverter::new();
+                                tracing::info!("Starting to listen for postgres trigger {}", postgres_trigger.path);
+                                loop {
+                                    let message = logical_replication_stream.next().await;
+
+                                    let message = match message {
+                                        Some(message) => message,
+                                        None => {
+                                            tracing::info!("Stream for postgres trigger {} is empty, leaving....", postgres_trigger.path);
+                                            return;
+                                        }
+                                    };
+
+                                    let message = match message {
+                                        Ok(message) => message,
+                                        Err(err) => {
+                                            let err = format!("Postgres trigger named {} had an error while receiving a message : {}", &postgres_trigger.path, err.to_string());
+                                            disable_with_error(&postgres_trigger, &db, err).await;
+                                            return;
+                                        }
+                                    };
+
+                                    let logical_message = match ReplicationMessage::parse(message) {
+                                        Ok(logical_message) => logical_message,
+                                        Err(err) => {
+                                            let err = format!("Postgres trigger named: {} had an error while parsing message: {}", postgres_trigger.path, err.to_string());
+                                            disable_with_error(&postgres_trigger, &db, err).await;
+                                            return;
+                                        }
+                                    };
+
+
+                                    match logical_message {
+                                        ReplicationMessage::PrimaryKeepAlive(primary_keep_alive) => {
+                                            if primary_keep_alive.reply {
+                                                PostgresSimpleClient::send_status_update(primary_keep_alive, &mut logical_replication_stream).await;
+                                            }
+                                        }
+                                        ReplicationMessage::XLogData(x_log_data) => {
+                                            let logical_replication_message = match x_log_data.parse(&logical_replication_settings) {
+                                                Ok(logical_replication_message) => logical_replication_message,
+                                                Err(err) => {
+                                                    tracing::error!("Postgres trigger named: {} had an error while trying to parse incomming stream message: {}", &postgres_trigger.path, err.to_string());
+                                                    continue;
+                                                }
+                                            };
+
+                                            let json = match logical_replication_message {
+                                                Relation(relation_body) => {
+                                                    relations.add_relation(relation_body);
+                                                    None
+                                                }
+                                                Begin | Type | Commit => {
+                                                    None
+                                                }
+                                                Insert(insert) => {
+                                                    Some((insert.o_id, relations.body_to_json((insert.o_id, insert.tuple)), "insert"))
+                                                }
+                                                Update(update) => {
+                                                    Some((update.o_id, relations.body_to_json((update.o_id, update.new_tuple)), "update"))
+                                                }
+                                                Delete(delete) => {
+                                                    let body = delete.old_tuple.unwrap_or(delete.key_tuple.unwrap());
+                                                    Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
+                                                }
+                                            };
+                                            if let Some((o_id, Ok(body), transaction_type)) = json {
+                                                let relation = match relations.get_relation(o_id) {
+                                                    Ok(relation) => relation,
+                                                    Err(err) => {
+                                                        tracing::error!("Postgres trigger named: {}, error: {}", &postgres_trigger.path, err.to_string());
+                                                        continue;
+                                                    }
+                                                };
+                                                let database_info = HashMap::from([
+                                                    ("schema_name".to_string(), to_raw_value(&relation.namespace)),
+                                                    ("table_name".to_string(), to_raw_value(&relation.name)),
+                                                    ("transaction_type".to_string(), to_raw_value(&transaction_type)),
+                                                    ("row".to_string(), to_raw_value(&body)),
+                                                ]);
+                                                let extra = Some(HashMap::from([(
+                                                    "wm_trigger".to_string(),
+                                                    to_raw_value(&serde_json::json!({"kind": "postgres", })),
+                                                )]));
+                                                let _ = run_job(Some(database_info), extra, &db, postgres_trigger).await;
+                                            }
+
+                                        }
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                tracing::error!("Postgres trigger error while trying to start_logical_replication_streaming: {}", err.to_string())
+                            }
+                        }
+                    }
+                } => {
+                    return;
+                }
+            }
         }
     }
 }
@@ -389,10 +433,7 @@ async fn try_to_listen_to_database_transactions(
             if has_lock.flatten().unwrap_or(false) {
                 tracing::info!("Spawning new task to listen_to_database_transaction");
                 tokio::spawn(async move {
-                    let result = listen_to_transactions(&pg_trigger, db.clone(), killpill_rx).await;
-                    if let Err(e) = result {
-                        let _ = update_ping(&db, &pg_trigger, Some(e.to_string().as_str())).await;
-                    };
+                    listen_to_transactions(&pg_trigger, db.clone(), killpill_rx).await;
                 });
             } else {
                 tracing::info!(
