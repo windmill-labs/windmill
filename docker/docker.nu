@@ -25,12 +25,11 @@ def "main up" [
   custom_dockerfile?: path  # Any dockerfile that depends on root Dockerfile
   --features(-f): string = "deno_core" # Features that will be passed to base Dockerfile to compile windmill
   --yes(-y) # Say yes for every confirmation (TODO)
-  --dir(-d): path = ../windmill-ee-private # Path to EE repo
 ] {
   let ident = get_ident $custom_dockerfile -f $features;
   if not (sudo docker images | into string | str contains $ident) {
     print $"($ident) is not found, building..."
-    main build $custom_dockerfile -f $features -d $dir 
+    main build $custom_dockerfile -f $features 
   } else {
     print $"($ident) was found"
   }
@@ -45,10 +44,9 @@ def "main build" [
   --mock(-m) # Ignore building base image
   --yes(-y) # Say yes for every confirmation (TODO)
   --podman(-p) # Use podman (TODO)
-  --dir(-d): path = ../windmill-ee-private # Path to EE repo
 ] {
   if not $mock {
-    build_base -f $features -d $dir
+    build_base -f $features 
   }
   if $custom_dockerfile != null {
     let ident = get_ident $custom_dockerfile -f $features;
@@ -60,7 +58,6 @@ def "main build" [
 
 def build_base [
   --features(-f): string
-  --dir(-d): path
 ] {
   if not ($features | str contains "deno_core") {
     print "Warning! deno_core feature not enabled"
