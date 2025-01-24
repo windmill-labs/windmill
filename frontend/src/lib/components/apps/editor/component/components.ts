@@ -4152,6 +4152,17 @@ export const presetComponents = {
 		},
 		type: 'sidebartabscomponent'
 	},
+	accordiontabcomponent: {
+		name: 'Accordion Tabs',
+		icon: List,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'accordion'
+			}
+		},
+		type: 'accordiontabcomponent'
+	},
 	invisibletabscomponent: {
 		name: 'Invisible Tabs',
 		icon: PanelTopInactive,
