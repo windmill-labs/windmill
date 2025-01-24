@@ -71,7 +71,7 @@
 		{
 			label: 'Postgres triggers',
 			id: 'triggers',
-			href: `${base}/kafka_triggers`
+			href: `${base}/postgres_triggers`
 		},
 		{
 			label: 'Kafka triggers',
