@@ -12,15 +12,18 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
-	export let componentInput: AppInputWithValues | undefined
+	export let componentInput: AppInput | undefined
 	export let customCss: ComponentCustomCSS<'accordionlistcomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined
 	export let componentContainerHeight: number
 
-	type AppInputWithValues = {
-		value: { header: string }[]
-	} & AppInput
+	type AccordionListValue = { header: string; [key: string]: any };
+
+	type InternalAccordionListInput = AppInput & {
+		value: AccordionListValue[];
+	};
+	const accordionInput = componentInput as InternalAccordionListInput
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -57,6 +60,7 @@
 		activeIndex = activeIndex === index ? -1 : index
 		outputs.activeIndex.set(activeIndex)
 	}
+
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -97,7 +101,7 @@
 							)}
 						>
 							<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
-							{componentInput?.value[index].header || `Header ${index}`}
+							{accordionInput?.value[index].header || `Header ${index}`}
 						</button>
 						{#if activeIndex === index}
 							<div class="p-2 overflow-auto w-full">
@@ -133,7 +137,7 @@
 										style={css?.container?.style}
 										subGridId={`${id}-0`}
 										containerHeight={componentContainerHeight -
-											(30 * componentInput?.value.length + 40)}
+											(30 * accordionInput?.value.length + 40)}
 										on:focus={() => {
 											if (!$connectingInput.opened) {
 												$selectedComponent = [id]
