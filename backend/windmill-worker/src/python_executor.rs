@@ -95,12 +95,13 @@ use crate::{
 // 1. Change placeholder in instanceSettings.ts
 // 2. Change LATEST_STABLE_PY in dockerfile
 // 3. Change #[default] annotation for PyVersion in backend
+// You can also index these places by this stroke: CLSPY
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
 pub enum PyVersion {
     Py310,
-    #[default]
     Py311,
     Py312,
+    #[default]
     Py313,
 }
 

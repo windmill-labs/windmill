@@ -235,11 +235,12 @@ export const settings: Record<string, Setting[]> = {
 			// 1. Change placeholder in instanceSettings.ts
 			// 2. Change LATEST_STABLE_PY in dockerfile
 			// 3. Change #[default] annotation for PyVersion in backend
+			// You can also index these places by this stroke: CLSPY
 			placeholder: '3.10,3.11,3.12,3.13',
 			select_items: [{
 				label: "Latest Stable",
 				value: "default",
-				tooltip: "python-3.11",
+				tooltip: "python-3.13",
 			},
 			{
 				label: "3.10",
