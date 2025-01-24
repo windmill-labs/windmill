@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue SET\n                    running = false,\n                    started_at = null\n                WHERE id = $1 AND canceled_by IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78e6e2bd3e009055812202e763294304872cf2136b15076f6712a77d12a648f1"
+}

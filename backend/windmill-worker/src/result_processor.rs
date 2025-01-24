@@ -307,7 +307,14 @@ pub async fn process_result(
                                 }))));
                         }
                     }
-                    updated_job.args = Some(Json(new_args));
+                    // For the front-end, change the args by the preprocessed args (script only).
+                    sqlx::query!(
+                        "UPDATE v2_job SET args = $1 WHERE id = $2",
+                        Json(new_args) as Json<HashMap<String, Box<RawValue>>>,
+                        updated_job.id
+                    )
+                    .execute(db)
+                    .await?;
                 }
                 Arc::new(updated_job)
             } else {

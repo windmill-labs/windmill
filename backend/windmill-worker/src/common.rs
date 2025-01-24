@@ -265,7 +265,7 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {
-                sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_optional(db)
                     .await?
                     .flatten()
@@ -399,7 +399,7 @@ pub async fn get_reserved_variables(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if let Some(uuid) = job.parent_job {
-        sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+        sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
             .fetch_optional(db)
             .await?
             .flatten()

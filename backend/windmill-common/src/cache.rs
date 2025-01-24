@@ -672,7 +672,7 @@ pub mod job {
             match (raw_lock, raw_code, raw_flow) {
                 (None, None, None) => sqlx::query!(
                     "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\" \
-                    FROM job WHERE id = $1 LIMIT 1",
+                    FROM v2_job WHERE id = $1 LIMIT 1",
                     job
                 )
                 .fetch_optional(e)

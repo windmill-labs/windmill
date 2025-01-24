@@ -2020,29 +2020,26 @@ pub async fn handle_python_reqs(
 
                         // Notify server that we are still alive
                         // Detect if job has been canceled
-                        let canceled =
-                            sqlx::query_scalar::<_, bool>
-                            (r#"
-
-                                   UPDATE queue 
-                                      SET last_ping = now()
-                                        , mem_peak = $1
-                                    WHERE id = $2
-                                RETURNING canceled
-
-                                "#)
-                            .bind(mem_peak_actual)
-                            .bind(job_id_2)
-                            .fetch_optional(&db_2)
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                                Some(false)
-                            })
-                            .unwrap_or_else(|| {
-                                // if the job is not in queue, it can only be in the completed_job so it is already complete
-                                false
-                            });
+                        let canceled = sqlx::query_scalar!(
+                            "UPDATE v2_job_runtime r SET
+                                memory_peak = $1,
+                                ping = now()
+                            FROM v2_job_queue q
+                            WHERE r.id = $2 AND q.id = r.id
+                            RETURNING canceled_by IS NOT NULL AS \"canceled!\"",
+                            mem_peak_actual,
+                            job_id_2
+                        )
+                        .fetch_optional(&db_2)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
+                            Some(false)
+                        })
+                        .unwrap_or_else(|| {
+                            // if the job is not in queue, it can only be in the completed_job so it is already complete
+                            false
+                        });
 
                         if canceled {
 
@@ -2263,12 +2260,12 @@ pub async fn handle_python_reqs(
                     uv_install_proccess.kill().await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
-                },                
+                },
                 (_, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
                     // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
                     (stderr_future.await, uv_install_proccess.wait().await)
-                 } => match exitstatus {
+                } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(
                             workspace_id = %w_id,

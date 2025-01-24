@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job SET args = '{\"reason\":\"PREPROCESSOR_ARGS_ARE_DISCARDED\"}'::jsonb WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a2b97ed166b8996bcc63a6e908e6a611984341abba8508c7e6750230284cecf"
+}

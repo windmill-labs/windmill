@@ -544,7 +544,7 @@ pub async fn transform_json_value<'c>(
                     parent_job, permissioned_as AS \"permissioned_as!\",
                     script_path, schedule_path, flow_step_id, root_job,
                     scheduled_for AS \"scheduled_for!: chrono::DateTime<chrono::Utc>\"
-                FROM queue WHERE id = $1 AND workspace_id = $2",
+                FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
                 job_id,
                 workspace
             )
@@ -557,7 +557,7 @@ pub async fn transform_json_value<'c>(
             let flow_path = if let Some(uuid) = job.parent_job {
                 let mut tx: Transaction<'_, Postgres> =
                     authed_transaction_or_default(authed, user_db.clone(), db).await?;
-                let p = sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                let p = sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_optional(&mut *tx)
                     .await?
                     .flatten();

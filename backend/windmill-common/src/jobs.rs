@@ -197,7 +197,7 @@ pub struct CompletedJob {
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -249,12 +249,6 @@ impl CompletedJob {
             .as_ref()
             .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
     }
-}
-
-#[derive(sqlx::FromRow)]
-pub struct BranchResults {
-    pub result: sqlx::types::Json<Box<RawValue>>,
-    pub id: Uuid,
 }
 
 #[derive(Debug, Clone)]

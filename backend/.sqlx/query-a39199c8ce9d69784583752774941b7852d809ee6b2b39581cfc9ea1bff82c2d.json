@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job SET args = (SELECT result FROM v2_job_completed WHERE id = $1)\n                WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a39199c8ce9d69784583752774941b7852d809ee6b2b39581cfc9ea1bff82c2d"
+}
