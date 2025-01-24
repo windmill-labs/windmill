@@ -24,12 +24,13 @@ def main [] {
 def "main up" [
   custom_dockerfile?: path  # Any dockerfile that depends on root Dockerfile
   --features(-f): string = "deno_core" # Features that will be passed to base Dockerfile to compile windmill
+  --yes(-y) # Say yes for every confirmation (TODO)
   --dir(-d): path = ../windmill-ee-private # Path to EE repo
 ] {
   let ident = get_ident $custom_dockerfile -f $features;
   if not (sudo docker images | into string | str contains $ident) {
     print $"($ident) is not found, building..."
-    main build $custom_dockerfile -f $features -d $dir
+    main build $custom_dockerfile -f $features -d $dir 
   } else {
     print $"($ident) was found"
   }
@@ -42,16 +43,18 @@ def "main build" [
   custom_dockerfile?: path  # Any dockerfile that depends on root Dockerfile
   --features(-f): string = "deno_core" # Features that will be passed to base Dockerfile to compile windmill
   --mock(-m) # Ignore building base image
+  --yes(-y) # Say yes for every confirmation (TODO)
+  --podman(-p) # Use podman (TODO)
   --dir(-d): path = ../windmill-ee-private # Path to EE repo
 ] {
   if not $mock {
-    build_base -f $features -d $dir;
+    build_base -f $features -d $dir
   }
   if $custom_dockerfile != null {
     let ident = get_ident $custom_dockerfile -f $features;
     let tmpfile = patch $custom_dockerfile -f $features;
     print $"Building image by path ($custom_dockerfile) with ident: ($ident)"
-    sudo docker build -f $tmpfile -t $ident ../
+    sudo docker build -f $tmpfile -t $ident ./
   }
 }
 
@@ -66,14 +69,26 @@ def build_base [
 
   if ($features | str contains "enterprise") {
     print "Building in EE mode"
-    print $"EE repo path: ($dir)"
-    (cd ./backend; ./substitute_ee_code.sh --copy --dir $dir)
+    print "Is windmill ee private repo mounted? [Y/n]"; 
+    let inp = input listen --types [key]
+
+    if ($inp.code != "y") {
+      # print "You can use --auto-substitute(-s) to automatically mount ee private repo (TODO)"
+      print "Aborted"
+      return;
+    }
   }
 
   let ident = get_ident -f $features;
   print $"Building base image with ident: ($ident)"
-  sudo docker build -t ($ident) ../ --build-arg features=($features)
-  (cd ./backend; ./substitute_ee_code.sh --revert --dir $dir )
+  sudo docker build -t ($ident) . --build-arg features=($features)
+}
+
+# TODO
+def clone_ee_private [] {
+  let rev = open backend/ee-repo-ref.txt
+  git clone --depth 1 git@github.com:windmill-labs/windmill-ee-private.git .docker.nu/private-ee-repo-rev-($rev)
+  # git checkout ddcfdfc18a9833a5fc4e62ad62a265ef1e06a0aa)
 }
 
 def get_ident [
