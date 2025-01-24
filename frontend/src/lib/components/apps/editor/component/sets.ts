@@ -19,6 +19,7 @@ const layout: ComponentSet = {
 		'modalcomponent',
 		'steppercomponent',
 		'carousellistcomponent',
+		'accordionlistcomponent',
 		'decisiontreecomponent',
 		'navbarcomponent',
 		'recomputeallcomponent'

@@ -175,24 +175,24 @@
 	{:else if resolvedConfig.tabsKind == 'accordion'}
 		<div class="flex flex-col w-full">
 			{#each tabs ?? [] as res, index}
-				<div class="mb-2">
+				<div class="border-b">
 					<button
 						on:pointerdown|stopPropagation
 						on:click={() => (selected = res)}
 						class={twMerge(
-							'w-full text-left p-2 cursor-pointer flex items-center text-secondary',
+							'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
 							css?.allTabs?.class,
 							'wm-tabs-alltabs',
 							selected == res
 								? twMerge(
-										'bg-surface text-primary',
+										'bg-surface text-primary ',
 										css?.selectedTab?.class,
 										'wm-tabs-selectedTab'
 								  )
-								: ''
+								: 'text-secondary'
 						)}
 					>
-						<span class="mr-2">{selected == res ? '-' : '+'}</span>
+						<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
 						{res}
 					</button>
 					{#if selected == res}
