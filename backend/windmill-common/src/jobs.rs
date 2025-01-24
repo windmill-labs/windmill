@@ -46,6 +46,22 @@ pub enum JobKind {
     AppScript,
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase"))]
+pub enum JobTriggerKind {
+    Webhook,
+    Http,
+    Websocket,
+    Kafka,
+    Email,
+    Nats,
+    Schedule,
+    App,
+    Ui,
+    Postgres,
+}
+
 impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(

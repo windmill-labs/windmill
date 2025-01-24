@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job (\n                id, workspace_id,\n                created_at, created_by, permissioned_as, permissioned_as_email,\n                kind, runnable_id, runnable_path, parent_job, script_lang,\n                flow_step_id, flow_root_job,\n                trigger, trigger_kind,\n                tag, same_worker, visible_to_owner, concurrent_limit, concurrency_time_window_s,\n                cache_ttl, timeout, priority,\n                args, pre_run_error,\n                raw_code, raw_lock, raw_flow\n            ) SELECT\n                unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,\n                $16, $17, $18, $19, $20, $21, $22, $23, unnest($24::jsonb[]), $25, $26, $27, $28\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Varchar",
+        "Timestamptz",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlescriptflow",
+                "flowscript",
+                "flownode",
+                "appscript"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Varchar",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Uuid",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int2",
+        "JsonbArray",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8e0103dae8d80682a6b694762b6e4490d6004ba58ae26c52a4f21f867e1df70"
+}

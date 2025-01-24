@@ -14,6 +14,7 @@ use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
 use std::collections::HashMap;
+use std::iter;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 #[cfg(feature = "prometheus")]
@@ -87,7 +88,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
-    PushArgsOwned, PushIsolationLevel,
+    PushArgsOwned, PushIsolationLevel, RawJob,
 };
 
 #[cfg(feature = "prometheus")]
@@ -4678,7 +4679,7 @@ async fn add_batch_jobs(
         dedicated_worker,
         custom_concurrency_key,
         concurrent_limit,
-        concurrent_time_window_s,
+        concurrency_time_window_s,
         timeout,
         raw_code,
         raw_lock,
@@ -4831,36 +4832,30 @@ async fn add_batch_jobs(
     };
 
     let mut tx = user_db.begin(&authed).await?;
-
-    let uuids = sqlx::query_scalar!(
-        r#"WITH uuid_table as (
-            select gen_random_uuid() as uuid from generate_series(1, $16)
-        )
-        INSERT INTO v2_job
-            (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
-             script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-             concurrency_time_window_s, timeout, args)
-            (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
-        RETURNING id AS "id!""#,
-        w_id,
-        raw_code,
-        raw_lock,
-        raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
-        tag,
-        hash.map(|h| h.0),
-        path,
-        job_kind.clone() as JobKind,
-        language as ScriptLang,
-        authed.username,
-        username_to_permissioned_as(&authed.username),
-        authed.email,
+    let uuids = Vec::from_iter(iter::repeat_with(|| ulid::Ulid::new().into()).take(n as usize));
+    let args = uuids
+        .iter()
+        .map(|uuid| sqlx::types::Json(to_raw_value(&serde_json::json!({ "uuid": uuid }))))
+        .collect::<Vec<_>>();
+    tx = RawJob {
+        created_by: &authed.username,
+        permissioned_as: &username_to_permissioned_as(&authed.username),
+        permissioned_as_email: &authed.email,
+        kind: job_kind,
+        runnable_id: hash.map(|h| h.0),
+        runnable_path: path.as_deref(),
+        script_lang: Some(language),
+        tag: &tag,
         concurrent_limit,
-        concurrent_time_window_s,
+        concurrency_time_window_s,
         timeout,
-        n,
-    )
-    .fetch_all(&mut *tx)
+        raw_code: raw_code.as_deref(),
+        raw_lock: raw_lock.as_deref(),
+        raw_flow: raw_flow.as_ref(),
+        flow_status: flow_status.as_ref(),
+        ..RawJob::default()
+    }
+    .push_many(tx, &uuids, &w_id, &args)
     .await?;
 
     let uuids = sqlx::query_scalar!(

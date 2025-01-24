@@ -26,7 +26,7 @@ use windmill_common::{
 };
 
 #[cfg(feature = "benchmark")]
-use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
+use crate::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{append_logs, get_queued_job, CanceledBy, WrappedError};
 

@@ -41,8 +41,8 @@ use windmill_common::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
     },
     jobs::{
-        get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode,
-        ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT,
+        get_payload_tag_from_prefixed_path, JobKind, JobPayload, JobTriggerKind, QueuedJob,
+        RawCode, ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT,
     },
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
@@ -2740,6 +2740,184 @@ lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
 }
 
+pub struct RawJob<'a> {
+    pub created_by: &'a str,
+    pub permissioned_as: &'a str,
+    pub permissioned_as_email: &'a str,
+    pub kind: JobKind,
+    pub runnable_id: Option<i64>,
+    pub runnable_path: Option<&'a str>,
+    pub parent_job: Option<Uuid>,
+    pub script_lang: Option<ScriptLang>,
+    pub flow_step_id: Option<&'a str>,
+    pub flow_root_job: Option<Uuid>,
+    pub trigger: Option<&'a str>,
+    pub trigger_kind: Option<JobTriggerKind>,
+    pub tag: &'a str,
+    pub same_worker: bool,
+    pub visible_to_owner: bool,
+    pub concurrent_limit: Option<i32>,
+    pub concurrency_time_window_s: Option<i32>,
+    pub cache_ttl: Option<i32>,
+    pub timeout: Option<i32>,
+    pub priority: Option<i16>,
+    pub pre_run_error: Option<&'a str>,
+    pub raw_code: Option<&'a str>,
+    pub raw_lock: Option<&'a str>,
+    pub raw_flow: Option<&'a FlowValue>,
+    pub flow_status: Option<&'a FlowStatus>,
+    pub scheduled_for: Option<DateTime<Utc>>,
+    pub running: bool,
+}
+
+impl<'a> RawJob<'a> {
+    pub const fn default() -> Self {
+        Self {
+            created_by: "missing",
+            permissioned_as: "g/all",
+            permissioned_as_email: "missing@email.xyz",
+            kind: JobKind::Script,
+            runnable_id: None,
+            runnable_path: None,
+            parent_job: None,
+            script_lang: None,
+            flow_step_id: None,
+            flow_root_job: None,
+            trigger: None,
+            trigger_kind: None,
+            tag: "other",
+            same_worker: false,
+            visible_to_owner: false,
+            concurrent_limit: None,
+            concurrency_time_window_s: None,
+            cache_ttl: None,
+            timeout: None,
+            priority: None,
+            pre_run_error: None,
+            raw_code: None,
+            raw_lock: None,
+            raw_flow: None,
+            flow_status: None,
+            scheduled_for: None,
+            running: false,
+        }
+    }
+
+    pub async fn push<'c>(
+        &self,
+        tx: sqlx::PgTransaction<'c>,
+        id: Uuid,
+        workspace_id: &str,
+        args: Json<Box<RawValue>>,
+    ) -> error::Result<sqlx::PgTransaction<'c>> {
+        self.push_many(tx, &[id], workspace_id, &[args]).await
+    }
+
+    pub async fn push_many<'c>(
+        &self,
+        mut tx: sqlx::PgTransaction<'c>,
+        id: &[Uuid],
+        workspace_id: &str,
+        args: &[Json<Box<RawValue>>],
+    ) -> error::Result<sqlx::PgTransaction<'c>> {
+        if id.len() > args.len() {
+            return Err(Error::InternalErr(
+                "args must be at least as long as id".to_string(),
+            ));
+        }
+        let created_at = Utc::now();
+        sqlx::query!(
+            "INSERT INTO v2_job (
+                id, workspace_id,
+                created_at, created_by, permissioned_as, permissioned_as_email,
+                kind, runnable_id, runnable_path, parent_job, script_lang,
+                flow_step_id, flow_root_job,
+                trigger, trigger_kind,
+                tag, same_worker, visible_to_owner, concurrent_limit, concurrency_time_window_s,
+                cache_ttl, timeout, priority,
+                args, pre_run_error,
+                raw_code, raw_lock, raw_flow
+            ) SELECT
+                unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                $16, $17, $18, $19, $20, $21, $22, $23, unnest($24::jsonb[]), $25, $26, $27, $28
+            ",
+            id,
+            workspace_id,
+            created_at,
+            self.created_by,
+            self.permissioned_as,
+            self.permissioned_as_email,
+            self.kind as JobKind,
+            self.runnable_id,
+            self.runnable_path,
+            self.parent_job,
+            self.script_lang as Option<ScriptLang>,
+            self.flow_step_id,
+            self.flow_root_job,
+            self.trigger,
+            self.trigger_kind as Option<JobTriggerKind>,
+            self.tag,
+            self.same_worker,
+            self.visible_to_owner,
+            self.concurrent_limit,
+            self.concurrency_time_window_s,
+            self.cache_ttl,
+            self.timeout,
+            self.priority,
+            args as &[Json<Box<RawValue>>],
+            self.pre_run_error,
+            self.raw_code,
+            self.raw_lock,
+            self.raw_flow.map(Json) as Option<Json<&FlowValue>>,
+        )
+        .execute(&mut *tx)
+        .warn_after_seconds(1)
+        .await?;
+        sqlx::query!(
+            "INSERT INTO v2_job_queue (
+                id, workspace_id, started_at, scheduled_for, running, created_at, tag, priority
+            ) SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+            id,
+            workspace_id,
+            self.running.then(|| created_at),
+            self.scheduled_for.unwrap_or(created_at),
+            self.running,
+            created_at,
+            self.tag,
+            self.priority,
+        )
+        .execute(&mut *tx)
+        .warn_after_seconds(1)
+        .await?;
+        sqlx::query!(
+            "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+            id
+        )
+        .execute(&mut *tx)
+        .warn_after_seconds(1)
+        .await?;
+        if let Some(flow_status) = self.flow_status {
+            sqlx::query!(
+                "INSERT INTO v2_job_flow_runtime (id, flow_status) SELECT unnest($1::uuid[]), $2",
+                id,
+                Json(flow_status) as Json<&FlowStatus>,
+            )
+            .execute(&mut *tx)
+            .warn_after_seconds(1)
+            .await?;
+        }
+
+        #[cfg(feature = "prometheus")]
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            // TODO: technically the job isn't queued yet, as the transaction can be rolled back.
+            //  Should be solved when moving these metrics to the queue abstraction.
+            QUEUE_PUSH_COUNT.inc_by(id.len() as u64);
+        }
+
+        Ok(tx)
+    }
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(
     _db: &Pool<Postgres>,
@@ -3666,89 +3844,56 @@ pub async fn push<'c, 'd>(
         None
     };
 
-    let raw_flow = raw_flow.map(Json);
-
-    sqlx::query!(
-        "INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
-            created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
-            script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
-            cache_ttl, priority, trigger_kind)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22, $23, $24, $25, $26,
-            CASE WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind END)",
-        job_id,
-        workspace_id,
-        raw_code,
-        raw_lock,
-        raw_flow as Option<Json<FlowValue>>,
-        tag,
+    let pre_run_error = pre_run_error.map(Error::to_string);
+    let args = serde_json::value::to_raw_value(&args).map_err(|e| {
+        Error::InternalErr(format!("Could not serialize args for job {job_id}: {e:#}"))
+    })?;
+    tracing::debug!(
+        "Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, \
+        script_path: {script_path:?}, email {email}, workspace_id {workspace_id}"
+    );
+    tx = RawJob {
+        created_by: &user,
+        permissioned_as: &permissioned_as,
+        permissioned_as_email: &email,
+        kind: job_kind,
+        runnable_id: script_hash,
+        runnable_path: script_path.as_deref(),
         parent_job,
-        user,
-        permissioned_as,
-        script_hash,
-        script_path.clone(),
-        Json(args) as Json<PushArgs>,
-        job_kind.clone() as JobKind,
-        schedule_path,
-        language as Option<ScriptLang>,
+        script_lang: language,
+        flow_step_id: flow_step_id.as_deref(),
+        flow_root_job: root_job,
+        trigger: schedule_path.as_deref(),
+        trigger_kind: schedule_path
+            .as_ref()
+            .and_then(|_| Some(JobTriggerKind::Schedule)),
+        tag: &tag,
         same_worker,
-        pre_run_error.map(|e| e.to_string()),
-        email,
         visible_to_owner,
-        root_job,
         concurrent_limit,
-        if concurrent_limit.is_some() {
-            concurrency_time_window_s
-        } else {
-            None
-        },
-        custom_timeout,
-        flow_step_id,
+
+        concurrency_time_window_s,
         cache_ttl,
-        final_priority,
-    )
-    .execute(&mut *tx)
-    .warn_after_seconds(1)
-    .await?;
-
-    tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
-    let uuid = sqlx::query_scalar!(
-        "INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($1, $2, $3, COALESCE($4, now()), CASE WHEN $3 THEN now() END, $5, $6) \
-         RETURNING id AS \"id!\"",
-        workspace_id,
-        job_id,
-        is_running,
-        scheduled_for_o,
-        tag,
-        final_priority,
-    )
-    .fetch_one(&mut *tx)
-    .warn_after_seconds(1)
+        timeout: custom_timeout,
+        priority: final_priority,
+        pre_run_error: pre_run_error.as_deref(),
+        raw_code: raw_code.as_deref(),
+        raw_lock: raw_lock.as_deref(),
+        raw_flow: raw_flow.as_ref(),
+        flow_status: flow_status.as_ref(),
+        scheduled_for: scheduled_for_o,
+        running: is_running,
+    }
+    .push(tx, job_id, workspace_id, Json(args))
     .await
-    .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
-
-    sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", job_id)
-        .execute(&mut *tx)
-        .await?;
-    if let Some(flow_status) = flow_status {
-        sqlx::query!(
-            "INSERT INTO v2_job_flow_runtime (id, flow_status) VALUES ($1, $2)",
-            job_id,
-            Json(flow_status) as Json<FlowStatus>,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "Could not insert into queue {job_id} with tag {tag}, \
+                schedule_path {schedule_path:?}, script_path: {script_path:?}, \
+                email {email}, workspace_id {workspace_id}: {e:#}"
+        ))
+    })?;
     tracing::debug!("Pushed {job_id}");
-    // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
-    #[cfg(feature = "prometheus")]
-    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        QUEUE_PUSH_COUNT.inc();
-    }
 
     if JOB_TOKEN.is_none() {
         let job_authed = match authed {
@@ -3858,7 +4003,7 @@ pub async fn push<'c, 'd>(
         .await?;
     }
 
-    Ok((uuid, tx))
+    Ok((job_id, tx))
 }
 
 pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
