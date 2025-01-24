@@ -26,10 +26,10 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import NatsTriggerEditor from '$lib/components/triggers/NatsTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
 
 	type TriggerW = NatsTrigger & { canWrite: boolean }
 
@@ -234,14 +234,14 @@
 		<div class="w-full pb-4 pt-6">
 			<input
 				type="text"
-				placeholder="Search nats triggers"
+				placeholder="Search NATS triggers"
 				bind:value={filter}
 				class="search-item"
 			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Nats trigger" icon={NatsIcon} />
+					<ToggleButton small value="trigger" label="NATS trigger" icon={NatsIcon} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>

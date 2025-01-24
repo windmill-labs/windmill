@@ -2454,12 +2454,14 @@ paths:
                     type: boolean
                   nats_used:
                     type: boolean
+                  postgres_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
                   - kafka_used
                   - nats_used
-
+                  - postgres_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -8265,6 +8267,396 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
+    get:
+      summary: check if postgres configuration is set to logical
+      operationId: isValidPostgresConfiguration
+      tags:
+        - postgres_trigger
+      parameters:
+          - $ref: "#/components/parameters/WorkspaceId"
+          - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: boolean that indicates if postgres is set to logical level or not
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/postgres_triggers/create_template_script:
+    post:
+      summary: create template script
+      operationId: createTemplateScript
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: template script
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateScript"
+      responses:
+        "200":
+          description: custom id to retrieve template script
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/get_template_script/{id}:
+    get:
+      summary: get template script
+      operationId: getTemplateScript
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: template script
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/slot/list/{path}:
+    get:
+      summary: list postgres replication slot
+      operationId: listPostgresReplicationSlot
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: list postgres slot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SlotList"
+
+  /w/{workspace}/postgres_triggers/slot/create/{path}:
+    post:
+      summary: create replication slot for postgres 
+      operationId: createPostgresReplicationSlot
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: new slot for postgres
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Slot"
+      responses:
+        "201":
+          description: slot created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/slot/delete/{path}:
+    delete:
+      summary: delete postgres replication slot
+      operationId: deletePostgresReplicationSlot
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: replication slot of postgres
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Slot"
+      responses:
+        "200":
+          description: postgres replication slot deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/publication/list/{path}:
+    get:
+      summary: list postgres publication
+      operationId: listPostgresPublication
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: database publication list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/postgres_triggers/publication/get/{publication}/{path}:
+    get:
+      summary: get postgres publication
+      operationId: getPostgresPublication
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/PublicationName"
+      responses:
+        "200":
+          description: postgres publication get
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationData"
+
+  /w/{workspace}/postgres_triggers/publication/create/{publication}/{path}:
+    post:
+      summary: create publication for postgres
+      operationId: createPostgresPublication
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/PublicationName"
+      requestBody:
+        description: new publication for postgres
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationData"
+      responses:
+        "201":
+          description: publication created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/publication/update/{publication}/{path}:
+    post:
+      summary: update publication for postgres
+      operationId: updatePostgresPublication
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/PublicationName"
+      requestBody:
+        description: update publication for postgres
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationData"
+      responses:
+        "201":
+          description: publication updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
+  /w/{workspace}/postgres_triggers/publication/delete/{publication}/{path}:
+    delete:
+      summary: delete postgres publication
+      operationId: deletePostgresPublication
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/PublicationName"
+      responses:
+        "200":
+          description: postgres publication deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/create:
+    post:
+      summary: create postgres trigger
+      operationId: createPostgresTrigger
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new postgres trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewPostgresTrigger"
+      responses:
+        "201":
+          description: postgres trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/update/{path}:
+    post:
+      summary: update postgres trigger
+      operationId: updatePostgresTrigger
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditPostgresTrigger"
+      responses:
+        "200":
+          description: postgres trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/delete/{path}:
+    delete:
+      summary: delete postgres trigger
+      operationId: deletePostgresTrigger
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: postgres trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/get/{path}:
+    get:
+      summary: get postgres trigger
+      operationId: getPostgresTrigger
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: get postgres trigger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostgresTrigger"
+
+  /w/{workspace}/postgres_triggers/list:
+    get:
+      summary: list postgres triggers
+      operationId: listPostgresTriggers
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: postgres trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PostgresTrigger"
+
+  /w/{workspace}/postgres_triggers/exists/{path}:
+    get:
+      summary: does postgres trigger exists
+      operationId: existsPostgresTrigger
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: postgres trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/postgres_triggers/setenabled/{path}:
+    post:
+      summary: set enabled postgres trigger
+      operationId: setPostgresTriggerEnabled
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated postgres trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: postgres trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /groups/list:
     get:
@@ -9119,8 +9511,7 @@ paths:
           required: true
           schema:
             type: string
-            enum:
-              [
+            enum: [
                 script,
                 group_,
                 resource,
@@ -9134,6 +9525,7 @@ paths:
                 websocket_trigger,
                 kafka_trigger,
                 nats_trigger,
+                postgres_trigger,
               ]
       responses:
         "200":
@@ -9174,6 +9566,7 @@ paths:
                 websocket_trigger,
                 kafka_trigger,
                 nats_trigger,
+                postgres_trigger,
               ]
       requestBody:
         description: acl to add
@@ -9225,6 +9618,7 @@ paths:
                 websocket_trigger,
                 kafka_trigger,
                 nats_trigger,
+                postgres_trigger,
               ]
       requestBody:
         description: acl to add
@@ -10648,6 +11042,12 @@ components:
       name: token
 
   parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
     Key:
       name: key
       in: path
@@ -10656,6 +11056,12 @@ components:
         type: string
     WorkspaceId:
       name: workspace
+      in: path
+      required: true
+      schema:
+        type: string
+    PublicationName:
+      name: publication
       in: path
       required: true
       schema:
@@ -11082,28 +11488,7 @@ components:
         lock_error_logs:
           type: string
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              oracledb,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-              csharp,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         kind:
           type: string
           enum: [script, failure, trigger, command, approval, preprocessor]
@@ -11188,28 +11573,7 @@ components:
         lock:
           type: string
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              oracledb,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-              csharp,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         kind:
           type: string
           enum: [script, failure, trigger, command, approval, preprocessor]
@@ -11416,28 +11780,7 @@ components:
         is_flow_step:
           type: boolean
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              oracledb,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-              csharp,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         email:
           type: string
         visible_to_owner:
@@ -11540,28 +11883,7 @@ components:
         is_flow_step:
           type: boolean
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              oracledb,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-              csharp,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         is_skipped:
           type: boolean
         email:
@@ -12087,6 +12409,30 @@ components:
         - no_main_func
         - has_preprocessor
 
+    ScriptLang:
+      type: string
+      enum:
+        [
+          python3,
+          deno,
+          go,
+          bash,
+          powershell,
+          postgresql,
+          mysql,
+          bigquery,
+          snowflake,
+          mssql,
+          oracledb,
+          graphql,
+          nativets,
+          bun,
+          php,
+          rust,
+          ansible,
+          csharp
+        ]
+
     Preview:
       type: object
       properties:
@@ -12097,28 +12443,7 @@ components:
         args:
           $ref: "#/components/schemas/ScriptArgs"
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              oracledb,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-              csharp,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
         tag:
           type: string
         kind:
@@ -12483,16 +12808,36 @@ components:
         - is_flow
         - args
 
-    HttpTrigger:
+    TriggerExtraProperty:
       type: object
       properties:
-        path:
+        email:
+          type: string
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        workspace_id:
           type: string
         edited_by:
           type: string
         edited_at:
           type: string
           format: date-time
+      required:
+        - email
+        - extra_perms
+        - workspace_id
+        - edited_by
+        - edited_at
+
+    HttpTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        path:
+          type: string
         script_path:
           type: string
         route_path:
@@ -12510,14 +12855,6 @@ components:
             - s3
         is_flow:
           type: boolean
-        extra_perms:
-          type: object
-          additionalProperties:
-            type: boolean
-        email:
-          type: string
-        workspace_id:
-          type: string
         http_method:
           type: string
           enum:
@@ -12650,35 +12987,26 @@ components:
           type: number
         websocket_count:
           type: number
+        postgres_count:
+          type: number
         kafka_count:
           type: number
         nats_count:
           type: number
 
     WebsocketTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
         path:
           type: string
-        edited_by:
-          type: string
-        edited_at:
-          type: string
-          format: date-time
         script_path:
           type: string
         url:
           type: string
         is_flow:
           type: boolean
-        extra_perms:
-          type: object
-          additionalProperties:
-            type: boolean
-        email:
-          type: string
-        workspace_id:
-          type: string
         server_id:
           type: string
         last_server_ping:
@@ -12818,6 +13146,168 @@ components:
                 - is_flow
           required:
             - runnable_result
+    
+    Slot:
+      type: object
+      properties:
+        name:
+          type: string
+
+    SlotList:
+      type: object
+      properties:
+        slot_name:
+          type: string
+        active:
+          type: boolean
+
+    PublicationData:
+      type: object
+      properties:
+        table_to_track:
+          type: array
+          items:
+            $ref: "#/components/schemas/Relations"
+        transaction_to_track:
+          type: array
+          items:
+            type: string
+      required:
+        - transaction_to_track
+
+    TableToTrack:
+      type: array
+      items:
+        type: object
+        properties:
+          table_name:
+            type: string
+          columns_name:
+            type: array
+            items:
+              type: string
+          where_clause:
+            type: string
+        required:
+          - table_name
+
+    Relations:
+      type: object
+      properties:
+        schema_name:
+          type: string
+        table_to_track:
+          $ref: "#/components/schemas/TableToTrack"
+      required:
+        - schema_name
+        - table_to_track
+
+    Language:
+      type: string
+      enum:
+        - Typescript
+
+    TemplateScript:
+      type: object
+      properties:
+        postgres_resource_path:
+          type: string
+        relations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Relations"
+        language:
+          $ref: "#/components/schemas/Language"
+      required:
+        - postgres_resource_path
+        - relations
+        - language
+  
+    PostgresTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+        postgres_resource_path:
+          type: string
+        publication_name:
+          type: string
+        server_id:
+          type: string
+        replication_slot_name:
+          type: string
+        error:
+          type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - postgres_resource_path
+        - replication_slot_name
+        - publication_name
+
+    NewPostgresTrigger:
+      type: object
+      properties:
+        replication_slot_name:
+          type: string
+        publication_name:
+          type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+        postgres_resource_path:
+          type: string
+        publication:
+          $ref: "#/components/schemas/PublicationData"
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - postgres_resource_path
+  
+    EditPostgresTrigger:
+      type: object
+      properties:
+        replication_slot_name:
+          type: string
+        publication_name:
+          type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+        postgres_resource_path:
+          type: string
+        publication:
+          $ref: "#/components/schemas/PublicationData"
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - postgres_resource_path
+        - publication_name
+        - replication_slot_name
 
     KafkaTrigger:
       type: object
@@ -13844,28 +14334,7 @@ components:
         path:
           type: string
         language:
-          type: string
-          enum:
-            [
-              python3,
-              deno,
-              go,
-              bash,
-              powershell,
-              postgresql,
-              mysql,
-              bigquery,
-              snowflake,
-              mssql,
-              oracledb,
-              graphql,
-              nativets,
-              bun,
-              php,
-              rust,
-              ansible,
-              csharp,
-            ]
+          $ref: "#/components/schemas/ScriptLang"
       required:
         - raw_code
         - path

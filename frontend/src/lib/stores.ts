@@ -1,6 +1,12 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
-import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList, type OperatorSettings } from './gen'
+
+import {
+	type WorkspaceDefaultScripts,
+	type TokenResponse,
+	type UserWorkspaceList,
+  type OperatorSettings
+} from './gen'
 import type { IntrospectionQuery } from 'graphql'
 import { getLocalSetting } from './utils'
 

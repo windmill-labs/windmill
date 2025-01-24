@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
-	import Description from '../Description.svelte'
-	import HighlightTheme from '../HighlightTheme.svelte'
-	import TriggersEditorSection from './TriggersEditorSection.svelte'
+	import Description from '$lib/components/Description.svelte'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
+	import TriggersEditorSection from '../TriggersEditorSection.svelte'
 
 	export let token: string
 	export let args: Record<string, any> = {}

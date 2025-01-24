@@ -14,6 +14,7 @@ pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
+pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
@@ -39,7 +40,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 54] = [
+pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -62,6 +63,7 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
+    "INSTANCE_PYTHON_VERSION",
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",
     "PIP_TRUSTED_HOST",

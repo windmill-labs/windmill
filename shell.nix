@@ -29,7 +29,7 @@ in pkgs.mkShell {
     postgresql
     watchexec # used in client's dev.nu
     poetry # for python client
-    uv
+    # uv
     python312Packages.pip-tools # pip-compile
   ];
 

@@ -66,6 +66,8 @@ pub enum Error {
     AiError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
+    #[error("Find python error: {0}")]
+    FindPythonError(String),
     #[error("{0}")]
     Utf8(#[from] std::string::FromUtf8Error),
     #[error("Encoding/decoding error: {0}")]
