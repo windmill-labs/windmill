@@ -87,6 +87,73 @@
             cd ./frontend
             npm run dev $*
           '')
+          (pkgs.writeScriptBin "wm-sqlx-prepare" ''
+            # Dynamically get the first remote
+            REMOTE=$(git remote | head -n 1)
+            # Construct the branch ref, e.g. "base/main" or "origin/main"
+            BASE_BRANCH="$REMOTE/main"
+            WORK_BRANCH="$(git branch --show-current)"
+            
+            # We will build our own "git rebase -i" todo list with "pick" for each commit
+            # after BASE_BRANCH, and an exec step that calls our prepare script
+            TODO_FILE="$(mktemp)"
+            EXEC_SCRIPT_NAME="prepare_sqlx.sh"
+            
+            # 1) Write out a small script that resets ./backend/.sqlx, runs cargo sqlx, and amends
+            cat > "$EXEC_SCRIPT_NAME" <<'EOS'
+            #!/usr/bin/env bash
+            set -euo pipefail
+            
+            # 1. Revert ./backend/.sqlx to the parent's version (discard the current commit’s .sqlx changes)
+            git restore --source=HEAD^ --staged --worktree -- ./backend/.sqlx
+            git commit --amend --no-edit
+            
+            # 2. Re-run cargo sqlx prepare
+            (
+              cd backend
+              cargo sqlx prepare --workspace -- --all-targets --all-features
+            )
+            
+            # 3. Keep only untracked files
+            git reset HEAD --hard
+            
+            # 4. Stage changes in ./backend/.sqlx
+            if [ -n "$(git status --porcelain ./backend/.sqlx)" ]; then
+              git add ./backend/.sqlx
+              # 5. Amend the current commit to include the new or updated files
+              git commit --amend --no-edit
+            fi
+            
+            # 5. Continue, exiting 0 tells rebase to continue automatically.
+            exit 0
+            EOS
+            
+            chmod +x "$EXEC_SCRIPT_NAME"
+            
+            # 2) Build the rebase todo list.
+            #    Note: --reverse ensures commits go oldest -> newest in order.
+            commits=$(git rev-list --reverse "$BASE_BRANCH..$WORK_BRANCH")
+            
+            if [ -z "$commits" ]; then
+              echo "No commits found after $BASE_BRANCH on $WORK_BRANCH."
+              exit 0
+            fi
+            
+            # For each commit, we 'pick' it, then 'exec' our script
+            for commit in $commits; do
+              commit_msg="$(git log --format=%s -n1 "$commit")"
+              echo "pick $commit $commit_msg" >> "$TODO_FILE"
+              echo "exec ./$EXEC_SCRIPT_NAME" >> "$TODO_FILE"
+            done
+            
+            # 3) Now run the interactive rebase with our custom todo file,
+            #    but skip opening an editor by overriding GIT_SEQUENCE_EDITOR.
+            GIT_SEQUENCE_EDITOR="cat '$TODO_FILE' >" git rebase -i --autosquash --autostash "$BASE_BRANCH"
+            
+            # Clean up
+            rm -f "$TODO_FILE"
+            rm -f "$EXEC_SCRIPT_NAME"
+          '')
         ];
 
         inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
