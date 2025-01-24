@@ -6,6 +6,46 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Select Python version',
+		href: 'https://www.windmill.dev/changelog/select-python-version',
+		date: '2025-01-24'
+	},
+	{
+		label: 'Postgres triggers',
+		href: 'https://www.windmill.dev/changelog/postgres-triggers',
+		date: '2025-01-24'
+	},
+	{
+		label: 'Oracle support',
+		href: 'https://www.windmill.dev/changelog/oracle-support',
+		date: '2025-01-15'
+	},
+	{
+		label: 'NATS triggers',
+		href: 'https://www.windmill.dev/changelog/nats-triggers',
+		date: '2025-01-15'
+	},
+	{
+		label: 'Workspace color',
+		href: 'https://www.windmill.dev/changelog/workspace-color',
+		date: '2025-01-10'
+	},
+	{
+		label: 'Interactive Slack approval steps',
+		href: 'https://www.windmill.dev/changelog/slack-approval-steps',
+		date: '2024-12-20'
+	},
+	{
+		label: 'C#',
+		href: 'https://www.windmill.dev/changelog/csharp',
+		date: '2024-12-13'
+	},
+	{
+		label: 'App custom URL',
+		href: 'https://www.windmill.dev/changelog/app-custom-url',
+		date: '2024-12-05'
+	},
+	{
 		label: 'Full text search on jobs and logs',
 		href: 'https://www.windmill.dev/changelog/instant-full-text-search-on-jobs-and-logs',
 		date: '2024-12-05'
