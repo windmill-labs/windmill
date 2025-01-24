@@ -25,7 +25,7 @@
 
 	let originalSettings = { ...operatorWorkspaceSettings }
 	let isChanged = false
-	let currentWorkspace = null
+	let currentWorkspace: string | null = null
 
 	async function saveSettings() {
 		try {
