@@ -60,26 +60,27 @@
 		},
 		{
 			label: 'Custom HTTP routes',
-      id: "triggers"
+			id: 'triggers',
 			href: `${base}/routes`
 		},
 		{
 			label: 'Websocket triggers',
-      id: "triggers"
+			id: 'triggers',
 			href: `${base}/websocket_triggers`
 		},
 		{
 			label: 'Postgres triggers',
+			id: 'triggers',
 			href: `${base}/kafka_triggers`
 		},
 		{
 			label: 'Kafka triggers',
-      id: "triggers"
+			id: 'triggers',
 			href: `${base}/kafka_triggers`
 		},
 		{
 			label: 'NATS triggers',
-      id: "triggers"
+			id: 'triggers',
 			href: `${base}/nats_triggers`
 		},
 		{
