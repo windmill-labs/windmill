@@ -18,7 +18,7 @@
 	import Menu from '../common/menu/MenuV2.svelte'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
-	import { enterpriseLicense, superadmin } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userWorkspaces, workspaceStore } from '$lib/stores'
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import MenuLink from './MenuLink.svelte'
@@ -37,58 +37,76 @@
 		kind: 'script' | 'flow' | 'app' | 'raw_app'
 	}[]
 
-	const mainMenuLinks = [
-		{ label: 'Home', href: `${base}/`, icon: Home },
-		{ label: 'Runs', href: `${base}/runs`, icon: Play },
-		{ label: 'Schedules', href: `${base}/schedules`, icon: Calendar }
-	]
+	$: mainMenuLinks = [
+		{ label: 'Home', id: 'home', href: `${base}/`, icon: Home },
+		{ label: 'Runs', id: 'runs', href: `${base}/runs`, icon: Play },
+		{ label: 'Schedules', id: 'schedules', href: `${base}/schedules`, icon: Calendar }
+	].filter(
+		(link) =>
+			link.id === 'home' ||
+			($userWorkspaces && $workspaceStore && $userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] === true)
+	)
 
-	let secondMenuLinks = [
+	$: secondMenuLinks = [
 		{
 			label: 'Resources',
+			id: 'resources',
 			href: `${base}/resources`
 		},
 		{
 			label: 'Variables',
+			id: 'variables',
 			href: `${base}/variables`
 		},
 		{
 			label: 'Custom HTTP routes',
+			id: 'triggers',
 			href: `${base}/routes`
 		},
 		{
 			label: 'Websocket triggers',
+			id: 'triggers',
 			href: `${base}/websocket_triggers`
 		},
 		{
 			label: 'Postgres triggers',
-			href: `${base}/kafka_triggers`
+			id: 'triggers',
+			href: `${base}/postgres_triggers`
 		},
 		{
 			label: 'Kafka triggers',
+			id: 'triggers',
 			href: `${base}/kafka_triggers`
 		},
 		{
 			label: 'NATS triggers',
+			id: 'triggers',
 			href: `${base}/nats_triggers`
 		},
 		{
 			label: 'Audit logs',
+			id: 'audit_logs',
 			href: `${base}/audit_logs`
 		},
 		{
 			label: 'Groups',
+			id: 'groups',
 			href: `${base}/groups`
 		},
 		{
 			label: 'Folders',
+			id: 'folders',
 			href: `${base}/folders`
 		},
 		{
 			label: 'Workers',
+			id: 'workers',
 			href: `${base}/workers`
 		}
-	]
+	].filter((link) => {
+		if (!$userWorkspaces || !$workspaceStore) return false;
+		return $userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] === true
+	})
 
 	let moreOpen = false
 </script>
@@ -208,7 +226,7 @@
 			class="divide-y"
 			role="none"
 		>
-			{#if moreOpen == false}
+			{#if moreOpen == false && secondMenuLinks.length > 0}
 				<div class="px-2 text-tertiary text-2xs">More...</div>
 			{:else}
 				{#each secondMenuLinks as menuLink (menuLink.href ?? menuLink.label)}

@@ -1618,6 +1618,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
 
+  /w/{workspace}/workspaces/operator_settings:
+    post:
+      operationId: updateOperatorSettings
+      summary: Update operator settings for a workspace
+      description: Updates the operator settings for a specific workspace. Requires workspace admin privileges.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OperatorSettings"
+      responses:
+        '200':
+          description: Operator settings updated successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/exists/{email}:
     get:
       summary: exists email
@@ -1745,6 +1768,8 @@ paths:
                     type: boolean
                   color:
                     type: string
+                  operator_settings:
+                    $ref: "#/components/schemas/OperatorSettings"
                 required:
                   - code_completion_enabled
                   - automatic_billing
@@ -13643,6 +13668,8 @@ components:
                 type: string
               color:
                 type: string
+              operator_settings:
+                $ref: "#/components/schemas/OperatorSettings"
             required:
               - id
               - name
@@ -14501,6 +14528,48 @@ components:
       required:
         - trigger_kind
 
+    OperatorSettings:
+      nullable: true
+      type: object
+      required:
+        - runs
+        - schedules
+        - resources
+        - variables
+        - triggers
+        - audit_logs
+        - groups
+        - folders
+        - workers
+      properties:
+        runs:
+          type: boolean
+          description: Whether operators can view runs
+        schedules:
+          type: boolean
+          description: Whether operators can view schedules
+        resources:
+          type: boolean
+          description: Whether operators can view resources
+        variables:
+          type: boolean
+          description: Whether operators can view variables
+        audit_logs:
+          type: boolean
+          description: Whether operators can view audit logs
+        triggers:
+          type: boolean
+          description: Whether operators can view triggers
+        groups:
+          type: boolean
+          description: Whether operators can view groups page
+        folders:
+          type: boolean
+          description: Whether operators can view folders page
+        workers:
+          type: boolean
+          description: Whether operators can view workers page
+
     TeamInfo:
       type: object
       required:
@@ -14521,7 +14590,7 @@ components:
           description: List of channels within the team
           items:
             $ref: '#/components/schemas/ChannelInfo'
-    
+
     ChannelInfo:
       type: object
       required:

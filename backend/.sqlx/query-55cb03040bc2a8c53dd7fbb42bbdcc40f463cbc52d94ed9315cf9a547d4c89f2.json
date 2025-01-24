@@ -127,6 +127,11 @@
         "ordinal": 24,
         "name": "color",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 25,
+        "name": "operator_settings",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -156,6 +161,7 @@
       true,
       true,
       false,
+      true,
       true,
       true,
       true,

@@ -11,7 +11,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { Pen, Plus, Trash } from 'lucide-svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -73,6 +73,12 @@
 	</DrawerContent>
 </Drawer>
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.groups}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 <CenteredPage>
 	<PageHeader
 		title="Groups"
@@ -221,6 +227,7 @@
 		</div>
 	{/if}
 </CenteredPage>
+{/if}
 
 <style>
 </style>
