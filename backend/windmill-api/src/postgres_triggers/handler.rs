@@ -25,7 +25,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{
     postgres::{types::Oid, PgConnectOptions, PgSslMode},
-    Connection, Execute, FromRow, PgConnection, QueryBuilder,
+    Connection, FromRow, PgConnection, QueryBuilder,
 };
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::Error;
