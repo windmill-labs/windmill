@@ -24,6 +24,7 @@
 		| 'routes'
 		| 'websockets'
 		| 'kafka'
+		| 'postgres'
 		| 'nats'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
@@ -66,6 +67,12 @@
 					Websockets
 				</span>
 			</Tab>
+			<Tab value="postgres">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<Unplug size={12} />
+					Postgres
+				</span>
+			</Tab>
 			<Tab value="kafka" otherValues={['nats']}>
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<PlugZap size={12} />
@@ -97,6 +104,8 @@
 						<slot name="schedules" />
 					{:else if triggerSelected === 'websockets'}
 						<slot name="websockets" />
+					{:else if triggerSelected === 'postgres'}
+						<slot name="postgres" />
 					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
 						<div class="m-1.5">
 							<ToggleButtonGroup bind:selected={eventStreamType}>

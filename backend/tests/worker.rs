@@ -1,7 +1,7 @@
 use serde::de::DeserializeOwned;
 use std::future::Future;
 use std::{str::FromStr, sync::Arc};
-use windmill_api_client::types::{NewScript, NewScriptLanguage};
+use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;

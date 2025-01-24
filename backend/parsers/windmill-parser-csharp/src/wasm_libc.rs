@@ -1,11 +1,11 @@
+use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
 use std::{
     alloc::{self, Layout},
     ffi::{c_char, c_int, c_void},
     mem::align_of,
     ptr,
 };
-use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock};
 use wasm_bindgen::prelude::*;
 
 /* -------------------------------- stdlib.h -------------------------------- */
@@ -70,7 +70,6 @@ pub unsafe extern "C" fn free(buf: *mut c_void) {
     let (buf, layout) = retrieve_layout(buf);
     alloc::dealloc(buf, layout);
 }
-
 
 // In all these allocations, we store the layout before the data for later retrieval.
 // This is because we need to know the layout when deallocating the memory.

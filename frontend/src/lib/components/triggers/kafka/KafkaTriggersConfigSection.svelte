@@ -1,15 +1,14 @@
 <script lang="ts">
-	import ResourcePicker from '../ResourcePicker.svelte'
+	import ResourcePicker from '../../ResourcePicker.svelte'
 	import { Boxes } from 'lucide-svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import SchemaForm from '../SchemaForm.svelte'
-	import CaptureSection, { type CaptureInfo } from './CaptureSection.svelte'
-	import CaptureTable from './CaptureTable.svelte'
+	import ToggleButton from '../../common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '../../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import SchemaForm from '../../SchemaForm.svelte'
+	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
+	import CaptureTable from '../CaptureTable.svelte'
 	import { workspaceStore } from '$lib/stores'
-
 	export let path: string
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false

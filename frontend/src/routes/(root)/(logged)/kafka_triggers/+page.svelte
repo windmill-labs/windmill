@@ -26,10 +26,10 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import KafkaTriggerEditor from '$lib/components/triggers/KafkaTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 
 	type TriggerW = KafkaTrigger & { canWrite: boolean }
 

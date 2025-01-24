@@ -12,7 +12,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '../Toggle.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 
 	let drawer: Drawer

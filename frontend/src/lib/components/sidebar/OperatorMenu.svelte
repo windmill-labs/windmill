@@ -53,16 +53,24 @@
 			href: `${base}/variables`
 		},
 		{
-			label: 'Custom HTTP Routes',
+			label: 'Custom HTTP routes',
 			href: `${base}/routes`
 		},
 		{
-			label: 'Websocket Triggers',
-			href: `${base}/websockets`
+			label: 'Websocket triggers',
+			href: `${base}/websocket_triggers`
 		},
 		{
-			label: 'Kafka Triggers',
-			href: `${base}/kafka`
+			label: 'Postgres triggers',
+			href: `${base}/kafka_triggers`
+		},
+		{
+			label: 'Kafka triggers',
+			href: `${base}/kafka_triggers`
+		},
+		{
+			label: 'NATS triggers',
+			href: `${base}/nats_triggers`
 		},
 		{
 			label: 'Audit logs',

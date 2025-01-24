@@ -2,12 +2,12 @@
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import { capitalize } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
-	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
-	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
+	import RouteEditorConfigSection from './http/RouteEditorConfigSection.svelte'
+	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
+	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
-	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
-	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
+	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
+	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false

@@ -5,15 +5,15 @@
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
-	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
-	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
+	import RouteEditorConfigSection from './http/RouteEditorConfigSection.svelte'
+	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
+	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
-	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
+	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
-	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
+	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string

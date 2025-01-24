@@ -25,6 +25,8 @@ mod job_logger_ee;
 mod js_eval;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
+#[cfg(feature = "oracledb")]
+mod oracledb_executor;
 mod pg_executor;
 #[cfg(feature = "php")]
 mod php_executor;
@@ -36,8 +38,6 @@ mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
-#[cfg(feature = "oracledb")]
-mod oracledb_executor;
 pub use worker::*;
 
 pub use result_processor::handle_job_error;

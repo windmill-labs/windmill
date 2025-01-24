@@ -2,15 +2,15 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { KafkaTriggerService, type KafkaTrigger } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import Alert from '../common/alert/Alert.svelte'
-	import type { TriggerContext } from '../triggers'
 	import { getContext, onMount } from 'svelte'
 	import KafkaTriggerEditor from './KafkaTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import TriggersEditorSection from './TriggersEditorSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import Description from '../Description.svelte'
+	import Description from '$lib/components/Description.svelte'
+	import { Alert } from '$lib/components/common'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import TriggersEditorSection from '../TriggersEditorSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -106,7 +106,7 @@
 
 		{#if !newItem}
 			{#if kafkaTriggers}
-				<Section label="Kafka Triggers">
+				<Section label="Kafka triggers">
 					{#if kafkaTriggers.length == 0}
 						<div class="text-xs text-secondary text-center"> No kafka triggers </div>
 					{:else}

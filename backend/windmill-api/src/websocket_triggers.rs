@@ -380,7 +380,7 @@ async fn exists_websocket_trigger(
 async fn listen_to_unlistened_websockets(
     db: &DB,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
-) -> () {
+) {
     match sqlx::query_as::<_, WebsocketTrigger>(
         r#"SELECT *
             FROM websocket_trigger

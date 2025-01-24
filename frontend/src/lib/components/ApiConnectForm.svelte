@@ -24,8 +24,10 @@
 	let supabaseWizard = false
 
 	async function isSupabaseAvailable() {
-		supabaseWizard =
-			((await OauthService.listOauthConnects()) ?? {})['supabase_wizard'] != undefined
+		try {
+			supabaseWizard =
+				((await OauthService.listOauthConnects()) ?? {})['supabase_wizard'] != undefined
+		} catch (error) {}
 	}
 	async function loadSchema() {
 		if (!resourceTypeInfo) return

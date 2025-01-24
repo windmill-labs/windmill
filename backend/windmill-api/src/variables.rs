@@ -676,3 +676,28 @@ pub async fn get_value_internal<'c>(
 
     Ok(r)
 }
+
+pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let path = path.strip_prefix("$var:").unwrap().to_string();
+
+    let record = sqlx::query!(
+        "SELECT value, is_secret 
+         FROM variable 
+         WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
+    )
+    .fetch_one(db)
+    .await?;
+
+    let mut value = record.value;
+    if record.is_secret {
+        let mc = build_crypt(db, w_id).await?;
+        value = decrypt(&mc, value)?;
+    }
+
+    Ok(value)
+}

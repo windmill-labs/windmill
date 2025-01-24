@@ -12,10 +12,10 @@
 	// import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
-	import type { CaptureInfo } from './CaptureSection.svelte'
-	import CaptureSection from './CaptureSection.svelte'
-	import CaptureTable from './CaptureTable.svelte'
-	import ClipboardPanel from '../details/ClipboardPanel.svelte'
+	import type { CaptureInfo } from '../CaptureSection.svelte'
+	import CaptureSection from '../CaptureSection.svelte'
+	import CaptureTable from '../CaptureTable.svelte'
+	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 
 	export let isFlow: boolean
 	export let path: string

@@ -1,15 +1,14 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
-	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import RouteEditor from './RouteEditor.svelte'
 	import { canWrite } from '$lib/utils'
-	import Alert from '../common/alert/Alert.svelte'
-	import type { TriggerContext } from '../triggers'
 	import { getContext, onMount } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import TriggersEditorSection from './TriggersEditorSection.svelte'
-	import Description from '../Description.svelte'
+	import { Alert, Skeleton } from '$lib/components/common'
+	import Description from '$lib/components/Description.svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import TriggersEditorSection from '../TriggersEditorSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string

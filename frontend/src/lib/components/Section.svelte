@@ -6,6 +6,7 @@
 
 	export let label: string | undefined = undefined
 	export let tooltip: string | undefined = undefined
+	export let documentationLink: string | undefined = undefined
 	export let eeOnly = false
 	export let small: boolean = false
 
@@ -38,7 +39,7 @@
 
 				<slot name="header" />
 				{#if tooltip}
-					<Tooltip>{tooltip}</Tooltip>
+					<Tooltip {documentationLink}>{tooltip}</Tooltip>
 				{/if}
 				{#if eeOnly}
 					{#if !$enterpriseLicense}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Unplug, PlugZap } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Unplug, Database, PlugZap } from 'lucide-svelte'
 	import TriggerButton from './TriggerButton.svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
@@ -29,6 +29,7 @@
 		| 'nats'
 		| 'emails'
 		| 'eventStreams'
+		| 'postgres'
 	)[] = showOnlyWithCount
 		? ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'nats', 'emails']
 		: ['webhooks', 'schedules', 'routes', 'websockets', 'eventStreams', 'emails']
@@ -61,9 +62,10 @@
 		schedules: { icon: Calendar, countKey: 'schedule_count' },
 		routes: { icon: Route, countKey: 'http_routes_count' },
 		websockets: { icon: Unplug, countKey: 'websocket_count' },
+		postgres: { icon: Database, countKey: 'postgres_count' },
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
-		nats: { icon: NatsIcon, countKey: 'nats_count' },
 		emails: { icon: Mail, countKey: 'email_count' },
+		nats: { icon: NatsIcon, countKey: 'nats_count' },
 		eventStreams: { icon: PlugZap }
 	}
 

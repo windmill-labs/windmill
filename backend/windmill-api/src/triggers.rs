@@ -20,6 +20,7 @@ pub struct TriggersCount {
     websocket_count: i64,
     kafka_count: i64,
     nats_count: i64,
+    postgres_count: i64,
 }
 pub(crate) async fn get_triggers_count_internal(
     db: &DB,
@@ -86,6 +87,16 @@ pub(crate) async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
+    let postgres_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM postgres_trigger WHERE script_path = $1 AND is_flow = $2 AND workspace_id = $3",
+        path,
+        is_flow,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
     let webhook_count = (if is_flow {
         sqlx::query_scalar!(
             "SELECT COUNT(*) FROM token WHERE label LIKE 'webhook-%' AND workspace_id = $1 AND scopes @> ARRAY['run:flow/' || $2]::text[]",
@@ -129,6 +140,7 @@ pub(crate) async fn get_triggers_count_internal(
         websocket_count,
         kafka_count,
         nats_count,
+        postgres_count,
     }))
 }
 

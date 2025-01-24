@@ -113,13 +113,17 @@ export async function main() {
 }
 `
 
-const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
+const DENO_INIT_BLOCK = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // Deno uses "npm:" prefix to import from npm (https://deno.land/manual@v1.36.3/node/npm_specifiers)
 // import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
-// type Postgresql = object
+// type Postgresql = object`
+
+const DENO_INIT_CODE =
+	DENO_INIT_BLOCK +
+	`
 
 export async function main(
   a: number,
@@ -134,14 +138,18 @@ export async function main(
 }
 `
 
-const BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+const BUN_INIT_BLOCK = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
 // https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
 
 // import { toWords } from "number-to-words@1"
 import * as wmill from "windmill-client"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
-// type Postgresql = object
+// type Postgresql = object`
+
+const BUN_INIT_CODE =
+	BUN_INIT_BLOCK +
+	`
 
 
 export async function main(
@@ -572,7 +580,7 @@ export async function main(approver?: string) {
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -609,7 +617,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -790,6 +798,7 @@ dependencies:
 `
 export const INITIAL_CODE = {
 	bun: {
+		scriptInitCodeBlock: BUN_INIT_BLOCK,
 		script: BUN_INIT_CODE,
 		trigger: BUN_INIT_CODE_TRIGGER,
 		approval: BUN_INIT_CODE_APPROVAL,
@@ -806,6 +815,7 @@ export const INITIAL_CODE = {
 		clear: PYTHON_INIT_CODE_CLEAR
 	},
 	deno: {
+		scriptInitCodeBlock: DENO_INIT_BLOCK,
 		script: DENO_INIT_CODE,
 		trigger: DENO_INIT_CODE_TRIGGER,
 		approval: DENO_INIT_CODE_APPROVAL,
@@ -893,7 +903,8 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
-		| undefined
+		| undefined,
+	templateScript?: boolean
 ): string {
 	if (!kind) {
 		kind = 'script'
@@ -979,6 +990,8 @@ export function initialCode(
 			return INITIAL_CODE.bun.failure
 		} else if (kind === 'preprocessor') {
 			return INITIAL_CODE.bun.preprocessor
+		} else if (templateScript == true) {
+			return INITIAL_CODE.bun.scriptInitCodeBlock
 		} else if (subkind === 'flow') {
 			return INITIAL_CODE.bun.clear
 		}
