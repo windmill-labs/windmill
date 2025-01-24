@@ -448,10 +448,16 @@ async fn transform_schemas(
                 let is_required = required.unwrap().contains(key);
 
                 let default_value = default_args_json.and_then(|json| json.get(key).cloned());
-                let dynamic_enums_value = dynamic_enums_json.and_then(|json| json.get(key).cloned());
+                let dynamic_enums_value =
+                    dynamic_enums_json.and_then(|json| json.get(key).cloned());
 
-                let input_block =
-                    create_input_block(key, schema, is_required, default_value, dynamic_enums_value);
+                let input_block = create_input_block(
+                    key,
+                    schema,
+                    is_required,
+                    default_value,
+                    dynamic_enums_value,
+                );
                 match input_block {
                     serde_json::Value::Array(arr) => blocks.extend(arr),
                     _ => blocks.push(input_block),
@@ -536,7 +542,7 @@ fn create_input_block(
 
     // Handle date-time format
     if let FieldType::String = schema.r#type {
-        if schema.format.as_deref() == Some("date-time") {  
+        if schema.format.as_deref() == Some("date-time") {
             tracing::debug!("Date-time type");
             let now = chrono::Local::now();
             let current_date = now.format("%Y-%m-%d").to_string();

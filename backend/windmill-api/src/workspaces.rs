@@ -35,7 +35,7 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::build_crypt;
+use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::to_raw_value;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -52,7 +52,6 @@ use windmill_git_sync::handle_deployment_metadata;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
-use windmill_common::variables::{decrypt, encrypt};
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
@@ -1304,6 +1303,7 @@ struct UsedTriggers {
     pub http_routes_used: bool,
     pub kafka_used: bool,
     pub nats_used: bool,
+    pub postgres_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1314,12 +1314,17 @@ async fn get_used_triggers(
     let mut tx = user_db.begin(&authed).await?;
     let websocket_used = sqlx::query_as!(
         UsedTriggers,
-        r#"SELECT 
-            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", 
-            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!",
+        r#"
+        SELECT 
+            
+            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!", 
+           
+            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
-            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!""#,
-        w_id,
+            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
+            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!"
+        "#,
+        w_id
     )
     .fetch_one(&mut *tx)
     .await?;

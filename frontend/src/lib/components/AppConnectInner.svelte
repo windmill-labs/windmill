@@ -75,7 +75,6 @@
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
-
 	let path: string
 	let description = ''
 

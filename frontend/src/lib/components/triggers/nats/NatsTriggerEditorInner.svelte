@@ -12,8 +12,8 @@
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '../Toggle.svelte'
 	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false

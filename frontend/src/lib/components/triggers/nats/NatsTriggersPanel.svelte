@@ -2,15 +2,15 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { NatsTriggerService, type NatsTrigger } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import Alert from '../common/alert/Alert.svelte'
-	import type { TriggerContext } from '../triggers'
 	import { getContext, onMount } from 'svelte'
 	import NatsTriggerEditor from './NatsTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import TriggersEditorSection from './TriggersEditorSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import Description from '../Description.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Description from '$lib/components/Description.svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import TriggersEditorSection from '../TriggersEditorSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
