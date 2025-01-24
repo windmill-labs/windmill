@@ -1,0 +1,104 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                workspace_id,\n                path,\n                script_path,\n                replication_slot_name,\n                publication_name,\n                is_flow,\n                edited_by,\n                email,\n                edited_at,\n                server_id,\n                last_server_ping,\n                extra_perms,\n                error,\n                enabled,\n                postgres_resource_path\n            FROM\n                postgres_trigger\n            WHERE\n                enabled IS TRUE\n                AND (last_server_ping IS NULL OR\n                    last_server_ping < now() - interval '15 seconds'\n                )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "replication_slot_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "publication_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "server_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_server_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "postgres_resource_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "9cb31818d4db8a0e294884ab3dec08bfc262f99c875bf16c25bfb5e987efe978"
+}
