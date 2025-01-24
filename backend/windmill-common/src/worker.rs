@@ -333,14 +333,18 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
+#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_uv: bool,
     pub no_uv_install: bool,
     pub no_uv_compile: bool,
-
     pub no_postinstall: bool,
+    pub py310: bool,
+    pub py311: bool,
+    pub py312: bool,
+    pub py313: bool,
 }
 
 #[annotations("//")]
