@@ -1364,7 +1364,8 @@ async fn user_workspaces(
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
-        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace_settings.operator_settings
+        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color,
+                CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
          JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id

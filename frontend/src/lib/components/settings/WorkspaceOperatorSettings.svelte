@@ -25,7 +25,7 @@
 
 	let originalSettings = { ...operatorWorkspaceSettings }
 	let isChanged = false
-	let currentWorkspace = $workspaceStore
+	let currentWorkspace = null
 
 	async function saveSettings() {
 		try {
@@ -57,7 +57,6 @@
 	$: if ($workspaceStore && $workspaceStore !== currentWorkspace) {
 		;(async () => {
 			currentWorkspace = $workspaceStore
-			console.log('getting settings')
 			const settings = await WorkspaceService.getSettings({
 				workspace: $workspaceStore
 			})
