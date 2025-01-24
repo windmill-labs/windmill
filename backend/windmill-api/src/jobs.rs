@@ -206,6 +206,7 @@ pub fn workspaced_service() -> Router {
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
+        .route("/queue/poll", post(poll))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route("/completed/count_jobs", get(count_completed_jobs_detail))
@@ -1579,6 +1580,23 @@ async fn cancel_selection(
     tx.commit().await?;
 
     cancel_jobs(jobs_to_cancel, &db, authed.username.as_str(), w_id.as_str()).await
+}
+
+async fn poll(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(jobs): Json<Vec<Uuid>>,
+) -> JsonResult<Vec<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT id FROM v2_job_queue WHERE id = ANY($1) AND workspace_id = $2",
+        &jobs,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await
+    .map(Json)
+    .map_err(Into::into)
 }
 
 async fn list_filtered_uuids(
