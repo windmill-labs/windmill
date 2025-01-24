@@ -17,19 +17,24 @@ use std::sync::Arc;
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
+    // python_311
+    python_xyz: String,
     no_uv: bool,
 ) -> error::Result<()> {
     use object_store::path::Path;
 
-    use crate::{TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR};
+    use crate::{TAR_PIP_CACHE_DIR, TAR_PYBASE_CACHE_DIR};
 
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
+
+    // e.g. tiny==1.0.0
     let folder_name = folder.split("/").last().unwrap();
+
     let prefix = if no_uv {
         TAR_PIP_CACHE_DIR
     } else {
-        TAR_PY311_CACHE_DIR
+        &format!("{TAR_PYBASE_CACHE_DIR}/{}", python_xyz)
     };
     let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
 
@@ -53,7 +58,7 @@ pub async fn build_tar_and_push(
         .put(
             &Path::from(format!(
                 "/tar/{}/{folder_name}.tar",
-                if no_uv { "pip" } else { "python_311" }
+                if no_uv { "pip" } else { &python_xyz }
             )),
             std::fs::read(&tar_path)?.into(),
         )
@@ -82,6 +87,8 @@ pub async fn build_tar_and_push(
 pub async fn pull_from_tar(
     client: Arc<dyn ObjectStore>,
     folder: String,
+    // python_311
+    python_xyz: String,
     no_uv: bool,
 ) -> error::Result<()> {
     use windmill_common::s3_helpers::attempt_fetch_bytes;
@@ -91,13 +98,12 @@ pub async fn pull_from_tar(
     tracing::info!("Attempting to pull piptar {folder_name} from bucket");
 
     let start = Instant::now();
+
     let tar_path = format!(
         "tar/{}/{folder_name}.tar",
-        if no_uv { "pip" } else { "python_311" }
+        if no_uv { "pip".to_owned() } else { python_xyz }
     );
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
-
-    // tracing::info!("B: {target} {folder}");
 
     extract_tar(bytes, &folder).await.map_err(|e| {
         tracing::error!("Failed to extract piptar {folder_name}. Error: {:?}", e);

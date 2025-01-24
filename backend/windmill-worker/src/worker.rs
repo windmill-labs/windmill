@@ -105,7 +105,7 @@ use crate::rust_executor::handle_rust_job;
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::python_executor::handle_python_job;
+use crate::python_executor::{handle_python_job, PyVersion};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -256,14 +256,20 @@ pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 // Used as fallback now
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 
-// pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
+pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
 pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
-// pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
-// pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
+pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
+pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
+
+pub const TAR_PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_310");
+pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
+pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
+pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
 
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
+pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
+pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
-pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
@@ -399,6 +405,7 @@ lazy_static::lazy_static! {
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref INSTANCE_PYTHON_VERSION: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
     static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
@@ -764,6 +771,41 @@ pub async fn run_worker(
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
+
+    #[cfg(feature = "python")]
+    {
+        let (db, worker_name, hostname, worker_dir) = (
+            db.clone(),
+            worker_name.clone(),
+            hostname.to_owned(),
+            worker_dir.clone(),
+        );
+        tokio::spawn(async move {
+            if let Err(e) = PyVersion::from_instance_version()
+                .await
+                .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
+                .await
+            {
+                tracing::error!(
+                    worker = %worker_name,
+                    hostname = %hostname,
+                    worker_dir = %worker_dir,
+                    "Cannot preinstall or find Instance Python version to worker: {e}"//
+                );
+            }
+            if let Err(e) = PyVersion::Py311
+                .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
+                .await
+            {
+                tracing::error!(
+                    worker = %worker_name,
+                    hostname = %hostname,
+                    worker_dir = %worker_dir,
+                    "Cannot preinstall or find default 311 version to worker: {e}"//
+                );
+            }
+        });
+    }
 
     if let Some(ref netrc) = *NETRC {
         tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
