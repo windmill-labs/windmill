@@ -119,7 +119,7 @@
 						</Cell>
 					</tr>
 				</Head>
-				<tbody class="bg-white divide-y divide-gray-200">
+				<tbody class="divide-y bg-surface">
 					{#each Object.entries(descriptions) as [key, { title, description }]}
 						<tr>
 							<Cell first>{title}</Cell>
