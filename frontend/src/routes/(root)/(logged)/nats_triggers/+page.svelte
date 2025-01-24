@@ -15,7 +15,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -26,10 +26,10 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import NatsTriggerEditor from '$lib/components/triggers/NatsTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
 
 	type TriggerW = NatsTrigger & { canWrite: boolean }
 
@@ -208,6 +208,12 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.triggers}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 <CenteredPage>
 	<PageHeader
 		title="NATS triggers"
@@ -228,14 +234,14 @@
 		<div class="w-full pb-4 pt-6">
 			<input
 				type="text"
-				placeholder="Search nats triggers"
+				placeholder="Search NATS triggers"
 				bind:value={filter}
 				class="search-item"
 			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Nats trigger" icon={NatsIcon} />
+					<ToggleButton small value="trigger" label="NATS trigger" icon={NatsIcon} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -419,6 +425,7 @@
 		>
 	{/if}
 </CenteredPage>
+{/if}
 
 <ShareModal
 	bind:this={shareModal}

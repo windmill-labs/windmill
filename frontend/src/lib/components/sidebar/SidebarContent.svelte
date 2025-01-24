@@ -32,7 +32,8 @@
 		UserCog,
 		Plus,
 		Unplug,
-		AlertCircle
+		AlertCircle,
+		Database
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -78,7 +79,6 @@
 			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
 		)
 	]
-
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
 		sendUserToast('You left the workspace')
@@ -102,6 +102,13 @@
 			kind: 'ws'
 		},
 		{
+			label: 'Postgres',
+			href: '/postgres_triggers',
+			icon: Database,
+			disabled: $userStore?.operator,
+			kind: 'postgres'
+		},
+		{
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/kafka_triggers',
 			icon: KafkaIcon,
@@ -120,7 +127,6 @@
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
 		return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 	})
-
 	$: secondaryMenuLinks = [
 		// {
 		// 	label: 'Workspace',
@@ -342,7 +348,6 @@
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
 											{/if}
-
 											{subItem.label}
 										</div>
 									</a>

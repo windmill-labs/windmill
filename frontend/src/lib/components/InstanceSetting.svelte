@@ -27,14 +27,19 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { base } from '$lib/base'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let setting: Setting
 	export let version: string
 	export let values: Writable<Record<string, any>>
 	export let loading = true
-
 	const dispatch = createEventDispatcher()
+
+	if (setting.fieldType == 'select' && $values[setting.key] == undefined){
+				$values[setting.key] = "default";
+	}
 
 	let latestKeyRenewalAttempt: {
 		result: string
@@ -166,6 +171,24 @@
 			EE only {#if setting.ee_only != ''}<Tooltip>{setting.ee_only}</Tooltip>{/if}
 		</div>
 	{/if}
+	{#if setting.fieldType == 'select'}
+		<div>
+			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+				{#if setting.description}
+					<span class="text-secondary text-xs">
+						{@html setting.description}
+					</span>
+				{/if}
+					</label>
+				<ToggleButtonGroup bind:selected={$values[setting.key]}>
+	        {#each (setting.select_items ?? []) as item }
+						<ToggleButton value={item.value ?? item.label} label={item.label} tooltip={item.tooltip} />
+	        {/each}
+				</ToggleButtonGroup>
+		</div>
+	{:else}
 	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label class="block pb-2">
 		<span class="text-primary font-semibold text-sm">{setting.label}</span>
@@ -881,8 +904,8 @@
 						bind:seconds={$values[setting.key]}
 					/>
 				</div>
+			{:else if setting.fieldType == 'select'}
 			{/if}
-
 			{#if hasError}
 				<span class="text-red-500 dark:text-red-400 text-sm">
 					{setting.error ?? ''}
@@ -892,4 +915,5 @@
 			<input disabled placeholder="Loading..." />
 		{/if}
 	</label>
+	{/if}
 {/if}
