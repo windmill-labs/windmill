@@ -906,7 +906,7 @@ pub async fn handle_bun_job(
         #[cfg(windows)]
         {
             target = format!("{job_dir}\\main.js");
-            symlink = std::os::windows::fs::symlink_dir(&local_path, &target);
+            symlink = std::fs::hard_link(&local_path, &target);
         }
 
         symlink.map_err(|e| {
