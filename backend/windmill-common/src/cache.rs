@@ -106,6 +106,16 @@ pub trait Export: Clone {
     fn resolve(src: Self::Untrusted) -> error::Result<Self>;
     /// Export the trusted type into storage.
     fn export(&self, dst: &impl Storage) -> error::Result<()>;
+    /// Export the trusted type into storage.
+    fn export_at<P: AsRef<Path> + std::fmt::Debug>(&self, path: P) {
+        if let Err(err) = std::fs::create_dir_all(&path)
+            .map_err(Into::into)
+            .and_then(|_| self.export(&path))
+        {
+            tracing::warn!("Failed to export to file-system: {path:?}: {err:?}");
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
 }
 
 /// A file-system backed concurrent cache.
@@ -168,19 +178,21 @@ impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCach
             // Cache path doesn't exist or import failed, generate the content.
             let data = Val::resolve(with.await?)?;
             // Try to export data to the file-system.
-            // If failed, remove the directory but still return the data.
-            if let Err(err) = std::fs::create_dir_all(path)
-                .map_err(Into::into)
-                .and_then(|_| data.export(&path))
-            {
-                tracing::warn!("Failed to export to file-system: {path:?}: {err:?}");
-                let _ = std::fs::remove_dir_all(path);
-            }
+            data.export_at(path);
             Ok(data)
         };
         #[cfg(feature = "scoped_cache")]
         let key = (std::thread::current().id(), key.clone());
         self.cache.get_or_insert_async(&key, import_or_fetch).await
+    }
+
+    /// Insert an item in the cache with key `key
+    pub fn insert(&self, key: Key, value: Val) {
+        let path = self.path(&key);
+        value.export_at(&path);
+        #[cfg(feature = "scoped_cache")]
+        let key = (std::thread::current().id(), key);
+        self.cache.insert(key, value);
     }
 }
 

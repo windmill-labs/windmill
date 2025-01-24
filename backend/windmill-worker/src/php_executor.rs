@@ -11,7 +11,7 @@ use windmill_common::{
     worker::write_file,
 };
 use windmill_parser::Typ;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     common::{
@@ -63,7 +63,6 @@ pub fn parse_php_imports(code: &str) -> anyhow::Result<Option<String>> {
 
 pub async fn composer_install(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -95,7 +94,6 @@ pub async fn composer_install(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         child_process,
         false,
         worker_name,
@@ -135,7 +133,6 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
 pub async fn handle_php_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -168,7 +165,6 @@ pub async fn handle_php_job(
 
         composer_install(
             mem_peak,
-            canceled_by,
             &job.id,
             &job.workspace_id,
             db,
@@ -325,7 +321,6 @@ try {{
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,

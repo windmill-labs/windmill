@@ -17,7 +17,6 @@ use windmill_common::{
 use windmill_parser_sql::{
     parse_db_resource, parse_oracledb_sig, parse_sql_blocks, parse_sql_statement_named_params,
 };
-use windmill_queue::CanceledBy;
 
 use crate::{
     common::{build_args_map, check_executor_binary_exists, OccupancyMetrics},
@@ -297,7 +296,6 @@ pub async fn do_oracledb(
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -406,7 +404,6 @@ pub async fn do_oracledb(
         job.timeout,
         db,
         mem_peak,
-        canceled_by,
         result_f,
         worker_name,
         &job.workspace_id,

@@ -44,7 +44,6 @@ use uuid::Uuid;
 use windmill_common::error::Error;
 
 use windmill_common::{flow_status::JobResult, DB};
-use windmill_queue::CanceledBy;
 
 use crate::{common::OccupancyMetrics, AuthedClient};
 
@@ -743,7 +742,6 @@ pub async fn eval_fetch_timeout(
     _job_timeout: Option<i32>,
     _db: &DB,
     _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
     _worker_name: &str,
     _w_id: &str,
     _load_client: bool,
@@ -763,7 +761,6 @@ pub async fn eval_fetch_timeout(
     job_timeout: Option<i32>,
     db: &DB,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     w_id: &str,
     load_client: bool,
@@ -913,7 +910,6 @@ pub async fn eval_fetch_timeout(
         job_timeout,
         db,
         mem_peak,
-        canceled_by,
         async { result_f.await? },
         worker_name,
         w_id,

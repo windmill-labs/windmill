@@ -23,8 +23,6 @@ use windmill_common::jobs::QueuedJob;
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
-use windmill_queue::CanceledBy;
-
 #[cfg(feature = "csharp")]
 use crate::{
     common::{
@@ -66,7 +64,6 @@ pub async fn generate_nuget_lockfile(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -118,7 +115,6 @@ pub async fn generate_nuget_lockfile(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         gen_lockfile_process,
         false,
         worker_name,
@@ -148,7 +144,6 @@ pub async fn generate_nuget_lockfile(
     _job_id: &Uuid,
     _code: &str,
     _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
     _job_dir: &str,
     _db: &sqlx::Pool<sqlx::Postgres>,
     _worker_name: &str,
@@ -309,7 +304,6 @@ namespace WindmillScriptCSharpInternal {{
 async fn build_cs_proj(
     job_id: &Uuid,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -373,7 +367,6 @@ async fn build_cs_proj(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         build_cs_process,
         false,
         worker_name,
@@ -429,7 +422,6 @@ fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> Stri
 #[cfg(not(feature = "csharp"))]
 pub async fn handle_csharp_job(
     _mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
     _job: &QueuedJob,
     _db: &sqlx::Pool<sqlx::Postgres>,
     _client: &AuthedClientBackgroundTask,
@@ -448,7 +440,6 @@ pub async fn handle_csharp_job(
 #[cfg(feature = "csharp")]
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -516,7 +507,6 @@ pub async fn handle_csharp_job(
         build_cs_proj(
             &job.id,
             mem_peak,
-            canceled_by,
             job_dir,
             db,
             worker_name,
@@ -621,7 +611,6 @@ pub async fn handle_csharp_job(
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,

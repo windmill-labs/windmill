@@ -12,7 +12,7 @@ use windmill_common::error::{self, Error};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
@@ -38,7 +38,6 @@ pub async fn do_mssql(
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
@@ -172,7 +171,6 @@ pub async fn do_mssql(
         job.timeout,
         db,
         mem_peak,
-        canceled_by,
         result_f,
         worker_name,
         &job.workspace_id,

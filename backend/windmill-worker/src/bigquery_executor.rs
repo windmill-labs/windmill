@@ -10,7 +10,6 @@ use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
 };
-use windmill_queue::CanceledBy;
 
 use serde::Deserialize;
 
@@ -209,7 +208,6 @@ pub async fn do_bigquery(
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -362,7 +360,6 @@ pub async fn do_bigquery(
         job.timeout,
         db,
         mem_peak,
-        canceled_by,
         result_f.map_err(to_anyhow),
         worker_name,
         &job.workspace_id,

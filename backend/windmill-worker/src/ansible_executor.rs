@@ -19,7 +19,7 @@ use windmill_common::{
     worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
 use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     bash_executor::BIN_BASH,
@@ -53,7 +53,6 @@ async fn handle_ansible_python_deps(
     worker_name: &str,
     worker_dir: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
@@ -78,7 +77,6 @@ async fn handle_ansible_python_deps(
                     job_id,
                     &requirements,
                     mem_peak,
-                    canceled_by,
                     job_dir,
                     db,
                     worker_name,
@@ -106,7 +104,6 @@ async fn handle_ansible_python_deps(
             job_id,
             w_id,
             mem_peak,
-            canceled_by,
             db,
             worker_name,
             job_dir,
@@ -128,7 +125,6 @@ async fn install_galaxy_collections(
     worker_name: &str,
     w_id: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> anyhow::Result<()> {
@@ -166,7 +162,6 @@ async fn install_galaxy_collections(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -188,7 +183,6 @@ pub async fn handle_ansible_job(
     worker_name: &str,
     job: &QueuedJob,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &String,
@@ -217,7 +211,6 @@ pub async fn handle_ansible_job(
         worker_name,
         worker_dir,
         mem_peak,
-        canceled_by,
         occupancy_metrics,
     )
     .await?;
@@ -290,7 +283,6 @@ pub async fn handle_ansible_job(
                 worker_name,
                 &job.workspace_id,
                 mem_peak,
-                canceled_by,
                 db,
                 occupancy_metrics,
             )
@@ -426,7 +418,6 @@ fi
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,

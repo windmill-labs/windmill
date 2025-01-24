@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \n                                flow_status->>'step' = '0' \n                                AND (\n                                    jsonb_array_length(flow_status->'modules') = 0 \n                                    OR flow_status->'modules'->0->>'type' = 'WaitingForPriorSteps' \n                                    OR (\n                                        flow_status->'modules'->0->>'type' = 'Failure' \n                                        AND flow_status->'modules'->0->>'job' = $1\n                                    )\n                                )\n                            FROM v2_job_flow_runtime WHERE id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f14a9e13bc516322ace862a11fe29f78afe8127a92cd392e8759febc42590900"
+}
