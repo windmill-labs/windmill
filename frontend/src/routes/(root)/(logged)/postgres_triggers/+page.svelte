@@ -55,7 +55,10 @@
 				if (newTrigger) {
 					triggers[i] = {
 						...triggers[i],
-						enabled: newTrigger.enabled
+						error: newTrigger.error,
+						last_server_ping: newTrigger.last_server_ping,
+						enabled: newTrigger.enabled,
+						server_id: newTrigger.server_id
 					}
 				}
 			}

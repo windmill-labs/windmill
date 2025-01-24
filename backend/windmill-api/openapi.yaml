@@ -13221,6 +13221,9 @@ components:
           type: string
         error:
           type: string
+        last_server_ping:
+            type: string
+            format: date-time
       required:
         - path
         - script_path
