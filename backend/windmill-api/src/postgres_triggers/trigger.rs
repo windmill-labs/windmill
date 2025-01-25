@@ -359,7 +359,7 @@ async fn listen_to_transactions(
                                                     Some((update.o_id, relations.body_to_json((update.o_id, update.new_tuple)), "update"))
                                                 }
                                                 Delete(delete) => {
-                                                    let body = delete.old_tuple.unwrap_or(delete.key_tuple.unwrap());
+                                                    let body = delete.old_tuple.unwrap_or_else(|| delete.key_tuple.unwrap());
                                                     Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
                                                 }
                                             };
