@@ -251,6 +251,12 @@ pub async fn create_postgres_trigger(
     Path(w_id): Path<String>,
     Json(new_postgres_trigger): Json<NewPostgresTrigger>,
 ) -> error::Result<(StatusCode, String)> {
+    if *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "Postgres triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
+        ));
+    }
+
     let NewPostgresTrigger {
         postgres_resource_path,
         path,
@@ -261,12 +267,6 @@ pub async fn create_postgres_trigger(
         replication_slot_name,
         publication,
     } = new_postgres_trigger;
-
-    if *CLOUD_HOSTED {
-        return Err(error::Error::BadRequest(
-            "Postgres triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
-        ));
-    }
 
     if publication_name.is_none() && publication.is_none() {
         return Err(error::Error::BadRequest(
