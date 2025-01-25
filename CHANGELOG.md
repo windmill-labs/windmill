@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.449.3](https://github.com/windmill-labs/windmill/compare/v1.449.2...v1.449.3) (2025-01-25)
+
+
+### Bug Fixes
+
+* include postgres triggers in build [#5137](https://github.com/windmill-labs/windmill/issues/5137) ([27a25d4](https://github.com/windmill-labs/windmill/commit/27a25d4af9ca0f0e0ed1d06a462fdd7cf966ce2b))
+* update tests to rust 1.83.0 ([f29c702](https://github.com/windmill-labs/windmill/commit/f29c70279f14c2cdbf6e330ae266060f81f32bb6))
+
 ## [1.449.2](https://github.com/windmill-labs/windmill/compare/v1.449.1...v1.449.2) (2025-01-25)
 
 
