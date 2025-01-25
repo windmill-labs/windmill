@@ -49,7 +49,7 @@ import { FlowFile, replaceInlineScripts } from "./flow.ts";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
 
-export async function generateAllMetadata() {}
+export async function generateAllMetadata() { }
 
 function findClosestRawReqs(
   lang: "bun" | "python3" | "php" | undefined,
@@ -222,12 +222,7 @@ export async function generateScriptMetadataInternal(
 
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
-  let metadataContent = await Deno.readTextFile(metadataWithType.path);
-  const c = findCodebase(scriptPath, codebases);
-
-  if (c) {
-    metadataContent += c.digest ?? "";
-  }
+  const metadataContent = await Deno.readTextFile(metadataWithType.path);
 
   let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
 
@@ -261,7 +256,9 @@ export async function generateScriptMetadataInternal(
   }
 
   if (!opts.schemaOnly && !justUpdateMetadataLock) {
-    if (!c) {
+    const hasCodebase = findCodebase(scriptPath, codebases) != undefined;
+
+    if (!hasCodebase) {
       await updateScriptLock(
         workspace,
         scriptContent,
@@ -270,16 +267,13 @@ export async function generateScriptMetadataInternal(
         metadataParsedContent,
         rawReqs
       );
-      metadataParsedContent.codebase = undefined;
     } else {
-      metadataParsedContent.codebase = c.digest;
-      metadataParsedContent.lock = "";
+      metadataParsedContent.lock = '';
     }
   } else {
     metadataParsedContent.lock =
       "!inline " + remotePath.replaceAll(SEP, "/") + ".script.lock";
   }
-
   let metaPath = remotePath + ".script.yaml";
   let newMetadataContent = yamlStringify(metadataParsedContent, yamlOptions);
   if (metadataWithType.isJson) {
@@ -287,10 +281,8 @@ export async function generateScriptMetadataInternal(
     newMetadataContent = JSON.stringify(metadataParsedContent);
   }
 
-  let metadataContentUsedForHash = newMetadataContent;
-  if (c) {
-    metadataContentUsedForHash += c.digest ?? "";
-  }
+  const metadataContentUsedForHash = newMetadataContent;
+
   hash = await generateScriptHash(
     rawReqs,
     scriptContent,
@@ -318,9 +310,9 @@ export async function updateScriptSchema(
     path
   );
   metadataContent.schema = result.schema;
-  if (result.has_preprocessor != null)
+  if (result.has_preprocessor == true)
     metadataContent.has_preprocessor = result.has_preprocessor;
-  if (result.no_main_func != null)
+  if (result.no_main_func === true)
     metadataContent.no_main_func = result.no_main_func;
 }
 
@@ -390,7 +382,7 @@ async function updateScriptLock(
         if (await Deno.stat(lockPath)) {
           await Deno.remove(lockPath);
         }
-      } catch {}
+      } catch { }
       metadataContent.lock = "";
     }
   } catch (e) {
@@ -431,7 +423,7 @@ export async function updateFlow(
   } catch (e) {
     try {
       responseText = await rawResponse.text();
-    } catch {}
+    } catch { }
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
     );
@@ -528,8 +520,11 @@ export function inferSchema(
     };
   }
 
+  if (!currentSchema) {
+    currentSchema = {}
+  }
   currentSchema.required = [];
-  const oldProperties = JSON.parse(JSON.stringify(currentSchema.properties));
+  const oldProperties = JSON.parse(JSON.stringify(currentSchema?.properties ?? {}));
   currentSchema.properties = {};
 
   for (const arg of inferedSchema.args) {
@@ -576,23 +571,23 @@ export function argSigToJsonSchemaType(
     | string
     | { resource: string | null }
     | {
-        list:
-          | (string | { object: { key: string; typ: any }[] })
-          | { str: any }
-          | { object: { key: string; typ: any }[] }
-          | null;
-      }
+      list:
+      | (string | { object: { key: string; typ: any }[] })
+      | { str: any }
+      | { object: { key: string; typ: any }[] }
+      | null;
+    }
     | { dynselect: string }
     | { str: string[] | null }
     | { object: { key: string; typ: any }[] }
     | {
-        oneof: [
-          {
-            label: string;
-            properties: { key: string; typ: any }[];
-          }
-        ];
-      },
+      oneof: [
+        {
+          label: string;
+          properties: { key: string; typ: any }[];
+        }
+      ];
+    },
   oldS: SchemaProperty
 ): void {
   const newS: SchemaProperty = { type: "" };
@@ -795,10 +790,10 @@ export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
     | (GlobalOptions & {
-        path: string;
-        workspaceRemote: Workspace;
-        schemaOnly?: boolean;
-      })
+      path: string;
+      workspaceRemote: Workspace;
+      schemaOnly?: boolean;
+    })
     | undefined,
   globalDeps: GlobalDeps,
   codebases: SyncCodebase[]
@@ -860,7 +855,9 @@ export async function parseMetadataFile(
           scriptInitialMetadata = (await yamlParseFile(
             metadataFilePath
           )) as ScriptMetadata;
-          replaceLock(scriptInitialMetadata);
+          if (!generateMetadataIfMissing.schemaOnly) {
+            replaceLock(scriptInitialMetadata);
+          }
         } catch (e) {
           log.info(
             colors.yellow(
