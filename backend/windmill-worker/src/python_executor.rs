@@ -2158,6 +2158,18 @@ pub async fn handle_python_reqs(
                                     db
                                 ).await;
                                 pids.lock().await.get_mut(i).and_then(|e| e.take());
+
+                                // Create a file to indicate that installation was successfull
+                                let valid_path = venv_p.clone() + "/.valid.windmill";
+                                // This is atomic operation, meaning, that it either completes and wheel is valid, 
+                                // or it does not and wheel is invalid and will be reinstalled next run
+                                if let Err(e) = File::create(&valid_path).await{
+                                    tracing::error!(
+                                    workspace_id = %w_id,
+                                    job_id = %job_id,
+                                        "Failed to create {}!\n{e}\n
+                                        This file needed for python jobs to function", valid_path)
+                                };
                                 return Ok(());
                             }
                         }
