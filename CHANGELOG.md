@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.449.2](https://github.com/windmill-labs/windmill/compare/v1.449.1...v1.449.2) (2025-01-25)
+
+
+### Bug Fixes
+
+* update rust to 1.83.0 ([#5135](https://github.com/windmill-labs/windmill/issues/5135)) ([5381c76](https://github.com/windmill-labs/windmill/commit/5381c76b7d194d75f58d70b29aa3f5f8589fa899))
+
 ## [1.449.1](https://github.com/windmill-labs/windmill/compare/v1.449.0...v1.449.1) (2025-01-25)
 
 
