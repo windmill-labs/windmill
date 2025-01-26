@@ -26,9 +26,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import WebsocketTriggerEditor from '$lib/components/triggers/WebsocketTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import WebsocketTriggerEditor from '$lib/components/triggers/websocket/WebsocketTriggerEditor.svelte'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 
@@ -233,7 +233,7 @@
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="WS Trigger" icon={Unplug} />
+					<ToggleButton small value="trigger" label="WS trigger" icon={Unplug} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>

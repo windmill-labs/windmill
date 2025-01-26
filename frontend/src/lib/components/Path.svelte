@@ -16,6 +16,7 @@
 		VariableService,
 		WebsocketTriggerService,
 		KafkaTriggerService,
+		PostgresTriggerService,
 		NatsTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -40,6 +41,7 @@
 		| 'http_trigger'
 		| 'websocket_trigger'
 		| 'kafka_trigger'
+		| 'postgres_trigger'
 		| 'nats_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
@@ -231,6 +233,11 @@
 			})
 		} else if (kind == 'kafka_trigger') {
 			return await KafkaTriggerService.existsKafkaTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'postgres_trigger') {
+			return await PostgresTriggerService.existsPostgresTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

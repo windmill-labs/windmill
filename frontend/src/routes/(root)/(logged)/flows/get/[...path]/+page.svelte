@@ -42,7 +42,7 @@
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
-	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
@@ -55,14 +55,15 @@
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
-	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
-	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
-	import NatsTriggersPanel from '$lib/components/triggers/NatsTriggersPanel.svelte'
+	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
+	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
+	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -548,6 +549,11 @@
 			</div>
 		</svelte:fragment>
 
+		<svelte:fragment slot="postgres">
+			<div class="p-2">
+				<PostgresTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
 		<svelte:fragment slot="nats">
 			<div class="p-2">
 				<NatsTriggersPanel path={flow.path ?? ''} isFlow />

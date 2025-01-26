@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.449.3](https://github.com/windmill-labs/windmill/compare/v1.449.2...v1.449.3) (2025-01-25)
+
+
+### Bug Fixes
+
+* include postgres triggers in build [#5137](https://github.com/windmill-labs/windmill/issues/5137) ([27a25d4](https://github.com/windmill-labs/windmill/commit/27a25d4af9ca0f0e0ed1d06a462fdd7cf966ce2b))
+* update tests to rust 1.83.0 ([f29c702](https://github.com/windmill-labs/windmill/commit/f29c70279f14c2cdbf6e330ae266060f81f32bb6))
+
+## [1.449.2](https://github.com/windmill-labs/windmill/compare/v1.449.1...v1.449.2) (2025-01-25)
+
+
+### Bug Fixes
+
+* update rust to 1.83.0 ([#5135](https://github.com/windmill-labs/windmill/issues/5135)) ([5381c76](https://github.com/windmill-labs/windmill/commit/5381c76b7d194d75f58d70b29aa3f5f8589fa899))
+
+## [1.449.1](https://github.com/windmill-labs/windmill/compare/v1.449.0...v1.449.1) (2025-01-25)
+
+
+### Bug Fixes
+
+* Fix python refetching wheels from S3 ([#5133](https://github.com/windmill-labs/windmill/issues/5133)) ([2f1804b](https://github.com/windmill-labs/windmill/commit/2f1804b6d0e6f3492608967f8937d5e34481661b))
+
+## [1.449.0](https://github.com/windmill-labs/windmill/compare/v1.448.1...v1.449.0) (2025-01-24)
+
+
+### Features
+
+* **frontend:** operator visibility setting per workspace ([#5124](https://github.com/windmill-labs/windmill/issues/5124)) ([1a1ea68](https://github.com/windmill-labs/windmill/commit/1a1ea682166af62133d3df2816490e3ebc92462f))
+* msft teams support for critical alerts ([#5113](https://github.com/windmill-labs/windmill/issues/5113)) ([a88fbb2](https://github.com/windmill-labs/windmill/commit/a88fbb238ae21ca53bccd53ccfd3c77e2946fda2))
+* postgres triggers ([#4860](https://github.com/windmill-labs/windmill/issues/4860)) ([316a216](https://github.com/windmill-labs/windmill/commit/316a2167e7648052afb3d7456c5ab9324348e56c))
+* **python:** Multiple runtime versions ([#4579](https://github.com/windmill-labs/windmill/issues/4579)) ([e47dd69](https://github.com/windmill-labs/windmill/commit/e47dd697f96883f8f97bf469e69d3344f12d9633))
+
+
+### Bug Fixes
+
+* **bun, windows:** Fix "A required privilege is not held by the client." ([#5126](https://github.com/windmill-labs/windmill/issues/5126)) ([74bb660](https://github.com/windmill-labs/windmill/commit/74bb660b9799e79e31c33d96a4f06d77094287d5))
+
 ## [1.448.1](https://github.com/windmill-labs/windmill/compare/v1.448.0...v1.448.1) (2025-01-22)
 
 

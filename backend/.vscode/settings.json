@@ -1,8 +1,6 @@
 {
   "python.analysis.typeCheckingMode": "basic",
-  "rust-analyzer.linkedProjects": [
-    "./windmill-common/Cargo.toml"
-  ],
+  "rust-analyzer.linkedProjects": ["./windmill-common/Cargo.toml"],
   "rust-analyzer.showUnlinkedFileNotification": false,
   "remote.portsAttributes": {
     "8000": {
@@ -10,5 +8,8 @@
       "onAutoForward": "openPreview"
     }
   },
-  "remote.autoForwardPorts": true
+  "remote.autoForwardPorts": true,
+  "conventionalCommits.scopes": [
+    "restructring triggers, decoding trigger message on work"
+  ],
 }
