@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.450.0](https://github.com/windmill-labs/windmill/compare/v1.449.3...v1.450.0) (2025-01-26)
+
+
+### Features
+
+* **cli:** improve codebase support + remove --stateful + warn when pushing stale metadata ([#5139](https://github.com/windmill-labs/windmill/issues/5139)) ([b47e9c1](https://github.com/windmill-labs/windmill/commit/b47e9c14f277339ae51fd3a40e00e8ba4e8a1390))
+
 ## [1.449.3](https://github.com/windmill-labs/windmill/compare/v1.449.2...v1.449.3) (2025-01-25)
 
 
