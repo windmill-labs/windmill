@@ -868,6 +868,7 @@ async function generateMetadata(
   } & SyncOptions,
   scriptPath: string | undefined
 ) {
+  log.info("This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`");
   if (scriptPath == "") {
     scriptPath = undefined;
   }
@@ -986,7 +987,7 @@ const command = new Command()
   .action(bootstrap as any)
   .command(
     "generate-metadata",
-    "re-generate the metadata file updating the lock and the script schema"
+    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)"
   )
   .arguments("[script:file]")
   .option("--yes", "Skip confirmation prompt")

@@ -795,7 +795,7 @@ async function compareDynFSElement(
 
   for (const [k, v] of Object.entries(remoteCodebase)) {
     const tsFile = k.replace(".script.yaml", ".ts");
-    if (changes.find(c => c.path == tsFile && c.name == "edited")) {
+    if (changes.find(c => c.path == tsFile && (c.name == "edited" || c.name == "deleted"))) {
       continue;
     }
     let c = findCodebase(tsFile, codebases);
@@ -945,6 +945,58 @@ export async function ignoreF(wmillconf: {
   };
 }
 
+interface ChangeTracker {
+  scripts: string[];
+  flows: string[];
+  apps: string[];
+}
+
+// deno-lint-ignore no-inner-declarations
+async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
+  const isScript = exts.some((e) => p.endsWith(e));
+  if (isScript) {
+    if (p.includes(".flow" + SEP)) {
+      const folder =
+        p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+      if (!tracker.flows.includes(folder)) {
+        tracker.flows.push(folder);
+      }
+    } else if (p.includes(".app" + SEP)) {
+      const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+      if (!tracker.apps.includes(folder)) {
+        tracker.apps.push(folder);
+      }
+    } else {
+      if (!tracker.scripts.includes(p)) {
+        tracker.scripts.push(p);
+      }
+    }
+  } else if (p.endsWith(".script.yaml") || p.endsWith(".script.json")) {
+    try {
+      const contentPath = await findContentFile(p);
+      if (!contentPath) return;
+      if (tracker.scripts.includes(contentPath)) return;
+      tracker.scripts.push(contentPath);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function buildTracker(changes: Change[]) {
+  const tracker: ChangeTracker = {
+    scripts: [],
+    flows: [],
+    apps: [],
+  };
+  for (const change of changes) {
+    if (change.name == "added" || change.name == "edited") {
+      await addToChangedIfNotExists(change.path, tracker);
+    }
+  }
+  return tracker;
+}
+
 export async function pull(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
 
@@ -1018,41 +1070,8 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     }
 
     const conflicts = [];
-    const changedScripts: string[] = [];
-    const changedFlows: string[] = [];
-    const changedApps: string[] = [];
 
-    // deno-lint-ignore no-inner-declarations
-    async function addToChangedIfNotExists(p: string) {
-      const isScript = exts.some((e) => p.endsWith(e));
-      if (isScript) {
-        if (p.includes(".flow" + SEP)) {
-          const folder =
-            p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
-          if (!changedFlows.includes(folder)) {
-            changedFlows.push(folder);
-          }
-        } else if (p.includes(".app" + SEP)) {
-          const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
-          if (!changedApps.includes(folder)) {
-            changedApps.push(folder);
-          }
-        } else {
-          if (!changedScripts.includes(p)) {
-            changedScripts.push(p);
-          }
-        }
-      } else if (p.endsWith(".script.yaml") || p.endsWith(".script.json")) {
-        try {
-          const contentPath = await findContentFile(p);
-          if (!contentPath) return;
-          if (changedScripts.includes(contentPath)) return;
-          changedScripts.push(contentPath);
-        } catch {
-          // ignore
-        }
-      }
-    }
+
 
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
@@ -1113,7 +1132,6 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
           await ensureDir(path.dirname(stateTarget));
           await Deno.copyFile(target, stateTarget);
         }
-        await addToChangedIfNotExists(change.path);
       } else if (change.name === "added") {
         await ensureDir(path.dirname(target));
         if (opts.stateful) {
@@ -1125,7 +1143,6 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
         if (opts.stateful) {
           await Deno.copyFile(target, stateTarget);
         }
-        await addToChangedIfNotExists(change.path);
       } else if (change.name === "deleted") {
         try {
           log.info(
@@ -1162,7 +1179,9 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
 
     const globalDeps = await findGlobalDeps();
 
-    for (const change of changedScripts) {
+    const tracker: ChangeTracker = await buildTracker(changes);
+
+    for (const change of tracker.scripts) {
       await generateScriptMetadataInternal(
         change,
         workspace,
@@ -1174,13 +1193,13 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
         true
       );
     }
-    for (const change of changedFlows) {
+    for (const change of tracker.flows) {
       log.info(`Updating lock for flow ${change}`);
       await generateFlowLockInternal(change, false, workspace, true);
     }
-    if (changedApps.length > 0) {
+    if (tracker.apps.length > 0) {
       log.info(
-        `Apps ${changedApps.join(
+        `Apps ${tracker.apps.join(
           ", "
         )} scripts were changed but ignoring for now`
       );
@@ -1303,6 +1322,54 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     codebases
   );
 
+
+  const globalDeps = await findGlobalDeps();
+
+  const tracker: ChangeTracker = await buildTracker(changes);
+
+  const staleScripts: string[] = [];
+  const staleFlows: string[] = [];
+  for (const change of tracker.scripts) {
+    const stale = await generateScriptMetadataInternal(
+      change,
+      workspace,
+      opts,
+      true,
+      true,
+      globalDeps,
+      codebases,
+      false
+    );
+    if (stale) {
+      staleScripts.push(stale);
+    }
+  }
+
+  if (staleScripts.length > 0) {
+    log.info("")
+    log.warn("Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:");
+    for (const stale of staleScripts) {
+      log.warn(stale);
+    }
+
+    log.info("")
+  }
+
+  for (const change of tracker.flows) {
+    const stale = await generateFlowLockInternal(change, true, workspace, false, true);
+    if (stale) {
+      staleFlows.push(stale);
+    }
+  }
+
+  if (staleFlows.length > 0) {
+    log.warn("Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:");
+    for (const stale of staleFlows) {
+      log.warn(stale);
+    }
+    log.info("")
+  }
+
   const version = await fetchVersion(workspace.remote);
 
   log.info(colors.gray("Remote version: " + version));
@@ -1326,7 +1393,9 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     log.info(colors.gray(`Applying changes to files ...`));
 
     const alreadySynced: string[] = [];
-    const globalDeps = await findGlobalDeps();
+
+
+
 
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
@@ -1574,25 +1643,13 @@ const command = new Command()
   )
   .command("pull")
   .description("Pull any remote changes and apply them locally.")
-  .option(
-    "--fail-conflicts",
-    "Error on conflicts (both remote and local have changes on the same item)"
-  )
-  .option(
-    "--raw",
-    "Push without using state, just overwrite. (Default, has no effect)"
-  )
   .option("--yes", "Pull without needing confirmation")
-  .option(
-    "--stateful",
-    "Pull using state tracking (create .wmill folder and needed for --fail-conflicts)"
-  )
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
-  .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
+  // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
@@ -1614,27 +1671,13 @@ const command = new Command()
   .action(pull as any)
   .command("push")
   .description("Push any local changes and apply them remotely.")
-  .option(
-    "--fail-conflicts",
-    "Error on conflicts (both remote and local have changes on the same item)"
-  )
-  .option(
-    "--raw",
-    "Push without using state, just overwrite. (Default, has no effect)"
-  )
-  .option(
-    "--stateful",
-    "Pull using state tracking (use .wmill folder and needed for --fail-conflicts)w"
-  )
-  .option("--skip-pull", "(stateful only) Push without pulling first")
   .option("--yes", "Push without needing confirmation")
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
-  .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
-
+  // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")

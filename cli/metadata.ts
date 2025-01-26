@@ -104,7 +104,8 @@ export async function generateFlowLockInternal(
   folder: string,
   dryRun: boolean,
   workspace: Workspace,
-  justUpdateMetadataLock?: boolean
+  justUpdateMetadataLock?: boolean,
+  noStaleMessage?: boolean
 ): Promise<string | undefined> {
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
@@ -112,7 +113,7 @@ export async function generateFlowLockInternal(
   const remote_path = folder
     .replaceAll(SEP, "/")
     .substring(0, folder.length - ".flow".length);
-  if (!justUpdateMetadataLock) {
+  if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
@@ -120,9 +121,11 @@ export async function generateFlowLockInternal(
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
-    log.info(
-      colors.green(`Flow ${remote_path} metadata is up-to-date, skipping`)
-    );
+    if (!noStaleMessage) {
+      log.info(
+        colors.green(`Flow ${remote_path} metadata is up-to-date, skipping`)
+      );
+    }
     return;
   } else if (dryRun) {
     return remote_path;
