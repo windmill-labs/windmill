@@ -58,8 +58,8 @@
 		initialValues = Object.fromEntries(
 			(
 				await Promise.all(
-					Object.entries(settings).map(
-						async ([_, y]) =>
+					[...Object.values(settings), scimSamlSetting].map(
+						async (y) =>
 							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
 					)
 				)
@@ -134,7 +134,9 @@
 
 		let shouldReloadPage = false
 		if ($values) {
-			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
+			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
+				Object.entries(x)
+			)
 			let licenseKeySet = false
 			await Promise.all(
 				allSettings
