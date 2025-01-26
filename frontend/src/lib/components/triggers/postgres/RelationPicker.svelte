@@ -49,6 +49,7 @@
 									<label class="flex flex-col w-full">
 										<div class="text-secondary text-sm mb-2 flex flex-row gap-1"
 											><p>Columns</p><Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#selecting-specific-columns"
 												><p>
 													Enter the names of the <strong>columns</strong> you want to track.
 													<br />If no columns are specified, all columns in the table will be
@@ -81,7 +82,9 @@
 									</label>
 									<label class="flex flex-col w-full">
 										<div class="text-secondary text-sm mb-2 flex flex-row gap-1"
-											><p>Where Clause</p><Tooltip>
+											><p>Where Clause</p><Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#filtering-rows-with-where-condition"
+											>
 												<p class="text-sm">
 													Use this field to define a row filter for the selected table. The <strong
 														>WHERE</strong

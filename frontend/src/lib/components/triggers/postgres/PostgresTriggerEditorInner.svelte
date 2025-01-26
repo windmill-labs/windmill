@@ -443,7 +443,7 @@
 									bind:selected={transaction_to_track}
 								/>
 							</Section>
-							<Section label="Publication">
+							<Section label="Table Tracking">
 								<p class="text-xs mb-3 text-tertiary">
 									Select the tables to track. You can choose to track
 									<strong>all tables in your database</strong>,
@@ -456,6 +456,7 @@
 									<Tab value="basic"
 										><div class="flex flex-row gap-1"
 											>Basic<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
 												><p
 													>Choose the <strong>relations</strong> to track without worrying about the
 													underlying mechanics of creating a
@@ -469,6 +470,7 @@
 									<Tab value="advanced"
 										><div class="flex flex-row gap-1"
 											>Advanced<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#advanced"
 												><p
 													>Select a specific <strong>publication</strong> from your database to
 													track, and manage it by <strong>creating</strong>,
@@ -488,10 +490,11 @@
 												<RelationPicker bind:selectedTable bind:relations />
 											</TabContent>
 											<TabContent value="advanced">
-												<div class="flex flex-col gap-4"
+												<div class="flex flex-col gap-6"
 													><Section
-														label="Slot name"
+														label="Replication slot management"
 														tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
+														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
 													>
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup
@@ -529,8 +532,9 @@
 													</Section>
 
 													<Section
-														label="Publication"
+														label="Publication management"
 														tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
+														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
 													>
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup
