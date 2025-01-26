@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.450.1](https://github.com/windmill-labs/windmill/compare/v1.450.0...v1.450.1) (2025-01-26)
+
+
+### Bug Fixes
+
+* fix SCIM/SAML settings persistence ([697a060](https://github.com/windmill-labs/windmill/commit/697a060e3e01a183b6ac2371eee319b01ee891cf))
+
 ## [1.450.0](https://github.com/windmill-labs/windmill/compare/v1.449.3...v1.450.0) (2025-01-26)
 
 
