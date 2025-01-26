@@ -79,7 +79,8 @@ export function showDiff(local: string, remote: string) {
     log.info("Diff too large to display");
     return;
   }
-  for (const part of Diff.diffLines(local, remote)) {
+
+  for (const part of Diff.diffLines(local ?? '', remote ?? '')) {
     if (part.removed) {
       // print red if removed without newline
       finalString += `\x1b[31m${part.value}\x1b[0m`;
@@ -157,8 +158,8 @@ export function parseFromPath(p: string, content: string): any {
   return p.endsWith(".yaml")
     ? yamlParseContent(p, content)
     : p.endsWith(".json")
-    ? JSON.parse(content)
-    : content;
+      ? JSON.parse(content)
+      : content;
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
