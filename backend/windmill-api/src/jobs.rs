@@ -8,6 +8,7 @@
 
 use axum::body::Body;
 use axum::http::HeaderValue;
+use bytes::Bytes;
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -893,83 +894,45 @@ impl<'a> GetQuery<'a> {
     }
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-async fn get_logs_from_store(
-    log_offset: i32,
-    logs: &str,
-    log_file_index: &Option<Vec<String>>,
-) -> Option<error::Result<Body>> {
-    if log_offset > 0 {
-        if let Some(file_index) = log_file_index.clone() {
-            tracing::debug!("Getting logs from store: {file_index:?}");
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                tracing::debug!("object store client present, streaming from there");
-
-                let logs = logs.to_string();
-                let stream = async_stream::stream! {
-                    yield Ok(bytes::Bytes::from(
-                        r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
-                "#
-                        .to_string(),
-                    ));
-                    for file_p in file_index.clone() {
-                        let file_p_2 = file_p.clone();
-                        let file = os.get(&object_store::path::Path::from(file_p)).await;
-                        if let Ok(file) = file {
-                            if let Ok(bytes) = file.bytes().await {
-                                yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-                            }
-                        } else {
-                            tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-                        }
-                    }
-
-                    yield Ok(bytes::Bytes::from(logs))
-                };
-                return Some(Ok(Body::from_stream(stream)));
-            } else {
-                tracing::debug!("object store client not present, cannot stream logs from store");
-            }
-        }
+async fn get_logs_full(
+    prefix: &'static str,
+    logs: String,
+    file_index: Vec<String>,
+) -> impl Stream<Item = Result<Bytes, Error>> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    async fn parquet_get_bytes(
+        os: Option<Arc<dyn object_store::ObjectStore>>,
+        path: &String,
+    ) -> error::Result<Bytes> {
+        let Some(os) = os else {
+            return Err(Error::InternalErr(
+                "object store client not present".to_string(),
+            ));
+        };
+        let path = object_store::path::Path::from(path.clone());
+        Ok(os.get(&path).await?.bytes().await?)
     }
-    return None;
-}
 
-async fn get_logs_from_disk(
-    log_offset: i32,
-    logs: &str,
-    log_file_index: &Option<Vec<String>>,
-) -> Option<error::Result<Body>> {
-    if log_offset > 0 {
-        if let Some(file_index) = log_file_index.clone() {
-            for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
-                    .await
-                    .is_ok()
-                {
-                    return None;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let os = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
+    async_stream::stream! {
+        yield Ok(prefix.into());
+        for path in file_index {
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            match parquet_get_bytes(os.clone(), &path).await {
+                Err(err) => tracing::debug!("error getting file from store: {err}"),
+                Ok(bytes) => {
+                    yield Ok(bytes);
+                    continue;
                 }
             }
-
-            let logs = logs.to_string();
-            let stream = async_stream::stream! {
-                yield Ok(bytes::Bytes::from(
-                    r#"to remove ansi colors, use: | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'
-            "#.to_string(),
-                ));
-                for file_p in file_index.clone() {
-                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
-                    let mut buffer = Vec::new();
-                    file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
-                    yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
-                }
-
-                yield Ok(bytes::Bytes::from(logs))
-            };
-            return Some(Ok(Body::from_stream(stream)));
+            let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{path}")).await?;
+            let mut buf = vec![];
+            file.read_to_end(&mut buf).await?;
+            yield Ok::<_, Error>(Bytes::from(buf));
         }
+        yield Ok(logs.into());
     }
-    return None;
 }
 
 async fn get_job_logs(
@@ -977,97 +940,43 @@ async fn get_job_logs(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    // let audit_author: AuditAuthor = match opt_authed {
-    //     Some(authed) => (&authed).into(),
-    //     None => {
-    //         return Err(Error::BadRequest(format!(
-    //             "Cancelling script require to be logged in and member of {w_id}"
-    //         )))
-    //     }
-    // };
-
-    let tags = opt_authed
-        .as_ref()
-        .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
-        .flatten();
-
-    let record = sqlx::query!(
-        "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
-        FROM v2_as_completed_job 
-        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id 
-        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_completed_job.tag = ANY($3))",
+    let tags = opt_authed.as_ref().map(get_scope_tags).flatten();
+    let row = sqlx::query!(
+        "SELECT
+            created_by,
+            coalesce(logs, '') As logs,
+            coalesce(log_offset, 0) AS log_offset,
+            log_file_index
+        FROM v2_job j
+            LEFT JOIN job_logs ON job_logs.job_id = j.id
+        WHERE id = $1 AND j.workspace_id = $2 AND ($3::TEXT[] IS NULL OR tag = ANY($3))",
         id,
         w_id,
-        tags.as_ref().map(|v| v.as_slice())
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
     )
     .fetch_optional(&db)
     .await?;
+    let row = not_found_if_none(row, "Job Logs", id.to_string())?;
 
-    if let Some(record) = record {
-        if opt_authed.is_none() && record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
-        let logs = record.logs.unwrap_or_default();
-
-        log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
-
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
-        {
-            return r.map(content_plain);
-        }
-        if let Some(r) = get_logs_from_disk(record.log_offset, &logs, &record.log_file_index).await
-        {
-            return r.map(content_plain);
-        }
-        let logs = format!(
-            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
-            logs
-        );
-        Ok(content_plain(Body::from(logs)))
-    } else {
-        let text = sqlx::query!(
-            "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
-            FROM v2_as_queue 
-            LEFT JOIN job_logs ON job_logs.job_id = v2_as_queue.id 
-            WHERE v2_as_queue.id = $1 AND v2_as_queue.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_queue.tag = ANY($3))",
-            id,
-            w_id,
-            tags.as_ref().map(|v| v.as_slice())
-        )
-        .fetch_optional(&db)
-        .await?;
-        let text = not_found_if_none(text, "Job Logs", id.to_string())?;
-
-        if opt_authed.is_none() && text.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
-        let logs = text.logs.unwrap_or_default();
-
-        log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
-
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) =
-            get_logs_from_store(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await
-        {
-            return r.map(content_plain);
-        }
-        if let Some(r) =
-            get_logs_from_disk(text.log_offset.unwrap_or(0), &logs, &text.log_file_index).await
-        {
-            return r.map(content_plain);
-        }
-
-        let logs = format!(
-            "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n{}",
-            logs
-        );
-        Ok(content_plain(Body::from(logs)))
+    if opt_authed.is_none() && row.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
     }
+
+    log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
+
+    let mut logs = row.logs.unwrap_or_default();
+    let prefix = "to remove ansi colors, use: | sed 's/\\x1B\\[[0-9;]\\{{1,\\}}[A-Za-z]//g'\n";
+    Ok(content_plain(
+        match (row.log_offset.unwrap_or(0) > 0, row.log_file_index) {
+            (true, Some(index)) => Body::from_stream(get_logs_full(prefix, logs, index).await),
+            _ => {
+                logs.insert_str(0, prefix);
+                Body::from(logs)
+            }
+        },
+    ))
 }
 
 async fn get_args(
@@ -1075,14 +984,12 @@ async fn get_args(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> JsonResult<Box<RawValue>> {
-    let tags = opt_authed
-        .as_ref()
-        .map(|authed| get_scope_tags(authed))
-        .flatten();
-    let record = sqlx::query!(
-        "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM v2_as_completed_job 
-        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+    let tags = opt_authed.as_ref().map(get_scope_tags).flatten();
+
+    let row = sqlx::query!(
+        "SELECT created_by, args as \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_job
+        WHERE id = $1 AND workspace_id = $2 AND ($3::TEXT[] IS NULL OR tag = ANY($3))",
         id,
         &w_id,
         tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
@@ -1090,38 +997,15 @@ async fn get_args(
     .fetch_optional(&db)
     .await?;
 
-    if let Some(record) = record {
-        if opt_authed.is_none() && record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
-
-        log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
-
-        Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
-    } else {
-        let record = sqlx::query!(
-            "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
-            FROM v2_job
-            WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
-            id,
-            &w_id,
-            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
-        )
-        .fetch_optional(&db)
-        .await?;
-        let record = not_found_if_none(record, "Job Args", id.to_string())?;
-        if opt_authed.is_none() && record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
-
-        log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
-
-        Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
+    let row = not_found_if_none(row, "Job Args", id.to_string())?;
+    if opt_authed.is_none() && row.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
     }
+
+    log_job_view(&db, opt_authed.as_ref(), &w_id, &id).await?;
+    Ok(Json(row.args.map(|x| x.0).unwrap_or_default()))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -3388,6 +3272,7 @@ impl Drop for Guard {
     }
 }
 
+use futures::Stream;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 

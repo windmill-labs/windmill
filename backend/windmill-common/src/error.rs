@@ -72,6 +72,9 @@ pub enum Error {
     Utf8(#[from] std::string::FromUtf8Error),
     #[error("Encoding/decoding error: {0}")]
     SerdeJson(#[from] serde_json::Error),
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    #[error("Parquet error: {0}")]
+    ParquetErr(#[from] object_store::Error),
 }
 
 impl Error {
