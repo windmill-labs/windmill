@@ -12,6 +12,7 @@
 		| 'cli'
 		| 'routes'
 		| 'websockets'
+		| 'postgres'
 		| 'scheduledPoll'
 		| 'kafka'
 		| 'nats' = 'webhooks'
@@ -54,6 +55,7 @@
 						<slot slot="routes" name="routes" />
 						<slot slot="websockets" name="websockets" />
 						<slot slot="kafka" name="kafka" />
+						<slot slot="postgres" name="postgres" />
 						<slot slot="nats" name="nats" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />

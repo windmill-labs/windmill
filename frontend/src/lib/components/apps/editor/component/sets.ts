@@ -3,7 +3,7 @@ import type { ComponentSet } from '../../types'
 const tabs: ComponentSet = {
 	title: 'Tabs',
 	components: ['tabscomponent', 'conditionalwrapper'],
-	presets: ['sidebartabscomponent', 'invisibletabscomponent']
+	presets: ['sidebartabscomponent', 'accordiontabcomponent', 'invisibletabscomponent']
 } as const
 
 const layout: ComponentSet = {
@@ -19,6 +19,7 @@ const layout: ComponentSet = {
 		'modalcomponent',
 		'steppercomponent',
 		'carousellistcomponent',
+		'accordionlistcomponent',
 		'decisiontreecomponent',
 		'navbarcomponent',
 		'recomputeallcomponent'

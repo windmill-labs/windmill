@@ -59,6 +59,8 @@ mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
+#[cfg(feature = "postgres_trigger")]
+mod postgres_triggers;
 mod db;
 mod drafts;
 pub mod ee;
@@ -96,6 +98,8 @@ mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
+#[cfg(feature = "enterprise")]
+mod teams_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
 mod static_assets;
@@ -306,6 +310,11 @@ pub async fn run_server(
             let nats_killpill_rx = rx.resubscribe();
             nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx).await;
         }
+        #[cfg(feature = "postgres_trigger")]
+        {
+            let db_killpill_rx = rx.resubscribe();
+            postgres_triggers::start_database(db.clone(), db_killpill_rx).await;
+        }
     }
 
     // build our application with a route
@@ -375,7 +384,16 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/kafka_triggers", kafka_triggers_service)
-                        .nest("/nats_triggers", nats_triggers_service),
+                        .nest("/nats_triggers", nats_triggers_service)
+                        .nest("/postgres_triggers", {
+                            #[cfg(feature = "postgres_trigger")]
+                            {
+                                postgres_triggers::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "postgres_trigger"))]
+                            Router::new()
+                        }),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -435,6 +453,17 @@ pub async fn run_server(
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
+                .nest("/teams", {
+                    #[cfg(feature = "enterprise")]  
+                    {
+                        teams_ee::teams_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route(
                     "/w/:workspace_id/jobs/slack_approval/:job_id",
                     get(slack_approvals::request_slack_approval),

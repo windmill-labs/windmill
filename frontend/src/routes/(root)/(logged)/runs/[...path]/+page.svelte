@@ -12,7 +12,7 @@
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
@@ -639,6 +639,12 @@
 	}}
 />
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.runs}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 {#if innerWidth > 900}
 	<div class="w-full h-screen">
 		<div class="px-2">
@@ -1370,4 +1376,5 @@
 			/>
 		</div>
 	</div>
+{/if}
 {/if}

@@ -35,7 +35,7 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::build_crypt;
+use windmill_common::variables::{build_crypt, decrypt, encrypt};
 use windmill_common::worker::to_raw_value;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
@@ -52,7 +52,6 @@ use windmill_git_sync::handle_deployment_metadata;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
-use crate::variables::{decrypt, encrypt};
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
@@ -122,7 +121,8 @@ pub fn workspaced_service() -> Router {
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
         )
-        .route("/critical_alerts/mute", post(mute_critical_alerts));
+        .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route("/operator_settings", post(update_operator_settings));
 
     #[cfg(feature = "stripe")]
     {
@@ -189,6 +189,7 @@ pub struct WorkspaceSettings {
     pub default_scripts: Option<serde_json::Value>,
     pub mute_critical_alerts: Option<bool>,
     pub color: Option<String>,
+    pub operator_settings: Option<serde_json::Value>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -287,6 +288,7 @@ struct UserWorkspace {
     pub name: String,
     pub username: String,
     pub color: Option<String>,
+    pub operator_settings: Option<Option<serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
@@ -1304,6 +1306,7 @@ struct UsedTriggers {
     pub http_routes_used: bool,
     pub kafka_used: bool,
     pub nats_used: bool,
+    pub postgres_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1314,12 +1317,17 @@ async fn get_used_triggers(
     let mut tx = user_db.begin(&authed).await?;
     let websocket_used = sqlx::query_as!(
         UsedTriggers,
-        r#"SELECT 
-            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) as "websocket_used!", 
-            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) as "http_routes_used!",
+        r#"
+        SELECT 
+            
+            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!", 
+           
+            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
-            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!""#,
-        w_id,
+            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
+            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!"
+        "#,
+        w_id
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1361,7 +1369,8 @@ async fn user_workspaces(
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
-        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color
+        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color,
+                CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
          JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id
@@ -2129,4 +2138,42 @@ async fn mute_critical_alerts(
 #[cfg(not(feature = "enterprise"))]
 pub async fn mute_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[derive(Deserialize, Serialize)]
+struct ChangeOperatorSettings {
+    runs: bool,
+    schedules: bool,
+    resources: bool,
+    variables: bool,
+    triggers: bool,
+    audit_logs: bool,
+    groups: bool,
+    folders: bool,
+    workers: bool,
+}
+
+async fn update_operator_settings(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
+    Json(settings): Json<ChangeOperatorSettings>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    let settings_json = serde_json::json!(settings);
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET operator_settings = $1 WHERE workspace_id = $2",
+        settings_json,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok("Operator settings updated successfully".to_string())
 }

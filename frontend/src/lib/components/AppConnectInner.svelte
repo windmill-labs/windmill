@@ -75,7 +75,6 @@
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
-
 	let path: string
 	let description = ''
 
@@ -109,7 +108,12 @@
 
 	async function loadConnects() {
 		if (!connects) {
-			connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+			try {
+				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+			} catch (e) {
+				connects = []
+				console.error('Error loading OAuth connects', e)
+			}
 		}
 	}
 

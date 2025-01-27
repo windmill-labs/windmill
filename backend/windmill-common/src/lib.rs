@@ -36,6 +36,7 @@ pub mod job_s3_helpers_ee;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+pub mod teams_ee;
 pub mod otel_ee;
 pub mod queue;
 pub mod s3_helpers;
@@ -247,18 +248,16 @@ pub async fn connect_db(
         Err(_) => {
             if server_mode {
                 DEFAULT_MAX_CONNECTIONS_SERVER
+            } else if indexer_mode {
+                DEFAULT_MAX_CONNECTIONS_INDEXER
             } else {
-                if indexer_mode {
-                    DEFAULT_MAX_CONNECTIONS_INDEXER
-                } else {
-                    DEFAULT_MAX_CONNECTIONS_WORKER
-                        + std::env::var("NUM_WORKERS")
-                            .ok()
-                            .map(|x| x.parse().ok())
-                            .flatten()
-                            .unwrap_or(1)
-                        - 1
-                }
+                DEFAULT_MAX_CONNECTIONS_WORKER
+                    + std::env::var("NUM_WORKERS")
+                        .ok()
+                        .map(|x| x.parse().ok())
+                        .flatten()
+                        .unwrap_or(1)
+                    - 1
             }
         }
     };

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.448.0"
+version = "1.450.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.448.0"
+version = "1.450.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -73,6 +73,7 @@ oracledb = ["windmill-worker/oracledb"]
 mssql = ["windmill-worker/mssql"]
 bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
+postgres_trigger = ["windmill-api/postgres_trigger"]
 python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 csharp = ["windmill-worker/csharp"]
@@ -114,6 +115,8 @@ serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 quote.workspace = true
+memchr.workspace = true
+
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -154,6 +157,7 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
@@ -234,7 +238,7 @@ sqlx = { version = "0.8.0", features = [
     "runtime-tokio-rustls",
     "bigdecimal"
 ] }
-bigdecimal = "^0"
+bigdecimal = {version = "^0"}
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
@@ -260,6 +264,7 @@ wasm-bindgen-test = "0.3.42"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
+rust-postgres = { package = "tokio-postgres", git = "https://github.com/imor/rust-postgres", rev = "20265ef38e32a06f76b6f9b678e2077fc2211f6b"}
 bit-vec = "=0.6.3"
 mappable-rc = "^0"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls", "rust_decimal"]}
@@ -269,7 +274,7 @@ native-tls = "^0"
 # samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
 samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
-rust_decimal = { version = "^1", features = ["db-postgres"]}
+rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
@@ -287,6 +292,7 @@ openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
 rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
+pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
 
@@ -311,6 +317,7 @@ opentelemetry-semantic-conventions = { version = "*", features = ["semconv_exper
 bollard = "0.18.1"
 
 tonic = { version = "^0", features = ["tls-native-roots"] }
+byteorder = "1.5.0"
 
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }

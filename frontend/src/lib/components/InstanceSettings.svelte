@@ -2,6 +2,7 @@
 	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
+	import type { TeamInfo } from '$lib/gen/types.gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
@@ -57,8 +58,8 @@
 		initialValues = Object.fromEntries(
 			(
 				await Promise.all(
-					Object.entries(settings).map(
-						async ([_, y]) =>
+					[...Object.values(settings), scimSamlSetting].map(
+						async (y) =>
 							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
 					)
 				)
@@ -83,6 +84,34 @@
 		if (nvalues['indexer_settings'] == undefined) {
 			nvalues['indexer_settings'] = {}
 		}
+
+		if (nvalues['critical_error_channels'] == undefined) {
+			nvalues['critical_error_channels'] = []
+		} else {
+			let teams = ((await SettingService.getGlobal({ key: 'teams' })) as TeamInfo[]) ?? []
+
+			nvalues['teams'] = teams
+
+			nvalues['critical_error_channels'] = nvalues['critical_error_channels'].map((el) => {
+				if (el.teams_channel) {
+					const team = teams.find((team) => team.team_name === el.teams_channel.team_name) || null
+					return {
+						teams_channel: {
+							team_id: team?.team_id,
+							team_name: team?.team_name,
+							channel_id: team?.channels.find(
+								(channel) => channel.channel_id === el.teams_channel.channel_id
+							)?.channel_id,
+							channel_name: team?.channels.find(
+								(channel) => channel.channel_id === el.teams_channel.channel_id
+							)?.channel_name
+						}
+					}
+				}
+				return el
+			})
+		}
+
 		$values = nvalues
 		loading = false
 
@@ -105,7 +134,9 @@
 
 		let shouldReloadPage = false
 		if ($values) {
-			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
+			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
+				Object.entries(x)
+			)
 			let licenseKeySet = false
 			await Promise.all(
 				allSettings

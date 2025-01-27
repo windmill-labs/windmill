@@ -6,6 +6,13 @@ export interface Setting {
 	ee_only?: string
 	tooltip?: string
 	key: string
+	// If value is not specified for first element, it will automatcally use undefined
+	select_items?: {
+		label: string,
+		tooltip?: string,
+		// If not specified, label will be used
+		value?: any,
+	}[],
 	fieldType:
 		| 'text'
 		| 'number'
@@ -74,9 +81,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					  value.includes('://') &&
-					  !value?.endsWith('/') &&
-					  !value?.endsWith(' ')
+					value.includes('://') &&
+					!value?.endsWith('/') &&
+					!value?.endsWith(' ')
 					: false
 		},
 		{
@@ -220,6 +227,35 @@ export const settings: Record<string, Setting[]> = {
 	'Auth/OAuth': [],
 	Registries: [
 		{
+			label: 'Instance Python Version',
+			description: 'Default python version for newly deployed scripts',
+			key: 'instance_python_version',
+			fieldType: 'select',
+			// To change latest stable version:
+			// 1. Change placeholder in instanceSettings.ts
+			// 2. Change LATEST_STABLE_PY in dockerfile
+			// 3. Change #[default] annotation for PyVersion in backend
+			placeholder: '3.10,3.11,3.12,3.13',
+			select_items: [{
+				label: "Latest Stable",
+				value: "default",
+				tooltip: "python-3.11",
+			},
+			{
+				label: "3.10",
+			},
+			{
+				label: "3.11",
+			},
+			{
+				label: "3.12",
+			},
+			{
+				label: "3.13",
+			}],
+			storage: 'setting',
+		},
+		{
 			label: 'Pip index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
@@ -271,7 +307,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Critical alert channels',
 			description:
-				'Channels to send critical alerts to. SMTP and Slack must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
+				'Channels to send critical alerts to. SMTP, Slack or Microsoft Teams must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',

@@ -20,6 +20,7 @@ clone_newuser: {CLONE_NEWUSER}
 
 keep_caps: true
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -78,6 +79,11 @@ mount {
     dst: "{CACHE_DIR}"
     is_bind: true
     rw: true
+}
+mount {
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
+    is_bind: true
 }
 
 mount {

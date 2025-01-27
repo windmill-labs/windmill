@@ -41,10 +41,10 @@ use windmill_common::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -68,8 +68,8 @@ use windmill_common::{
 use windmill_queue::cancel_job;
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
-    SendResult, BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
-    NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "parquet")]
@@ -198,6 +198,7 @@ pub async fn initial_load(
         reload_pip_index_url_setting(&db).await;
         reload_npm_config_registry_setting(&db).await;
         reload_bunfig_install_scopes_setting(&db).await;
+        reload_instance_python_version_setting(&db).await;
         reload_nuget_config_setting(&db).await;
     }
 }
@@ -908,6 +909,16 @@ pub async fn reload_pip_index_url_setting(db: &DB) {
     .await;
 }
 
+pub async fn reload_instance_python_version_setting(db: &DB) {
+    reload_option_setting_with_tracing(
+        db,
+        INSTANCE_PYTHON_VERSION_SETTING,
+        "INSTANCE_PYTHON_VERSION",
+        INSTANCE_PYTHON_VERSION.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_npm_config_registry_setting(db: &DB) {
     reload_option_setting_with_tracing(
         db,
@@ -1479,7 +1490,7 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     #[cfg(feature = "oauth2")]
     {
         let mut l = windmill_api::OAUTH_CLIENTS.write().await;
-        *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths)
+        *l = windmill_api::oauth2_ee::build_oauth_clients(&base_url, oauths, db).await
         .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
         .unwrap();
     }

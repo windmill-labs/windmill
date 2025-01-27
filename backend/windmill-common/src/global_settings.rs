@@ -14,9 +14,11 @@ pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
+pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
+pub const TEAMS_SETTING: &str = "teams";
 pub const INDEXER_SETTING: &str = "indexer_settings";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
@@ -38,7 +40,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 54] = [
+pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -61,6 +63,7 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
+    "INSTANCE_PYTHON_VERSION",
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",
     "PIP_TRUSTED_HOST",
@@ -94,3 +97,21 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "OTEL_TRACING",
     "OTEL_LOGS",
 ];
+
+use crate::error;
+use sqlx::Pool;
+use sqlx::postgres::Postgres;
+
+pub async fn load_value_from_global_settings(
+    db: &Pool<Postgres>,
+    setting_name: &str,
+) -> error::Result<Option<serde_json::Value>> {
+    let r = sqlx::query!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        setting_name
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|x| x.value);
+    Ok(r)
+}
