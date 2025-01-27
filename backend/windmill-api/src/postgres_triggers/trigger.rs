@@ -75,8 +75,8 @@ impl PostgresSimpleClient {
     async fn new(database: &Database) -> Result<Self, Error> {
         let ssl_mode = match database.sslmode.as_ref() {
             "disable" => SslMode::Disable,
-            "prefer" | "allow" => SslMode::Prefer,
             "" | "prefer" | "allow" => SslMode::Prefer,
+            "require" => SslMode::Require,
             "verify-ca" => SslMode::VerifyCa,
             "verify-full" => SslMode::VerifyFull,
             ssl_mode => {
