@@ -38,7 +38,8 @@
 		Pen,
 		Eye,
 		HistoryIcon,
-		ClipboardCopy
+		ClipboardCopy,
+		X
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -63,6 +64,9 @@
 	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/NatsTriggersPanel.svelte'
+	import { classes } from '$lib/components/common/alert/model'
+	import { twMerge } from 'tailwind-merge'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -73,6 +77,7 @@
 	let scheduledForStr: string | undefined = undefined
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
+	let inputSelected: 'saved' | 'history' | undefined = undefined
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -429,7 +434,7 @@
 		<svelte:fragment slot="form">
 			<div class="flex-col flex h-full justify-between">
 				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
-					<div class="flex flex-col gap-2 mb-8">
+					<div class="mb-1">
 						{#if !emptyString(flow?.description)}
 							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
 						{/if}
@@ -442,20 +447,41 @@
 						</Badge>
 					{/if}
 
-					<RunForm
-						bind:scheduledForStr
-						bind:invisible_to_owner
-						bind:overrideTag
-						viewKeybinding
-						{loading}
-						autofocus
-						detailed={false}
-						bind:isValid
-						runnable={flow}
-						runAction={runFlow}
-						bind:args
-						bind:this={runForm}
-					/>
+					<div class="flex flex-col align-left">
+						<div class="min-h-[34px]">
+							<div
+								class="rounded-md flex flex-row gap-2 items-center py-1 px-2 w-fit {classes['info']
+									.bgClass} {inputSelected ? '' : 'hidden'}"
+							>
+								<p class={twMerge(classes['info'].descriptionClass, 'text-xs px-2')}>
+									Using {inputSelected === 'history' ? 'historic' : 'saved'} input arguments
+								</p>
+								<Button
+									color="light"
+									size="xs2"
+									startIcon={{ icon: X }}
+									shortCut={{ key: 'esc', withoutModifier: true }}
+									nonCaptureEvent
+								/>
+							</div>
+						</div>
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							{loading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={flow}
+							runAction={runFlow}
+							bind:args
+							bind:this={runForm}
+						/>
+					</div>
+
 					<div class="py-10" />
 
 					{#if !emptyString(flow.summary)}
@@ -502,6 +528,7 @@
 				flowPath={flow?.path}
 				{isValid}
 				args={args ?? {}}
+				bind:inputSelected
 				on:selected_args={(e) => {
 					const nargs = JSON.parse(JSON.stringify(e.detail))
 					args = nargs

@@ -107,9 +107,7 @@
 		if (input.isEditing) return
 
 		if (selectedInput === input.id) {
-			selectedInput = null
-			selectedArgs = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 		} else {
 			selectedInput = input.id
 			selectedArgs = input.payloadData ?? {}
@@ -118,9 +116,7 @@
 	}
 
 	onDestroy(() => {
-		selectedInput = null
-		selectedArgs = undefined
-		dispatch('select', undefined)
+		resetSelected(true)
 	})
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
@@ -134,9 +130,7 @@
 			event.stopPropagation()
 			event.preventDefault()
 		} else if (event.key === 'Escape' && selectedInput) {
-			selectedInput = null
-			selectedArgs = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 			event.stopPropagation()
 			event.preventDefault()
 		}
@@ -167,6 +161,14 @@
 		infiniteList?.loadData('refresh')
 	}
 
+	export function resetSelected(dispatchEvent?: boolean) {
+		selectedInput = null
+		selectedArgs = undefined
+		if (dispatchEvent) {
+			dispatch('select', undefined)
+		}
+	}
+
 	$: $workspaceStore &&
 		runnableId &&
 		runnableType &&
@@ -179,9 +181,7 @@
 	class="w-full flex flex-col gap-1 h-full overflow-y-auto"
 	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 	on:click_outside={() => {
-		selectedInput = null
-		selectedArgs = undefined
-		dispatch('select', undefined)
+		resetSelected(true)
 	}}
 >
 	{#if !noButton}
@@ -207,7 +207,7 @@
 			</Popover>
 		</div>
 	{/if}
-	<div class="grow min-h-0">
+	<div class="grow min-h-0" data-schema-picker>
 		{#if !draft}
 			<InfiniteList
 				bind:this={infiniteList}

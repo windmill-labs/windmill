@@ -11,6 +11,7 @@
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
+	export let inputSelected: 'saved' | 'history' | undefined = undefined
 
 	// Are the current Inputs valid and able to be saved?
 	export let isValid: boolean
@@ -19,6 +20,7 @@
 	let savedArgs: any = undefined
 	let runnableType: RunnableType | undefined = undefined
 	let savedInputsPicker: SavedInputsPicker | undefined = undefined
+	let historicInputs: HistoricInputs | undefined = undefined
 
 	$: runnableId = scriptHash || scriptPath || flowPath || undefined
 	$: runnableType = scriptHash
@@ -29,11 +31,15 @@
 		? 'FlowPath'
 		: undefined
 
-	function selectArgs(selected_args: any) {
+	function selectArgs(selected_args: any, type: 'saved' | 'history' | undefined) {
 		if (selected_args) {
-			savedArgs = args
+			if (!inputSelected) {
+				savedArgs = args
+			}
+			inputSelected = type
 			dispatch('selected_args', selected_args)
 		} else if (savedArgs) {
+			inputSelected = type
 			dispatch('selected_args', savedArgs)
 		}
 	}
@@ -67,7 +73,8 @@
 					{runnableType}
 					{isValid}
 					on:select={(e) => {
-						selectArgs(e.detail)
+						if (e.detail) historicInputs?.resetSelected()
+						selectArgs(e.detail, e.detail ? 'saved' : undefined)
 					}}
 					noButton={true}
 				/>
@@ -77,10 +84,12 @@
 		<Pane class="px-4 py-2 h-full">
 			<Section label="History" wrapperClass="h-full" small={true}>
 				<HistoricInputs
+					bind:this={historicInputs}
 					{runnableId}
 					{runnableType}
 					on:select={(e) => {
-						selectArgs(e.detail)
+						if (e.detail) savedInputsPicker?.resetSelected()
+						selectArgs(e.detail, e.detail ? 'history' : undefined)
 					}}
 				/>
 			</Section>

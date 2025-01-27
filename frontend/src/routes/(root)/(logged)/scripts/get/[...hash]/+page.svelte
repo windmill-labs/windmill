@@ -62,7 +62,8 @@
 		Table2,
 		Trash,
 		Play,
-		ClipboardCopy
+		ClipboardCopy,
+		X
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -86,6 +87,8 @@
 	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/NatsTriggersPanel.svelte'
+	import { classes } from '$lib/components/common/alert/model'
+	import { twMerge } from 'tailwind-merge'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -98,6 +101,7 @@
 	let scheduledForStr: string | undefined = undefined
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
+	let inputSelected: 'saved' | 'history' | undefined = undefined
 
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
@@ -593,7 +597,7 @@
 			</svelte:fragment>
 			<svelte:fragment slot="form">
 				<div class="p-8 w-full max-w-3xl mx-auto">
-					<div class="flex flex-col gap-0.5 mb-4">
+					<div class="flex flex-col gap-0.5 mb-1">
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
 								{#if script.lock_error_logs}
@@ -645,21 +649,41 @@
 						</Badge>
 					{/if}
 
-					<RunForm
-						bind:scheduledForStr
-						bind:invisible_to_owner
-						bind:overrideTag
-						viewKeybinding
-						loading={runLoading}
-						autofocus
-						detailed={false}
-						bind:isValid
-						runnable={script}
-						runAction={runScript}
-						bind:args
-						schedulable={true}
-						bind:this={runForm}
-					/>
+					<div class="flex flex-col align-left">
+						<div class="min-h-[34px]">
+							<div
+								class="rounded-md flex flex-row gap-2 items-center py-1 px-2 w-fit {classes['info']
+									.bgClass} {inputSelected ? '' : 'hidden'}"
+							>
+								<p class={twMerge(classes['info'].descriptionClass, 'text-xs px-2')}>
+									Using {inputSelected === 'history' ? 'historic' : 'saved'} input arguments
+								</p>
+								<Button
+									color="light"
+									size="xs2"
+									startIcon={{ icon: X }}
+									shortCut={{ key: 'esc', withoutModifier: true }}
+									nonCaptureEvent
+								/>
+							</div>
+						</div>
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							loading={runLoading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={script}
+							runAction={runScript}
+							bind:args
+							schedulable={true}
+							bind:this={runForm}
+						/>
+					</div>
 
 					<div class="py-10" />
 					{#if !emptyString(script.summary)}
@@ -694,6 +718,7 @@
 						scriptHash={topHash}
 						{isValid}
 						{args}
+						bind:inputSelected
 						on:selected_args={(e) => {
 							const nargs = JSON.parse(JSON.stringify(e.detail))
 							args = nargs

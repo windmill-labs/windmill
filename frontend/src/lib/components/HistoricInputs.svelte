@@ -49,8 +49,7 @@
 
 	function handleSelected(data: any) {
 		if (selected === data.id) {
-			selected = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 			return
 		}
 		selected = data.id
@@ -60,8 +59,7 @@
 	let selected: string | undefined = undefined
 
 	onDestroy(() => {
-		selected = undefined
-		dispatch('select', undefined)
+		resetSelected(true)
 	})
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
@@ -87,8 +85,7 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
-			selected = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 			event.stopPropagation()
 			event.preventDefault()
 		}
@@ -105,6 +102,13 @@
 	function refresh() {
 		if (infiniteList) {
 			infiniteList.loadData('refresh')
+		}
+	}
+
+	export function resetSelected(dispatchEvent?: boolean) {
+		selected = undefined
+		if (dispatchEvent) {
+			dispatch('select', undefined)
 		}
 	}
 
@@ -140,12 +144,11 @@
 	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 	on:click_outside={() => {
 		if (selected) {
-			selected = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 		}
 	}}
 >
-	<div class="grow-0">
+	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading && (jobs == undefined || jobs?.length == 0)}
 				<div class="text-center text-tertiary text-xs py-2">Loading current runs...</div>
@@ -177,7 +180,7 @@
 		</DataTable>
 	</div>
 
-	<div class="min-h-0 grow">
+	<div class="min-h-0 grow" data-schema-picker>
 		<InfiniteList
 			bind:this={infiniteList}
 			selectedItemId={selected}
