@@ -3,7 +3,7 @@
 	import { PostgresTriggerService, type PostgresTrigger } from '$lib/gen'
 	import { UnplugIcon } from 'lucide-svelte'
 
-	import { canWrite } from '$lib/utils'
+	import { canWrite, sendUserToast } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert, Button, Skeleton } from '$lib/components/common'
@@ -33,8 +33,8 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), postgres_count: databaseTriggers?.length }
-		} catch (e) {
-			console.error('impossible to load Postgres triggers', e)
+		} catch (err) {
+			sendUserToast(`Could not load postgres triggers ${err.body}`, true)
 		}
 	}
 </script>
