@@ -76,7 +76,7 @@ impl PostgresSimpleClient {
         let ssl_mode = match database.sslmode.as_ref() {
             "disable" => SslMode::Disable,
             "prefer" | "allow" => SslMode::Prefer,
-            "" | "require" => SslMode::Require,
+            "" | "prefer" | "allow" => SslMode::Prefer,
             "verify-ca" => SslMode::VerifyCa,
             "verify-full" => SslMode::VerifyFull,
             ssl_mode => {
