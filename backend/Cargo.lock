@@ -6287,6 +6287,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "postgres-native-tls"
+version = "0.5.0"
+source = "git+https://github.com/imor/rust-postgres?rev=20265ef38e32a06f76b6f9b678e2077fc2211f6b#20265ef38e32a06f76b6f9b678e2077fc2211f6b"
+dependencies = [
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tokio-postgres 0.7.11",
+]
+
+[[package]]
 name = "postgres-protocol"
 version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10884,6 +10895,7 @@ dependencies = [
  "openssl",
  "pg_escape",
  "pin-project",
+ "postgres-native-tls 0.5.0 (git+https://github.com/imor/rust-postgres?rev=20265ef38e32a06f76b6f9b678e2077fc2211f6b)",
  "prometheus",
  "quick_cache",
  "rand 0.8.5",
@@ -11343,7 +11355,7 @@ dependencies = [
  "opentelemetry",
  "oracle",
  "pem 3.0.4",
- "postgres-native-tls",
+ "postgres-native-tls 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "prometheus",
  "rand 0.8.5",
  "regex",

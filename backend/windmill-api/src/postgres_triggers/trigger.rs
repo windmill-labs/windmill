@@ -16,9 +16,11 @@ use crate::{
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
 use futures::{pin_mut, SinkExt, StreamExt};
+use native_tls::TlsConnector;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
-use rust_postgres::{Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
+use rust_postgres::{config::SslMode, Client, Config, CopyBothDuplex, SimpleQueryMessage};
+use rust_postgres_native_tls::MakeTlsConnector;
 use windmill_common::{
     db::UserDB, utils::report_critical_error, worker::to_raw_value, INSTANCE_NAME,
 };
@@ -60,28 +62,50 @@ impl RowExist for Vec<SimpleQueryMessage> {
 #[derive(thiserror::Error, Debug)]
 enum Error {
     #[error("Error from database: {0}")]
-    Postgres(rust_postgres::Error),
+    Postgres(#[from] rust_postgres::Error),
     #[error("Error : {0}")]
-    Common(windmill_common::error::Error),
+    Common(#[from] windmill_common::error::Error),
+    #[error("Tls Error: {0}")]
+    Tls(#[from] native_tls::Error),
 }
 
 pub struct PostgresSimpleClient(Client);
 
 impl PostgresSimpleClient {
     async fn new(database: &Database) -> Result<Self, Error> {
+        let ssl_mode = match database.sslmode.as_ref() {
+            "disable" => SslMode::Disable,
+            "" | "prefer" | "allow" => SslMode::Prefer,
+            "require" => SslMode::Require,
+            "verify-ca" => SslMode::VerifyCa,
+            "verify-full" => SslMode::VerifyFull,
+            ssl_mode => {
+                return Err(Error::Common(windmill_common::error::Error::BadRequest(
+                    format!("Invalid ssl mode for postgres: {}, please put a valid ssl_mode among the following avalible ssl mode: ['disable', 'allow', 'prefer', 'verify-ca', 'verify-full']", ssl_mode),
+                )))
+            }
+        };
+
         let mut config = Config::new();
         config
             .dbname(&database.dbname)
             .host(&database.host)
             .port(database.port)
             .user(&database.user)
+            .ssl_mode(ssl_mode)
             .replication_mode(rust_postgres::config::ReplicationMode::Logical);
-        
+
         if !database.password.is_empty() {
             config.password(&database.password);
         }
 
-        let (client, connection) = config.connect(NoTls).await.map_err(Error::Postgres)?;
+        if !database.root_certificate_pem.is_empty() {
+            config.ssl_root_cert(database.root_certificate_pem.as_bytes());
+        }
+
+        let connector = MakeTlsConnector::new(TlsConnector::new()?);
+
+        let (client, connection) = config.connect(connector).await?;
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 tracing::debug!("{:#?}", e);
@@ -111,8 +135,7 @@ impl PostgresSimpleClient {
         Ok((
             self.0
                 .copy_both_simple::<bytes::Bytes>(query.as_str())
-                .await
-                .map_err(Error::Postgres)?,
+                .await?,
             LogicalReplicationSettings::new(false),
         ))
     }
@@ -250,8 +273,7 @@ async fn listen_to_transactions(
             &db,
             None,
         )
-        .await
-        .map_err(Error::Common)?;
+        .await?;
 
         let database = get_database_resource(
             authed,
@@ -260,8 +282,7 @@ async fn listen_to_transactions(
             &postgres_trigger.postgres_resource_path,
             &postgres_trigger.workspace_id,
         )
-        .await
-        .map_err(Error::Common)?;
+        .await?;
 
         let client = PostgresSimpleClient::new(&database).await?;
 
@@ -274,7 +295,6 @@ async fn listen_to_transactions(
 
         Ok::<_, Error>((logical_replication_stream, logical_replication_settings))
     };
-
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
