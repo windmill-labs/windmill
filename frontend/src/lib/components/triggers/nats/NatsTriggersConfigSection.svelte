@@ -9,6 +9,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
+	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}
@@ -172,7 +173,7 @@
 		required: ['subjects', 'use_jetstream', 'stream_name', 'consumer_name']
 	}
 
-	let connectionValid = false
+	let isStaticConnectionValid = false
 	let otherArgsValid = false
 	let globalError = ''
 
@@ -181,15 +182,18 @@
 			? 'Only one subject is supported if not using JetStream.'
 			: ''
 
-	$: isValid =
-		(selected === 'resource'
+	$: isConnectionValid =
+		selected === 'resource'
 			? !!args.nats_resource_path
-			: connectionValid &&
+			: isStaticConnectionValid &&
 			  args.servers &&
 			  args.servers.length > 0 &&
 			  args.servers.every((b) => b.length > 0) &&
 			  args.require_tls !== undefined &&
-			  args.require_tls !== null) &&
+			  args.require_tls !== null
+
+	$: isValid =
+		isConnectionValid &&
 		otherArgsValid &&
 		args.subjects &&
 		args.subjects.length > 0 &&
@@ -264,9 +268,12 @@
 						<SchemaForm
 							schema={connnectionSchema}
 							bind:args
-							bind:isValid={connectionValid}
+							bind:isValid={isStaticConnectionValid}
 							lightHeader={true}
 						/>
+					{/if}
+					{#if isConnectionValid}
+						<TestTriggerConnection kind="nats" args={{ connection: args }} />
 					{/if}
 				</Subsection>
 			</div>
