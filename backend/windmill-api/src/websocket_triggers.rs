@@ -1135,10 +1135,7 @@ async fn listen_to_websocket(
         connection = connect_async(connect_url.as_ref()) => {
             match connection {
                 Ok((ws_stream, _)) => {
-                    tracing::info!("Listening to websocket {}", url);
-                    if let None = ws.update_ping(&db, None).await {
-                        return;
-                    }
+                    tracing::info!("Connected to websocket {}", url);
                     let (writer, mut reader) = ws_stream.split();
 
                     // send initial messages
