@@ -9,7 +9,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Route, Code, Eye, Pen, Plus, Share, Trash } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -156,6 +156,12 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.triggers}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 <CenteredPage>
 	<PageHeader
 		title="Custom HTTP routes"
@@ -320,6 +326,7 @@
 		>
 	{/if}
 </CenteredPage>
+{/if}
 
 <ShareModal
 	bind:this={shareModal}

@@ -63,10 +63,10 @@ pub fn check_executor_binary_exists(
 ) -> Result<(), Error> {
     if !Path::new(executor_path).exists() {
         #[cfg(feature = "enterprise")]
-        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run {language} jobs.", executor_path);
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-ee-full image. Please use the image `ghcr.io/windmill-labs/windmill-ee-full` for your instance in order to run {language} jobs.", executor_path);
 
         #[cfg(not(feature = "enterprise"))]
-        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run {language} jobs.", executor_path);
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `ghcr.io/windmill-labs/windmill-full` for your instance in order to run {language} jobs.", executor_path);
         return Err(Error::NotFound(msg));
     }
 

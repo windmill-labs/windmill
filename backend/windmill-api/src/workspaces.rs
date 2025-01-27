@@ -121,7 +121,8 @@ pub fn workspaced_service() -> Router {
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
         )
-        .route("/critical_alerts/mute", post(mute_critical_alerts));
+        .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route("/operator_settings", post(update_operator_settings));
 
     #[cfg(feature = "stripe")]
     {
@@ -188,6 +189,7 @@ pub struct WorkspaceSettings {
     pub default_scripts: Option<serde_json::Value>,
     pub mute_critical_alerts: Option<bool>,
     pub color: Option<String>,
+    pub operator_settings: Option<serde_json::Value>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -286,6 +288,7 @@ struct UserWorkspace {
     pub name: String,
     pub username: String,
     pub color: Option<String>,
+    pub operator_settings: Option<Option<serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
@@ -1366,7 +1369,8 @@ async fn user_workspaces(
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
-        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color
+        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color,
+                CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
          JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id
@@ -2134,4 +2138,42 @@ async fn mute_critical_alerts(
 #[cfg(not(feature = "enterprise"))]
 pub async fn mute_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[derive(Deserialize, Serialize)]
+struct ChangeOperatorSettings {
+    runs: bool,
+    schedules: bool,
+    resources: bool,
+    variables: bool,
+    triggers: bool,
+    audit_logs: bool,
+    groups: bool,
+    folders: bool,
+    workers: bool,
+}
+
+async fn update_operator_settings(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
+    Json(settings): Json<ChangeOperatorSettings>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    let settings_json = serde_json::json!(settings);
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET operator_settings = $1 WHERE workspace_id = $2",
+        settings_json,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok("Operator settings updated successfully".to_string())
 }

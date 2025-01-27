@@ -76,7 +76,7 @@ impl PostgresSimpleClient {
             .port(database.port)
             .user(&database.user)
             .replication_mode(rust_postgres::config::ReplicationMode::Logical);
-
+        
         if !database.password.is_empty() {
             config.password(&database.password);
         }
@@ -362,7 +362,7 @@ async fn listen_to_transactions(
                                                     Some((update.o_id, relations.body_to_json((update.o_id, update.new_tuple)), "update"))
                                                 }
                                                 Delete(delete) => {
-                                                    let body = delete.old_tuple.unwrap_or(delete.key_tuple.unwrap());
+                                                    let body = delete.old_tuple.unwrap_or_else(|| delete.key_tuple.unwrap());
                                                     Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
                                                 }
                                             };
@@ -392,7 +392,8 @@ async fn listen_to_transactions(
                                 }
                             }
                             Err(err) => {
-                                tracing::error!("Postgres trigger error while trying to start_logical_replication_streaming: {}", err.to_string())
+                                tracing::error!("Postgres trigger error while trying to start logical replication streaming: {}", &err);
+                                disable_with_error(&postgres_trigger, &db, err.to_string()).await
                             }
                         }
                     }
