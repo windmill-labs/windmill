@@ -4,12 +4,13 @@
 	import { base } from '$lib/base'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import SupabaseIcon from './icons/SupabaseIcon.svelte'
 	import Popup from './common/popup/Popup.svelte'
 	import Button from './common/button/Button.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let resourceType: string
 	export let resourceTypeInfo: ResourceType | undefined
@@ -195,13 +196,17 @@
 			>{error}</span
 		>{:else}<div class="py-2" />{/if}
 	<div class="h-full w-full border p-1 rounded">
-		<SimpleEditor
-			bind:this={rawCodeEditor}
-			autoHeight
-			lang="json"
-			bind:code={rawCode}
-			fixedOverflowWidgets={false}
-		/>
+		{#await import('$lib/components/SimpleEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				bind:this={rawCodeEditor}
+				autoHeight
+				lang="json"
+				bind:code={rawCode}
+				fixedOverflowWidgets={false}
+			/>
+		{/await}
 	</div>
 {:else if resourceTypeInfo?.format_extension}
 	<h5 class="mt-4 inline-flex items-center gap-4">
@@ -209,13 +214,17 @@
 	</h5>
 	<div class="py-2" />
 	<div class="h-full w-full border p-1 rounded">
-		<SimpleEditor
-			bind:this={rawCodeEditor}
-			autoHeight
-			lang={resourceTypeInfo.format_extension}
-			bind:code={textFileContent}
-			fixedOverflowWidgets={false}
-		/>
+		{#await import('$lib/components/SimpleEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				bind:this={rawCodeEditor}
+				autoHeight
+				lang={resourceTypeInfo.format_extension}
+				bind:code={textFileContent}
+				fixedOverflowWidgets={false}
+			/>
+		{/await}
 	</div>
 {:else}
 	<SchemaForm

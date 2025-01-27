@@ -1,8 +1,8 @@
 <script lang="ts">
-	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import S3ObjectPicker from './S3ObjectPicker.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import type SimpleEditor from './SimpleEditor.svelte'
 
 	export let format: string
 	export let value: any
@@ -58,6 +58,10 @@
 			{showSchemaExplorer}
 		/>
 	{:else}
-		<JsonEditor bind:editor code={JSON.stringify(value, null, 2)} bind:value />
+		{#await import('$lib/components/JsonEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default bind:editor code={JSON.stringify(value, null, 2)} bind:value />
+		{/await}
 	{/if}
 </div>

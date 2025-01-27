@@ -22,7 +22,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
-	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 

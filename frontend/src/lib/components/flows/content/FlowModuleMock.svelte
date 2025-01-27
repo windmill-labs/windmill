@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
 
-	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Section from '$lib/components/Section.svelte'
 
 	export let flowModule: FlowModule

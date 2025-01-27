@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { Pipette } from 'lucide-svelte'
+	import { Loader2, Pipette } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	// @ts-ignore
-	import SimpleEditor from './SimpleEditor.svelte'
+	import type SimpleEditor from './SimpleEditor.svelte'
 
-	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { Button } from './common'
 
 	import Toggle from './Toggle.svelte'
@@ -55,14 +54,18 @@
 		options={{ left: 'Raw S3 object input' }}
 	/>
 	{#if s3FileUploadRawMode}
-		<JsonEditor
-			bind:editor
-			on:focus={(e) => {
-				dispatch('focus')
-			}}
-			code={JSON.stringify(value ?? { s3: '' }, null, 2)}
-			bind:value
-		/>
+		{#await import('$lib/components/JsonEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				bind:editor
+				on:focus={(e) => {
+					dispatch('focus')
+				}}
+				code={JSON.stringify(value ?? { s3: '' }, null, 2)}
+				bind:value
+			/>
+		{/await}
 		<Button
 			variant="border"
 			color="light"

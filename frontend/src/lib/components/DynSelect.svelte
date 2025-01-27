@@ -6,7 +6,7 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import ResultJobLoader from './ResultJobLoader.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let value: any = undefined
 	export let helperScript:
@@ -149,6 +149,10 @@
 		<div class="text-xs text-tertiary"
 			>Dynamic Select is not available in this mode, write value directly</div
 		>
-		<JsonEditor code={rawCode} bind:value />
+		{#await import('$lib/components/JsonEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default code={rawCode} bind:value />
+		{/await}
 	</div>
 {/if}

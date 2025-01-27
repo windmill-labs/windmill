@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
-	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import { ColumnIdentity, type ColumnMetadata, type DbType, type ColumnDef } from './utils'
 
 	import init, {
@@ -15,6 +14,7 @@
 	init(wasmUrl)
 
 	import { argSigToJsonSchemaType } from '$lib/inferArgSig'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
 	export let args: Record<string, any> = {}
 	export let dbType: DbType = 'postgresql'
@@ -156,5 +156,5 @@
 </script>
 
 {#if schema}
-	<LightweightSchemaForm {schema} bind:args />
+	<SchemaForm {schema} bind:args />
 {/if}
