@@ -35,9 +35,9 @@ use windmill_queue::{PushArgs, PushArgsOwned};
 #[cfg(feature = "http_trigger")]
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_ee::KafkaResourceSecurity;
+use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_ee::NatsResourceAuth;
+use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
@@ -112,27 +112,11 @@ struct HttpTriggerConfig {
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 #[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum KafkaTriggerConfigConnection {
-    Resource { kafka_resource_path: String },
-    Static { brokers: Vec<String>, security: KafkaResourceSecurity },
-}
-
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-#[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
     #[serde(flatten)]
     pub connection: KafkaTriggerConfigConnection,
     pub topics: Vec<String>,
     pub group_id: String,
-}
-
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum NatsTriggerConfigConnection {
-    Resource { nats_resource_path: String },
-    Static { servers: Vec<String>, auth: NatsResourceAuth, require_tls: bool },
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]

@@ -59,8 +59,6 @@ mod auth;
 mod capture;
 mod concurrency_groups;
 mod configs;
-#[cfg(feature = "postgres_trigger")]
-mod postgres_triggers;
 mod db;
 mod drafts;
 pub mod ee;
@@ -75,6 +73,8 @@ mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
+#[cfg(feature = "postgres_trigger")]
+mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
@@ -98,12 +98,12 @@ mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
-#[cfg(feature = "enterprise")]
-mod teams_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
+#[cfg(feature = "enterprise")]
+mod teams_ee;
 mod tracing_init;
 mod triggers;
 mod users;
@@ -296,24 +296,24 @@ pub async fn run_server(
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
+            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
             let kafka_killpill_rx = rx.resubscribe();
-            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
+            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
             let nats_killpill_rx = rx.resubscribe();
-            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx).await;
+            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
         }
         #[cfg(feature = "postgres_trigger")]
         {
             let db_killpill_rx = rx.resubscribe();
-            postgres_triggers::start_database(db.clone(), db_killpill_rx).await;
+            postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
     }
 
@@ -454,7 +454,7 @@ pub async fn run_server(
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
                 .nest("/teams", {
-                    #[cfg(feature = "enterprise")]  
+                    #[cfg(feature = "enterprise")]
                     {
                         teams_ee::teams_service()
                     }

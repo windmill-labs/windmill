@@ -48,6 +48,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_websocket_trigger))
         .route("/exists/*path", get(exists_websocket_trigger))
         .route("/setenabled/*path", post(set_enabled))
+        .route("/test", post(test_websocket_connection))
 }
 
 #[derive(Deserialize)]
@@ -377,6 +378,64 @@ async fn exists_websocket_trigger(
     Ok(Json(exists))
 }
 
+#[derive(Debug, Deserialize)]
+struct TestWebsocket {
+    url: String,
+    url_runnable_args: Option<Box<RawValue>>,
+}
+
+async fn test_websocket_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(workspace_id): Path<String>,
+    Json(test_websocket): Json<TestWebsocket>,
+) -> error::Result<()> {
+    let url = test_websocket.url;
+
+    let connect_f = async {
+        let connect_url: Cow<str> = if url.starts_with("$") {
+            if url.starts_with("$flow:") || url.starts_with("$script:") {
+                let path = url.splitn(2, ':').nth(1).unwrap();
+                Cow::Owned(
+                    get_url_from_runnable(
+                        path,
+                        url.starts_with("$flow:"),
+                        &db,
+                        authed,
+                        test_websocket.url_runnable_args.as_ref(),
+                        &workspace_id,
+                    )
+                    .await?,
+                )
+            } else {
+                return Err(error::Error::BadConfig(format!(
+                    "Invalid websocket runnable path: {}",
+                    url
+                )));
+            }
+        } else {
+            Cow::Borrowed(&url)
+        };
+
+        connect_async(connect_url.as_ref()).await.map_err(|err| {
+            error::Error::BadConfig(format!(
+                "Error connecting to websocket: {}",
+                err.to_string()
+            ))
+        })?;
+
+        Ok(())
+    };
+
+    tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
+        .await
+        .map_err(|_| {
+            error::Error::BadConfig(format!("Timeout connecting to websocket after 30 seconds"))
+        })??;
+
+    Ok(())
+}
+
 async fn listen_to_unlistened_websockets(
     db: &DB,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
@@ -419,7 +478,7 @@ async fn listen_to_unlistened_websockets(
     }
 }
 
-pub async fn start_websockets(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
+pub fn start_websockets(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
     tokio::spawn(async move {
         listen_to_unlistened_websockets(&db, &killpill_rx).await;
         loop {
@@ -509,7 +568,6 @@ async fn wait_runnable_result(
     authed: ApiAuthed,
     db: &DB,
     workspace_id: &str,
-    trigger_path: &str,
 ) -> error::Result<String> {
     let user_db = UserDB::new(db.clone());
 
@@ -521,7 +579,6 @@ async fn wait_runnable_result(
         HashMap::new()
     };
 
-    let label_prefix = Some(format!("ws-{}-", trigger_path));
     let (_, job_id) = if is_flow {
         run_flow_by_path_inner(
             authed,
@@ -531,7 +588,7 @@ async fn wait_runnable_result(
             StripPath(path.clone()),
             RunJobQuery::default(),
             PushArgsOwned { args, extra: None },
-            label_prefix,
+            None,
         )
         .await?
     } else {
@@ -543,7 +600,7 @@ async fn wait_runnable_result(
             StripPath(path.clone()),
             RunJobQuery::default(),
             PushArgsOwned { args, extra: None },
-            label_prefix,
+            None,
         )
         .await?
     };
@@ -553,7 +610,9 @@ async fn wait_runnable_result(
     loop {
         if start_time.elapsed() > tokio::time::Duration::from_secs(300) {
             return Err(anyhow::anyhow!(
-                "Timed out after 5m waiting for runnable {path} (is_flow: {is_flow}) to complete",
+                "Timed out after 5m waiting for {} {} to complete",
+                if is_flow { "flow" } else { "script" },
+                path
             )
             .into());
         }
@@ -576,7 +635,8 @@ async fn wait_runnable_result(
             Ok(Some(r)) => {
                 if !r.success {
                     return Err(anyhow::anyhow!(
-                        "Runnable {path} (is_flow: {is_flow}) failed: {:?}",
+                        "{} {path} failed: {:?}",
+                        if is_flow { "Flow" } else { "Script" },
                         r.result
                     )
                     .into());
@@ -590,7 +650,8 @@ async fn wait_runnable_result(
             }
             Err(err) => {
                 return Err(anyhow::anyhow!(
-                    "Error fetching job result for runnable {path} (is_flow: {is_flow}): {err}",
+                    "Error fetching job result for {} {path}: {err}",
+                    if is_flow { "flow" } else { "script" },
                 )
                 .into());
             }
@@ -614,25 +675,24 @@ async fn get_url_from_runnable(
     authed: ApiAuthed,
     args: Option<&Box<RawValue>>,
     workspace_id: &str,
-    trigger_path: &str,
 ) -> error::Result<String> {
-    tracing::info!("Running runnable {path} (is_flow: {is_flow}) to get websocket URL",);
+    tracing::info!(
+        "Running {} {} to get websocket URL",
+        if is_flow { "flow" } else { "script" },
+        path
+    );
 
-    let result = wait_runnable_result(
-        path.to_string(),
-        is_flow,
-        args,
-        authed,
-        db,
-        workspace_id,
-        trigger_path,
-    )
-    .await?;
+    let result =
+        wait_runnable_result(path.to_string(), is_flow, args, authed, db, workspace_id).await?;
 
     if result.starts_with("\"") && result.ends_with("\"") {
         Ok(result[1..result.len() - 1].to_string())
     } else {
-        Err(anyhow::anyhow!("Runnable {path} (is_flow: {is_flow}) did not return a string").into())
+        Err(error::Error::BadConfig(format!(
+            "{} {} did not return a string",
+            if is_flow { "Flow" } else { "Script" },
+            path
+        )))
     }
 }
 
@@ -721,10 +781,9 @@ impl WebsocketTrigger {
             &path,
             is_flow,
             db,
-            self.fetch_authed(db, Some("url".to_string())).await?,
+            self.fetch_authed(db).await?,
             self.url_runnable_args.as_ref().map(|r| &r.0),
             &self.workspace_id,
-            &self.path,
         )
         .await
     }
@@ -763,7 +822,9 @@ impl WebsocketTrigger {
                 }
                 InitialMessage::RunnableResult { path, is_flow, args } => {
                     tracing::info!(
-                        "Running runnable {path} (is_flow: {is_flow}) for initial message to websocket {}",
+                        "Running {} {} for initial message to websocket {}",
+                        if is_flow { "flow" } else { "script" },
+                        path,
                         self.url,
                     );
 
@@ -771,15 +832,16 @@ impl WebsocketTrigger {
                         path.clone(),
                         is_flow,
                         Some(&args),
-                        self.fetch_authed(db, Some("init".to_string())).await?,
+                        self.fetch_authed(db).await?,
                         db,
                         &self.workspace_id,
-                        &self.path,
                     )
                     .await?;
 
                     tracing::info!(
-                        "Sending runnable {path} (is_flow: {is_flow}) result to websocket {}",
+                        "Sending {} {} result to websocket {}",
+                        if is_flow { "flow" } else { "script" },
+                        path,
                         self.url
                     );
 
@@ -794,7 +856,11 @@ impl WebsocketTrigger {
                         .await
                         .map_err(to_anyhow)
                         .with_context(|| {
-                            format!("Failed to send runnable {path} (is_flow: {is_flow}) result")
+                            format!(
+                                "Failed to send {} {} result",
+                                if is_flow { "flow" } else { "script" },
+                                path
+                            )
                         })?;
                 }
             }
@@ -818,17 +884,13 @@ impl WebsocketTrigger {
         };
     }
 
-    async fn fetch_authed(
-        &self,
-        db: &DB,
-        username_override: Option<String>,
-    ) -> error::Result<ApiAuthed> {
+    async fn fetch_authed(&self, db: &DB) -> error::Result<ApiAuthed> {
         fetch_api_authed(
             self.edited_by.clone(),
             self.email.clone(),
             &self.workspace_id,
             db,
-            username_override,
+            Some(format!("ws-{}", self.path)),
         )
         .await
     }
@@ -932,25 +994,20 @@ impl CaptureConfigForWebsocket {
             &path,
             is_flow,
             db,
-            self.fetch_authed(db, Some("url".to_string())).await?,
+            self.fetch_authed(db).await?,
             url_runnable_args.as_ref(),
             &self.workspace_id,
-            &self.get_trigger_path(),
         )
         .await
     }
 
-    async fn fetch_authed(
-        &self,
-        db: &DB,
-        username_override: Option<String>,
-    ) -> error::Result<ApiAuthed> {
+    async fn fetch_authed(&self, db: &DB) -> error::Result<ApiAuthed> {
         fetch_api_authed(
             self.owner.clone(),
             self.email.clone(),
             &self.workspace_id,
             db,
-            username_override,
+            Some(format!("ws-{}", self.get_trigger_path())),
         )
         .await
     }
@@ -1017,13 +1074,9 @@ async fn listen_to_websocket(
     db: DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
-    if let None = ws.update_ping(&db, Some("Connecting")).await {
-        return;
-    }
-
     let url = match &ws {
-        WebsocketEnum::Trigger(ws_trigger) => &ws_trigger.url,
-        WebsocketEnum::Capture(capture) => &capture.trigger_config.url,
+        WebsocketEnum::Trigger(ws_trigger) => ws_trigger.url.clone(),
+        WebsocketEnum::Capture(capture) => capture.trigger_config.url.clone(),
     };
 
     let filters: Vec<Filter> = match &ws {
@@ -1035,101 +1088,92 @@ async fn listen_to_websocket(
         WebsocketEnum::Capture(_) => vec![],
     };
 
-    loop {
-        let connect_url: Cow<str> = if url.starts_with("$") {
-            if url.starts_with("$flow:") || url.starts_with("$script:") {
-                let path = url.splitn(2, ':').nth(1).unwrap();
-                tokio::select! {
-                    biased;
-                    _ = killpill_rx.recv() => {
-                        return;
-                    },
-                    _ = loop_ping(&db, &ws, Some(
-                        "Waiting on runnable to return websocket URL..."
-                    )) => {
-                        return;
-                    },
+    let connect_url: Cow<str> = if url.starts_with("$") {
+        if url.starts_with("$flow:") || url.starts_with("$script:") {
+            let path = url.splitn(2, ':').nth(1).unwrap();
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv() => {
+                    return;
+                },
+                _ = loop_ping(&db, &ws, Some(
+                    "Waiting on runnable to return websocket URL..."
+                )) => {
+                    return;
+                },
 
-
-                    url_result = ws.get_url_from_runnable(path, url.starts_with("$flow:"), &db) => match url_result {
-                        Ok(url) => Cow::Owned(url),
-                        Err(err) => {
-                            ws.disable_with_error(&db, format!(
-                                    "Error getting websocket URL from runnable after 5 tries: {:?}",
-                                    err
-                                ),
-                            )
-                            .await;
-                            return;
-                        }
-                    },
-                }
-            } else {
-                ws.disable_with_error(&db, format!("Invalid websocket runnable path: {}", url))
-                    .await;
-                return;
+                url_result = ws.get_url_from_runnable(path, url.starts_with("$flow:"), &db) => match url_result {
+                    Ok(url) => Cow::Owned(url),
+                    Err(err) => {
+                        ws.disable_with_error(&db, format!(
+                                "Error getting websocket URL from runnable after 5 tries: {:?}",
+                                err
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                },
             }
         } else {
-            Cow::Borrowed(url)
-        };
+            ws.disable_with_error(&db, format!("Invalid websocket runnable path: {}", url))
+                .await;
+            return;
+        }
+    } else {
+        Cow::Borrowed(&url)
+    };
 
-        tokio::select! {
-            biased;
-            _ = killpill_rx.recv() => {
-                return;
-            },
-            _ = loop_ping(&db, &ws, Some("Connecting...")) => {
-                return;
-            },
-            connection = connect_async(connect_url.as_ref()) => {
-                match connection {
-                    Ok((ws_stream, _)) => {
-                        tracing::info!("Listening to websocket {}", url);
-                        if let None = ws.update_ping(&db, None).await {
-                            return;
-                        }
-                        let (writer, mut reader) = ws_stream.split();
-                        let mut last_ping = tokio::time::Instant::now();
+    tokio::select! {
+        biased;
+        _ = killpill_rx.recv() => {
+            return;
+        },
+        _ = loop_ping(&db, &ws, Some("Connecting...")) => {
+            return;
+        },
+        connection = connect_async(connect_url.as_ref()) => {
+            match connection {
+                Ok((ws_stream, _)) => {
+                    tracing::info!("Connected to websocket {}", url);
+                    let (writer, mut reader) = ws_stream.split();
 
-
-                        // send initial messages
-                        match &ws {
-                            WebsocketEnum::Trigger(ws_trigger) => {
-                                tokio::select! {
-                                    biased;
-                                    _ = killpill_rx.recv() => {
-                                        return;
-                                    },
-                                    _ = loop_ping(&db, &ws, Some("Sending initial messages...")) => {
-                                        return;
-                                    },
-                                    result = ws_trigger.send_initial_messages(writer, &db) => {
-                                        if let Err(err) = result {
-                                            ws_trigger.disable_with_error(&db, format!("Error sending initial messages: {:?}", err)).await;
-                                            return
-                                        } else {
-                                            tracing::debug!("Initial messages sent successfully to websocket {}", url);
-                                        }
-                                    }
-                                }
-                            },
-                            _ => {}
-                        }
-
-                        loop {
+                    // send initial messages
+                    match &ws {
+                        WebsocketEnum::Trigger(ws_trigger) => {
                             tokio::select! {
                                 biased;
                                 _ = killpill_rx.recv() => {
                                     return;
+                                },
+                                _ = loop_ping(&db, &ws, Some("Sending initial messages...")) => {
+                                    return;
+                                },
+                                result = ws_trigger.send_initial_messages(writer, &db) => {
+                                    if let Err(err) = result {
+                                        ws_trigger.disable_with_error(&db, format!("Error sending initial messages: {:?}", err)).await;
+                                        return
+                                    } else {
+                                        tracing::debug!("Initial messages sent successfully to websocket {}", url);
+                                    }
                                 }
-                                msg = reader.next() => {
-                                    if let Some(msg) = msg {
-                                        if last_ping.elapsed() > tokio::time::Duration::from_secs(5) {
-                                            if let None = ws.update_ping(&db, None).await {
-                                                return;
-                                            }
-                                            last_ping = tokio::time::Instant::now();
-                                        }
+                            }
+                        },
+                        _ => {}
+                    }
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = killpill_rx.recv() => {
+                                return;
+                            },
+                            _ = loop_ping(&db, &ws, None) => {
+                                return;
+                            },
+                            _ = async {
+                                loop {
+                                    if let Some(msg) = reader.next().await {
                                         match msg {
                                             Ok(msg) => {
                                                 match msg {
@@ -1170,7 +1214,7 @@ async fn listen_to_websocket(
                                                                 },
                                                                 WebsocketEnum::Capture(capture) => {
                                                                     capture.handle(&db, args).await;
-                                                                }
+                                                                },
                                                             }
                                                         }
                                                     },
@@ -1188,26 +1232,19 @@ async fn listen_to_websocket(
                                         if let None = ws.update_ping(&db, Some("Websocket closed")).await {
                                             return;
                                         }
-                                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                        break;
-                                    }
-                                },
-                                _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-                                    tracing::debug!("Sending ping to websocket {}", url);
-                                    if let None = ws.update_ping(&db, None).await {
                                         return;
                                     }
-                                    last_ping = tokio::time::Instant::now();
-                                },
+                                }
+                            } => {
+                                return;
                             }
                         }
                     }
-                    Err(err) => {
-                        tracing::error!("Error connecting to websocket {}: {:?}", url, err);
-                        if let None = ws.update_ping(&db, Some(err.to_string().as_str())).await {
-                            return;
-                        }
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                }
+                Err(err) => {
+                    tracing::error!("Error connecting to websocket {}: {:?}", url, err);
+                    if let None = ws.update_ping(&db, Some(err.to_string().as_str())).await {
+                        return;
                     }
                 }
             }
@@ -1216,14 +1253,12 @@ async fn listen_to_websocket(
 }
 
 async fn run_job(db: &DB, trigger: &WebsocketTrigger, args: PushArgsOwned) -> anyhow::Result<()> {
-    let label_prefix = Some(format!("ws-{}-", trigger.path));
-
     let authed = fetch_api_authed(
         trigger.edited_by.clone(),
         trigger.email.clone(),
         &trigger.workspace_id,
         db,
-        Some("anonymous".to_string()),
+        Some(format!("ws-{}", trigger.path)),
     )
     .await?;
 
@@ -1240,7 +1275,7 @@ async fn run_job(db: &DB, trigger: &WebsocketTrigger, args: PushArgsOwned) -> an
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            label_prefix,
+            None,
         )
         .await?;
     } else {
@@ -1252,7 +1287,7 @@ async fn run_job(db: &DB, trigger: &WebsocketTrigger, args: PushArgsOwned) -> an
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            label_prefix,
+            None,
         )
         .await?;
     }

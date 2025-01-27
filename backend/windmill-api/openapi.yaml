@@ -7943,6 +7943,36 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/websocket_triggers/test:
+    post:
+      summary: test websocket connection
+      operationId: testWebsocketConnection
+      tags:
+        - websocket_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test websocket connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                url_runnable_args:
+                  $ref: "#/components/schemas/ScriptArgs"
+              required:
+                - url
+      responses:
+        "200":
+          description: successfuly connected to websocket
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/kafka_triggers/create:
     post:
       summary: create kafka trigger
@@ -8099,6 +8129,34 @@ paths:
       responses:
         "200":
           description: kafka trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/kafka_triggers/test:
+    post:
+      summary: test kafka connection
+      operationId: testKafkaConnection
+      tags:
+        - kafka_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test kafka connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: object
+              required:
+                - connection
+      responses:
+        "200":
+          description: successfuly connected to kafka brokers
           content:
             text/plain:
               schema:
@@ -8262,6 +8320,35 @@ paths:
       responses:
         "200":
           description: nats trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  
+  /w/{workspace}/nats_triggers/test:
+    post:
+      summary: test NATS connection
+      operationId: testNatsConnection
+      tags:
+        - nats_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test nats connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: object
+              required:
+                - connection
+      responses:
+        "200":
+          description: successfuly connected to NATS servers
           content:
             text/plain:
               schema:

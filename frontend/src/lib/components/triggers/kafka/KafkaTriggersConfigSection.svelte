@@ -9,6 +9,7 @@
 	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	export let path: string
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
@@ -135,16 +136,19 @@
 		required: ['topics', 'group_id']
 	}
 
-	let connectionValid = false
+	let isStaticConnectionValid = false
 	let otherArgsValid = false
 
-	$: isValid =
-		(selected === 'resource'
+	$: isConnectionValid =
+		selected === 'resource'
 			? !!args.kafka_resource_path
-			: connectionValid &&
+			: isStaticConnectionValid &&
 			  args.brokers &&
 			  args.brokers.length > 0 &&
-			  args.brokers.every((b) => b.length > 0)) &&
+			  args.brokers.every((b) => b.length > 0)
+
+	$: isValid =
+		isConnectionValid &&
 		otherArgsValid &&
 		args.topics &&
 		args.topics.length > 0 &&
@@ -213,8 +217,16 @@
 						<SchemaForm
 							schema={connnectionSchema}
 							bind:args
-							bind:isValid={connectionValid}
+							bind:isValid={isStaticConnectionValid}
 							lightHeader={true}
+						/>
+					{/if}
+					{#if isConnectionValid}
+						<TestTriggerConnection
+							kind="kafka"
+							args={{
+								connection: args
+							}}
 						/>
 					{/if}
 				</Subsection>
