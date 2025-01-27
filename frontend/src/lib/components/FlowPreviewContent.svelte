@@ -5,7 +5,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
-	import SchemaForm from './SchemaForm.svelte'
+	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import {
@@ -390,12 +390,11 @@
 	<div class="overflow-y-auto grow flex flex-col pr-4">
 		<div class="border-b">
 			{#key renderCount}
-				<SchemaForm
-					noVariablePicker
-					compact
-					class="py-4 max-w-3xl"
-					schema={$flowStore.schema}
+				<SchemaFormWithArgPicker
 					bind:args={$previewArgs}
+					schema={$flowStore.schema}
+					runnableId={initialPath}
+					runnableType="FlowPath"
 				/>
 			{/key}
 		</div>
