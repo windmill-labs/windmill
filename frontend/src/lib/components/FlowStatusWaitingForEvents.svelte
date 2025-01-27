@@ -5,9 +5,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { X } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
-	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
+	import SchemaForm from './SchemaForm.svelte'
 
 	export let isOwner: boolean
 	export let workspaceId: string | undefined
@@ -145,7 +145,7 @@
 
 				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 					<div class="w-full border rounded-lg p-2">
-						<LightweightSchemaForm bind:args={default_payload} {defaultValues} {schema} />
+						<SchemaForm bind:args={default_payload} {defaultValues} {schema} />
 					</div>
 				{/if}
 				<Tooltip

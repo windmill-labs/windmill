@@ -13,7 +13,7 @@
 		PlayCircle,
 		X
 	} from 'lucide-svelte'
-	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import JsonEditor from '../JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
@@ -271,8 +271,10 @@
 
 						<span class="text-xs absolute -top-4"
 							>Label <Tooltip
-								><a href="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#jobs-labels" target="_blank">Job Labels</a> are string values in the array at the result field 'wm_labels' to easily
-								filter them.</Tooltip
+								><a
+									href="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#jobs-labels"
+									target="_blank">Job Labels</a
+								> are string values in the array at the result field 'wm_labels' to easily filter them.</Tooltip
 							></span
 						>
 
