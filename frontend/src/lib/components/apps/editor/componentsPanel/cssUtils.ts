@@ -300,6 +300,13 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
+		components: ['accordionlistcomponent'],
+		selectors: [
+			{ selector: '.wm-accordion', comment: 'Accordion component', customCssKey: 'container' }
+		],
+		variables: []
+	},
+	{
 		components: ['formcomponent'],
 		selectors: [
 			{ selector: '.wm-submit', comment: 'Submit component', customCssKey: 'container' },
