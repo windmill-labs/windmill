@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.452.0](https://github.com/windmill-labs/windmill/compare/v1.451.0...v1.452.0) (2025-01-27)
+
+
+### Features
+
+* mssql executor supports azure db redirect ([#5150](https://github.com/windmill-labs/windmill/issues/5150)) ([fdb7122](https://github.com/windmill-labs/windmill/commit/fdb712234eb7f1a9374012d51e1cb25ee5aaa410))
+* **postgres, trigger:** support ssl ([#5149](https://github.com/windmill-labs/windmill/issues/5149)) ([e0b6aa4](https://github.com/windmill-labs/windmill/commit/e0b6aa42a28a4273f3a7bb7465396f2756e60a92))
+* test trigger connection ([#5145](https://github.com/windmill-labs/windmill/issues/5145)) ([d17397b](https://github.com/windmill-labs/windmill/commit/d17397b0703fb6a7dabf9db75d3c30ec26cdbe1e))
+
 ## [1.451.0](https://github.com/windmill-labs/windmill/compare/v1.450.1...v1.451.0) (2025-01-27)
 
 
