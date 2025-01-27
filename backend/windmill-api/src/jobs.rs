@@ -1979,7 +1979,7 @@ async fn resume_suspended_job_internal(
         "jobs.approved",
         ActionKind::Update,
         &w_id,
-        Some(&job_id.to_string()),
+        Some(&serde_json::json!({"approved": approved, "job_id": job_id}).to_string()),
         None,
     )
     .await?;
