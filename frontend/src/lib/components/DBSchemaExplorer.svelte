@@ -7,7 +7,6 @@
 	import { sendUserToast } from '$lib/utils'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import GraphqlSchemaViewer from './GraphqlSchemaViewer.svelte'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import {
 		formatGraphqlSchema,
@@ -93,7 +92,11 @@
 				</ToggleButtonGroup>
 			{/if}
 			{#if dbSchema.lang === 'graphql'}
-				<GraphqlSchemaViewer code={formatGraphqlSchema(dbSchema.schema)} class="h-full" />
+				{#await import('$lib/components/GraphqlSchemaViewer.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default code={formatGraphqlSchema(dbSchema.schema)} class="h-full" />
+				{/await}
 			{:else}
 				<ObjectViewer json={formatSchema(dbSchema)} pureViewer collapseLevel={1} />
 			{/if}

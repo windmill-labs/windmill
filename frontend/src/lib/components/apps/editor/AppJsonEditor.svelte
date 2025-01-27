@@ -3,7 +3,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 
-	import JsonEditor from './settingsPanel/inputEditor/JsonEditor.svelte'
+	import JsonEditor from '../../JsonEditor.svelte'
 	import { AppService, DraftService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore } from '$lib/stores'

@@ -9,13 +9,13 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import Toggle from './Toggle.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import type SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
-	import { Save } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 
 	const dispatch = createEventDispatcher()
@@ -198,23 +198,31 @@
 							/>
 						{:else if editorKind == 'json'}
 							<div class="border rounded mb-4 w-full">
-								<SimpleEditor
-									bind:this={editor}
-									autoHeight
-									lang="json"
-									bind:code={variable.value}
-									fixedOverflowWidgets={false}
-								/>
+								{#await import('$lib/components/SimpleEditor.svelte')}
+									<Loader2 class="animate-spin" />
+								{:then Module}
+									<Module.default
+										bind:this={editor}
+										autoHeight
+										lang="json"
+										bind:code={variable.value}
+										fixedOverflowWidgets={false}
+									/>
+								{/await}
 							</div>
 						{:else if editorKind == 'yaml'}
 							<div class="border rounded mb-4 w-full">
-								<SimpleEditor
-									bind:this={editor}
-									autoHeight
-									lang="yaml"
-									bind:code={variable.value}
-									fixedOverflowWidgets={false}
-								/>
+								{#await import('$lib/components/SimpleEditor.svelte')}
+									<Loader2 class="animate-spin" />
+								{:then Module}
+									<Module.default
+										bind:this={editor}
+										autoHeight
+										lang="yaml"
+										bind:code={variable.value}
+										fixedOverflowWidgets={false}
+									/>
+								{/await}
 							</div>
 						{/if}
 					</div>

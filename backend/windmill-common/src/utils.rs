@@ -19,7 +19,8 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use rand::distr::Alphanumeric;
+use rand::{rng, Rng};
 use reqwest::Client;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -205,7 +206,7 @@ pub async fn http_get_from_hub(
 }
 
 pub fn rd_string(len: usize) -> String {
-    thread_rng()
+    rng()
         .sample_iter(&Alphanumeric)
         .take(len)
         .map(char::from)

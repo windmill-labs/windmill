@@ -449,7 +449,7 @@ async fn listen_to_unlistened_websockets(
     .await
     {
         Ok(mut triggers) => {
-            triggers.shuffle(&mut rand::thread_rng());
+            triggers.shuffle(&mut rand::rng());
             for trigger in triggers {
                 trigger.maybe_listen_to_websocket(db.clone(), killpill_rx.resubscribe()).await;
             }
@@ -467,7 +467,7 @@ async fn listen_to_unlistened_websockets(
     .await
     {
         Ok(mut captures) => {
-            captures.shuffle(&mut rand::thread_rng());
+            captures.shuffle(&mut rand::rng());
             for capture in captures {
                 capture.maybe_listen_to_websocket(db.clone(),  killpill_rx.resubscribe()).await;
             }

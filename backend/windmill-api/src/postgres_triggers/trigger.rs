@@ -76,7 +76,7 @@ impl PostgresSimpleClient {
             .port(database.port)
             .user(&database.user)
             .replication_mode(rust_postgres::config::ReplicationMode::Logical);
-        
+
         if !database.password.is_empty() {
             config.password(&database.password);
         }
@@ -493,7 +493,7 @@ async fn listen_to_unlistened_database_events(
 
     match postgres_triggers {
         Ok(mut triggers) => {
-            triggers.shuffle(&mut rand::thread_rng());
+            triggers.shuffle(&mut rand::rng());
             for trigger in triggers {
                 try_to_listen_to_database_transactions(
                     trigger,

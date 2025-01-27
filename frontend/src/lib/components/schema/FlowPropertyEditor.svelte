@@ -10,7 +10,6 @@
 	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import { Tab, TabContent } from '../common'
-	import LightweightArgInput from '../LightweightArgInput.svelte'
 	import EditableSchemaDrawer from './EditableSchemaDrawer.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -48,7 +47,6 @@
 	export let order: string[] | undefined = undefined
 	export let requiredProperty: string[] | undefined = undefined
 	export let displayWebhookWarning: boolean = true
-	export let lightweightMode: boolean = false
 
 	function getOneOfWithoutLabel(oneOf: SchemaProperty[]) {
 		return oneOf.map((v) => ({
@@ -331,40 +329,25 @@
 
 	{#if !(type === 'object' && oneOf && oneOf.length >= 2)}
 		<Label label="Default">
-			{#if lightweightMode}
-				<LightweightArgInput
-					bind:value={defaultValue}
-					type={password ? 'string' : type}
-					displayHeader={false}
-					{pattern}
-					{customErrorMessage}
-					{itemsType}
-					{contentEncoding}
-					{format}
-					{extra}
-					{disabled}
-				/>
-			{:else}
-				<ArgInput
-					noDefaultOnSelectFirst
-					{itemPicker}
-					resourceTypes={getResourceTypesFromFormat(format)}
-					bind:value={defaultValue}
-					type={password ? 'string' : type}
-					displayHeader={false}
-					{pattern}
-					{customErrorMessage}
-					{itemsType}
-					{contentEncoding}
-					{format}
-					{extra}
-					{disabled}
-					{nullable}
-					{variableEditor}
-					compact
-					noMargin
-				/>
-			{/if}
+			<ArgInput
+				noDefaultOnSelectFirst
+				{itemPicker}
+				resourceTypes={getResourceTypesFromFormat(format)}
+				bind:value={defaultValue}
+				type={password ? 'string' : type}
+				displayHeader={false}
+				{pattern}
+				{customErrorMessage}
+				{itemsType}
+				{contentEncoding}
+				{format}
+				{extra}
+				{disabled}
+				{nullable}
+				{variableEditor}
+				compact
+				noMargin
+			/>
 		</Label>
 	{/if}
 
