@@ -290,7 +290,7 @@ pub async fn create_postgres_trigger(
                 .map(|_| {
                     charset
                         .chars()
-                        .nth(rng.gen_range(0..charset.len()))
+                        .nth(rng.random_range(0..charset.len()))
                         .unwrap()
                 })
                 .collect::<String>();
