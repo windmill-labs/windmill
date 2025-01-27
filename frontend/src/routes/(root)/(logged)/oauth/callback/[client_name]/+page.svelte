@@ -35,8 +35,10 @@
 				const message = { type: 'success', res, resource_type: client_name }
 				sendUserToast('successful', false)
 				if (window.opener) {
+					console.log('Sending oauth popup message')
 					window.opener?.postMessage(message, '*')
 				} else {
+					console.log('Storing oauth popup message in local storage')
 					localStorage.setItem('oauth-callback', JSON.stringify(message))
 				}
 				// goto(`/resources?resource_type=${client_name}`)
@@ -44,8 +46,10 @@
 				sendUserToast(`Error trying to add ${client_name} connection: ${e.body}`, true)
 				const message = { type: 'error', error: `Error parsing the response token, ${e.body}` }
 				if (window.opener) {
+					console.log('Sending oauth popup message')
 					window.opener?.postMessage(message, '*')
 				} else {
+					console.log('Storing oauth popup message in local storage')
 					localStorage.setItem('oauth-callback', JSON.stringify(message))
 				}
 
@@ -55,14 +59,15 @@
 			sendUserToast('Missing code or state as query params', true)
 			const message = { type: 'error', error: 'Missing code or state as query params' }
 			if (window.opener) {
+				console.log('Sending oauth popup message')
 				window.opener?.postMessage(message, '*')
 			} else {
+				console.log('Storing oauth popup message in local storage')
 				localStorage.setItem(
 					'oauth-callback',
 					JSON.stringify({ type: 'error', error: 'Missing code or state as query params' })
 				)
 			}
-			window.opener?.postMessage(message, '*')
 			// goto('/resources')
 		}
 		close()
