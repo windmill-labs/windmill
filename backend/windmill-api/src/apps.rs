@@ -16,7 +16,6 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
-use windmill_common::variables::encrypt;
 #[cfg(feature = "parquet")]
 use crate::{
     job_helpers_ee::{
@@ -54,6 +53,7 @@ use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
+use windmill_common::variables::encrypt;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},
     cache::{self, future::FutureCachedExt},
