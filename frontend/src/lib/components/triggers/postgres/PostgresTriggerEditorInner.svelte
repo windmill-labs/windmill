@@ -55,8 +55,11 @@
 	let selectedTable: 'all' | 'specific' = 'specific'
 	let tab: 'advanced' | 'basic'
 	let config: { isLogical: boolean; show: boolean } = { isLogical: false, show: false }
+	let loadingConfiguration = false
 	$: table_to_track = selectedTable === 'all' ? [] : relations
-
+	$: if (postgres_resource_path === undefined) {
+		config.show = false
+	}
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -107,10 +110,12 @@
 			config.show = false
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
+			relations = []
+			transaction_to_track = []
 			tab = 'basic'
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load postgres trigger: ${err}`, true)
+			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
 		}
@@ -253,12 +258,12 @@
 	}
 
 	const checkDatabaseConfiguration = async () => {
+		if (emptyString(postgres_resource_path)) {
+			sendUserToast('You must first pick a database resource', true)
+			return
+		}
 		try {
-			if (emptyString(postgres_resource_path)) {
-				sendUserToast('You must first pick a database resource', true)
-				return
-			}
-
+			loadingConfiguration = true
 			config.isLogical = await PostgresTriggerService.isValidPostgresConfiguration({
 				workspace: $workspaceStore!,
 				path: postgres_resource_path
@@ -267,6 +272,7 @@
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
+		loadingConfiguration = false
 	}
 </script>
 
@@ -316,7 +322,10 @@
 			{/if}
 		</svelte:fragment>
 		{#if drawerLoading}
-			<Loader2 class="animate-spin" />
+			<div class="flex flex-col items-center justify-center h-full w-full">
+				<Loader2 size="50" class="animate-spin" />
+				<p>Loading...</p>
+			</div>
 		{:else}
 			<div class="flex flex-col gap-5">
 				<Alert title="Info" type="info">
@@ -350,7 +359,11 @@
 					<div class="flex flex-col mb-2 gap-3">
 						<ResourcePicker bind:value={postgres_resource_path} resourceType={'postgresql'} />
 						{#if postgres_resource_path}
-							<Button on:click={checkDatabaseConfiguration} color="gray" size="sm"
+							<Button
+								loading={loadingConfiguration}
+								on:click={checkDatabaseConfiguration}
+								color="gray"
+								size="sm"
 								>Check Database Configuration
 								<Tooltip>
 									<p class="text-sm">
