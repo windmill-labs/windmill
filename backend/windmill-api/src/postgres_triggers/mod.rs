@@ -110,14 +110,13 @@ async fn run_job(
     trigger: &PostgresTrigger,
 ) -> anyhow::Result<()> {
     let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
-    let label_prefix = Some(format!("db-{}-", trigger.path));
 
     let authed = fetch_api_authed(
         trigger.edited_by.clone(),
         trigger.email.clone(),
         &trigger.workspace_id,
         db,
-        Some("anonymous".to_string()),
+        Some(format!("postgres-{}", trigger.path)),
     )
     .await?;
 
@@ -134,7 +133,7 @@ async fn run_job(
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            label_prefix,
+            None,
         )
         .await?;
     } else {
@@ -146,7 +145,7 @@ async fn run_job(
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            label_prefix,
+            None,
         )
         .await?;
     }
