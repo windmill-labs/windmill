@@ -4,7 +4,7 @@
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { Edit, Trash2, Save } from 'lucide-svelte'
+	import { Edit, Trash2, Save, Eye } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
 	import { clickOutside } from '$lib/utils'
@@ -12,6 +12,8 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import PopoverV2 from '$lib/components/meltComponents/Popover.svelte'
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 
 	export let previewArgs: any = undefined
 	export let runnableId: string | undefined = undefined
@@ -24,6 +26,7 @@
 		isSaving?: boolean
 		isNew?: boolean
 		isDeleting?: boolean
+		payloadData?: any
 	}
 
 	let infiniteList: InfiniteList | null = null
@@ -56,13 +59,23 @@
 
 	function initLoadInputs() {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
-			return await InputService.listInputs({
+			const inputs = await InputService.listInputs({
 				workspace: $workspaceStore!,
 				runnableId,
 				runnableType,
 				page,
 				perPage
 			})
+			const inputsWithPayload = await Promise.all(
+				inputs.map(async (input) => {
+					const payloadData = await loadLargeArgs(input.id, undefined, false)
+					return {
+						...input,
+						payloadData
+					}
+				})
+			)
+			return inputsWithPayload
 		}
 		infiniteList?.setLoader(loadInputsPageFn)
 
@@ -99,7 +112,7 @@
 			dispatch('select', undefined)
 		} else {
 			selectedInput = input.id
-			selectedArgs = await loadLargeArgs(input.id, true, false)
+			selectedArgs = input.payloadData ?? {}
 			dispatch('select', selectedArgs)
 		}
 	}
@@ -238,6 +251,17 @@
 								{/if}
 								{#if item.created_by == $userStore?.username || $userStore?.is_admin || $userStore?.is_super_admin}
 									<div class="items-center flex gap-2">
+										<PopoverV2 displayArrow={false} closeButton={false} openOnHover={true}>
+											<svelte:fragment slot="trigger">
+												<Eye class="w-4 h-4 group-hover:block hidden" />
+											</svelte:fragment>
+											<svelte:fragment slot="content">
+												<div class="p-2">
+													<ObjectViewer json={item.payloadData} />
+												</div>
+											</svelte:fragment>
+										</PopoverV2>
+
 										{#if !isEditing || isEditing?.id !== item.id}
 											<div class="group-hover:block hidden -my-2">
 												<Toggle
