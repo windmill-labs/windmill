@@ -654,6 +654,9 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	accordionlistcomponent: {
+		container: containerDefaultProps
+	},
 	carousellistcomponent: {
 		container: containerDefaultProps
 	},

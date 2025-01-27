@@ -27,6 +27,7 @@
 	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
 	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
+	import AppAccordionList from '../../components/display/AppAccordionList.svelte'
 	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
 	import AppCustomComponent from '../../components/display/AppCustomComponent.svelte'
 	import AppStatCard from '../../components/display/AppStatCard.svelte'
@@ -865,6 +866,15 @@
 			<AppCarouselList
 				id={component.id}
 				configuration={component.configuration}
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+				bind:initializing
+			/>
+		{:else if component.type === 'accordionlistcomponent'}
+			<AppAccordionList
+				id={component.id}
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				{componentContainerHeight}
