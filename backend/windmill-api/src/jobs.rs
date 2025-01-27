@@ -1976,7 +1976,7 @@ async fn resume_suspended_job_internal(
     audit_log(
         &mut *tx,
         &audit_author,
-        "jobs.approved",
+        if approved { "jobs.approved" } else { "jobs.canceled" },
         ActionKind::Update,
         &w_id,
         Some(&job_id.to_string()),
