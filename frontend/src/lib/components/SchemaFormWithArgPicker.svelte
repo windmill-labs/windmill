@@ -3,18 +3,19 @@
 	import FlowInputEditor from '$lib/components/flows/content/FlowInputEditor.svelte'
 	import HistoricInputs from '$lib/components/HistoricInputs.svelte'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
-	import { ButtonType } from '$lib/components/common/button/model'
-	import { twMerge } from 'tailwind-merge'
-	import { ChevronRight, History, Save, Library } from 'lucide-svelte'
+	import { History, Save } from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import CapturesInputs from './CapturesInputs.svelte'
 	import SavedInputsPicker from './SavedInputsPicker.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let runnableId
 	export let runnableType: any
 	export let flowPath
 	export let previewArgs: any
+
+	const dispatch = createEventDispatcher()
 
 	const getDropdownItems = () => {
 		return [
@@ -45,25 +46,25 @@
 		]
 	}
 
-	let rightPanelSize = 0
 	let rightHeight = 0
 	let selectedTab: 'history' | 'saved_inputs' | 'captures' | undefined = undefined
 	let dropdownItems: any
+	let rightPanelOpen = false
 
 	$: selectedTab, (dropdownItems = getDropdownItems())
 
 	function openRightPanel() {
-		rightPanelSize = 40
+		rightPanelOpen = true
 		selectedTab = 'history'
 	}
 
 	function closeRightPanel() {
-		rightPanelSize = 0
+		rightPanelOpen = false
 		selectedTab = undefined
 	}
 
 	function toggleRightPanel() {
-		if (rightPanelSize > 0) {
+		if (rightPanelOpen) {
 			closeRightPanel()
 		} else {
 			openRightPanel()
@@ -72,49 +73,43 @@
 </script>
 
 <div class="h-fit">
-	<Splitpanes>
-		<Pane class="relative">
-			<div class="absolute -right-0 z-50 bg-surface">
-				<SideBarTab {dropdownItems} fullMenu={!!selectedTab}>
-					<svelte:fragment slot="close button">
-						<button
-							on:click={() => {
-								toggleRightPanel()
-							}}
-							title={selectedTab ? 'Close' : 'Open'}
-							class={twMerge(
-								ButtonType.ColorVariants.blue.contained,
-								!!selectedTab ? 'rounded-tl-md border-l border-t' : 'rounded-md border'
-							)}
-						>
-							<div class="p-2 center-center">
-								{#if selectedTab}
-									<ChevronRight size={14} />
-								{:else}
-									<div class="flex flex-row gap-2">
-										<Library size={14} />
-										<p class="text-2xs">Inputs library</p>
-									</div>
-								{/if}
-							</div>
-						</button>
-					</svelte:fragment>
-				</SideBarTab>
+	<Splitpanes class={!rightPanelOpen ? 'splitter-hidden' : ''}>
+		<Pane class="relative !overflow-visible" size={70} minSize={30}>
+			<div class="absolute -right-[1px] -top-[1px] z-50 bg-surface">
+				<SideBarTab {dropdownItems} fullMenu={!!selectedTab} />
 			</div>
-			<div class="min-h-[40vh] h-fit {selectedTab ? 'pr-8' : ''}" bind:clientHeight={rightHeight}>
-				<slot />
+			<div
+				class="relative min-h-[40vh] h-fit mx-auto pr-10"
+				bind:clientHeight={rightHeight}
+				data-schema-picker
+			>
+				<slot {toggleRightPanel} {selectedTab} />
 			</div>
 		</Pane>
-		{#if rightPanelSize > 0}
-			<Pane bind:size={rightPanelSize} minSize={30}>
+
+		<Pane minSize={rightPanelOpen ? 30 : 0}>
+			{#if rightPanelOpen}
 				<div style="height: {rightHeight}px" class="border-t border-r">
 					{#if selectedTab === 'history'}
 						<FlowInputEditor title="History">
-							<HistoricInputs {runnableId} {runnableType} on:select />
+							<HistoricInputs
+								{runnableId}
+								{runnableType}
+								on:select={(e) => {
+									dispatch('select', { payload: e.detail, type: 'histroy' })
+								}}
+							/>
 						</FlowInputEditor>
 					{:else if selectedTab === 'saved_inputs'}
 						<FlowInputEditor title="Saved inputs">
-							<SavedInputsPicker {runnableId} {runnableType} on:select {previewArgs} />
+							<SavedInputsPicker
+								{runnableId}
+								{runnableType}
+								{previewArgs}
+								on:select={(e) => {
+									dispatch('select', { payload: e.detail, type: 'saved' })
+								}}
+							/>
 						</FlowInputEditor>
 					{:else if selectedTab === 'captures'}
 						<FlowInputEditor title="Trigger captures">
@@ -123,12 +118,17 @@
 									<CaptureButton on:openTriggers small={true} />
 								</div>
 							</svelete:fragment>
-							<CapturesInputs on:select {flowPath} />
+							<CapturesInputs
+								{flowPath}
+								on:select={(e) => {
+									dispatch('select', { payload: e.detail, type: 'captures' })
+								}}
+							/>
 						</FlowInputEditor>
 					{/if}
 				</div>
-			</Pane>
-		{/if}
+			{/if}
+		</Pane>
 	</Splitpanes>
 </div>
 

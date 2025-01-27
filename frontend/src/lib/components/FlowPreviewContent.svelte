@@ -9,10 +9,23 @@
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		ArrowRight,
+		CornerDownLeft,
+		Play,
+		RefreshCw,
+		X,
+		ChevronRight,
+		ChevronLeft,
+		Library
+	} from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils'
+	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
+	import { ButtonType } from '$lib/components/common/button/model'
+	import { twMerge } from 'tailwind-merge'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -111,6 +124,22 @@
 				selectedJobStepType = 'single'
 			}
 		}
+	}
+
+	let savedArgs = $previewArgs
+	let inputSelected: 'captures' | 'history' | 'saved' | undefined = undefined
+	function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
+		if (!input) {
+			$previewArgs = savedArgs
+			inputSelected = undefined
+		} else {
+			$previewArgs = input
+			inputSelected = type
+		}
+	}
+
+	export function refresh() {
+		renderCount++
 	}
 
 	$: if (job?.type === 'CompletedJob') {
@@ -278,7 +307,7 @@
 		<FlowProgressBar {job} bind:reset={jobProgressReset} />
 	</div>
 
-	<div class="overflow-y-auto grow flex flex-col pr-4">
+	<div class="overflow-y-auto grow flex flex-col pt-4">
 		<div class="border-b">
 			{#key renderCount}
 				<SchemaFormWithArgPicker
@@ -287,14 +316,43 @@
 					flowPath={$pathStore}
 					previewArgs={$previewArgs}
 					on:openTriggers
+					on:select={(e) => {
+						selectInput(e.detail.payload, e.detail?.type)
+					}}
+					let:toggleRightPanel
+					let:selectedTab
 				>
-					<SchemaForm
-						noVariablePicker
-						compact
-						class="py-4 max-w-3xl"
-						schema={$flowStore.schema}
-						bind:args={$previewArgs}
-					/>
+					<div>
+						<div class="w-full flex flex-row justify-between">
+							<InputSelectedBadge {inputSelected} />
+							<button
+								on:click={() => {
+									toggleRightPanel()
+								}}
+								title={selectedTab ? 'Close' : 'Open'}
+								class={twMerge(ButtonType.ColorVariants.light.border, 'rounded-md border')}
+							>
+								<div class="p-2 center-center flex flex-row gap-2">
+									<Library size={14} />
+									<p class="text-2xs">Inputs library</p>
+									{#if selectedTab}
+										<ChevronLeft size={14} />
+									{:else}
+										<ChevronRight size={14} />
+									{/if}
+								</div>
+							</button>
+						</div>
+						<SchemaForm
+							noVariablePicker
+							compact
+							schema={$flowStore.schema}
+							bind:args={$previewArgs}
+							on:change={() => {
+								savedArgs = $previewArgs
+							}}
+						/>
+					</div>
 				</SchemaFormWithArgPicker>
 			{/key}
 		</div>

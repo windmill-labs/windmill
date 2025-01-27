@@ -17,6 +17,7 @@
 	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
 			previewOpen = true
+			flowPreviewContent?.refresh()
 			if (!test) return
 		}
 		flowPreviewContent?.test()

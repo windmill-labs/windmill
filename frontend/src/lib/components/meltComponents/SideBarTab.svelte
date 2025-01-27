@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
+
 	export let dropdownItems: Array<{
 		label: string
 		onClick: () => void
@@ -25,6 +27,8 @@
 		}
 		open = false
 	}
+
+	let hasCloseButton = $$slots['close button']
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -33,13 +37,20 @@
 	on:mouseenter={handleMouseEnter}
 	on:mouseleave={handleMouseLeave}
 >
-	<slot name="close button" />
+	{#if hasCloseButton}
+		<slot name="close button" />
+	{:else}
+		<div class="w-[31px]" />
+	{/if}
 
 	{#if fullMenu}
 		<div
-			class="absolute flex-col top-[30px] left-0 z-50 bg-surface border-l border-b {open
-				? 'rounded-md rounded-tl-none overflow-hidden shadow-md'
-				: 'rounded-bl-md'}"
+			class={twMerge(
+				'absolute flex-col left-0 z-50 bg-surface border-l border-b overflow-hidden',
+				hasCloseButton ? 'top-[30px]' : 'top-[1px]',
+				open ? 'rounded-md rounded-tl-none shadow-md' : 'rounded-bl-md',
+				hasCloseButton ? '' : 'rounded-tl-md border-t'
+			)}
 		>
 			{#each dropdownItems as item}
 				<button
