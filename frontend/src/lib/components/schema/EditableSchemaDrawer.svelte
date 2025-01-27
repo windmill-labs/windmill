@@ -185,7 +185,6 @@
 				on:delete={(e) => {
 					addProperty?.handleDeleteArgument([e.detail])
 				}}
-				lightweightMode
 				dndType="drawer"
 				editTab="inputEditor"
 			>
