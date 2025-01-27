@@ -48,7 +48,7 @@
 		selectedTabIndex: 0
 	})
 
-	const titleBarHeight = 40; // Example height of a single accordion title bar in pixels
+	const titleBarHeight = 40 // Example height of a single accordion title bar in pixels
 
 	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
@@ -172,7 +172,8 @@
 				</button>
 			{/each}
 		</div>
-	{:else if resolvedConfig.tabsKind == 'accordion'}
+	{/if}
+	{#if resolvedConfig.tabsKind == 'accordion'}
 		<div class="flex flex-col w-full">
 			{#each tabs ?? [] as res, index}
 				<div class="border-b">
