@@ -118,7 +118,7 @@
 					{editor}
 					{diffEditor}
 					inlineScript
-					args={Object.entries(fields).reduce((acc, [key, obj]) => {
+					args={Object.entries(fields ?? {}).reduce((acc, [key, obj]) => {
 						acc[key] = obj.type === 'static' ? obj.value : undefined
 						return acc
 					}, {})}
