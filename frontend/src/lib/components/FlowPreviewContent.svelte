@@ -1,29 +1,18 @@
 <script lang="ts">
 	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { Badge, Button, Drawer, Popup } from './common'
+	import { Badge, Button, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
+	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import {
-		AlertTriangle,
-		ArrowRight,
-		CornerDownLeft,
-		Play,
-		RefreshCw,
-		X,
-		ArrowLeftIcon
-	} from 'lucide-svelte'
+	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils'
-	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
-	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -130,91 +119,13 @@
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
-	let inputLibraryDrawer: Drawer
-	let captureLibraryDrawer: Drawer
 	let renderCount: number = 0
-
-	let selectedCapture: Record<string, any> | undefined = undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-<Drawer bind:this={inputLibraryDrawer}>
-	<DrawerContent title="Input library {initialPath}" on:close={inputLibraryDrawer?.toggleDrawer}>
-		<SavedInputs
-			flowPath={initialPath}
-			isValid={true}
-			args={$previewArgs}
-			on:selected_args={(e) => {
-				$previewArgs = JSON.parse(JSON.stringify(e.detail))
-				inputLibraryDrawer?.closeDrawer()
-				renderCount++
-			}}
-		/>
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={captureLibraryDrawer}>
-	<DrawerContent
-		title="Trigger captures library {initialPath}"
-		on:close={captureLibraryDrawer?.toggleDrawer}
-	>
-		<div class="h-full flex flex-col gap-2">
-			<div class="min-h-0 grow h-full">
-				<CapturesInputs
-					flowPath={$pathStore}
-					headless={false}
-					addButton={true}
-					on:select={(e) => {
-						selectedCapture = e.detail
-					}}
-					on:openTriggers={(e) => {
-						dispatch('openTriggers', e.detail)
-						captureLibraryDrawer?.closeDrawer()
-					}}
-				/>
-			</div>
-
-			<div class="w-full flex flex-col gap-2 px-2 py-2 h-[50%]">
-				<div class="w-full flex flex-col">
-					<Button
-						color="blue"
-						btnClasses="w-full"
-						size="sm"
-						spacingSize="xl"
-						on:click={async () => {
-							$previewArgs = JSON.parse(JSON.stringify(selectedCapture))
-							captureLibraryDrawer?.closeDrawer()
-							renderCount++
-						}}
-						disabled={!selectedCapture}
-					>
-						<ArrowLeftIcon class="w-4 h-4 mr-2" />
-						Use input
-					</Button>
-				</div>
-				<div class="w-full min-h-0 grow overflow-auto">
-					{#if typeof selectedCapture == 'string' && selectedCapture == 'WINDMILL_TOO_BIG'}
-						<div class="text-secondary mt-2">
-							Payload too big to preview but can still be loaded</div
-						>
-					{:else if Object.keys(selectedCapture || {}).length > 0}
-						<div class=" overflow-auto h-full p-2">
-							<ObjectViewer json={selectedCapture} />
-						</div>
-					{:else}
-						<div class="text-center text-tertiary">
-							Select an Input to preview scripts arguments
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-	</DrawerContent>
-</Drawer>
-
 <div class="flex flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full" id="flow-preview-content">
-	<div class="flex flex-row justify-between w-full items-center gap-x-2">
+	<div class="flex flex-row w-full items-center gap-x-2">
 		<div class="w-8">
 			<Button
 				on:click={() => dispatch('close')}
@@ -248,7 +159,7 @@
 				Cancel
 			</Button>
 		{:else}
-			<div class="flex flex-row gap-4">
+			<div class="grow justify-center flex flex-row gap-4">
 				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
 					{#if selectedJobStepType == 'single'}
 						<Button
@@ -352,26 +263,6 @@
 				</Button>
 			</div>
 		{/if}
-		<div class="flex gap-2">
-			<Button
-				btnClasses="h-full truncate"
-				size="sm"
-				variant="border"
-				on:click={() => {
-					captureLibraryDrawer?.openDrawer()
-				}}>Trigger captures library</Button
-			>
-			{#if initialPath != ''}
-				<Button
-					btnClasses="h-full truncate"
-					size="sm"
-					variant="border"
-					on:click={() => {
-						inputLibraryDrawer?.openDrawer()
-					}}>Past runs/Input library</Button
-				>
-			{/if}
-		</div>
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
 		{#if lastPreviewFlow && JSON.stringify($flowStore) != lastPreviewFlow}
@@ -391,11 +282,20 @@
 		<div class="border-b">
 			{#key renderCount}
 				<SchemaFormWithArgPicker
-					bind:args={$previewArgs}
-					schema={$flowStore.schema}
 					runnableId={initialPath}
-					runnableType="FlowPath"
-				/>
+					runnableType={'FlowPath'}
+					flowPath={$pathStore}
+					previewArgs={$previewArgs}
+					on:openTriggers
+				>
+					<SchemaForm
+						noVariablePicker
+						compact
+						class="py-4 max-w-3xl"
+						schema={$flowStore.schema}
+						bind:args={$previewArgs}
+					/>
+				</SchemaFormWithArgPicker>
 			{/key}
 		</div>
 		<div class="pt-4 flex flex-col grow">
