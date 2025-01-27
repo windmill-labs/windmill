@@ -354,8 +354,9 @@
 <!-- svelte-ignore a11y-autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md px-2 relative',
+		'flex flex-col w-full rounded-md relative',
 		minW ? 'min-w-[250px]' : '',
+		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
 			? 'bg-green-300 dark:bg-green-800'
 			: diffStatus?.diff === 'removed'

@@ -190,48 +190,50 @@
 				{#if !schemaSkippedValues.includes(argName) && keys.includes(argName)}
 					{#if typeof diff[argName] === 'object' && diff[argName].oldSchema}
 						{@const formerProperty = diff[argName].oldSchema}
-						<ArgInput
-							{disablePortal}
-							{resourceTypes}
-							{prettifyHeader}
-							autofocus={i == 0 && autofocus ? true : null}
-							label={argName}
-							description={formerProperty?.description}
-							value={args[argName]}
-							type={formerProperty?.type}
-							oneOf={formerProperty?.oneOf}
-							required={formerProperty?.required}
-							pattern={formerProperty?.pattern}
-							valid={inputCheck[argName]}
-							defaultValue={structuredClone(formerProperty?.default)}
-							enum_={formerProperty?.enum}
-							format={formerProperty?.format}
-							contentEncoding={formerProperty?.contentEncoding}
-							customErrorMessage={formerProperty?.customErrorMessage}
-							properties={formerProperty?.properties}
-							order={formerProperty?.order}
-							nestedRequired={formerProperty?.required}
-							itemsType={formerProperty?.items}
-							disabled={disabledArgs.includes(argName) || disabled || formerProperty?.disabled}
-							{compact}
-							{variableEditor}
-							{itemPicker}
-							{pickForField}
-							password={linkedSecret == argName}
-							extra={formerProperty}
-							{showSchemaExplorer}
-							simpleTooltip={schemaFieldTooltip[argName]}
-							{onlyMaskPassword}
-							nullable={formerProperty?.nullable}
-							title={formerProperty?.title}
-							placeholder={formerProperty?.placeholder}
-							orderEditable={dndConfig != undefined}
-							otherArgs={args}
-							{helperScript}
-							{lightHeader}
-							hideNested={typeof diff[argName].diff === 'object'}
-							diffStatus={undefined}
-						/>
+						<div class="px-2">
+							<ArgInput
+								{disablePortal}
+								{resourceTypes}
+								{prettifyHeader}
+								autofocus={i == 0 && autofocus ? true : null}
+								label={argName}
+								description={formerProperty?.description}
+								value={args[argName]}
+								type={formerProperty?.type}
+								oneOf={formerProperty?.oneOf}
+								required={formerProperty?.required}
+								pattern={formerProperty?.pattern}
+								valid={inputCheck[argName]}
+								defaultValue={structuredClone(formerProperty?.default)}
+								enum_={formerProperty?.enum}
+								format={formerProperty?.format}
+								contentEncoding={formerProperty?.contentEncoding}
+								customErrorMessage={formerProperty?.customErrorMessage}
+								properties={formerProperty?.properties}
+								order={formerProperty?.order}
+								nestedRequired={formerProperty?.required}
+								itemsType={formerProperty?.items}
+								disabled={disabledArgs.includes(argName) || disabled || formerProperty?.disabled}
+								{compact}
+								{variableEditor}
+								{itemPicker}
+								{pickForField}
+								password={linkedSecret == argName}
+								extra={formerProperty}
+								{showSchemaExplorer}
+								simpleTooltip={schemaFieldTooltip[argName]}
+								{onlyMaskPassword}
+								nullable={formerProperty?.nullable}
+								title={formerProperty?.title}
+								placeholder={formerProperty?.placeholder}
+								orderEditable={dndConfig != undefined}
+								otherArgs={args}
+								{helperScript}
+								{lightHeader}
+								hideNested={typeof diff[argName].diff === 'object'}
+								diffStatus={undefined}
+							/>
+						</div>
 					{/if}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
