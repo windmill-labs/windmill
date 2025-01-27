@@ -789,7 +789,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 EXPOSE_METRICS_SETTING  => {
                                                     tracing::info!("Metrics setting changed, restarting");
                                                     // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::rng().gen_range(0..40);
+                                                    let rd_delay = rand::rng().random_range(0..40);
                                                     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                                                     if let Err(e) = tx.send(()) {
                                                         tracing::error!(error = %e, "Could not send killpill to server");
@@ -803,7 +803,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 OTEL_SETTING => {
                                                     tracing::info!("OTEL setting changed, restarting");
                                                     // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::rng().gen_range(0..4);
+                                                    let rd_delay = rand::rng().random_range(0..4);
                                                     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                                                     if let Err(e) = tx.send(()) {
                                                         tracing::error!(error = %e, "Could not send killpill");
@@ -813,7 +813,7 @@ Windmill Community Edition {GIT_VERSION}
                                                     if server_mode {
                                                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
                                                         // we wait a bit randomly to avoid having all servers shutdown at same time
-                                                        let rd_delay = rand::rng().gen_range(0..4);
+                                                        let rd_delay = rand::rng().random_range(0..4);
                                                         tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                                                         if let Err(e) = tx.send(()) {
                                                             tracing::error!(error = %e, "Could not send killpill to server");
