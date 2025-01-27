@@ -17,6 +17,7 @@
 	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
+	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
 
 	export let canSave = true
 	export let resource_type: string | undefined = undefined
@@ -223,7 +224,11 @@
 		{/if}
 		<div class="flex w-full justify-between items-center mt-4">
 			<div />
-			<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
+			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
+				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
+			{:else}
+				<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
+			{/if}
 			<Toggle
 				on:change={(e) => switchTab(e.detail)}
 				options={{

@@ -305,7 +305,10 @@ async fn listen_to_transactions(
                                     let message = match message {
                                         Some(message) => message,
                                         None => {
-                                            tracing::info!("Stream for postgres trigger {} is empty, leaving....", postgres_trigger.path);
+                                            tracing::error!("Stream for postgres trigger {} closed", postgres_trigger.path);
+                                            if let None = update_ping(&db, postgres_trigger, Some("Stream closed")).await {
+                                                return;
+                                            }
                                             return;
                                         }
                                     };
@@ -505,7 +508,7 @@ async fn listen_to_unlistened_database_events(
     };
 }
 
-pub async fn start_database(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) {
+pub fn start_database(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) {
     tokio::spawn(async move {
         listen_to_unlistened_database_events(&db, &killpill_rx).await;
         loop {

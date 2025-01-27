@@ -521,7 +521,7 @@ async fn get_http_route_trigger(
         trigger.email.clone(),
         &trigger.workspace_id,
         &db,
-        Some(username_override.unwrap_or("anonymous".to_string())),
+        Some(username_override.unwrap_or(format!("http-{}", trigger.path))),
     )
     .await?;
 
@@ -685,12 +685,6 @@ async fn route_job(
         .await,
     );
 
-    let label_prefix = Some(format!(
-        "http-{}-{}-",
-        method.as_str().to_lowercase(),
-        trigger.route_path
-    ));
-
     let run_query = RunJobQuery::default();
 
     if trigger.is_flow {
@@ -703,7 +697,7 @@ async fn route_job(
                 StripPath(trigger.script_path.to_owned()),
                 run_query,
                 args,
-                label_prefix,
+                None,
             )
             .await
             .into_response()
@@ -716,7 +710,7 @@ async fn route_job(
                 user_db,
                 args,
                 trigger.workspace_id.clone(),
-                label_prefix,
+                None,
             )
             .await
             .into_response()
@@ -731,7 +725,7 @@ async fn route_job(
                 StripPath(trigger.script_path.to_owned()),
                 run_query,
                 args,
-                label_prefix,
+                None,
             )
             .await
             .into_response()
@@ -744,7 +738,7 @@ async fn route_job(
                 user_db,
                 trigger.workspace_id.clone(),
                 args,
-                label_prefix,
+                None,
             )
             .await
             .into_response()
