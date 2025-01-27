@@ -104,7 +104,9 @@ pub async fn do_mssql(
     };
     tcp.set_nodelay(true)?;
 
-    // Attempt to connect to the client
+    // NOTE Azure default behavior with SQL Server is to redirect:
+    // https://learn.microsoft.com/en-us/azure/azure-sql/database/connectivity-architecture?view=azuresql#connection-policy
+    // https://github.com/prisma/tiberius?tab=readme-ov-file#redirects
     let mut client = match Client::connect(config.clone(), tcp.compat_write()).await {
         Ok(client) => {
             tracing::debug!("Connected to host: {:#?}, port: {:#?}", host_ref, port_ref);
