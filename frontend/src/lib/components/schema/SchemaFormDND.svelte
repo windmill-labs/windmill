@@ -10,7 +10,6 @@
 	export let schema: Schema
 	export let args: Record<string, any> = {}
 	export let prettifyHeader: boolean = false
-	export let lightweightMode: boolean = false
 	export let onlyMaskPassword: boolean = false
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
@@ -81,7 +80,6 @@
 	on:acceptChange
 	on:rejectChange
 	on:nestedChange
-	{lightweightMode}
 	bind:args
 	{prettifyHeader}
 	{onlyMaskPassword}

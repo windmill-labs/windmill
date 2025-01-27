@@ -922,7 +922,9 @@
 							bind:seconds={$values[setting.key]}
 						/>
 					</div>
-				{:else if setting.fieldType == 'select'}{/if}
+				{:else if setting.fieldType == 'select'}
+					TODO
+				{/if}
 				{#if hasError}
 					<span class="text-red-500 dark:text-red-400 text-sm">
 						{setting.error ?? ''}
