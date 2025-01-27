@@ -15,3 +15,6 @@ pub fn start_kafka_consumers(
 ) -> () {
     // implementation is not open source
 }
+
+#[derive(Serialize, Deserialize)]
+pub enum KafkaTriggerConfigConnection {}
