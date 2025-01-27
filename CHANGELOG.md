@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.451.0](https://github.com/windmill-labs/windmill/compare/v1.450.1...v1.451.0) (2025-01-27)
+
+
+### Features
+
+* app builder accordion list and accordion tab component ([#5132](https://github.com/windmill-labs/windmill/issues/5132)) ([0e41023](https://github.com/windmill-labs/windmill/commit/0e41023889fb2f26ef5dc2a736dd59b819d92bf1))
+* **typescript-client:** add ability to mock typescript api for testing ([f9ce01c](https://github.com/windmill-labs/windmill/commit/f9ce01c1dcda581d943e3cf58008cc6c89d39c5f))
+
+
+### Bug Fixes
+
+* **frontend:** make argInput indent optional ([#5144](https://github.com/windmill-labs/windmill/issues/5144)) ([b8152a3](https://github.com/windmill-labs/windmill/commit/b8152a3259fa0f791990e41d825f196d82c4084d))
+
 ## [1.450.1](https://github.com/windmill-labs/windmill/compare/v1.450.0...v1.450.1) (2025-01-26)
 
 
