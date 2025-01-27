@@ -161,8 +161,8 @@ impl Retry {
             if let Some(random_factor) = exponential.random_factor {
                 if random_factor > 0 {
                     let random_component =
-                        rand::thread_rng().gen_range(0..(std::cmp::min(random_factor, 100) as u16));
-                    secs = match rand::thread_rng().gen_bool(1.0 / 2.0) {
+                        rand::rng().random_range(0..(std::cmp::min(random_factor, 100) as u16));
+                    secs = match rand::rng().random_bool(1.0 / 2.0) {
                         true => secs.saturating_add(secs * random_component / 100),
                         false => secs.saturating_sub(secs * random_component / 100),
                     };

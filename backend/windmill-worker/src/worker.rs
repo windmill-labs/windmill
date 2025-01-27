@@ -1095,7 +1095,7 @@ pub async fn run_worker(
     #[cfg(feature = "benchmark")]
     let mut infos = BenchmarkInfo::new();
 
-    let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
+    let vacuum_shift = rand::rng().random_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(

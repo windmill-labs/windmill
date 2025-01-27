@@ -36,12 +36,13 @@ use windmill_common::{
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
         EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, TEAMS_SETTING
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -788,7 +789,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 EXPOSE_METRICS_SETTING  => {
                                                     tracing::info!("Metrics setting changed, restarting");
                                                     // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::thread_rng().gen_range(0..40);
+                                                    let rd_delay = rand::rng().gen_range(0..40);
                                                     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                                                     if let Err(e) = tx.send(()) {
                                                         tracing::error!(error = %e, "Could not send killpill to server");
@@ -802,7 +803,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 OTEL_SETTING => {
                                                     tracing::info!("OTEL setting changed, restarting");
                                                     // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                    let rd_delay = rand::rng().gen_range(0..4);
                                                     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                                                     if let Err(e) = tx.send(()) {
                                                         tracing::error!(error = %e, "Could not send killpill");
@@ -812,7 +813,7 @@ Windmill Community Edition {GIT_VERSION}
                                                     if server_mode {
                                                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
                                                         // we wait a bit randomly to avoid having all servers shutdown at same time
-                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
+                                                        let rd_delay = rand::rng().gen_range(0..4);
                                                         tokio::time::sleep(Duration::from_secs(rd_delay)).await;
                                                         if let Err(e) = tx.send(()) {
                                                             tracing::error!(error = %e, "Could not send killpill to server");
