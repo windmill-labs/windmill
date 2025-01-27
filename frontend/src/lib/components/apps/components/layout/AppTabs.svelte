@@ -216,9 +216,7 @@
 				</div>
 			{/each}
 		</div>
-	{/if}
-
-	{#if resolvedConfig.tabsKind !== 'accordion'}
+	{:else}
 		<div class="w-full">
 			{#if $app.subgrids}
 				{#each tabs ?? [] as _res, i}
