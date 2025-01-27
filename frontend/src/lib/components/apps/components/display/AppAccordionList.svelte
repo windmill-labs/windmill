@@ -23,7 +23,8 @@
 	type InternalAccordionListInput = AppInput & {
 		value: AccordionListValue[];
 	};
-	const accordionInput = componentInput as InternalAccordionListInput
+
+	$: accordionInput = componentInput as InternalAccordionListInput;
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -101,7 +102,7 @@
 							)}
 						>
 							<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
-							{accordionInput?.value[index].header || `Header ${index}`}
+							{accordionInput?.value[index]?.header || `Header ${index}`}
 						</button>
 						{#if activeIndex === index}
 							<div class="p-2 overflow-auto w-full">

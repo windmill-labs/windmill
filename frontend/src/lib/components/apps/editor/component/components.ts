@@ -4167,6 +4167,7 @@ export const presetComponents = {
 	sidebartabscomponent: {
 		name: 'Sidebar Tabs',
 		icon: PanelLeft,
+		dims: '3:8-12:8' as AppComponentDimensions,
 		targetComponent: 'tabscomponent' as const,
 		configuration: {
 			tabsKind: {
@@ -4178,6 +4179,7 @@ export const presetComponents = {
 	accordiontabcomponent: {
 		name: 'Accordion Tabs',
 		icon: ListCollapse,
+		dims: '3:8-12:8' as AppComponentDimensions,
 		targetComponent: 'tabscomponent' as const,
 		configuration: {
 			tabsKind: {
@@ -4189,6 +4191,7 @@ export const presetComponents = {
 	invisibletabscomponent: {
 		name: 'Invisible Tabs',
 		icon: PanelTopInactive,
+		dims: '3:8-12:8' as AppComponentDimensions,
 		targetComponent: 'tabscomponent' as const,
 		configuration: {
 			tabsKind: {
