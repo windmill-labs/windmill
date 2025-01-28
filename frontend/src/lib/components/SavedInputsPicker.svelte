@@ -27,6 +27,7 @@
 		isNew?: boolean
 		isDeleting?: boolean
 		payloadData?: any
+		getFullPayload?: () => Promise<any>
 	}
 
 	let infiniteList: InfiniteList | null = null
@@ -69,6 +70,13 @@
 			const inputsWithPayload = await Promise.all(
 				inputs.map(async (input) => {
 					const payloadData = await loadLargeArgs(input.id, undefined, false)
+					if (payloadData === 'WINDMILL_TOO_BIG') {
+						return {
+							...input,
+							payloadData: 'WINDMILL_TOO_BIG',
+							getFullPayload: () => loadLargeArgs(input.id, undefined, true)
+						}
+					}
 					return {
 						...input,
 						payloadData
@@ -110,8 +118,13 @@
 			resetSelected(true)
 		} else {
 			selectedInput = input.id
-			selectedArgs = structuredClone(input.payloadData ?? {})
-			dispatch('select', selectedArgs)
+			if (input.payloadData === 'WINDMILL_TOO_BIG') {
+				const fullPayload = await input.getFullPayload?.()
+				dispatch('select', fullPayload)
+			} else {
+				selectedArgs = structuredClone(input.payloadData ?? {})
+				dispatch('select', selectedArgs)
+			}
 		}
 	}
 
@@ -257,7 +270,15 @@
 											</svelte:fragment>
 											<svelte:fragment slot="content">
 												<div class="p-2">
-													<ObjectViewer json={item.payloadData} />
+													{#if item.payloadData === 'WINDMILL_TOO_BIG'}
+														<div class="text-center text-tertiary text-xs">
+															Payload too big to preview but can still be loaded
+														</div>
+													{:else}
+														<div class="max-w-60 overflow-auto">
+															<ObjectViewer json={item.payloadData} />
+														</div>
+													{/if}
 												</div>
 											</svelte:fragment>
 										</PopoverV2>

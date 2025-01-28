@@ -36,6 +36,13 @@
 			const inputsWithPayload = await Promise.all(
 				inputs.map(async (input) => {
 					const payloadData = await loadArgsFromHistory(input.id, undefined, false)
+					if (payloadData === 'WINDMILL_TOO_BIG') {
+						return {
+							...input,
+							payloadData: 'WINDMILL_TOO_BIG',
+							getFullPayload: () => loadArgsFromHistory(input.id, undefined, true)
+						}
+					}
 					return {
 						...input,
 						payloadData
@@ -47,13 +54,18 @@
 		infiniteList?.setLoader(loadInputsPageFn)
 	}
 
-	function handleSelected(data: any) {
+	async function handleSelected(data: any) {
 		if (selected === data.id) {
 			resetSelected(true)
 			return
 		}
 		selected = data.id
-		dispatch('select', structuredClone(data.payloadData))
+		if (data.payloadData === 'WINDMILL_TOO_BIG') {
+			const fullPayload = await data.getFullPayload?.()
+			dispatch('select', fullPayload)
+		} else {
+			dispatch('select', structuredClone(data.payloadData))
+		}
 	}
 
 	let selected: string | undefined = undefined
