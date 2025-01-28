@@ -9,12 +9,14 @@
 use axum::body::Body;
 use axum::http::HeaderValue;
 use futures::TryFutureExt;
+use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::str::FromStr;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
@@ -3522,6 +3524,7 @@ lazy_static::lazy_static! {
 pub struct WindmillCompositeResult {
     windmill_status_code: Option<u16>,
     windmill_content_type: Option<String>,
+    windmill_headers: Option<HashMap<String, String>>,
     result: Option<Box<RawValue>>,
 }
 pub async fn run_wait_result(
@@ -3610,9 +3613,13 @@ pub async fn run_wait_result(
             Ok(WindmillCompositeResult {
                 windmill_status_code,
                 windmill_content_type,
+                windmill_headers,
                 result: result_value,
             }) => {
-                if windmill_content_type.is_none() && windmill_status_code.is_none() {
+                if windmill_content_type.is_none()
+                    && windmill_status_code.is_none()
+                    && windmill_headers.is_none()
+                {
                     return Ok((
                         if success {
                             StatusCode::OK
@@ -3639,7 +3646,21 @@ pub async fn run_wait_result(
                         }
                     })?;
 
-                if windmill_content_type.is_some() {
+                let mut headers = HeaderMap::new();
+
+                if let Some(windmill_headers) = windmill_headers {
+                    for (k, v) in windmill_headers {
+                        let k = HeaderName::from_str(k.as_str()).map_err(|err| {
+                            Error::InternalErr(format!("Invalid header name {k}: {err}"))
+                        })?;
+                        let v = HeaderValue::from_str(v.as_str()).map_err(|err| {
+                            Error::InternalErr(format!("Invalid header value {v}: {err}"))
+                        })?;
+                        headers.insert(k, v);
+                    }
+                }
+
+                if let Some(content_type) = windmill_content_type {
                     let serialized_json_result = result_value
                         .map(|val| val.get().to_owned())
                         .unwrap_or_else(String::new);
@@ -3649,21 +3670,23 @@ pub async fn run_wait_result(
                         serde_json::from_str::<String>(serialized_json_result.as_str())
                             .ok()
                             .unwrap_or(serialized_json_result);
-                    return Ok((
-                        status_code_or_default,
-                        [(
-                            http::header::CONTENT_TYPE,
-                            HeaderValue::from_str(windmill_content_type.unwrap().as_str()).unwrap(),
-                        )],
-                        serialized_result,
-                    )
-                        .into_response());
+                    headers.insert(
+                        http::header::CONTENT_TYPE,
+                        HeaderValue::from_str(content_type.as_str()).map_err(|err| {
+                            Error::InternalErr(format!(
+                                "Invalid content type {content_type}: {err}"
+                            ))
+                        })?,
+                    );
+                    return Ok((status_code_or_default, headers, serialized_result).into_response());
                 }
-                return Ok((
-                    status_code_or_default,
-                    Json(result_value), // default to JSON result if no content type is provided
-                )
-                    .into_response());
+                if let Some(result_value) = result_value {
+                    return Ok(
+                        (status_code_or_default, headers, Json(result_value)).into_response()
+                    );
+                } else {
+                    Ok((status_code_or_default, headers).into_response())
+                }
             }
             _ => Ok((
                 if success {
