@@ -47,6 +47,7 @@
 	let jsonView: boolean = false
 	let jsonEditor: JsonInputs
 	let schemaHeight = 0
+	let isValid: boolean = true
 
 	export function test() {
 		renderCount++
@@ -343,6 +344,7 @@
 				}}
 				let:toggleRightPanel
 				let:selectedTab
+				{isValid}
 			>
 				<div class="w-full flex flex-row justify-between">
 					<InputSelectedBadge {inputSelected} />
@@ -403,6 +405,7 @@
 								on:change={() => {
 									savedArgs = $previewArgs
 								}}
+								bind:isValid
 							/>
 						</div>
 					{/key}

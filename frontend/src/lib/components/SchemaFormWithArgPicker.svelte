@@ -15,6 +15,7 @@
 	export let runnableType: any
 	export let flowPath: string = ''
 	export let previewArgs: any
+	export let isValid: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -104,7 +105,7 @@
 					{:else if selectedTab === 'saved_inputs'}
 						<FlowInputEditor title="Saved inputs">
 							<SavedInputsPicker
-								isValid={true}
+								{isValid}
 								{runnableId}
 								{runnableType}
 								{previewArgs}
