@@ -102,6 +102,14 @@
 						runPreview($previewArgs, undefined)
 					}
 					break
+
+				case 'Escape':
+					if (preventEscape) {
+						selectInput(undefined)
+						event.preventDefault()
+						event.stopPropagation
+					}
+					break
 			}
 		}
 	}

@@ -11,9 +11,9 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fly } from 'svelte/transition'
 
-	export let runnableId
+	export let runnableId: string = ''
 	export let runnableType: any
-	export let flowPath
+	export let flowPath: string = ''
 	export let previewArgs: any
 
 	const dispatch = createEventDispatcher()
@@ -79,7 +79,7 @@
 			<div class="absolute -right-[1px] -top-[1px] z-50 bg-surface">
 				<SideBarTab {dropdownItems} fullMenu={!!selectedTab} />
 			</div>
-			<div class="relative min-h-[40vh] h-fit mx-auto pr-10" bind:clientHeight={rightHeight}>
+			<div class="relative min-h-[40vh] h-fit mx-auto pr-10 pb-1" bind:clientHeight={rightHeight}>
 				<slot {toggleRightPanel} {selectedTab} />
 			</div>
 		</Pane>
@@ -104,6 +104,7 @@
 					{:else if selectedTab === 'saved_inputs'}
 						<FlowInputEditor title="Saved inputs">
 							<SavedInputsPicker
+								isValid={true}
 								{runnableId}
 								{runnableType}
 								{previewArgs}
