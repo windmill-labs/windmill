@@ -447,7 +447,7 @@ jobs:
   build_ee_reports_privately:
     needs: [build_ee_nsjail]
     runs-on: ubicloud
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' &&  (github.event_name != 'workflow_dispatch')
     steps:
       - uses: actions/checkout@v4
         with:
