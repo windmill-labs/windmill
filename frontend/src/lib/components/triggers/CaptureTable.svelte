@@ -209,7 +209,7 @@
 			<svelte:fragment slot="columns">
 				<colgroup>
 					<col class="w-8" />
-					<col class="w-20" />
+					<col class="w-16" />
 					<col />
 				</colgroup>
 			</svelte:fragment>

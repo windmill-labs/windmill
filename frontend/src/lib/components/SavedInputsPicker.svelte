@@ -229,9 +229,9 @@
 					</Cell>
 					<Cell>
 						<div
-							class="w-full flex items-center text-sm justify-between gap-4 px-4 text-left transition-all"
+							class="w-full flex items-center text-sm justify-between gap-4 py-1 text-left transition-all"
 						>
-							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0 p-1">
+							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
 								{#if isEditing && isEditing.id === item.id}
 									<form
 										on:submit={() => {
