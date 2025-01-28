@@ -314,7 +314,7 @@ jobs:
     needs: [run_integration_test, build]
     if:
       github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/v'))
+      startsWith(github.ref, 'refs/tags/v'))  && (github.event_name != 'workflow_dispatch') 
     steps:
       - uses: actions/checkout@v4
         with:
@@ -334,7 +334,7 @@ jobs:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
     if:
-      github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
+      github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))
     steps:
       - uses: actions/checkout@v4
@@ -354,7 +354,7 @@ jobs:
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
     needs: [tag_latest_ee]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}  && (github.event_name != 'workflow_dispatch') 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
