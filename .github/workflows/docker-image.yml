@@ -26,7 +26,11 @@ on:
         description: "Tag the image"
         required: true
         default: "test"
-
+      nsjail:
+        description: "Build nsjail image (true, false)"
+        required: false
+        default: false
+        type: boolean
 concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
@@ -100,7 +104,7 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
+    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -393,8 +397,8 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     if:
-      (github.event_name != 'pull_request') && (github.event_name !=
-      'workflow_dispatch')
+      (github.event_name != 'pull_request') && ((github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail))
+
     steps:
       - uses: actions/checkout@v4
         with:
