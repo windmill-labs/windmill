@@ -91,7 +91,7 @@
 	}
 </script>
 
-<div class="max-w-3xl" data-schema-picker>
+<div class="max-w-3xl">
 	{#if detailed}
 		{#if runnable}
 			<div class="flex flex-row flex-wrap justify-between gap-4">

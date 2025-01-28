@@ -28,6 +28,7 @@
 	let flowPreviewContent: FlowPreviewContent
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
+	let preventEscape = false
 
 	$: upToDisabled =
 		$selectedId == undefined ||
@@ -87,7 +88,7 @@
 	Test flow
 </Button>
 
-<Drawer bind:open={previewOpen} alwaysOpen size="75%">
+<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
 	<FlowPreviewContent
 		bind:this={flowPreviewContent}
 		open={previewOpen}
@@ -101,5 +102,6 @@
 			previewOpen = false
 			dispatch('openTriggers', e.detail)
 		}}
+		bind:preventEscape
 	/>
 </Drawer>

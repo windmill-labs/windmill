@@ -9,6 +9,7 @@
 	import CapturesInputs from './CapturesInputs.svelte'
 	import SavedInputsPicker from './SavedInputsPicker.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { fly } from 'svelte/transition'
 
 	export let runnableId
 	export let runnableType: any
@@ -78,18 +79,18 @@
 			<div class="absolute -right-[1px] -top-[1px] z-50 bg-surface">
 				<SideBarTab {dropdownItems} fullMenu={!!selectedTab} />
 			</div>
-			<div
-				class="relative min-h-[40vh] h-fit mx-auto pr-10"
-				bind:clientHeight={rightHeight}
-				data-schema-picker
-			>
+			<div class="relative min-h-[40vh] h-fit mx-auto pr-10" bind:clientHeight={rightHeight}>
 				<slot {toggleRightPanel} {selectedTab} />
 			</div>
 		</Pane>
 
 		<Pane minSize={rightPanelOpen ? 30 : 0}>
 			{#if rightPanelOpen}
-				<div style="height: {rightHeight}px" class="border-t border-r">
+				<div
+					transition:fly={{ duration: 100, x: -200 }}
+					style="height: {rightHeight}px"
+					class="border-t border-r"
+				>
 					{#if selectedTab === 'history'}
 						<FlowInputEditor title="History">
 							<HistoricInputs

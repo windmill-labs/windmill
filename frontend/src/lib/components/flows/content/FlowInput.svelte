@@ -64,6 +64,7 @@
 	let runDisabled: boolean = false
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 	let savedPreviewArgs: Record<string, any> | undefined = undefined
+	let preventEscape = false
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -311,7 +312,7 @@
 <!-- Add svelte:window to listen for keyboard events -->
 <svelte:window on:keydown={handleKeydown} />
 
-<Drawer bind:open={previewOpen} alwaysOpen size="75%">
+<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
 	<FlowPreviewContent
 		bind:this={flowPreviewContent}
 		open={previewOpen}
@@ -319,6 +320,7 @@
 		on:close={() => {
 			previewOpen = false
 		}}
+		bind:preventEscape
 	/>
 </Drawer>
 

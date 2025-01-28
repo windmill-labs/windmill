@@ -29,6 +29,7 @@
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
+	export let preventEscape = false
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
@@ -132,9 +133,11 @@
 		if (!input) {
 			$previewArgs = savedArgs
 			inputSelected = undefined
+			preventEscape = false
 		} else {
 			$previewArgs = input
 			inputSelected = type
+			preventEscape = true
 		}
 	}
 
