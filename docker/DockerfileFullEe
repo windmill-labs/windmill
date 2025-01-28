@@ -1,5 +1,7 @@
 FROM alpine:3.14 AS oracledb-client
 
+ARG TARGETPLATFORM
+
 # Oracle DB Client for amd64
 COPY --from=ghcr.io/oracle/oraclelinux9-instantclient:23 /usr/lib/oracle/23/client64/lib /opt/oracle/23/amd64/lib
 
