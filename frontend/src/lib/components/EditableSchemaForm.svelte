@@ -35,7 +35,6 @@
 	export let noPreview: boolean = false
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
-	export let lightweightMode: boolean = false
 	export let displayWebhookWarning: boolean = false
 	export let dndType: string | undefined = undefined
 	export let editTab:
@@ -295,7 +294,6 @@
 								schema = schema
 								dispatch('change', schema)
 							}}
-							{lightweightMode}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
@@ -557,7 +555,6 @@
 																	bind:defaultValue={schema.properties[argName].default}
 																	{variableEditor}
 																	{itemPicker}
-																	{lightweightMode}
 																	bind:nullable={schema.properties[argName].nullable}
 																	bind:disabled={schema.properties[argName].disabled}
 																	type={schema.properties[argName].type}

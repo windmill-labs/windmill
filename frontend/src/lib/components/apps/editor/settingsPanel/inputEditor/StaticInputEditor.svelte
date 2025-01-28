@@ -2,7 +2,6 @@
 	import type { InputType, StaticInput, StaticOptions } from '../../../inputType'
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import JsonEditor from './JsonEditor.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import IconSelectInput from './IconSelectInput.svelte'
@@ -23,6 +22,7 @@
 	import DBTableSelect from './DBTableSelect.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AppPicker from '$lib/components/wizards/AppPicker.svelte'
+	import JsonEditor from '$lib/components/JsonEditor.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined

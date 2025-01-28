@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.452.1](https://github.com/windmill-labs/windmill/compare/v1.452.0...v1.452.1) (2025-01-27)
+
+
+### Bug Fixes
+
+* fix broken tabs for apps ([eaf633c](https://github.com/windmill-labs/windmill/commit/eaf633ce7675bf86108ebfc81ed735c26031ad71))
+
+## [1.452.0](https://github.com/windmill-labs/windmill/compare/v1.451.0...v1.452.0) (2025-01-27)
+
+
+### Features
+
+* mssql executor supports azure db redirect ([#5150](https://github.com/windmill-labs/windmill/issues/5150)) ([fdb7122](https://github.com/windmill-labs/windmill/commit/fdb712234eb7f1a9374012d51e1cb25ee5aaa410))
+* **postgres, trigger:** support ssl ([#5149](https://github.com/windmill-labs/windmill/issues/5149)) ([e0b6aa4](https://github.com/windmill-labs/windmill/commit/e0b6aa42a28a4273f3a7bb7465396f2756e60a92))
+* test trigger connection ([#5145](https://github.com/windmill-labs/windmill/issues/5145)) ([d17397b](https://github.com/windmill-labs/windmill/commit/d17397b0703fb6a7dabf9db75d3c30ec26cdbe1e))
+
+## [1.451.0](https://github.com/windmill-labs/windmill/compare/v1.450.1...v1.451.0) (2025-01-27)
+
+
+### Features
+
+* app builder accordion list and accordion tab component ([#5132](https://github.com/windmill-labs/windmill/issues/5132)) ([0e41023](https://github.com/windmill-labs/windmill/commit/0e41023889fb2f26ef5dc2a736dd59b819d92bf1))
+* **typescript-client:** add ability to mock typescript api for testing ([f9ce01c](https://github.com/windmill-labs/windmill/commit/f9ce01c1dcda581d943e3cf58008cc6c89d39c5f))
+
+
+### Bug Fixes
+
+* **frontend:** make argInput indent optional ([#5144](https://github.com/windmill-labs/windmill/issues/5144)) ([b8152a3](https://github.com/windmill-labs/windmill/commit/b8152a3259fa0f791990e41d825f196d82c4084d))
+
 ## [1.450.1](https://github.com/windmill-labs/windmill/compare/v1.450.0...v1.450.1) (2025-01-26)
 
 

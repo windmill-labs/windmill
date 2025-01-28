@@ -10,7 +10,6 @@
 		RichConfigurations
 	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import type { Schema } from '$lib/common'
 	import { initCss } from '../../utils'
 	import { twMerge } from 'tailwind-merge'
@@ -21,6 +20,7 @@
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
 	import { defaultIfEmptyString } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -71,7 +71,7 @@
 		listInputs?.remove(id)
 	})
 
-	let schemaForm: LightweightSchemaForm
+	let schemaForm: SchemaForm
 
 	$componentControl[id] = {
 		setValue(nvalue: any) {
@@ -150,7 +150,7 @@
 				on:pointerdown|stopPropagation={(e) =>
 					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 			>
-				<LightweightSchemaForm
+				<SchemaForm
 					defaultValues={resolvedConfig.defaultValues}
 					dynamicEnums={resolvedConfig.dynamicEnums}
 					schema={result}

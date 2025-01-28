@@ -46,6 +46,7 @@ pub struct Database {
     pub host: String,
     pub port: u16,
     pub dbname: String,
+    #[serde(default)]
     pub sslmode: String,
     pub root_certificate_pem: String,
 }
@@ -283,14 +284,14 @@ pub async fn create_postgres_trigger(
     if create_publication || create_slot {
         let generate_random_string = move || {
             let timestamp = Utc::now().timestamp_millis().to_string();
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
 
             let random_part = (0..10)
                 .map(|_| {
                     charset
                         .chars()
-                        .nth(rng.gen_range(0..charset.len()))
+                        .nth(rng.random_range(0..charset.len()))
                         .unwrap()
                 })
                 .collect::<String>();
