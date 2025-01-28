@@ -56,7 +56,8 @@
 				publication: publication_name
 			})
 			items = items.filter((item) => item != publication_name)
-			table_to_track = []
+			relations = []
+			transaction_to_track = ['Insert', 'Update', 'Delete']
 			publication_name = ''
 			sendUserToast(message)
 		} catch (error) {
