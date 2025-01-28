@@ -1,22 +1,23 @@
 <script lang="ts">
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import { Tabs } from '$lib/components/common'
-	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import WebsocketTriggersPanel from './WebsocketTriggersPanel.svelte'
-	import ScheduledPollPanel from './ScheduledPollPanel.svelte'
-	import KafkaTriggersPanel from './KafkaTriggersPanel.svelte'
-	import NatsTriggersPanel from './NatsTriggersPanel.svelte'
+	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
+	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
+	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { KafkaIcon, NatsIcon } from '../icons'
+	import KafkaTriggersPanel from './kafka/KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -53,6 +54,7 @@
 				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
+				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
 				<Tab
 					value="kafka"
 					otherValues={['nats']}
@@ -135,6 +137,10 @@
 									{canHavePreprocessor}
 									{hasPreprocessor}
 								/>
+							</div>
+						{:else if $selectedTrigger === 'postgres'}
+							<div class="p-4">
+								<PostgresTriggersPanel {newItem} path={currentPath} {isFlow} />
 							</div>
 						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats'}
 							<div class="p-4 flex flex-col gap-2">

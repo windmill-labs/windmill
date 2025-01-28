@@ -73,6 +73,8 @@ mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
+#[cfg(feature = "postgres_trigger")]
+mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
@@ -100,6 +102,8 @@ mod slack_approvals;
 mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
+#[cfg(feature = "enterprise")]
+mod teams_ee;
 mod tracing_init;
 mod triggers;
 mod users;
@@ -292,19 +296,24 @@ pub async fn run_server(
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
+            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
             let kafka_killpill_rx = rx.resubscribe();
-            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
+            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
             let nats_killpill_rx = rx.resubscribe();
-            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx).await;
+            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
+        }
+        #[cfg(feature = "postgres_trigger")]
+        {
+            let db_killpill_rx = rx.resubscribe();
+            postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
     }
 
@@ -375,7 +384,16 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/kafka_triggers", kafka_triggers_service)
-                        .nest("/nats_triggers", nats_triggers_service),
+                        .nest("/nats_triggers", nats_triggers_service)
+                        .nest("/postgres_triggers", {
+                            #[cfg(feature = "postgres_trigger")]
+                            {
+                                postgres_triggers::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "postgres_trigger"))]
+                            Router::new()
+                        }),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -435,6 +453,17 @@ pub async fn run_server(
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
+                .nest("/teams", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        teams_ee::teams_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route(
                     "/w/:workspace_id/jobs/slack_approval/:job_id",
                     get(slack_approvals::request_slack_approval),

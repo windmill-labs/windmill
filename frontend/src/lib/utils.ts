@@ -351,8 +351,13 @@ export function removeItemAll<T>(arr: T[], value: T) {
 }
 
 export function emptyString(str: string | undefined | null): boolean {
-	return str === undefined || str === null || str === ''
+	return str === undefined || str === null || str === '' 
 }
+
+export function emptyStringTrimmed(str: string | undefined | null): boolean {
+	return str === undefined || str === null || str === '' || str.trim().length === 0
+}
+
 
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
 	return emptyString(str) ? dflt : str!

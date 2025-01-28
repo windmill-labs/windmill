@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.82-slim-bookworm
+ARG RUST_IMAGE=rust:1.83-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
@@ -12,7 +12,7 @@ RUN apt-get -y update \
 
 RUN rustup component add rustfmt
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version 0.1.68
 RUN cargo install sccache --version ^0.8
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/backend/sccache
 
@@ -95,6 +95,14 @@ ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
 ARG WITH_GIT=true
 
+# To change latest stable version:
+# 1. Change placeholder in instanceSettings.ts
+# 2. Change LATEST_STABLE_PY in dockerfile
+# 3. Change #[default] annotation for PyVersion in backend
+ARG LATEST_STABLE_PY=3.11.10
+ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
+ENV UV_PYTHON_PREFERENCE=only-managed
+
 RUN pip install --upgrade pip==24.2
 
 RUN apt-get update \
@@ -160,6 +168,10 @@ ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.5.15/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+
+# Preinstall python runtimes
+RUN uv python install 3.11.10
+RUN uv python install $LATEST_STABLE_PY
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \

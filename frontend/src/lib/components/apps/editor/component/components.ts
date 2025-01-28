@@ -51,7 +51,9 @@ import {
 	CalendarClock,
 	AppWindow,
 	PanelTop,
-	RefreshCw
+	RefreshCw,
+	ListCollapse,
+	GalleryThumbnails
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -244,6 +246,7 @@ export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
+export type AccordionListComponent = BaseComponent<'accordionlistcomponent'>
 export type StatisticCardComponent = BaseComponent<'statcomponent'>
 export type MenuComponent = BaseComponent<'menucomponent'> & {
 	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
@@ -351,6 +354,7 @@ export type TypedComponent =
 	| DownloadComponent
 	| ChartJsComponent
 	| CarouselListComponent
+	| AccordionListComponent
 	| PlotlyComponentV2
 	| ChartJsComponentV2
 	| StatisticCardComponent
@@ -446,7 +450,7 @@ const buttonColorOptions = [...BUTTON_COLORS]
 
 export const selectOptions = {
 	buttonColorOptions,
-	tabsKindOptions: ['tabs', 'sidebar', 'invisibleOnView'],
+	tabsKindOptions: ['tabs', 'sidebar', 'accordion', 'invisibleOnView'],
 	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
 	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
@@ -2852,7 +2856,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 	},
 	carousellistcomponent: {
 		name: 'Carousel List',
-		icon: ListIcon,
+		icon: GalleryThumbnails,
 		documentationLink: `${documentationBaseUrl}/carousel`,
 		dims: '3:8-12:8' as AppComponentDimensions,
 		customCss: {
@@ -2874,6 +2878,25 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				fieldType: 'array',
 				subFieldType: 'object',
 				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
+			},
+			numberOfSubgrids: 1
+		}
+	},
+	accordionlistcomponent: {
+		name: 'Accordion List',
+		icon: ListCollapse,
+		documentationLink: `${documentationBaseUrl}/accordion`,
+		dims: '3:8-12:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{ header: 'First', foo: 1 }, { header: 'Second', foo: 2 }, { header: 'Third', foo: 3 }] as object[]
 			},
 			numberOfSubgrids: 1
 		}
@@ -4144,6 +4167,7 @@ export const presetComponents = {
 	sidebartabscomponent: {
 		name: 'Sidebar Tabs',
 		icon: PanelLeft,
+		dims: '3:8-12:8' as AppComponentDimensions,
 		targetComponent: 'tabscomponent' as const,
 		configuration: {
 			tabsKind: {
@@ -4152,9 +4176,22 @@ export const presetComponents = {
 		},
 		type: 'sidebartabscomponent'
 	},
+	accordiontabcomponent: {
+		name: 'Accordion Tabs',
+		icon: ListCollapse,
+		dims: '3:8-12:8' as AppComponentDimensions,
+		targetComponent: 'tabscomponent' as const,
+		configuration: {
+			tabsKind: {
+				value: 'accordion'
+			}
+		},
+		type: 'accordiontabcomponent'
+	},
 	invisibletabscomponent: {
 		name: 'Invisible Tabs',
 		icon: PanelTopInactive,
+		dims: '3:8-12:8' as AppComponentDimensions,
 		targetComponent: 'tabscomponent' as const,
 		configuration: {
 			tabsKind: {

@@ -15,7 +15,8 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_main_override, get_reserved_variables, read_result, start_child_process, OccupancyMetrics
+        check_executor_binary_exists, create_args_and_out_file, get_main_override,
+        get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,

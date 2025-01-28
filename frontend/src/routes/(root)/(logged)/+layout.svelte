@@ -191,10 +191,12 @@
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used, kafka_used, nats_used } =
-			await WorkspaceService.getUsedTriggers({
-				workspace: $workspaceStore ?? ''
-			})
+		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used } =
+			await WorkspaceService.getUsedTriggers(
+			{
+					workspace: $workspaceStore ?? ''
+				}
+		)
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -203,6 +205,9 @@
 		}
 		if (kafka_used) {
 			usedKinds.push('kafka')
+		}
+		if (postgres_used) {
+			usedKinds.push('postgres')
 		}
 		if (nats_used) {
 			usedKinds.push('nats')

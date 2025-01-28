@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { type ExecuteComponentData } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
@@ -28,6 +27,7 @@
 	import { ctxRegex } from '../../utils'
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
 	import { executeRunnable } from './executeRunnable'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
 	// Component props
 	export let id: string
@@ -167,7 +167,7 @@
 		}
 	}
 
-	let schemaForm: LightweightSchemaForm
+	let schemaForm: SchemaForm
 
 	export function invalidate(key: string, error: string) {
 		schemaForm?.invalidate(key, error)
@@ -757,7 +757,7 @@
 		<!-- {Object.keys(schemaStripped?.properties ?? {}).length > 0} -->
 		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
-				<LightweightSchemaForm
+				<SchemaForm
 					schema={schemaStripped}
 					appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
 					{computeS3ForceViewerPolicies}

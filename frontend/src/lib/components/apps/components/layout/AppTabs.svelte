@@ -48,6 +48,8 @@
 		selectedTabIndex: 0
 	})
 
+	const titleBarHeight = 40 // Example height of a single accordion title bar in pixels
+
 	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
 		outputs?.selectedTabIndex.set(selectedIndex)
@@ -171,27 +173,72 @@
 			{/each}
 		</div>
 	{/if}
-
-	<div class="w-full">
-		{#if $app.subgrids}
-			{#each tabs ?? [] as _res, i}
-				<SubGridEditor
-					{id}
-					visible={render && i === selectedIndex}
-					subGridId={`${id}-${i}`}
-					class={twMerge(css?.container?.class, 'wm-tabs-container')}
-					style={css?.container?.style}
-					containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
-						? componentContainerHeight - tabHeight
-						: componentContainerHeight}
-					on:focus={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
-							handleTabSelection()
-						}
-					}}
-				/>
+	{#if resolvedConfig.tabsKind == 'accordion'}
+		<div class="flex flex-col w-full">
+			{#each tabs ?? [] as res, index}
+				<div class="border-b">
+					<button
+						on:pointerdown|stopPropagation
+						on:click={() => (selected = res)}
+						class={twMerge(
+							'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+							css?.allTabs?.class,
+							'wm-tabs-alltabs',
+							selected == res
+								? twMerge(
+										'bg-surface text-primary ',
+										css?.selectedTab?.class,
+										'wm-tabs-selectedTab'
+								  )
+								: 'text-secondary'
+						)}
+					>
+						<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
+						{res}
+					</button>
+					{#if selected == res}
+						<div class="p-2 border-t">
+							<SubGridEditor
+								{id}
+								visible={render && index === selectedIndex}
+								subGridId={`${id}-${index}`}
+								class={twMerge(css?.container?.class, 'wm-tabs-container')}
+								style={css?.container?.style}
+								containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
+								on:focus={() => {
+									if (!$connectingInput.opened) {
+										$selectedComponent = [id]
+										handleTabSelection()
+									}
+								}}
+							/>
+						</div>
+					{/if}
+				</div>
 			{/each}
-		{/if}
-	</div>
+		</div>
+	{:else}
+		<div class="w-full">
+			{#if $app.subgrids}
+				{#each tabs ?? [] as _res, i}
+					<SubGridEditor
+						{id}
+						visible={render && i === selectedIndex}
+						subGridId={`${id}-${i}`}
+						class={twMerge(css?.container?.class, 'wm-tabs-container')}
+						style={css?.container?.style}
+						containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
+							? componentContainerHeight - tabHeight
+							: componentContainerHeight}
+						on:focus={() => {
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+								handleTabSelection()
+							}
+						}}
+					/>
+				{/each}
+			{/if}
+		</div>
+	{/if}
 </div>

@@ -80,9 +80,10 @@ pub struct AllClients {
 }
 
 #[cfg(feature = "oauth2")]
-pub fn build_oauth_clients(
+pub async fn build_oauth_clients(
     _base_url: &str,
     _oauths_from_config: Option<HashMap<String, OAuthClient>>,
+    _db: &DB,
 ) -> anyhow::Result<AllClients> {
     // Implementation is not open source
     return Ok(AllClients {

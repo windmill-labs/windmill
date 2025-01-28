@@ -20,7 +20,7 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
@@ -139,6 +139,12 @@
 	f={(x) => x.path + ' ' + x.description}
 />
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.variables}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 <CenteredPage>
 	<PageHeader
 		title="Variables"
@@ -454,6 +460,7 @@
 		</div>
 	{/if}
 </CenteredPage>
+{/if}
 
 <ConfirmationModal
 	{open}

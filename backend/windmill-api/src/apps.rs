@@ -13,7 +13,6 @@ use crate::{
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     utils::WithStarredInfoQuery,
-    variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -54,6 +53,7 @@ use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
+use windmill_common::variables::encrypt;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},
     cache::{self, future::FutureCachedExt},

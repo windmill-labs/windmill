@@ -39,7 +39,8 @@ use crate::csharp_executor::generate_nuget_lockfile;
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
 use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, USE_PIP_COMPILE, USE_PIP_INSTALL,
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion, USE_PIP_COMPILE,
+    USE_PIP_INSTALL,
 };
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
@@ -1679,10 +1680,28 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    annotated_pyv_numeric: Option<u32>,
+    annotations: PythonAnnotations,
     no_uv_compile: bool,
     no_uv_install: bool,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
+
+    /*
+        Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
+        This one used specifically for deploying scripts
+        So we can get final_version right away and include in lockfile
+        And the precendence is following:
+
+            1. Annotation version
+            2. Instance version
+            3. Latest Stable
+    */
+
+    let final_version = annotated_pyv_numeric
+        .and_then(|pyv| PyVersion::from_numeric(pyv))
+        .unwrap_or(PyVersion::from_instance_version().await);
+
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
@@ -1693,8 +1712,9 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
+        final_version,
+        annotations.no_cache,
         no_uv_compile,
-        false,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1710,8 +1730,8 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
+            final_version,
             no_uv_install,
-            false,
         )
         .await;
 
@@ -1749,10 +1769,18 @@ async fn capture_dependency_job(
             return Err(Error::InternalErr(
                 "Python requires the python feature to be enabled".to_string(),
             ));
-
             #[cfg(feature = "python")]
             {
+                let anns = PythonAnnotations::parse(job_raw_code);
+                let mut annotated_pyv_numeric = None;
+
                 let reqs = if raw_deps {
+                    // `wmill script generate-metadata`
+                    // should also respect annotated pyversion
+                    // can be annotated in script itself
+                    // or in requirements.txt if present
+                    annotated_pyv_numeric =
+                        PyVersion::from_py_annotations(anns).map(|v| v.to_numeric());
                     job_raw_code.to_string()
                 } else {
                     let mut already_visited = vec![];
@@ -1763,14 +1791,12 @@ async fn capture_dependency_job(
                         script_path,
                         &db,
                         &mut already_visited,
+                        &mut annotated_pyv_numeric,
                     )
                     .await?
                     .join("\n")
                 };
-
-                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } =
-                    PythonAnnotations::parse(job_raw_code);
-
+                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } = anns;
                 if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
                     if let Err(e) = sqlx::query!(
                         r#"
@@ -1797,6 +1823,8 @@ async fn capture_dependency_job(
                     w_id,
                     worker_dir,
                     &mut Some(occupancy_metrics),
+                    annotated_pyv_numeric,
+                    anns,
                     no_uv_compile | no_uv,
                     no_uv_install | no_uv,
                 )
@@ -1845,6 +1873,8 @@ async fn capture_dependency_job(
                     w_id,
                     worker_dir,
                     &mut Some(occupancy_metrics),
+                    None,
+                    PythonAnnotations::default(),
                     false,
                     false,
                 )

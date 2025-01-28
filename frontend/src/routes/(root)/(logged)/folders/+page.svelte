@@ -6,7 +6,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
@@ -78,6 +78,12 @@
 	</DrawerContent>
 </Drawer>
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.folders}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 <CenteredPage>
 	<PageHeader
 		title="Folders"
@@ -207,3 +213,4 @@
 		</DataTable>
 	</div>
 </CenteredPage>
+{/if}
