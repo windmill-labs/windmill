@@ -27,7 +27,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
+	import { Earth, Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
 
 	type PathKind =
 		| 'resource'
@@ -353,6 +353,8 @@
 							if (meta) {
 								if (kind === 'folder') {
 									meta.owner = folders?.[0]?.name ?? ''
+								} else if (kind === 'shared') {
+									meta.owner = 'global'
 								} else if (kind === 'group') {
 									meta.owner = 'all'
 								} else {
@@ -380,6 +382,18 @@
 							position="right"
 							label="Folder"
 						/>
+						{#if $workspaceStore === 'admins' && (kind === 'resource' || kind == 'variable')}
+							<ToggleButton
+								icon={Earth}
+								{disabled}
+								light
+								tooltip={`This ${kind} will be shared with everyone across all workspaces. But it can only be created and edited from the admins workspace`}
+								size="xs"
+								value="shared"
+								position="right"
+								label="Global"
+							/>
+						{/if}
 					</ToggleButtonGroup>
 				</div>
 			{/if}
@@ -395,6 +409,16 @@
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
 							disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
+							on:keydown={setDirty}
+						/>
+					</label>
+				{:else if meta.ownerKind === 'shared'}
+					<label class="block shrink min-w-0">
+						<input
+							class="!w-36"
+							type="text"
+							bind:value={meta.owner}
+							placeholder="global"
 							on:keydown={setDirty}
 						/>
 					</label>

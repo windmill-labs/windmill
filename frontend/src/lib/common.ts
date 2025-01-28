@@ -1,6 +1,6 @@
 import type { Script } from './gen'
 
-export type OwnerKind = 'group' | 'user' | 'folder'
+export type OwnerKind = 'group' | 'user' | 'folder' | 'shared'
 
 export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 

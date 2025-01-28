@@ -157,7 +157,7 @@ async fn list_names(
 ) -> JsonResult<Vec<NamePath>> {
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query!(
-        "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2",
+        "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2 OR (workspace_id = 'admins' AND path LIKE 's/%')",
         rt,
         &w_id
     )
@@ -189,7 +189,7 @@ async fn list_search_resources(
 
     let rows = sqlx::query_as!(
         SearchResource,
-        "SELECT path, value from resource WHERE workspace_id = $1 LIMIT $2",
+        "SELECT path, value from resource WHERE workspace_id = $1 OR (workspace_id = 'admins' AND path LIKE 's/%') LIMIT $2",
         &w_id,
         n
     )
@@ -235,6 +235,7 @@ async fn list_resources(
         .on("variable.account = account.id AND account.workspace_id = variable.workspace_id")
         .order_by("path", true)
         .and_where("resource.workspace_id = ?".bind(&w_id))
+        .or_where("(resource.workspace_id = ? AND resource.path LIKE ?)".bind(&"admins").bind(&"s/%"))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -290,9 +291,9 @@ async fn get_resource(
         variable.is_oauth as \"is_oauth?\",
         variable.account
         FROM resource
-        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
-        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
-        WHERE resource.path = $1 AND resource.workspace_id = $2",
+        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2 OR (variable.workspace_id = 'admins' AND variable.path LIKE 's/%')
+        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2 OR (account.workspace_id = 'admins' AND variable.path LIKE 's/%')
+        WHERE resource.path = $1 AND resource.workspace_id = $2 OR (resource.workspace_id = 'admins' AND resource.path LIKE 's/%')",
         path.to_owned(),
         &w_id
     )
@@ -313,7 +314,7 @@ async fn exists_resource(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND (workspace_id = $2 OR (workspace_id = 'admins' AND path LIKE 's/%')) )",
         path,
         w_id
     )
@@ -334,7 +335,7 @@ async fn get_resource_value(
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+        "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR (workspace_id = 'admins' AND path LIKE 's/%'))",
         path.to_owned(),
         &w_id
     )
@@ -357,7 +358,7 @@ async fn explain_resource_perm_error(
     authed: &ApiAuthed,
 ) -> windmill_common::error::Result<()> {
     let extra_perms = sqlx::query_scalar!(
-        "SELECT extra_perms from resource WHERE path = $1 AND workspace_id = $2",
+        "SELECT extra_perms from resource WHERE path = $1 AND (workspace_id = $2 OR (workspace_id = 'admins' AND path LIKE 's/%'))",
         path,
         w_id
     )
@@ -450,7 +451,7 @@ pub async fn get_resource_value_interpolated_internal(
     let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
 
     let value_o = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+        "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR (workspace_id = 'admins' AND path LIKE 's/%'))",
         path,
         workspace
     )
@@ -521,7 +522,7 @@ pub async fn transform_json_value<'c>(
             let mut tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;
             let v = sqlx::query_scalar!(
-                "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+                "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR (workspace_id = 'admins' AND path LIKE 's/%'))",
                 path,
                 &workspace
             )
@@ -538,7 +539,7 @@ pub async fn transform_json_value<'c>(
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
             let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
             let job = sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
+                "SELECT * FROM queue WHERE id = $1 AND (workspace_id = $2 OR (workspace_id = 'admins' AND path LIKE 's/%'))",
             )
             .bind(job_id.unwrap())
             .bind(workspace)
