@@ -2,7 +2,7 @@
 	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button, Popup } from './common'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -150,7 +150,9 @@
 		if (!input) {
 			$previewArgs = savedArgs
 			inputSelected = undefined
-			preventEscape = false
+			tick().then(() => {
+				preventEscape = false
+			})
 		} else {
 			$previewArgs = input
 			inputSelected = type
