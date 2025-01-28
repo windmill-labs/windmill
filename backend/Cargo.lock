@@ -1941,7 +1941,7 @@ checksum = "5877d3fbf742507b66bc2a1945106bd30dd8504019d596901ddd012a4dd01740"
 dependencies = [
  "chrono",
  "once_cell",
- "winnow 0.6.24",
+ "winnow 0.6.25",
 ]
 
 [[package]]
@@ -3958,9 +3958,9 @@ dependencies = [
 
 [[package]]
 name = "hashify"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77793aa45f12b2a8196bc47cdd537cabf06b20606bd51a51cee676c2a518f7d5"
+checksum = "0a194e6d22f060dada750b0c33c9c3d01dce0ba5212ea81e0a46834e065e932c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6296,6 +6296,17 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-postgres 0.7.12",
+]
+
+[[package]]
+name = "postgres-native-tls"
+version = "0.5.0"
+source = "git+https://github.com/imor/rust-postgres?rev=20265ef38e32a06f76b6f9b678e2077fc2211f6b#20265ef38e32a06f76b6f9b678e2077fc2211f6b"
+dependencies = [
+ "native-tls",
+ "tokio",
+ "tokio-native-tls",
+ "tokio-postgres 0.7.11",
 ]
 
 [[package]]
@@ -9817,7 +9828,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "winnow 0.6.24",
+ "winnow 0.6.25",
 ]
 
 [[package]]
@@ -10849,7 +10860,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -10891,7 +10902,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10936,6 +10947,7 @@ dependencies = [
  "openssl",
  "pg_escape",
  "pin-project",
+ "postgres-native-tls 0.5.0 (git+https://github.com/imor/rust-postgres?rev=20265ef38e32a06f76b6f9b678e2077fc2211f6b)",
  "prometheus",
  "quick_cache",
  "rand 0.9.0",
@@ -10983,7 +10995,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -11001,7 +11013,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "chrono",
  "serde",
@@ -11014,7 +11026,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -11028,7 +11040,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -11087,7 +11099,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "regex",
  "serde",
@@ -11101,7 +11113,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -11124,7 +11136,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -11136,7 +11148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -11145,7 +11157,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11157,7 +11169,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11169,7 +11181,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -11181,7 +11193,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11193,7 +11205,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -11204,7 +11216,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -11215,7 +11227,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11233,7 +11245,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -11250,7 +11262,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11262,7 +11274,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11280,7 +11292,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -11302,7 +11314,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11312,7 +11324,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11345,7 +11357,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -11355,7 +11367,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.451.0"
+version = "1.452.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11395,7 +11407,7 @@ dependencies = [
  "opentelemetry",
  "oracle",
  "pem 3.0.4",
- "postgres-native-tls",
+ "postgres-native-tls 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "prometheus",
  "rand 0.9.0",
  "regex",
@@ -11630,9 +11642,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.6.24"
+version = "0.6.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8d71a593cc5c42ad7876e2c1fda56f314f3754c084128833e64f1345ff8a03a"
+checksum = "ad699df48212c6cc6eb4435f35500ac6fd3b9913324f938aea302022ce19d310"
 dependencies = [
  "memchr",
 ]

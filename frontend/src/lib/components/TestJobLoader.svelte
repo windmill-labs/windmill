@@ -113,7 +113,7 @@
 				logOffset: job.logs?.length ?? 0
 			})
 
-			if ((job.logs ?? '').length == 0) {
+			if ((job?.logs ?? '').length == 0) {
 				job.logs = getUpdate.new_logs ?? ''
 				logOffset = getUpdate.log_offset ?? 0
 			}

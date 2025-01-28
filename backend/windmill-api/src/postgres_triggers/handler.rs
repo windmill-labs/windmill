@@ -46,6 +46,7 @@ pub struct Database {
     pub host: String,
     pub port: u16,
     pub dbname: String,
+    #[serde(default)]
     pub sslmode: String,
     pub root_certificate_pem: String,
 }
