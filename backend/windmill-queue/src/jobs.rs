@@ -546,6 +546,32 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
         );
 
+        // Check if SuspendedTimedOut error (approval timed out)
+        let result_value: serde_json::Value = serde_json::to_value(&result).unwrap_or_else(|_| json!({}));
+        if let Some(error) = result_value.get("error") {
+            if let Some(name) = error.get("name") {
+                if name == "SuspendedTimedOut" {
+                    let audit_author =
+                        AuditAuthor {
+                            email: queued_job.email.to_string(),
+                            username: queued_job.permissioned_as.trim_start_matches("u/").to_string(),
+                            username_override: None,
+                        };
+
+                    audit_log(
+                        &mut *tx,
+                        &audit_author,
+                        "jobs.suspend_resume",
+                        ActionKind::Update,
+                        &queued_job.workspace_id,
+                        Some(&serde_json::json!({"approved": false, "job_id": queued_job.id, "details": "Suspend timed out without approval".to_string()}).to_string()),
+                        None,
+                    )
+                    .await?;
+                }
+            }
+        }
+
         let (raw_code, raw_lock, raw_flow) = if !*MIN_VERSION_IS_AT_LEAST_1_427.read().await {
             sqlx::query!(
                 "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<JsonRawValue>>\"

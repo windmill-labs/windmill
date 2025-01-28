@@ -1966,20 +1966,34 @@ async fn resume_suspended_job_internal(
         resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
     }
 
+    let approver = approver.unwrap_or_else(|| "anonymous".to_string());
+
     let audit_author = match authed {
         Some(authed) => (&authed).into(),
-        None => {
-            let approver = approver.unwrap_or_else(|| "anonymous".to_string());
-            AuditAuthor { email: approver.clone(), username: approver, username_override: None }
-        }
+        None => AuditAuthor {
+            email: approver.clone(),
+            username: approver.clone(),
+            username_override: None,
+        },
     };
     audit_log(
         &mut *tx,
         &audit_author,
-        "jobs.approved",
+        "jobs.suspend_resume",
         ActionKind::Update,
         &w_id,
-        Some(&serde_json::json!({"approved": approved, "job_id": job_id}).to_string()),
+        Some(
+            &serde_json::json!({
+                "approved": approved,
+                "job_id": job_id,
+                "details": if approved {
+                    format!("Approved by {}", &approver)
+                } else {
+                    format!("Cancelled by {}", &approver)
+                }
+            })
+            .to_string(),
+        ),
         None,
     )
     .await?;
