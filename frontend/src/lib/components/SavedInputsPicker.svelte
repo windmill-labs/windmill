@@ -110,7 +110,7 @@
 			resetSelected(true)
 		} else {
 			selectedInput = input.id
-			selectedArgs = input.payloadData ?? {}
+			selectedArgs = structuredClone(input.payloadData ?? {})
 			dispatch('select', selectedArgs)
 		}
 	}

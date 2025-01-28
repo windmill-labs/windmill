@@ -103,7 +103,7 @@
 			deselect()
 		} else {
 			selected = capture.id
-			dispatch('select', capture.payloadData)
+			dispatch('select', structuredClone(capture.payloadData))
 		}
 	}
 

@@ -53,7 +53,7 @@
 			return
 		}
 		selected = data.id
-		dispatch('select', data.payloadData)
+		dispatch('select', structuredClone(data.payloadData))
 	}
 
 	let selected: string | undefined = undefined

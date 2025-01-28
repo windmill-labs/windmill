@@ -26,6 +26,8 @@
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { ButtonType } from '$lib/components/common/button/model'
 	import { twMerge } from 'tailwind-merge'
+	import Toggle from './Toggle.svelte'
+	import JsonInputs from './JsonInputs.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -42,6 +44,9 @@
 
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
+	let jsonView: boolean = false
+	let jsonEditor: JsonInputs
+	let schemaHeight = 0
 
 	export function test() {
 		renderCount++
@@ -86,6 +91,10 @@
 			const newFlow = extractFlow(previewMode)
 			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 			isRunning = true
+			if (inputSelected) {
+				savedArgs = $previewArgs
+				inputSelected = undefined
+			}
 		} catch (e) {
 			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
@@ -146,6 +155,7 @@
 			$previewArgs = input
 			inputSelected = type
 			preventEscape = true
+			jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
 		}
 	}
 
@@ -320,52 +330,82 @@
 
 	<div class="overflow-y-auto grow flex flex-col pt-4">
 		<div class="border-b">
-			{#key renderCount}
-				<SchemaFormWithArgPicker
-					runnableId={initialPath}
-					runnableType={'FlowPath'}
-					flowPath={$pathStore}
-					previewArgs={$previewArgs}
-					on:openTriggers
-					on:select={(e) => {
-						selectInput(e.detail.payload, e.detail?.type)
-					}}
-					let:toggleRightPanel
-					let:selectedTab
-				>
-					<div>
-						<div class="w-full flex flex-row justify-between">
-							<InputSelectedBadge {inputSelected} />
-							<button
-								on:click={() => {
-									toggleRightPanel()
-								}}
-								title={selectedTab ? 'Close' : 'Open'}
-								class={twMerge(ButtonType.ColorVariants.light.border, 'rounded-md border')}
-							>
-								<div class="p-2 center-center flex flex-row gap-2">
-									<Library size={14} />
-									<p class="text-2xs">Inputs library</p>
-									{#if selectedTab}
-										<ChevronLeft size={14} />
-									{:else}
-										<ChevronRight size={14} />
-									{/if}
-								</div>
-							</button>
-						</div>
-						<SchemaForm
-							noVariablePicker
-							compact
-							schema={$flowStore.schema}
-							bind:args={$previewArgs}
-							on:change={() => {
-								savedArgs = $previewArgs
+			<SchemaFormWithArgPicker
+				runnableId={initialPath}
+				runnableType={'FlowPath'}
+				flowPath={$pathStore}
+				previewArgs={$previewArgs}
+				on:openTriggers
+				on:select={(e) => {
+					selectInput(e.detail.payload, e.detail?.type)
+				}}
+				let:toggleRightPanel
+				let:selectedTab
+			>
+				<div class="w-full flex flex-row justify-between">
+					<InputSelectedBadge {inputSelected} />
+					<div class="flex flex-row gap-2">
+						<Toggle
+							bind:checked={jsonView}
+							label="JSON View"
+							size="xs"
+							options={{
+								right: 'JSON',
+								rightTooltip: 'Fill args from JSON'
+							}}
+							lightMode
+							on:change={(e) => {
+								jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
+								refresh()
 							}}
 						/>
+						<button
+							on:click={() => {
+								toggleRightPanel()
+							}}
+							title={selectedTab ? 'Close' : 'Open'}
+							class={twMerge(ButtonType.ColorVariants.light.border, 'rounded-md border')}
+						>
+							<div class="p-2 center-center flex flex-row gap-2">
+								<Library size={14} />
+								<p class="text-2xs">Inputs library</p>
+								{#if selectedTab}
+									<ChevronLeft size={14} />
+								{:else}
+									<ChevronRight size={14} />
+								{/if}
+							</div>
+						</button>
 					</div>
-				</SchemaFormWithArgPicker>
-			{/key}
+				</div>
+				{#if jsonView}
+					<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
+						<JsonInputs
+							bind:this={jsonEditor}
+							on:select={(e) => {
+								if (e.detail) {
+									$previewArgs = e.detail
+								}
+							}}
+							updateOnBlur={false}
+						/>
+					</div>
+				{:else}
+					{#key renderCount}
+						<div bind:clientHeight={schemaHeight}>
+							<SchemaForm
+								noVariablePicker
+								compact
+								schema={$flowStore.schema}
+								bind:args={$previewArgs}
+								on:change={() => {
+									savedArgs = $previewArgs
+								}}
+							/>
+						</div>
+					{/key}
+				{/if}
+			</SchemaFormWithArgPicker>
 		</div>
 		<div class="pt-4 flex flex-col grow">
 			{#if jobId}

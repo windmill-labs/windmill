@@ -65,6 +65,7 @@
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -76,6 +77,7 @@
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = undefined
+	let jsonView = false
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -446,7 +448,22 @@
 					{/if}
 
 					<div class="flex flex-col align-left">
-						<InputSelectedBadge {inputSelected} />
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge {inputSelected} />
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
+						</div>
 
 						<RunForm
 							bind:scheduledForStr
@@ -461,6 +478,7 @@
 							runAction={runFlow}
 							bind:args
 							bind:this={runForm}
+							{jsonView}
 						/>
 					</div>
 

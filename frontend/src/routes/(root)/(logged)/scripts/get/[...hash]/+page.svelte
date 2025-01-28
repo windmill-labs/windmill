@@ -62,8 +62,7 @@
 		Table2,
 		Trash,
 		Play,
-		ClipboardCopy,
-		X
+		ClipboardCopy
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -84,12 +83,12 @@
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
-	import { classes } from '$lib/components/common/alert/model'
-	import { twMerge } from 'tailwind-merge'
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -103,6 +102,7 @@
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = undefined
+	let jsonView = false
 
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
@@ -651,22 +651,21 @@
 					{/if}
 
 					<div class="flex flex-col align-left">
-						<div class="min-h-[34px]">
-							<div
-								class="rounded-md flex flex-row gap-2 items-center py-1 px-2 w-fit {classes['info']
-									.bgClass} {inputSelected ? '' : 'hidden'}"
-							>
-								<p class={twMerge(classes['info'].descriptionClass, 'text-xs px-2')}>
-									Using {inputSelected === 'history' ? 'historic' : 'saved'} input arguments
-								</p>
-								<Button
-									color="light"
-									size="xs2"
-									startIcon={{ icon: X }}
-									shortCut={{ key: 'esc', withoutModifier: true }}
-									nonCaptureEvent
-								/>
-							</div>
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge {inputSelected} />
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
 						</div>
 
 						<RunForm
@@ -683,6 +682,7 @@
 							bind:args
 							schedulable={true}
 							bind:this={runForm}
+							{jsonView}
 						/>
 					</div>
 

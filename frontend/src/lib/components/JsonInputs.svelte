@@ -4,7 +4,10 @@
 
 	const dispatch = createEventDispatcher()
 
-	let pendingJson: string
+	export let updateOnBlur = true
+
+	let pendingJson = ''
+	let simpleEditor: SimpleEditor | undefined = undefined
 
 	function updatePayloadFromJson(jsonInput: string) {
 		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
@@ -18,21 +21,32 @@
 			dispatch('select', undefined)
 		}
 	}
+
+	export function setCode(code: string) {
+		simpleEditor?.setCode(code)
+	}
 </script>
 
 <SimpleEditor
+	bind:this={simpleEditor}
 	on:focus={() => {
-		dispatch('focus')
-		updatePayloadFromJson(pendingJson)
+		if (updateOnBlur) {
+			dispatch('focus')
+			updatePayloadFromJson(pendingJson)
+		}
 	}}
 	on:blur={async () => {
-		dispatch('blur')
-		setTimeout(() => {
-			updatePayloadFromJson('')
-		}, 100)
+		if (updateOnBlur) {
+			dispatch('blur')
+			setTimeout(() => {
+				updatePayloadFromJson('')
+			}, 100)
+		}
 	}}
 	on:change={(e) => {
-		updatePayloadFromJson(e.detail.code)
+		if (e.detail?.code !== undefined) {
+			updatePayloadFromJson(e.detail.code)
+		}
 	}}
 	bind:code={pendingJson}
 	lang="json"

@@ -18,6 +18,7 @@
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
 	import { page } from '$app/stores'
 	import { replaceState } from '$app/navigation'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
 
 	export let runnable:
 		| {
@@ -54,9 +55,12 @@
 	export let overrideTag: string | undefined
 
 	export let args: Record<string, any> = {}
+	export let jsonView = false
 
 	let reloadArgs = 0
 	let blockPopupOpen = false
+	let jsonEditor: JsonInputs | undefined = undefined
+	let schemaHeight = 0
 
 	export async function setArgs(nargs: Record<string, any>) {
 		args = nargs
@@ -88,6 +92,10 @@
 		} catch (e) {
 			console.error('Impossible to set hash in args', e)
 		}
+	}
+
+	export function setCode(code: string) {
+		jsonEditor?.setCode(code)
 	}
 </script>
 
@@ -147,22 +155,36 @@
 		<div class="my-2" />
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm py-4 italic">No arguments</div>
+		{:else if jsonView}
+			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
+				<JsonInputs
+					bind:this={jsonEditor}
+					on:select={(e) => {
+						if (e.detail) {
+							args = e.detail
+						}
+					}}
+					updateOnBlur={false}
+				/>
+			</div>
 		{:else}
 			{#key reloadArgs}
-				<SchemaForm
-					helperScript={runnable.hash
-						? {
-								type: 'hash',
-								hash: runnable.hash
-						  }
-						: undefined}
-					prettifyHeader
-					{noVariablePicker}
-					{autofocus}
-					schema={runnable.schema}
-					bind:isValid
-					bind:args
-				/>
+				<div bind:clientHeight={schemaHeight}>
+					<SchemaForm
+						helperScript={runnable.hash
+							? {
+									type: 'hash',
+									hash: runnable.hash
+							  }
+							: undefined}
+						prettifyHeader
+						{noVariablePicker}
+						{autofocus}
+						schema={runnable.schema}
+						bind:isValid
+						bind:args
+					/>
+				</div>
 			{/key}
 		{/if}
 	{:else}
