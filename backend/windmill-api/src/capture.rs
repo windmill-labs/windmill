@@ -87,6 +87,7 @@ pub enum TriggerKind {
     Kafka,
     Email,
     Nats,
+    Postgres
 }
 
 impl fmt::Display for TriggerKind {
@@ -98,6 +99,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
+            TriggerKind::Postgres => "postgres"
         };
         write!(f, "{}", s)
     }
@@ -132,6 +134,15 @@ pub struct NatsTriggerConfig {
     pub use_jetstream: bool,
 }
 
+#[cfg(feature = "postgres_trigger")]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PostgresTriggerConfig {
+    postgres_resource_path: String,
+    publication_name: Option<String>,
+    replication_slot_name: Option<String>
+}
+
+#[cfg(feature = "websocket")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
@@ -144,6 +155,9 @@ pub struct WebsocketTriggerConfig {
 enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
+    #[cfg(feature = "postgres_trigger")]
+    Postgres(PostgresTriggerConfig),
+    #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),
