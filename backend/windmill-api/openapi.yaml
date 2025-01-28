@@ -8745,6 +8745,34 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/postgres_triggers/test:
+    post:
+      summary: test postgres connection
+      operationId: testPostgresConnection
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test postgres connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                database:
+                  type: string
+              required:
+                - database
+      responses:
+        "200":
+          description: successfuly connected to postgres
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /groups/list:
     get:
       summary: list instance groups

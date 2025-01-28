@@ -3,13 +3,14 @@
 		CancelablePromise,
 		KafkaTriggerService,
 		NatsTriggerService,
+		PostgresTriggerService,
 		WebsocketTriggerService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
-	export let kind: 'websocket' | 'nats' | 'kafka'
+	export let kind: 'websocket' | 'nats' | 'kafka' | 'postgres'
 	export let args: Record<string, any>
 
 	const kindToName: { [key: string]: string } = {
@@ -40,6 +41,12 @@
 				})
 			} else if (kind === 'kafka') {
 				promise = KafkaTriggerService.testKafkaConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			}
+			else if (kind === 'postgres') {
+				promise = PostgresTriggerService.testPostgresConnection({
 					workspace: $workspaceStore!,
 					requestBody: args as any
 				})
