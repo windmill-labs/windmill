@@ -36,36 +36,38 @@ use windmill_common::{
 use windmill_common::variables::get_secret_value_as_admin;
 
 use windmill_queue::{append_logs, CanceledBy};
+use std::env::var;
 
 lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
-    std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
     static ref UV_PATH: String =
-    std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
+    var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
 
     static ref PY_CONCURRENT_DOWNLOADS: usize =
-    std::env::var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+    var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
     static ref FLOCK_PATH: String =
-    std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
+    var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
-    static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
-    static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
+    static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
+    static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
+    static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
-    pub static ref USE_SYSTEM_PYTHON: bool = std::env::var("USE_SYSTEM_PYTHON")
+    pub static ref USE_SYSTEM_PYTHON: bool = var("USE_SYSTEM_PYTHON")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
-    pub static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
+    pub static ref USE_PIP_COMPILE: bool = var("USE_PIP_COMPILE")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
-    pub static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
+    pub static ref USE_PIP_INSTALL: bool = var("USE_PIP_INSTALL")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
-    static ref EPHEMERAL_TOKEN_CMD: Option<String> = std::env::var("EPHEMERAL_TOKEN_CMD").ok();
+    static ref EPHEMERAL_TOKEN_CMD: Option<String> = var("EPHEMERAL_TOKEN_CMD").ok();
 }
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
@@ -532,10 +534,10 @@ pub async fn uv_pip_compile(
             args.extend(["--index-url", url, "--no-emit-index-url"]);
             pip_args.push(format!("--index-url {}", url));
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             args.extend(["--trusted-host", host]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
         }
         let pip_args_str = pip_args.join(" ");
@@ -621,11 +623,14 @@ pub async fn uv_pip_compile(
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             args.extend(["--trusted-host", host]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
+        }
+        if *NATIVE_CERT {
+            args.extend(["--native-tls"]);
         }
         tracing::error!("uv args: {:?}", args);
 
@@ -1572,11 +1577,14 @@ async fn spawn_uv_install(
         if let Some(url) = pip_index_url.as_ref() {
             vars.push(("INDEX_URL", url));
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            vars.push(("PIP_INDEX_CERT", cert_path));
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            vars.push(("SSL_CERT_FILE", cert_path));
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
+        }
+        if *NATIVE_CERT {
+            vars.push(("UV_NATIVE_TLS", "true"));
         }
         let _owner;
         if let Some(py_path) = py_path.as_ref() {
@@ -1674,18 +1682,26 @@ async fn spawn_uv_install(
             });
         }
 
+        let mut envs = vec![("PATH", PATH_ENV.as_str())];
+        envs.push(("HOME", HOME_ENV.as_str()));
+
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            command_args.extend(["--cert", cert_path]);
-        }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             command_args.extend(["--trusted-host", &host]);
         }
-
-        let mut envs = vec![("PATH", PATH_ENV.as_str())];
-        envs.push(("HOME", HOME_ENV.as_str()));
+        if *NATIVE_CERT {
+            command_args.extend(["--native-tls"]);
+        }
+        // TODO:
+        // Track https://github.com/astral-sh/uv/issues/6715
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            // Once merged --cert can be used instead
+            // 
+            // command_args.extend(["--cert", cert_path]);
+            envs.push(("SSL_CERT_FILE", cert_path));
+        }
 
         tracing::debug!("uv pip install command: {:?}", command_args);
 
