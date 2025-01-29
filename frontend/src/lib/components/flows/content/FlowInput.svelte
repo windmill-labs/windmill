@@ -400,7 +400,7 @@
 				</svelte:fragment>
 				<svelte:fragment slot="addProperty">
 					{#if !!previewSchema}
-						<div class="flex flex-row items-center gap-2 right-2 justify-end" data-schema-picker>
+						<div class="flex flex-row items-center gap-2 right-2 justify-end">
 							<Button
 								size="xs"
 								color="green"
