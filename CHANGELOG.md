@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.453.0](https://github.com/windmill-labs/windmill/compare/v1.452.1...v1.453.0) (2025-01-29)
+
+
+### Features
+
+* custom response headers ([#5156](https://github.com/windmill-labs/windmill/issues/5156)) ([5544d42](https://github.com/windmill-labs/windmill/commit/5544d42a2db652660051b5f2e05f8db0102400fa))
+* **python:** add `custom_wheels` directory to `PYTHONPATH` ([#5169](https://github.com/windmill-labs/windmill/issues/5169)) ([c60f8da](https://github.com/windmill-labs/windmill/commit/c60f8dacf191c5255ef8fca462d6d3d571b86b07))
+* websocket trigger allow returning messages ([#5168](https://github.com/windmill-labs/windmill/issues/5168)) ([487c273](https://github.com/windmill-labs/windmill/commit/487c273bfbc5bf1731947c922f32cd026cca47f9))
+
+
+### Bug Fixes
+
+* oracledb tag for native workers + client not working on arm systems ([#5162](https://github.com/windmill-labs/windmill/issues/5162)) ([a1579c1](https://github.com/windmill-labs/windmill/commit/a1579c1654a2ddf9f6fc8f05f62b37bb09303752))
+* **python:** fix uv can't find ssl certificates ([#5157](https://github.com/windmill-labs/windmill/issues/5157)) ([680fb18](https://github.com/windmill-labs/windmill/commit/680fb1852a192e384e23e2f5ceea473383f9f5aa))
+
 ## [1.452.1](https://github.com/windmill-labs/windmill/compare/v1.452.0...v1.452.1) (2025-01-27)
 
 
