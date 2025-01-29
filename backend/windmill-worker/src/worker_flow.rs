@@ -62,6 +62,8 @@ use windmill_queue::{
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
+use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::ActionKind;
 use windmill_queue::{canceled_job_to_result, push};
 
 // #[instrument(level = "trace", skip_all)]
@@ -1894,6 +1896,12 @@ async fn push_next_flow_job(
                     ))
                 && suspend.continue_on_disapprove_timeout.unwrap_or(false);
 
+            let audit_author = AuditAuthor {
+                username: flow_job.permissioned_as.clone(),
+                email: flow_job.email.clone(),
+                username_override: None,
+            };
+
             if can_be_resumed || disapproved_or_timeout_but_continue {
                 if disapproved_or_timeout_but_continue {
                     let js = if let Some(disapproved) = is_disapproved.as_ref() {
@@ -1903,7 +1911,18 @@ async fn push_next_flow_job(
                     };
 
                     resume_messages.push(to_raw_value(&js));
+                    audit_log(
+                        &mut *tx,
+                        &audit_author,
+                        "jobs.suspend_resume",
+                        ActionKind::Update,
+                        &flow_job.workspace_id,
+                        Some(&serde_json::json!({"approved": false, "job_id": flow_job.id, "details": "Suspend timed out without approval but can continue".to_string()}).to_string()),
+                        None,
+                    )
+                    .await?;
                 }
+
                 sqlx::query(
                     "UPDATE queue
                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
@@ -1971,6 +1990,18 @@ async fn push_next_flow_job(
 
             /* cancelled or we're WaitingForEvents but we don't have enough messages (timed out) */
             } else {
+                if is_disapproved.is_none() {
+                    audit_log(
+                        &mut *tx,
+                        &audit_author,
+                        "jobs.suspend_resume",
+                        ActionKind::Update,
+                        &flow_job.workspace_id,
+                        Some(&serde_json::json!({"approved": false, "job_id": flow_job.id, "details": "Suspend timed out without approval and is cancelled".to_string()}).to_string()),
+                        None,
+                    )
+                    .await?;
+                }
                 tx.commit().await?;
 
                 let (logs, error_name) = if let Some(disapprover) = is_disapproved {
