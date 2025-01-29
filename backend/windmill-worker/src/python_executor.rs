@@ -12,7 +12,7 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres};
 use tokio::{
-    fs::{metadata, DirBuilder, File},
+    fs::{create_dir_all, metadata, DirBuilder, File},
     io::AsyncReadExt,
     process::Command,
     sync::Semaphore,
@@ -904,8 +904,14 @@ pub async fn handle_python_job(
 
     // Add /tmp/windmill/cache/python_xyz/custom_wheels to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
-    // We want this be at the beginning, so it gets prioritized
-    additional_python_paths.insert(0, py_version.to_cache_dir() + "/custom_wheels" );
+    let custom_wheels_path = py_version.to_cache_dir() + "/custom_wheels";
+
+    if let Err(e) = create_dir_all(&custom_wheels_path).await.inspect(|_|
+        // We want this be at the beginning, so it gets prioritized
+        additional_python_paths.insert(0, custom_wheels_path.clone())
+    ) {
+        tracing::error!("error while creating dir ({}): {e}\n custom_wheels functionality is ignored", &custom_wheels_path);
+    }
 
     if no_uv {
         append_logs(
