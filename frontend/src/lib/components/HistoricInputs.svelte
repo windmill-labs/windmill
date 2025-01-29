@@ -215,7 +215,9 @@
 				/>
 			</svelte:fragment>
 			<svelte:fragment slot="empty">
-				<div class="text-center text-tertiary text-xs py-2">No previous Runs</div>
+				<div class="text-center text-tertiary text-xs py-2">
+					{runnableId ? 'No previous inputs' : 'Save draft to see previous runs'}
+				</div>
 			</svelte:fragment>
 		</InfiniteList>
 	</div>
