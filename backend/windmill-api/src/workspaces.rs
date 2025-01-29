@@ -166,8 +166,10 @@ struct Workspace {
 pub struct WorkspaceSettings {
     pub workspace_id: String,
     pub slack_team_id: Option<String>,
+    pub teams_team_id: Option<String>,
     pub slack_name: Option<String>,
     pub slack_command_script: Option<String>,
+    pub teams_command_script: Option<String>,
     pub slack_email: String,
     pub auto_invite_domain: Option<String>,
     pub auto_invite_operator: Option<bool>,

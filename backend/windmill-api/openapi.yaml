@@ -3278,6 +3278,37 @@ paths:
                 items:
                   $ref: '#/components/schemas/TeamInfo'
 
+  /teams/activities:
+    post:
+      summary: send update to Microsoft Teams activity
+      description: Respond to a Microsoft Teams activity after a workspace command is run
+      operationId: updateActivity
+      tags:
+        - teams
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - activity_id
+                - text
+              properties:
+                activity_id:
+                  type: string
+                  description: The ID of the Teams conversation/activity
+                success:
+                  type: boolean
+                  description: Indicates if the activity was successful and used for styling the card conditionally
+                  default: true
+                text:
+                  type: string
+                  description: The message text to be sent in the Teams card
+      responses:
+        '200':
+          description: Activity processed successfully
+
   /w/{workspace}/resources/create:
     post:
       summary: create resource

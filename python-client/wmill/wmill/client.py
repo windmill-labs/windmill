@@ -708,6 +708,13 @@ class Windmill:
         Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
         """
         return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
+    
+
+    def update_teams_activity(self, activity_id: str, text: str, success: bool = True):
+        """
+        Send an update to a Microsoft Teams activity after a workspace command is run
+        """
+        return self.post(f"/teams/activities", json={"activity_id": activity_id, "text": text, "success": success})
 
 
 def init_global_client(f):
@@ -1067,6 +1074,10 @@ def request_interactive_slack_approval(
         default_args_json=default_args_json,
         dynamic_enums_json=dynamic_enums_json,
     )
+
+@init_global_client
+def update_teams_activity(activity_id: str, text: str, success: bool):
+    return _client.update_teams_activity(activity_id, text, success)
 
 @init_global_client
 def cancel_running() -> dict:
