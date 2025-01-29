@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
+	import {
+		CaptureService,
+		PostgresTriggerService,
+		type CaptureConfig,
+		type CaptureTriggerKind
+	} from '$lib/gen'
 	import { onDestroy } from 'svelte'
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -28,15 +33,42 @@
 	export let captureTable: CaptureTable | undefined = undefined
 
 	export async function setConfig() {
-		await CaptureService.setCaptureConfig({
-			requestBody: {
+		try {
+			let requestBody: {
+				trigger_kind: CaptureTriggerKind
+				path: string
+				is_flow: boolean
+				trigger_config: Record<string, any> | undefined
+			} = {
 				trigger_kind: captureType,
 				path,
 				is_flow: isFlow,
-				trigger_config: args && Object.keys(args).length > 0 ? args : undefined
-			},
-			workspace: $workspaceStore!
-		})
+				trigger_config: undefined
+			}
+
+			if (captureType === 'postgres') {
+				const result = await PostgresTriggerService.createPostgresPublicationReplication({
+					path: args.postgres_resource_path,
+					workspace: $workspaceStore!,
+					requestBody: {
+						table_to_track: args.relations,
+						transaction_to_track: args.transaction_to_track
+					}
+				})
+				requestBody.trigger_config = {
+					postgres_resource_path: args.postgres_resource_path,
+					...result
+				}
+			} else if (args && Object.keys(args).length > 0) {
+				requestBody.trigger_config = args
+			}
+			await CaptureService.setCaptureConfig({
+				requestBody,
+				workspace: $workspaceStore!
+			})
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
 	}
 
 	let captureActive = false

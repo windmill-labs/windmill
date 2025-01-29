@@ -8411,6 +8411,30 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/postgres_triggers/create_custom_publication_and_slot/{path}:
+    post:
+      summary: create custom publication and replication slot for postgres
+      operationId: createPostgresPublicationReplication
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: new publication and replication slot for postgres
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationData"
+      responses:
+        "200":
+          description: publication and replication slot created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationReplication"
+
   /w/{workspace}/postgres_triggers/slot/list/{path}:
     get:
       summary: list postgres replication slot
@@ -13289,6 +13313,18 @@ components:
             type: string
       required:
         - transaction_to_track
+    
+    PublicationReplication:
+      type: object
+      properties:
+        publication_name:
+          type: string
+        replication_slot_name:
+          type: string
+      required:
+        - publication_name
+        - replication_slot_name
+
 
     TableToTrack:
       type: array

@@ -87,7 +87,7 @@ pub enum TriggerKind {
     Kafka,
     Email,
     Nats,
-    Postgres
+    Postgres,
 }
 
 impl fmt::Display for TriggerKind {
@@ -99,7 +99,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
-            TriggerKind::Postgres => "postgres"
+            TriggerKind::Postgres => "postgres",
         };
         write!(f, "{}", s)
     }
@@ -137,9 +137,9 @@ pub struct NatsTriggerConfig {
 #[cfg(feature = "postgres_trigger")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
-    postgres_resource_path: String,
-    publication_name: Option<String>,
-    replication_slot_name: Option<String>
+    pub postgres_resource_path: String,
+    pub publication_name: String,
+    pub replication_slot_name: String,
 }
 
 #[cfg(feature = "websocket")]
@@ -170,6 +170,7 @@ struct NewCaptureConfig {
     trigger_kind: TriggerKind,
     path: String,
     is_flow: bool,
+    // why is the option here ?
     trigger_config: Option<TriggerConfig>,
 }
 
@@ -212,6 +213,7 @@ async fn set_config(
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+
     sqlx::query!(
         "INSERT INTO capture_config
             (workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email)

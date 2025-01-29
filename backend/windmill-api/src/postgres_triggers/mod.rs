@@ -31,6 +31,7 @@ mod relation;
 mod replication_message;
 mod trigger;
 
+pub use handler::{create_custom_slot_and_publication, PublicationData};
 pub use trigger::start_database;
 
 pub async fn get_database_resource(
@@ -53,7 +54,7 @@ pub async fn get_database_resource(
     .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
 
     let resource = match resource {
-        Some(resource) => serde_json::from_value::<Database>(resource).map_err(Error::SerdeJson)?,
+        Some(resource) => serde_json::from_value::<Database>(resource)?,
         None => {
             return {
                 Err(Error::NotFound(
@@ -100,6 +101,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/is_valid_postgres_configuration/*path",
             get(is_database_in_logical_level),
+        )
+        .route(
+            "/create_custom_publication_and_slot/*path",
+            post(create_custom_slot_and_publication),
         )
         .nest("/publication", publication_service())
         .nest("/slot", slot_service())
