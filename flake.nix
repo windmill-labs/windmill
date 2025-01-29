@@ -10,6 +10,7 @@
     let
       pkgs = import nixpkgs {
         inherit system;
+        config.allowUnfree = true;
         overlays = [ (import rust-overlay) ];
       };
       rust = pkgs.rust-bin.stable.latest.default.override {
@@ -49,7 +50,7 @@
       devShell = pkgs.mkShell {
         buildInputs = buildInputs ++ (with pkgs; [
           git xcaddy sqlx-cli flock sccache
-          deno python3 python3Packages.pip go bun uv
+          deno python3 python3Packages.pip go bun uv dotnet-sdk_9 oracle-instantclient
         ]);
         packages = [
           (pkgs.writeScriptBin "wm-caddy" ''
@@ -102,12 +103,15 @@
         UV_PATH = "${pkgs.uv}/bin/uv";
         FLOCK_PATH = "${pkgs.flock}/bin/flock";
         CARGO_PATH = "${rust}/bin/cargo";
+        DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
+        DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
+        ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
       };
       packages.default = self.packages.${system}.windmill;
       packages.windmill-client = pkgs.buildNpmPackage {
         name = "windmill-client";
         version = (pkgs.lib.strings.trim (builtins.readFile ./version.txt));
-      
+
         src = pkgs.nix-gitignore.gitignoreSource [] ./frontend;
         nativeBuildInputs = with pkgs; [ pkg-config ];
         buildInputs = with pkgs; [ nodejs pixman cairo pango ];
