@@ -25,7 +25,13 @@
 			{
 				label: 'History',
 				onClick: () => {
-					selectedTab = 'history'
+					if (selectedTab === 'history') {
+						selectedTab = undefined
+						rightPanelOpen = false
+					} else {
+						selectedTab = 'history'
+						rightPanelOpen = true
+					}
 				},
 				icon: History,
 				selected: selectedTab === 'history'
@@ -33,7 +39,13 @@
 			{
 				label: 'Saved inputs',
 				onClick: () => {
-					selectedTab = 'saved_inputs'
+					if (selectedTab === 'saved_inputs') {
+						selectedTab = undefined
+						rightPanelOpen = false
+					} else {
+						selectedTab = 'saved_inputs'
+						rightPanelOpen = true
+					}
 				},
 				icon: Save,
 				selected: selectedTab === 'saved_inputs'
@@ -41,7 +53,13 @@
 			{
 				label: 'Trigger captures',
 				onClick: () => {
-					selectedTab = 'captures'
+					if (selectedTab === 'captures') {
+						selectedTab = undefined
+						rightPanelOpen = false
+					} else {
+						selectedTab = 'captures'
+						rightPanelOpen = true
+					}
 				},
 				icon: CaptureIcon,
 				selected: selectedTab === 'captures'
@@ -55,34 +73,16 @@
 	let rightPanelOpen = false
 
 	$: selectedTab, (dropdownItems = getDropdownItems())
-
-	function openRightPanel() {
-		rightPanelOpen = true
-		selectedTab = 'history'
-	}
-
-	function closeRightPanel() {
-		rightPanelOpen = false
-		selectedTab = undefined
-	}
-
-	function toggleRightPanel() {
-		if (rightPanelOpen) {
-			closeRightPanel()
-		} else {
-			openRightPanel()
-		}
-	}
 </script>
 
 <div class="h-fit">
 	<Splitpanes class={!rightPanelOpen ? 'splitter-hidden' : ''}>
-		<Pane class="relative !overflow-visible" size={70} minSize={30}>
-			<div class="absolute -right-[1px] -top-[1px] z-50 bg-surface">
-				<SideBarTab {dropdownItems} fullMenu={!!selectedTab} />
-			</div>
-			<div class="relative h-fit mx-auto pr-10 pb-4" bind:clientHeight={rightHeight}>
-				<slot {toggleRightPanel} {selectedTab} />
+		<Pane class="!overflow-visible" size={70} minSize={30}>
+			<div class="relative w-full h-fit pr-12 pb-4" bind:clientHeight={rightHeight}>
+				<div class="absolute -right-[1px] -top-[1px] z-50">
+					<SideBarTab {dropdownItems} fullMenu={true} noTrigger={true} />
+				</div>
+				<slot />
 			</div>
 		</Pane>
 

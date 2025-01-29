@@ -9,6 +9,7 @@
 	}> = []
 
 	export let fullMenu: boolean = false
+	export let noTrigger: boolean = false
 
 	let open = false
 	let timeout: NodeJS.Timeout | null = null
@@ -49,7 +50,8 @@
 				'absolute flex-col left-0 z-50 bg-surface border-l border-b overflow-hidden',
 				hasCloseButton ? 'top-[30px]' : 'top-[1px]',
 				open ? 'rounded-md rounded-tl-none shadow-md' : 'rounded-bl-md',
-				hasCloseButton ? '' : 'rounded-tl-md border-t'
+				hasCloseButton ? '' : 'rounded-tl-md border-t',
+				noTrigger && !dropdownItems.some((item) => item.selected) ? 'rounded-md border' : ''
 			)}
 		>
 			{#each dropdownItems as item}

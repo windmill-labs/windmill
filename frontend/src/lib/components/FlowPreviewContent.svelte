@@ -9,23 +9,11 @@
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import {
-		AlertTriangle,
-		ArrowRight,
-		CornerDownLeft,
-		Play,
-		RefreshCw,
-		X,
-		ChevronRight,
-		ChevronLeft,
-		Library
-	} from 'lucide-svelte'
+	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
-	import { ButtonType } from '$lib/components/common/button/model'
-	import { twMerge } from 'tailwind-merge'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 
@@ -344,8 +332,6 @@
 				on:select={(e) => {
 					selectInput(e.detail.payload, e.detail?.type)
 				}}
-				let:toggleRightPanel
-				let:selectedTab
 				{isValid}
 				{jsonView}
 			>
@@ -366,23 +352,6 @@
 								refresh()
 							}}
 						/>
-						<button
-							on:click={() => {
-								toggleRightPanel()
-							}}
-							title={selectedTab ? 'Close' : 'Open'}
-							class={twMerge(ButtonType.ColorVariants.light.border, 'rounded-md border')}
-						>
-							<div class="p-2 center-center flex flex-row gap-2">
-								<Library size={14} />
-								<p class="text-2xs">Inputs library</p>
-								{#if selectedTab}
-									<ChevronLeft size={14} />
-								{:else}
-									<ChevronRight size={14} />
-								{/if}
-							</div>
-						</button>
 					</div>
 				</div>
 				{#if jsonView}
