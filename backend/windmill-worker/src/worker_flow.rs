@@ -1897,7 +1897,7 @@ async fn push_next_flow_job(
                 && suspend.continue_on_disapprove_timeout.unwrap_or(false);
 
             let audit_author = AuditAuthor {
-                username: flow_job.permissioned_as.clone(),
+                username: flow_job.permissioned_as.trim_start_matches("u/").to_string(),
                 email: flow_job.email.clone(),
                 username_override: None,
             };
