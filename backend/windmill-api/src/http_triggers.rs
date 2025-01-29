@@ -74,7 +74,7 @@ pub fn workspaced_service() -> Router {
         .route("/route_exists", post(exists_route))
 }
 
-#[derive(Serialize, Deserialize, sqlx::Type)]
+#[derive(Serialize, Deserialize, sqlx::Type, Debug)]
 #[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum HttpMethod {

@@ -41,7 +41,7 @@
 			bind:captureTable
 		/>
 	{/if}
-	<Section label="Postgres Config" {headless}>
+	<Section label="Postgres config" {headless}>
 		<div class="flex flex-col gap-3">
 			<div class="mb-2">
 				<p class="text-xs mb-1 text-tertiary">
@@ -70,7 +70,7 @@
 					bind:selected={transaction_to_track}
 				/>
 			</Section>
-			<Section label="Table Tracking">
+			<Section label="Table tracking">
 				<p class="text-xs mb-3 text-tertiary">
 					Select the tables to track. You can choose to track
 					<strong>all tables in your database</strong>,

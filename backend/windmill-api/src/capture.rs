@@ -150,7 +150,7 @@ pub struct WebsocketTriggerConfig {
     pub url_runnable_args: Option<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
@@ -165,7 +165,7 @@ enum TriggerConfig {
     Nats(NatsTriggerConfig),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 struct NewCaptureConfig {
     trigger_kind: TriggerKind,
     path: String,
