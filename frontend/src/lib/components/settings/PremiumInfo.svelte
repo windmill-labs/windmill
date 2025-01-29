@@ -268,10 +268,10 @@
 								/>
 							{/if}
 						</div>
-						<p class="italic text-xs"
-							>An email notification will be sent to {premiumInfo.owner} if the specified threshold amount
-							is reached during a given month.</p
-						>
+						<p class="italic text-xs">
+							An email notification will be sent to {premiumInfo.owner} if the specified threshold amount
+							is exceeded during a given month.
+						</p>
 					</div>
 				{/if}
 				<div class="w-full">

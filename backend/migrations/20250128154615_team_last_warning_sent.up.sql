@@ -1,0 +1,1 @@
+ALTER TABLE cloud_workspace_settings ADD COLUMN last_warning_sent TIMESTAMP NULL;
