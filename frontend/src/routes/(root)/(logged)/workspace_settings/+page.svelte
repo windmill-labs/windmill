@@ -397,7 +397,7 @@
 		webhook = settings.webhook
 		aiResourceInitialPath = settings.ai_resource?.path
 		aiResourceInitialProvider = settings.ai_resource?.provider
-		selected = aiResourceInitialProvider as AiProviderTypes ?? 'openai'
+		selected = (aiResourceInitialProvider as AiProviderTypes) ?? 'openai'
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
@@ -616,6 +616,14 @@
 			window.location.reload()
 		}, 3000)
 	}
+
+	function updateFromSearchTab(searchTab: string | null) {
+		if (searchTab && searchTab !== tab) {
+			tab = searchTab as typeof tab
+		}
+	}
+
+	$: updateFromSearchTab($page.url.searchParams.get('tab'))
 </script>
 
 <Portal name="workspace-settings">
@@ -699,7 +707,8 @@
 						Link this Workspace to another Staging / Prod Workspace
 					</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/staging_prod">
-						Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace.
+						Connecting this workspace with another staging/production workspace enables web-based
+						deployment to that workspace.
 					</Description>
 				</div>
 			</div>
@@ -842,12 +851,11 @@
 			<PageHeader title="Delete workspace" primary={false} />
 			{#if $superadmin}
 				<p class="italic text-xs">
-					When deleting the workspace, it will be archived for a short period of time and then permanently deleted.
+					When deleting the workspace, it will be archived for a short period of time and then
+					permanently deleted.
 				</p>
 			{:else}
-				<p class="italic text-xs">
-					Only instance superadmins can delete a workspace.
-				</p>
+				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
 			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
 				<p class="italic text-xs">
@@ -894,7 +902,9 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook">
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
+					>
 						Connect your Windmill workspace to an external service to sync or get notified about any
 						change.
 					</Description>
@@ -925,7 +935,9 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold"> Workspace Error Handler</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler">
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
+					>
 						Define a script or flow to be executed automatically in case of error in the workspace.
 					</Description>
 				</div>
@@ -996,7 +1008,8 @@
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold"> Workspace Critical Alerts</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/critical_alerts">
-						Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification.
+						Critical alerts within the scope of a workspace are sent to the workspace admins through
+						a UI notification.
 					</Description>
 					<div class="flex flex-col mt-5 gap-5 items-start">
 						<Button
@@ -1025,9 +1038,7 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold"> Windmill AI</div>
-					<Description>
-						Select an OpenAI resource to unlock Windmill AI features.
-					</Description>
+					<Description>Select an OpenAI resource to unlock Windmill AI features.</Description>
 					<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
 						Windmill AI supports integration with your preferred AI provider for all AI features.
 					</Description>
@@ -1074,9 +1085,14 @@
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace Object Storage (S3/Azure Blob)</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage">
-						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable users to read and write from S3 without having to have access to the credentials.
+					<div class="text-primary text-lg font-semibold"
+						>Workspace Object Storage (S3/Azure Blob)</div
+					>
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
+					>
+						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable
+						users to read and write from S3 without having to have access to the credentials.
 					</Description>
 				</div>
 			</div>
@@ -1255,7 +1271,8 @@
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold">Git Sync</div>
 					<Description link="https://www.windmill.dev/docs/advanced/git_sync">
-						Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows, and apps to the repository on each deploy.
+						Connect the Windmill workspace to a Git repository to automatically commit and push
+						scripts, flows, and apps to the repository on each deploy.
 					</Description>
 				</div>
 			</div>
@@ -1703,10 +1720,12 @@ git push</code
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold">Workspace Default App</div>
 					<Description>
-						If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace.
+						If configured, users who are operators in this workspace will be redirected to this app
+						automatically when logging into this workspace.
 					</Description>
 					<Description link="https://www.windmill.dev/docs/apps/default_app">
-						Make sure the default app is shared with all the operators of this workspace before turning this feature on.
+						Make sure the default app is shared with all the operators of this workspace before
+						turning this feature on.
 					</Description>
 				</div>
 			</div>
@@ -1735,10 +1754,15 @@ git push</code
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold">Workspace Secret Encryption</div>
 					<Description>
-						When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one.
+						When updating the encryption key of a workspace, all secrets will be re-encrypted with
+						the new key and the previous key will be replaced by the new one.
 					</Description>
-					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption">
-						If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances.
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
+					>
+						If you're manually updating the key to match another workspace key from another Windmill
+						instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're
+						using it, make sure it the salt matches across both instances.
 					</Description>
 				</div>
 			</div>
