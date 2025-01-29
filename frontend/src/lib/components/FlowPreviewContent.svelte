@@ -345,6 +345,7 @@
 				let:toggleRightPanel
 				let:selectedTab
 				{isValid}
+				{jsonView}
 			>
 				<div class="w-full flex flex-row justify-between">
 					<InputSelectedBadge {inputSelected} />

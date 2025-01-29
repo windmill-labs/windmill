@@ -145,7 +145,7 @@
 	{#if topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid}
+			disabled={!isValid || jsonView}
 			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
 		>
 			{buttonText}
@@ -198,7 +198,7 @@
 					{loading}
 					color="dark"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
-					disabled={!isValid}
+					disabled={!isValid || jsonView}
 					on:click={() => runAction(scheduledForStr, args, invisible_to_owner, overrideTag)}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
@@ -252,7 +252,7 @@
 	{:else if !topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid}
+			disabled={!isValid || jsonView}
 			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>

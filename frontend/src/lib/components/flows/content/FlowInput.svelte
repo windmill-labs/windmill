@@ -65,6 +65,7 @@
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 	let savedPreviewArgs: Record<string, any> | undefined = undefined
 	let preventEscape = false
+	let isValid = true
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -366,6 +367,7 @@
 				on:schemaChange={() => {
 					resetArgs()
 				}}
+				bind:isValid
 			>
 				<svelte:fragment slot="openEditTab">
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
@@ -501,6 +503,7 @@
 									preventEnter = e.detail
 								}}
 								previewArgs={previewArguments}
+								{isValid}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}

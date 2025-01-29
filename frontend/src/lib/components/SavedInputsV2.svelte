@@ -12,6 +12,7 @@
 	export let scriptPath: string | null = null
 	export let flowPath: string | null = null
 	export let inputSelected: 'saved' | 'history' | undefined = undefined
+	export let jsonView: boolean = false
 
 	// Are the current Inputs valid and able to be saved?
 	export let isValid: boolean
@@ -57,7 +58,7 @@
 				<svelte:fragment slot="action">
 					<SaveInputsButton
 						{args}
-						disabled={!isValid}
+						disabled={!isValid || jsonView}
 						{runnableId}
 						{runnableType}
 						on:update={() => {

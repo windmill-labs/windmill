@@ -718,6 +718,7 @@
 						scriptPath={script?.path}
 						scriptHash={topHash}
 						{isValid}
+						{jsonView}
 						{args}
 						bind:inputSelected
 						on:selected_args={(e) => {

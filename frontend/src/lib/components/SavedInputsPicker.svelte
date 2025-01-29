@@ -20,6 +20,7 @@
 	export let runnableType: RunnableType | undefined = undefined
 	export let isValid: boolean = false
 	export let noButton: boolean = false
+	export let jsonView: boolean = false
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -211,7 +212,7 @@
 					{runnableId}
 					{runnableType}
 					args={previewArgs ?? {}}
-					disabled={!previewArgs || !runnableId || !isValid}
+					disabled={!previewArgs || !runnableId || !isValid || jsonView}
 					on:update={() => {
 						refresh()
 					}}

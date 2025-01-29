@@ -16,6 +16,7 @@
 	export let flowPath: string = ''
 	export let previewArgs: any
 	export let isValid: boolean = true
+	export let jsonView: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -112,6 +113,7 @@
 								on:select={(e) => {
 									dispatch('select', { payload: e.detail, type: 'saved' })
 								}}
+								{jsonView}
 							/>
 						</FlowInputEditor>
 					{:else if selectedTab === 'captures'}

@@ -525,6 +525,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="save_inputs">
 			<SavedInputsV2
+				{jsonView}
 				flowPath={flow?.path}
 				{isValid}
 				args={args ?? {}}
