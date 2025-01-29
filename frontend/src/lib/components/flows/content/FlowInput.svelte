@@ -556,7 +556,7 @@
 						<Button
 							color="dark"
 							btnClasses="w-fit"
-							disabled={runDisabled}
+							disabled={runDisabled || !isValid}
 							size="xs"
 							shortCut={{ Icon: CornerDownLeft, hide: false }}
 							on:click={() => {
