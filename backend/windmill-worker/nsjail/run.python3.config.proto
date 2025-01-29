@@ -123,6 +123,13 @@ mount {
     is_bind: true
 }
 
+mount {
+    src: "{CUSTOM_WHEELS}"
+    dst: "{CUSTOM_WHEELS}"
+    is_bind: true
+   	mandatory: false
+}
+
 {SHARED_MOUNT}
 
 {SHARED_DEPENDENCIES}

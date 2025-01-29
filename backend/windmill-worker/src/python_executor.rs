@@ -902,16 +902,7 @@ pub async fn handle_python_job(
         tracing::debug!("Finished deps postinstall stage");
     }
 
-    // Add /tmp/windmill/cache/python_xyz/custom_wheels to PYTHONPATH.
-    // Usefull if certain wheels needs to be preinstalled before execution.
-    let custom_wheels_path = py_version.to_cache_dir() + "/custom_wheels";
 
-    if let Err(e) = create_dir_all(&custom_wheels_path).await.inspect(|_|
-        // We want this be at the beginning, so it gets prioritized
-        additional_python_paths.insert(0, custom_wheels_path.clone())
-    ) {
-        tracing::error!("error while creating dir ({}): {e}\n custom_wheels functionality is ignored", &custom_wheels_path);
-    }
 
     if no_uv {
         append_logs(
@@ -1061,7 +1052,27 @@ except BaseException as e:
 
     let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    let additional_python_paths_folders = additional_python_paths.iter().join(":");
+
+    // Add /tmp/windmill/cache/python_xyz/custom_wheels to PYTHONPATH.
+    // Usefull if certain wheels needs to be preinstalled before execution.
+    let custom_wheels_path = py_version.to_cache_dir() + "/custom_wheels";
+    let additional_python_paths_folders = {
+        let mut paths= additional_python_paths.clone();
+        if metadata(&custom_wheels_path).await.is_ok() {
+            // We want custom_wheels_path to be included in additonal_python_paths_folders, but
+            // we don't want it to be included in custom_wheels_path.
+            // The reason for this is that additional_python_paths_folders is used to fill PYTHONPATH env variable for jailed script
+            // When custom_wheels_path used to place mount point of wheels to the jail config.
+            // Since we handle mount of custom_wheels on our own, we don't want it to be mounted automatically.
+            // We do this because existence of every wheel in cache is mandatory and if it is not there and nsjail expects it, it is a bug.
+            // On the other side custom_wheels is purely optional.
+            // NOTE: This behaviour can be changed in future, so verification of wheels can be offloaded from nsjail to windmill
+            paths.insert(0, custom_wheels_path.clone());
+            //    ^^^^^^^^
+            // We also want this be priorotized, that's why we insert it to the beginning
+        }
+        paths.iter().join(":")
+    };
 
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
@@ -1091,6 +1102,7 @@ mount {{
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{CUSTOM_WHEELS}", &custom_wheels_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
