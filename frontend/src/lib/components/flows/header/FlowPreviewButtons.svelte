@@ -81,6 +81,9 @@
 	on:click={() => {
 		previewMode = 'whole'
 		previewOpen = !previewOpen
+		if (previewOpen) {
+			flowPreviewContent?.refresh()
+		}
 	}}
 	startIcon={{ icon: Play }}
 	id="flow-editor-test-flow"

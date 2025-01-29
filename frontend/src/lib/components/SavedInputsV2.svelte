@@ -81,7 +81,7 @@
 			</Section>
 		</Pane>
 
-		<Pane class="px-4 py-2 h-full">
+		<Pane class="px-4 py-4 h-full">
 			<Section label="History" wrapperClass="h-full" small={true}>
 				<HistoricInputs
 					bind:this={historicInputs}

@@ -80,7 +80,7 @@
 			<div class="absolute -right-[1px] -top-[1px] z-50 bg-surface">
 				<SideBarTab {dropdownItems} fullMenu={!!selectedTab} />
 			</div>
-			<div class="relative min-h-[40vh] h-fit mx-auto pr-10 pb-1" bind:clientHeight={rightHeight}>
+			<div class="relative h-fit mx-auto pr-10 pb-4" bind:clientHeight={rightHeight}>
 				<slot {toggleRightPanel} {selectedTab} />
 			</div>
 		</Pane>
@@ -90,7 +90,7 @@
 				<div
 					transition:fly={{ duration: 100, x: -200 }}
 					style="height: {rightHeight}px"
-					class="border-t border-r"
+					class="border-t border-r pb-2"
 				>
 					{#if selectedTab === 'history'}
 						<FlowInputEditor title="History">

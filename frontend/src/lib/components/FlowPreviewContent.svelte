@@ -2,7 +2,7 @@
 	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button, Popup } from './common'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -147,13 +147,13 @@
 
 	let savedArgs = $previewArgs
 	let inputSelected: 'captures' | 'history' | 'saved' | undefined = undefined
-	function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
+	async function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
 		if (!input) {
 			$previewArgs = savedArgs
 			inputSelected = undefined
-			tick().then(() => {
+			setTimeout(() => {
 				preventEscape = false
-			})
+			}, 100)
 		} else {
 			$previewArgs = input
 			inputSelected = type
@@ -177,7 +177,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="flex flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full" id="flow-preview-content">
+<div class="flex flex-col space-y-2 h-screen bg-surface px-8 py-4 w-full" id="flow-preview-content">
 	<div class="flex flex-row w-full items-center gap-x-2">
 		<div class="w-8">
 			<Button
@@ -383,7 +383,7 @@
 					</div>
 				</div>
 				{#if jsonView}
-					<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
+					<div class="py-2" style="height: {Math.max(schemaHeight, 100)}px" data-schema-picker>
 						<JsonInputs
 							bind:this={jsonEditor}
 							on:select={(e) => {
@@ -396,7 +396,7 @@
 					</div>
 				{:else}
 					{#key renderCount}
-						<div bind:clientHeight={schemaHeight}>
+						<div bind:clientHeight={schemaHeight} class="min-h-[40vh]">
 							<SchemaForm
 								noVariablePicker
 								compact
