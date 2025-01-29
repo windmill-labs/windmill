@@ -902,6 +902,11 @@ pub async fn handle_python_job(
         tracing::debug!("Finished deps postinstall stage");
     }
 
+    // Add /tmp/windmill/cache/python_xyz/custom_wheels to PYTHONPATH.
+    // Usefull if certain wheels needs to be preinstalled before execution.
+    // We want this be at the beginning, so it gets prioritized
+    additional_python_paths.insert(0, py_version.to_cache_dir() + "/custom_wheels" );
+
     if no_uv {
         append_logs(
             &job.id,
