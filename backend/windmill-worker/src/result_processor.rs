@@ -261,55 +261,35 @@ pub async fn process_result(
 ) -> error::Result<bool> {
     match result {
         Ok(r) => {
-            let job = if column_order.is_some() || new_args.is_some() {
-                let mut updated_job = (*job).clone();
-                if let Some(column_order) = column_order {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "column_order": column_order
-                                    }
-                                }))));
-                        }
-                    }
-                }
-                if let Some(new_args) = new_args {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            // TODO save original args somewhere
-                            // if let Some(args) = updated_job.args.as_mut() {
-                            //     args.0.remove(ENTRYPOINT_OVERRIDE);
-                            // }
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "preprocessed_args": true
-                                    }
-                                }))));
-                        }
-                    }
-                    // For the front-end, change the args by the preprocessed args (script only).
-                    sqlx::query!(
-                        "UPDATE v2_job SET args = $1 WHERE id = $2",
-                        Json(new_args) as Json<HashMap<String, Box<RawValue>>>,
-                        updated_job.id
-                    )
-                    .execute(db)
-                    .await?;
-                }
-                Arc::new(updated_job)
-            } else {
-                job
-            };
-
+            if let Some(column_order) = column_order {
+                let _ = sqlx::query!(
+                    "INSERT INTO v2_job_flow_runtime (id, flow_status) VALUES ($1, $2)",
+                    job.id,
+                    json!({ "_metadata": { "column_order": column_order } })
+                )
+                .execute(db)
+                .await
+                .inspect_err(|err| tracing::warn!("Unable to save column ordering: {:#?}", err));
+            }
+            if let Some(preprocessed_args) = new_args {
+                // For the front-end, change the args by the preprocessed args (script only).
+                sqlx::query!(
+                    "UPDATE v2_job SET args = $1 WHERE id = $2",
+                    Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
+                    job.id
+                )
+                .execute(db)
+                .await?;
+                // Only used in frontend:
+                let _ = sqlx::query!(
+                    "INSERT INTO v2_job_flow_runtime (id, flow_status) VALUES ($1, $2)",
+                    job.id,
+                    json!({ "_metadata": { "preprocessed_args": true } })
+                )
+                .execute(db)
+                .await
+                .inspect_err(|err| tracing::warn!("Unable to set as preprocessed: {:#?}", err));
+            }
             send_job_completed(
                 job_completed_tx,
                 job,
