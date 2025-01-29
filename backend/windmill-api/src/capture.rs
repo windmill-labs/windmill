@@ -56,6 +56,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_configs/:runnable_kind/*path", get(get_configs))
         .route("/list/:runnable_kind/*path", get(list_captures))
         .route("/:id", delete(delete_capture))
+        .route("/:id", get(get_capture))
 }
 
 pub fn workspaced_unauthed_service() -> Router {
@@ -280,7 +281,7 @@ async fn list_captures(
 
     let captures = sqlx::query_as!(
         Capture,
-        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", payload as "payload: _", trigger_extra as "trigger_extra: _"
+        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", CASE WHEN pg_column_size(payload) < 40000 THEN payload ELSE '"WINDMILL_TOO_BIG"'::jsonb END as "payload!: _", trigger_extra as "trigger_extra: _"
         FROM capture
         WHERE workspace_id = $1
             AND path = $2 AND is_flow = $3
@@ -301,6 +302,24 @@ async fn list_captures(
     tx.commit().await?;
 
     Ok(Json(captures))
+}
+
+async fn get_capture(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, i64)>,
+) -> JsonResult<Capture> {
+    let mut tx = user_db.begin(&authed).await?;
+    let capture = sqlx::query_as!(
+        Capture,
+        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", payload as "payload!: _", trigger_extra as "trigger_extra: _" FROM capture WHERE id = $1 AND workspace_id = $2"#,
+        id,
+        &w_id,
+    )
+    .fetch_one(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Json(capture))
 }
 
 async fn delete_capture(

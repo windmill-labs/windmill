@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, created_at, trigger_kind as \"trigger_kind: _\", payload as \"payload: _\", trigger_extra as \"trigger_extra: _\"\n        FROM capture\n        WHERE workspace_id = $1\n            AND path = $2 AND is_flow = $3\n            AND ($4::trigger_kind IS NULL OR trigger_kind = $4)\n        ORDER BY created_at DESC\n        OFFSET $5\n        LIMIT $6",
+  "query": "SELECT id, created_at, trigger_kind as \"trigger_kind: _\", payload as \"payload!: _\", trigger_extra as \"trigger_extra: _\" FROM capture WHERE id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -34,7 +34,7 @@
       },
       {
         "ordinal": 3,
-        "name": "payload: _",
+        "name": "payload!: _",
         "type_info": "Jsonb"
       },
       {
@@ -45,26 +45,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Bool",
-        {
-          "Custom": {
-            "name": "trigger_kind",
-            "kind": {
-              "Enum": [
-                "webhook",
-                "http",
-                "websocket",
-                "kafka",
-                "email",
-                "nats"
-              ]
-            }
-          }
-        },
         "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -75,5 +57,5 @@
       true
     ]
   },
-  "hash": "e08dddf6af2656b561c453460ff928e7a158bd29d9035bee136f9952fb96bad4"
+  "hash": "e17ec84003e2ec414622d100f5dfdda86bee33f31835317df512a20c805b35d7"
 }

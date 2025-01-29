@@ -9824,6 +9824,25 @@ paths:
                   $ref: "#/components/schemas/Capture"
 
   /w/{workspace}/capture/{id}:
+    get:
+      summary: get a capture
+      operationId: getCapture
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: capture
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capture"
     delete:
       summary: delete a capture
       operationId: deleteCapture
