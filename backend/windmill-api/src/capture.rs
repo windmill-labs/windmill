@@ -77,7 +77,7 @@ pub fn workspaced_unauthed_service() -> Router {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TriggerKind {
@@ -150,7 +150,7 @@ pub struct WebsocketTriggerConfig {
     pub url_runnable_args: Option<serde_json::Value>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
@@ -165,7 +165,7 @@ enum TriggerConfig {
     Nats(NatsTriggerConfig),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct NewCaptureConfig {
     trigger_kind: TriggerKind,
     path: String,
@@ -212,7 +212,6 @@ async fn set_config(
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
-
     sqlx::query!(
         "INSERT INTO capture_config
             (workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email)

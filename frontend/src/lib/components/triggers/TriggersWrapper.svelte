@@ -8,6 +8,7 @@
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false
@@ -28,6 +29,13 @@
 			headless={true}
 			bind:url={args.url}
 			bind:url_runnable_args={args.url_runnable_args}
+			showCapture={false}
+		/>
+	{:else if triggerType === 'postgres'}
+		<PostgresEditorConfigSection
+			bind:relations={args.relations}
+			bind:transaction_to_track={args.transaction_to_track}
+			bind:postgres_resource_path={args.postgres_resource_path}
 			showCapture={false}
 		/>
 	{:else if triggerType === 'webhook'}

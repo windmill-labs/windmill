@@ -16,7 +16,8 @@
 	const kindToName: { [key: string]: string } = {
 		websocket: 'Websocket',
 		nats: 'NATS server(s)',
-		kafka: 'Kafka broker(s)'
+		kafka: 'Kafka broker(s)',
+		postgres: 'Postgres'
 	}
 
 	let testLoading: boolean = false
@@ -44,8 +45,7 @@
 					workspace: $workspaceStore!,
 					requestBody: args as any
 				})
-			}
-			else if (kind === 'postgres') {
+			} else if (kind === 'postgres') {
 				promise = PostgresTriggerService.testPostgresConnection({
 					workspace: $workspaceStore!,
 					requestBody: args as any
@@ -54,7 +54,6 @@
 			await promise
 			sendUserToast(`Successfully connected to ${kindToName[kind]}`)
 		} catch (err) {
-            
 			if (!promise?.isCancelled) {
 				sendUserToast(`Error testing ${kindToName[kind]}: ${err?.body ?? 'Unknown error'}`, true)
 			}

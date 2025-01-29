@@ -14,6 +14,7 @@
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -55,7 +56,10 @@
 			return acc
 		}, {})
 
-		if ((captureType === 'websocket' || captureType === 'kafka') && captureActive) {
+		if (
+			(captureType === 'postgres' || captureType === 'websocket' || captureType === 'kafka') &&
+			captureActive
+		) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -123,12 +127,18 @@
 	$: config = captureConfigs[captureType]
 
 	let cloudDisabled =
-		(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
+		(captureType === 'postgres' ||
+			captureType === 'websocket' ||
+			captureType === 'kafka' ||
+			captureType === 'nats') &&
 		isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
 		if (
-			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
+			(captureType === 'postgres' ||
+				captureType === 'websocket' ||
+				captureType === 'kafka' ||
+				captureType === 'nats') &&
 			config &&
 			captureActive
 		) {
@@ -172,6 +182,22 @@
 				headless={true}
 				bind:url={args.url}
 				bind:url_runnable_args={args.url_runnable_args}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'postgres'}
+			<PostgresEditorConfigSection
+				bind:postgres_resource_path={args.postgres_resource_path}
+				bind:relations={args.relations}
+				bind:transaction_to_track={args.transaction_to_track}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable

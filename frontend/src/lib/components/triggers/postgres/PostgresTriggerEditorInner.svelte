@@ -121,13 +121,17 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		fixedScriptPath_?: string,
+		defaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			selectedPublicationAction = 'create'
 			selectedSlotAction = 'create'
 			selectedTable = 'specific'
-			tab = 'basic'
+			tab = defaultValues ? 'advanced' : 'basic'
 
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -137,16 +141,15 @@
 			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
-			replication_slot_name = ''
-			publication_name = ''
-			postgres_resource_path = ''
+			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
 			dirtyPath = false
 			config.show = false
-			publication_name = `windmill_publication_${random_adj()}`
-			replication_slot_name = `windmill_replication_${random_adj()}`
-			transaction_to_track = ['Insert', 'Update', 'Delete']
-			relations = [
+			publication_name = defaultValues?.publication_name || `windmill_publication_${random_adj()}`
+			replication_slot_name =
+				defaultValues?.replication_slot_name || `windmill_replication_${random_adj()}`
+			transaction_to_track = defaultValues?.transaction_to_track || ['Insert', 'Update', 'Delete']
+			relations = defaultValues?.relations || [
 				{
 					schema_name: 'public',
 					table_to_track: []

@@ -16,7 +16,8 @@ use handler::{
     create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
     exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
     is_database_in_logical_level, list_database_publication, list_postgres_triggers,
-    list_slot_name, set_enabled, update_postgres_trigger, Database, PostgresTrigger,
+    list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Database,
+    PostgresTrigger,
 };
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -86,6 +87,7 @@ fn slot_service() -> Router {
 
 pub fn workspaced_service() -> Router {
     Router::new()
+        .route("/test", post(test_postgres_connection))
         .route("/create", post(create_postgres_trigger))
         .route("/list", get(list_postgres_triggers))
         .route("/get/*path", get(get_postgres_trigger))

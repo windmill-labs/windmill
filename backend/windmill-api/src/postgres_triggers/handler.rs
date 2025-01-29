@@ -112,6 +112,40 @@ pub struct NewPostgresTrigger {
     publication: Option<PublicationData>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct TestPostgres {
+    pub postgres_resource_path: String,
+}
+
+pub async fn test_postgres_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(workspace_id): Path<String>,
+    Json(test_postgres): Json<TestPostgres>,
+) -> error::Result<()> {
+    let connect_f = async {
+        get_database_connection(
+            authed,
+            Some(user_db),
+            &db,
+            &test_postgres.postgres_resource_path,
+            &workspace_id,
+        )
+        .await
+        .map_err(|err| {
+            error::Error::BadConfig(format!("Error connecting to postgres: {}", err.to_string()))
+        })
+    };
+    tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
+        .await
+        .map_err(|_| {
+            error::Error::BadConfig(format!("Timeout connecting to websocket after 30 seconds"))
+        })??;
+
+    Ok(())
+}
+
 pub async fn get_database_connection(
     authed: ApiAuthed,
     user_db: Option<UserDB>,

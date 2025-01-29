@@ -2,13 +2,66 @@
 	import { Button } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import Required from '$lib/components/Required.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { Relations } from '$lib/gen'
+	import { emptyString, sendUserToast } from '$lib/utils'
 	import { Plus, X } from 'lucide-svelte'
 	import MultiSelect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	export let relations: Relations[] = []
 	export let selectedTable: 'all' | 'specific'
+
+	export function validRelations(relations: Relations[]): boolean {
+		let result: {
+			schemaIndex: number
+			tableIndex: number
+			schemaError: boolean
+			tableError: boolean
+			schemaName?: string
+		} = {
+			schemaIndex: -1,
+			tableIndex: -1,
+			schemaError: false,
+			tableError: false
+		}
+
+		for (const [schemaIndex, relation] of relations.entries()) {
+			if (emptyString(relation.schema_name)) {
+				result.schemaError = true
+				result.schemaIndex = schemaIndex + 1
+				break
+			} else {
+				const tableToTrack = relation.table_to_track
+				if (tableToTrack.length > 0) {
+					for (const [tableIndex, table] of tableToTrack.entries()) {
+						if (emptyString(table.table_name)) {
+							result.tableError = true
+							result.tableIndex = tableIndex + 1
+							result.schemaName = relation.schema_name
+							result.schemaIndex = schemaIndex + 1
+							break
+						}
+					}
+					if (result.tableError) {
+						break
+					}
+				}
+			}
+		}
+
+		const error = result.tableError || result.schemaError
+
+		if (error === true) {
+			let errorMessage = result.schemaError
+				? `Schema Error: Please enter a name for schema number ${result.schemaIndex}`
+				: `Table Error: Please enter a name for table number ${result.tableIndex} inside schema number ${result.schemaIndex}`
+			errorMessage += emptyString(result.schemaName) ? '' : ` named: ${result.schemaName}`
+			sendUserToast(errorMessage, true)
+		}
+
+		return !error
+	}
 </script>
 
 <div class="flex flex-col gap-4">
@@ -23,7 +76,7 @@
 					<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 						<label class="flex flex-col w-full">
 							<div class="text-secondary text-sm mb-2 flex flex-row gap-1"
-								><p>Schema Name</p><Tooltip
+								><p>Schema Name <Required required={true} /> </p><Tooltip
 									><p>
 										Enter the name of the <strong>schema</strong> that contains the table(s) you
 										want to track.
@@ -39,7 +92,7 @@
 								<div class="rounded shadow-inner p-2 flex w-full flex-col gap-4 mt-1">
 									<label class="flex flex-col w-full">
 										<div class="text-secondary text-sm mb-2 flex flex-row gap-1"
-											><p>Table Name</p><Tooltip
+											><p>Table Name <Required required={true} /></p><Tooltip
 												>Enter the name of the table you want to track.</Tooltip
 											></div
 										>
@@ -129,11 +182,11 @@
 									!Array.isArray(relations[i].table_to_track)
 								) {
 									relations[i].table_to_track = []
+									relations[i].table_to_track = relations[i].table_to_track.concat({
+										table_name: '',
+										columns_name: []
+									})
 								}
-								relations[i].table_to_track = relations[i].table_to_track.concat({
-									table_name: '',
-									columns_name: []
-								})
 							}}
 							startIcon={{ icon: Plus }}
 						>
@@ -162,11 +215,16 @@
 				on:click={() => {
 					if (relations == undefined || !Array.isArray(relations)) {
 						relations = []
+						relations = relations.concat({
+							schema_name: '',
+							table_to_track: []
+						})
+					} else if (validRelations(relations)) {
+						relations = relations.concat({
+							schema_name: '',
+							table_to_track: []
+						})
 					}
-					relations = relations.concat({
-						schema_name: '',
-						table_to_track: []
-					})
 				}}
 				startIcon={{ icon: Plus }}
 			>
