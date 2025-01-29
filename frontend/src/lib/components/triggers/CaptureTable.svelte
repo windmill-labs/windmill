@@ -80,7 +80,6 @@
 			let capturesWithPayload: CaptureWithPayload[] = captures.map((capture) => {
 				let newCapture: CaptureWithPayload = { ...capture }
 				if (capture.payload === 'WINDMILL_TOO_BIG') {
-					console.log('dbg WINDMILL_TOO_BIG')
 					newCapture = {
 						...capture,
 						getFullCapture: () =>
