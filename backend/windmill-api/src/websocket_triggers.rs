@@ -33,7 +33,9 @@ use windmill_queue::PushArgsOwned;
 use crate::{
     capture::{insert_capture_payload, TriggerKind, WebsocketTriggerConfig},
     db::{ApiAuthed, DB},
-    jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
+    jobs::{
+        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
+    },
     users::fetch_api_authed,
 };
 
@@ -589,8 +591,10 @@ async fn wait_runnable_result(
 ) -> error::Result<String> {
     let user_db = UserDB::new(db.clone());
 
-    let (_, job_id) = if is_flow {
-        run_flow_by_path_inner(
+    let username = authed.display_username().to_owned();
+
+    let (job_id, early_return) = if is_flow {
+        let (_, job_id) = run_flow_by_path_inner(
             authed,
             db.clone(),
             user_db,
@@ -600,9 +604,24 @@ async fn wait_runnable_result(
             args,
             None,
         )
+        .await?;
+
+        let early_return = sqlx::query_scalar!(
+            r#"SELECT flow_version.value->>'early_return' as early_return
+            FROM flow 
+            LEFT JOIN flow_version
+                ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.path = $1 and flow.workspace_id = $2"#,
+            path,
+            workspace_id,
+        )
+        .fetch_optional(db)
         .await?
+        .flatten();
+
+        (job_id, early_return)
     } else {
-        run_script_by_path_inner(
+        let (_, job_id) = run_script_by_path_inner(
             authed,
             db.clone(),
             user_db,
@@ -612,60 +631,36 @@ async fn wait_runnable_result(
             args,
             None,
         )
-        .await?
+        .await?;
+
+        (job_id, None)
     };
 
-    let start_time = tokio::time::Instant::now();
-
-    loop {
-        if start_time.elapsed() > tokio::time::Duration::from_secs(600) {
-            return Err(anyhow::anyhow!(
-                "Timed out after 10m waiting for {} {} to complete",
-                if is_flow { "flow" } else { "script" },
-                path
-            )
-            .into());
-        }
-
-        #[derive(sqlx::FromRow)]
-        struct RawResult {
-            result: Option<SqlxJson<Box<RawValue>>>,
-            success: bool,
-        }
-
-        let result = sqlx::query_as::<_, RawResult>(
-            "SELECT result, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    let (result, success) = run_wait_result_internal(
+        db,
+        Uuid::parse_str(&job_id).unwrap(),
+        workspace_id.to_string(),
+        early_return,
+        &username,
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "Error fetching job result for {} {}",
+            if is_flow { "flow" } else { "script" },
+            path
         )
-        .bind(Uuid::parse_str(&job_id).unwrap())
-        .bind(workspace_id)
-        .fetch_optional(db)
-        .await;
+    })?;
 
-        match result {
-            Ok(Some(r)) => {
-                if !r.success {
-                    return Err(anyhow::anyhow!(
-                        "{} {path} failed: {:?}",
-                        if is_flow { "Flow" } else { "Script" },
-                        r.result
-                    )
-                    .into());
-                } else {
-                    return Ok(r.result.map(|r| r.get().to_owned()).unwrap_or_default());
-                }
-            }
-            Ok(None) => {
-                // not yet done, wait for 500ms and check again
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            }
-            Err(err) => {
-                return Err(anyhow::anyhow!(
-                    "Error fetching job result for {} {path}: {err}",
-                    if is_flow { "flow" } else { "script" },
-                )
-                .into());
-            }
-        }
+    if !success {
+        Err(anyhow::anyhow!(
+            "{} {path} failed: {:?}",
+            if is_flow { "Flow" } else { "Script" },
+            result
+        )
+        .into())
+    } else {
+        Ok(result.get().to_owned())
     }
 }
 
