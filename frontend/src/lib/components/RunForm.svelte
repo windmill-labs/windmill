@@ -165,6 +165,7 @@
 						}
 					}}
 					updateOnBlur={false}
+					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>
 			</div>
 		{:else}
