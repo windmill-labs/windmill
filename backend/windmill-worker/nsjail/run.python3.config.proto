@@ -124,8 +124,8 @@ mount {
 }
 
 mount {
-    src: "{CUSTOM_WHEELS}"
-    dst: "{CUSTOM_WHEELS}"
+    src: "{GLOBAL_SITE_PACKAGES}"
+    dst: "{GLOBAL_SITE_PACKAGES}"
     is_bind: true
    	mandatory: false
 }
