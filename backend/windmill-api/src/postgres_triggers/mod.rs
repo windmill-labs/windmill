@@ -31,7 +31,7 @@ mod relation;
 mod replication_message;
 mod trigger;
 
-pub use handler::{create_custom_slot_and_publication, PublicationData};
+pub use handler::create_custom_slot_and_publication;
 pub use trigger::start_database;
 
 pub async fn get_database_resource(
