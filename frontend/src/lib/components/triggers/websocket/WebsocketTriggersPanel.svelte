@@ -64,13 +64,13 @@
 
 {#if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		Websocket triggers are disabled in the multi-tenant cloud.
+		WebSocket triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
 		<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">
-			Websocket triggers allow real-time bidirectional communication between your scripts/flows and
-			external systems. Each trigger creates a unique websocket endpoint.
+			WebSocket triggers allow real-time bidirectional communication between your scripts/flows and
+			external systems. Each trigger creates a unique WebSocket endpoint.
 		</Description>
 		<TriggersEditorSection
 			on:applyArgs
@@ -91,11 +91,11 @@
 		/>
 
 		{#if !newItem}
-			<Section label="Websockets">
+			<Section label="WebSockets">
 				<div class="flex flex-col gap-4">
 					{#if wsTriggers}
 						{#if wsTriggers.length == 0}
-							<div class="text-xs text-secondary text-center"> No WS triggers </div>
+							<div class="text-xs text-secondary text-center"> No WebSocket triggers </div>
 						{:else}
 							<div class="flex flex-col divide-y pt-2">
 								{#each wsTriggers as wsTriggers (wsTriggers.path)}

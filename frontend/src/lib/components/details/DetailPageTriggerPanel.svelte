@@ -64,7 +64,7 @@
 			<Tab value="websockets">
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<Unplug size={12} />
-					Websockets
+					WebSockets
 				</span>
 			</Tab>
 			<Tab value="postgres">

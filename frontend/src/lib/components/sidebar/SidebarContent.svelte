@@ -95,7 +95,7 @@
 			kind: 'http'
 		},
 		{
-			label: 'Websockets',
+			label: 'WebSockets',
 			href: '/websocket_triggers',
 			icon: Unplug,
 			disabled: $userStore?.operator,

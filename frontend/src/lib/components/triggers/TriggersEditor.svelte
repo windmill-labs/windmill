@@ -53,7 +53,7 @@
 				<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
 				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
-				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">Websockets</Tab>
+				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">WebSockets</Tab>
 				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
 				<Tab
 					value="kafka"

@@ -45,6 +45,7 @@
 	}[] = []
 	let initial_messages: WebsocketTriggerInitialMessage[] = []
 	let url_runnable_args: Record<string, any> | undefined = {}
+	let can_return_message = false
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
@@ -92,6 +93,7 @@
 			initial_messages = []
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
+			can_return_message = false
 		} finally {
 			drawerLoading = false
 		}
@@ -112,6 +114,7 @@
 		filters = s.filters
 		initial_messages = s.initial_messages ?? []
 		url_runnable_args = s.url_runnable_args
+		can_return_message = s.can_return_message
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
@@ -168,7 +171,8 @@
 					url,
 					filters,
 					initial_messages,
-					url_runnable_args
+					url_runnable_args,
+					can_return_message
 				}
 			})
 			sendUserToast(`Websocket trigger ${path} updated`)
@@ -183,7 +187,8 @@
 					enabled: true,
 					filters,
 					initial_messages,
-					url_runnable_args
+					url_runnable_args,
+					can_return_message
 				}
 			})
 			sendUserToast(`Websocket trigger ${path} created`)
@@ -202,9 +207,9 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit WS trigger ${initialPath}`
-				: `WS trigger ${initialPath}`
-			: 'New WS trigger'}
+				? `Edit WebSocket trigger ${initialPath}`
+				: `WebSocket trigger ${initialPath}`
+			: 'New WebSocket trigger'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
@@ -250,7 +255,7 @@
 				{#if edit}
 					Changes can take up to 30 seconds to take effect.
 				{:else}
-					New websocket triggers can take up to 30 seconds to start listening.
+					New WebSocket triggers can take up to 30 seconds to start listening.
 				{/if}
 			</Alert>
 			<div class="flex flex-col gap-12 mt-6">
@@ -277,22 +282,36 @@
 					bind:isValid
 				/>
 
-				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-						/>
+				<Section label="Runnable" class="flex flex-col gap-4">
+					<div>
+						<p class="text-xs mb-1 text-tertiary">
+							Pick a script or flow to be triggered<Required required={true} />
+						</p>
+						<div class="flex flex-row mb-2">
+							<ScriptPicker
+								disabled={fixedScriptPath != '' || !can_write}
+								initialPath={fixedScriptPath || initialScriptPath}
+								kinds={['script']}
+								allowFlow={true}
+								bind:itemKind
+								bind:scriptPath={script_path}
+								allowRefresh={can_write}
+								allowEdit={!$userStore?.operator}
+							/>
+						</div>
 					</div>
+
+					<Toggle
+						checked={can_return_message}
+						on:change={() => {
+							can_return_message = !can_return_message
+						}}
+						options={{
+							right: 'Send runnable result',
+							rightTooltip:
+								'Whether the runnable result should be sent as a message to the websocket server when not null.'
+						}}
+					/>
 				</Section>
 
 				<Section label="Initial messages">
