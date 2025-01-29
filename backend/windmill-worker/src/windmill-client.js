@@ -484,7 +484,7 @@ var $RunnableType = {
   type: "string",
   enum: ["ScriptHash", "ScriptPath", "FlowPath"],
 };
-var $QueuedJob = {
+var $Job = {
   type: "object",
   properties: {
     workspace_id: {
@@ -804,14 +804,14 @@ var $Job = {
     {
       allOf: [
         {
-          $ref: "#/components/schemas/QueuedJob",
+          $ref: "#/components/schemas/Job",
         },
         {
           type: "object",
           properties: {
             type: {
               type: "string",
-              enum: ["QueuedJob"],
+              enum: ["Job"],
             },
           },
         },
@@ -7589,7 +7589,7 @@ var JobService = class {
    * @param data.perPage number of items to return for a given page (default 30, max 100)
    * @param data.allWorkspaces get jobs from all workspaces (only valid if request come from the `admins` workspace)
    * @param data.isNotSchedule is not a scheduled job
-   * @returns QueuedJob All queued jobs
+   * @returns Job All queued jobs
    * @throws ApiError
    */
   static listQueue(data) {
@@ -8018,7 +8018,7 @@ var JobService = class {
    * @returns string job canceled
    * @throws ApiError
    */
-  static cancelQueuedJob(data) {
+  static cancelJob(data) {
     return request(OpenAPI, {
       method: "POST",
       url: "/w/{workspace}/jobs_u/queue/cancel/{id}",
@@ -8039,7 +8039,7 @@ var JobService = class {
    * @returns string persistent job scaled down to zero
    * @throws ApiError
    */
-  static cancelPersistentQueuedJobs(data) {
+  static cancelPersistentJobs(data) {
     return request(OpenAPI, {
       method: "POST",
       url: "/w/{workspace}/jobs_u/queue/cancel_persistent/{path}",
@@ -8060,7 +8060,7 @@ var JobService = class {
    * @returns string job canceled
    * @throws ApiError
    */
-  static forceCancelQueuedJob(data) {
+  static forceCancelJob(data) {
     return request(OpenAPI, {
       method: "POST",
       url: "/w/{workspace}/jobs_u/queue/force_cancel/{id}",
@@ -10293,7 +10293,7 @@ export {
   $PolarsClientKwargs,
   $Policy,
   $Preview,
-  $QueuedJob,
+  $Job,
   $RawScript,
   $RawScriptForDependencies,
   $Resource,

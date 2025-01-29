@@ -27,7 +27,7 @@ use tokio_postgres::{
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::{error::to_anyhow, jobs::QueuedJob};
+use windmill_common::{error::to_anyhow, jobs::Job};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
@@ -155,7 +155,7 @@ fn do_postgresql_inner<'a>(
 }
 
 pub async fn do_postgresql(
-    job: &QueuedJob,
+    job: &Job,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

@@ -20,7 +20,7 @@ use windmill_common::{
 };
 use windmill_common::{
     error::{self},
-    jobs::QueuedJob,
+    jobs::Job,
 };
 use windmill_parser::Typ;
 
@@ -179,7 +179,7 @@ pub async fn generate_deno_lock(
 pub async fn handle_deno_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -503,7 +503,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<Job>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<()> {

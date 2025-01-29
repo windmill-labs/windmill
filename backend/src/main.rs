@@ -145,7 +145,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
-        let res = get_hub_script_content_and_requirements(Some(path), None).await?;
+        let res = get_hub_script_content_and_requirements(Some(path.as_str()), None).await?;
         if res
             .language
             .as_ref()

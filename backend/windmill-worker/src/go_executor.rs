@@ -7,7 +7,7 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
+    jobs::Job,
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
@@ -35,7 +35,7 @@ pub const GO_OBJECT_STORE_PREFIX: &str = "gobin/";
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &str,

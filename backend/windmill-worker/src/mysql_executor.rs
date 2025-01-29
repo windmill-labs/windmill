@@ -12,7 +12,7 @@ use sqlx::types::Json;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
+    jobs::Job,
     worker::to_raw_value,
 };
 use windmill_parser_sql::{
@@ -102,7 +102,7 @@ pub fn do_mysql_inner<'a>(
 }
 
 pub async fn do_mysql(
-    job: &QueuedJob,
+    job: &Job,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

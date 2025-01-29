@@ -17,9 +17,9 @@ use windmill_common::otel_ee::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time,
+    add_time, cache,
     error::{self, Error},
-    jobs::{JobKind, QueuedJob},
+    jobs::{Job, JobKind},
     utils::WarnAfterExt,
     worker::{to_raw_value, WORKER_GROUP},
     DB,
@@ -28,7 +28,7 @@ use windmill_common::{
 #[cfg(feature = "benchmark")]
 use crate::bench::{BenchmarkInfo, BenchmarkIter};
 
-use windmill_queue::{append_logs, get_queued_job, WrappedError};
+use windmill_queue::{append_logs, WrappedError};
 
 use serde_json::{json, value::RawValue};
 
@@ -84,7 +84,7 @@ pub fn start_background_processor(
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
-                        jc.job.job_kind,
+                        jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
                     );
 
@@ -101,14 +101,14 @@ pub fn start_background_processor(
                         parent_job = field::Empty,
                         otel.name = field::Empty
                     );
-                    let rj = if let Some(root_job) = jc.job.root_job {
+                    let rj = if let Some(root_job) = jc.job.flow_root_job {
                         root_job
                     } else {
                         jc.job.id
                     };
                     windmill_common::otel_ee::set_span_parent(&span, &rj);
 
-                    if let Some(lg) = jc.job.language.as_ref() {
+                    if let Some(lg) = jc.job.script_lang.as_ref() {
                         span.record("language", lg.as_str());
                     }
                     if let Some(step_id) = jc.job.flow_step_id.as_ref() {
@@ -123,10 +123,10 @@ pub fn start_background_processor(
                     if let Some(parent_job) = jc.job.parent_job.as_ref() {
                         span.record("parent_job", parent_job.to_string().as_str());
                     }
-                    if let Some(script_path) = jc.job.script_path.as_ref() {
+                    if let Some(script_path) = jc.job.runnable_path.as_ref() {
                         span.record("script_path", script_path.as_str());
                     }
-                    if let Some(root_job) = jc.job.root_job.as_ref() {
+                    if let Some(root_job) = jc.job.flow_root_job.as_ref() {
                         span.record("root_job", root_job.to_string().as_str());
                     }
 
@@ -144,9 +144,10 @@ pub fn start_background_processor(
                     .instrument(span)
                     .await;
 
-                    if let Some(root_job) = root_job {
-                        windmill_common::otel_ee::add_root_flow_job_to_otlp(&root_job, success);
-                    }
+                    // TODO(uael
+                    // if let Some(root_job) = root_job {
+                    //     windmill_common::otel_ee::add_root_flow_job_to_otlp(&root_job, success);
+                    // }
 
                     if is_init_script_and_failure {
                         tracing::error!("init script errored, exiting");
@@ -230,7 +231,7 @@ pub fn start_background_processor(
 
 async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
-    job: Arc<QueuedJob>,
+    job: Arc<Job>,
     result: Arc<Box<RawValue>>,
     mem_peak: i32,
     success: bool,
@@ -247,7 +248,7 @@ async fn send_job_completed(
 }
 
 pub async fn process_result(
-    job: Arc<QueuedJob>,
+    job: Arc<Job>,
     result: error::Result<Arc<Box<RawValue>>>,
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
@@ -323,13 +324,13 @@ pub async fn process_result(
                             .last()
                             .unwrap_or(&last_10_log_lines);
 
-                        extract_error_value(log_lines, i, job.flow_step_id.clone())
+                        extract_error_value(log_lines, i, job.flow_step_id.map(Into::into))
                     }
                 }
                 err @ _ => to_raw_value(&SerializedError {
                     message: format!("error during execution of the script:\n{}", err),
                     name: "ExecutionErr".to_string(),
-                    step_id: job.flow_step_id.clone(),
+                    step_id: job.flow_step_id.map(Into::into),
                     exit_code: None,
                 }),
             };
@@ -360,9 +361,9 @@ pub async fn handle_receive_completed_job(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> Option<Arc<QueuedJob>> {
+) -> Option<Arc<Job>> {
     let token = jc.token.clone();
-    let workspace = jc.job.workspace_id.clone();
+    let workspace = jc.job.workspace_id.into();
     let client = AuthedClient {
         base_internal_url: base_internal_url.to_string(),
         workspace,
@@ -415,14 +416,14 @@ pub async fn process_completed_job(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> error::Result<Option<Arc<QueuedJob>>> {
+) -> error::Result<Option<Arc<Job>>> {
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
             save_in_cache(db, client, &job, cached_path, result.clone()).await;
         }
 
-        let is_flow_step = job.is_flow_step;
+        let is_flow_step = job.flow_step_id.is_some();
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
@@ -480,7 +481,7 @@ pub async fn process_completed_job(
             false,
         )
         .await?;
-        if job.is_flow_step {
+        if job.flow_step_id.is_some() {
             if let Some(parent_job) = job.parent_job {
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
                 let r = update_flow_status_after_job_completion(
@@ -513,7 +514,7 @@ pub async fn process_completed_job(
 pub async fn handle_job_error(
     db: &Pool<Postgres>,
     client: &AuthedClient,
-    job: &QueuedJob,
+    job: &Job,
     mem_peak: i32,
     err: Error,
     unrecoverable: bool,
@@ -539,7 +540,7 @@ pub async fn handle_job_error(
         add_completed_job_error(db, job, mem_peak, err.clone(), worker_name, false).await
     };
 
-    let update_job_future = if job.is_flow_step || job.is_flow() {
+    let update_job_future = if job.flow_step_id.is_some() || job.is_flow() {
         let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
             if let Err(e) = update_job_future().await {
                 tracing::error!(
@@ -575,9 +576,7 @@ pub async fn handle_job_error(
 
         if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
-                if let Ok(Some(parent_job)) =
-                    get_queued_job(&parent_job_id, &job.workspace_id, &db).await
-                {
+                if let Ok(Some(parent_job)) = cache::job::fetch_queued(db, &parent_job_id).await {
                     let e = json!({"message": err.to_string(), "name": "InternalErr"});
                     append_logs(
                         &parent_job.id,

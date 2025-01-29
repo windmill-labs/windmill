@@ -11,7 +11,7 @@ use serde_json::{json, value::RawValue, Value};
 use sqlx::types::Json;
 use windmill_common::{
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
+    jobs::Job,
     worker::to_raw_value,
 };
 use windmill_parser_sql::{
@@ -291,7 +291,7 @@ fn get_statement_values(
 }
 
 pub async fn do_oracledb(
-    job: &QueuedJob,
+    job: &Job,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

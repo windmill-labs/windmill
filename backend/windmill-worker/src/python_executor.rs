@@ -26,7 +26,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
-    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
+    jobs::{Job, PREPROCESSOR_FAKE_ENTRYPOINT},
     utils::calculate_hash,
     worker::{write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
@@ -738,7 +738,7 @@ pub async fn uv_pip_compile(
 async fn postinstall(
     additional_python_paths: &mut Vec<String>,
     job_dir: &str,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<()> {
     // It is guranteed that additional_python_paths only contains paths within windmill/cache/
@@ -841,7 +841,7 @@ pub async fn handle_python_job(
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
-    job: &QueuedJob,
+    job: &Job,
     mem_peak: &mut i32,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -2393,7 +2393,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<Job>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
     let mut mem_peak: i32 = 0;

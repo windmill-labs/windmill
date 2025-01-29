@@ -15,7 +15,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    jobs::QueuedJob,
+    jobs::Job,
     worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
 use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
@@ -181,7 +181,7 @@ pub async fn handle_ansible_job(
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
-    job: &QueuedJob,
+    job: &Job,
     mem_peak: &mut i32,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,

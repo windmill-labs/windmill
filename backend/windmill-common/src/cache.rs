@@ -375,8 +375,7 @@ fn unwrap_or_error<Key: std::fmt::Debug, Val>(
     key: Key,
 ) -> impl FnOnce(Option<Val>) -> error::Result<Val> {
     move |optional| {
-        optional
-            .ok_or_else(|| error::Error::InternalErrAt(at, format!("{key:?}: {entity} not found")))
+        optional.ok_or_else(|| error::Error::NotFoundAt(at, format!("{key:?}: {entity} not found")))
     }
 }
 
@@ -385,6 +384,7 @@ pub fn clear() {
     flow::clear();
     script::clear();
     app::clear();
+    job::clear();
 }
 
 pub mod flow {
@@ -630,7 +630,193 @@ pub mod app {
 
 pub mod job {
     use super::*;
-    use crate::jobs::JobKind;
+    use crate::{
+        flow_status::FlowStatus,
+        jobs::{Completed, Job, JobKind, JobState, JobStatus, JobTriggerKind},
+        varchar::Varchar,
+    };
+
+    use std::collections::HashMap;
+
+    lazy_static! {
+        static ref JOBS: Cache<Uuid, (Arc<Job>, Option<RawData>)> = Cache::new(5000);
+        static ref JOBS_COMPLETED: Cache<Uuid, Arc<JobState<Completed>>> = Cache::new(5000);
+        static ref IS_COMPLETED: Cache<Uuid, ()> = Cache::new(25000);
+    }
+
+    /// Clear the job cache.
+    pub fn clear() {
+        JOBS.clear();
+        JOBS_COMPLETED.clear();
+        IS_COMPLETED.clear();
+    }
+
+    pub fn store(job: Arc<Job>, raw_data: Option<RawData>) -> (Arc<Job>, Option<RawData>) {
+        JOBS.insert(job.id, (job.clone(), raw_data.clone()));
+        (job, raw_data)
+    }
+
+    pub fn store_completed(job: JobState<Completed>) -> Arc<JobState<Completed>> {
+        let job = Arc::new(job);
+        IS_COMPLETED.insert(job.id, ());
+        JOBS_COMPLETED.insert(job.id, job.clone());
+        job
+    }
+
+    #[track_caller]
+    pub fn fetch_full<'a, 'c>(
+        e: impl PgExecutor<'c> + 'a,
+        id: &'a Uuid,
+    ) -> impl Future<Output = error::Result<(Arc<Job>, Option<RawData>)>> + 'a {
+        let loc = Location::caller();
+        JOBS.get_or_insert_async(id, async move {
+            let mut job = sqlx::query_as!(
+                Job,
+                "SELECT
+                    id,
+                    workspace_id AS \"workspace_id: Varchar<50>\",
+                    created_at,
+                    created_by AS \"created_by: Varchar<255>\",
+                    permissioned_as AS \"permissioned_as: Varchar<55>\",
+                    permissioned_as_email AS \"permissioned_as_email: Varchar<255>\",
+                    kind AS \"kind: JobKind\",
+                    runnable_id,
+                    runnable_path AS \"runnable_path: Varchar<255>\",
+                    parent_job,
+                    script_lang AS \"script_lang: ScriptLang\",
+                    flow_step,
+                    flow_step_id AS \"flow_step_id: Varchar<255>\",
+                    flow_root_job,
+                    trigger AS \"trigger: Varchar<255>\",
+                    trigger_kind AS \"trigger_kind: JobTriggerKind\",
+                    tag AS \"tag: Varchar<50>\",
+                    same_worker,
+                    visible_to_owner,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    cache_ttl,
+                    timeout,
+                    priority,
+                    args AS \"args: Json<HashMap<String, Box<RawValue>>>\",
+                    pre_run_error,
+                    raw_code,
+                    raw_lock,
+                    raw_flow AS \"raw_flow: Json<Box<RawValue>>\",
+                    NULL AS \"inner!: ()\"
+                FROM v2_job WHERE id = $1 LIMIT 1",
+                id,
+            )
+            .fetch_optional(e)
+            .await
+            .map_err(Into::into)
+            .and_then(unwrap_or_error(&loc, "Job", id))?;
+
+            let raw_data = RawData::from_raw(
+                job.raw_code.take(),
+                job.raw_lock.take(),
+                job.raw_flow.take(),
+            )?;
+
+            Ok((Arc::new(job), raw_data))
+        })
+    }
+
+    #[track_caller]
+    pub fn fetch_completed<'a, 'c>(
+        e: impl PgExecutor<'c> + 'a,
+        id: &'a Uuid,
+    ) -> impl Future<Output = error::Result<Arc<JobState<Completed>>>> + 'a {
+        let loc = Location::caller();
+        JOBS_COMPLETED.get_or_insert_async(id, async move {
+            let job = sqlx::query!(
+                "SELECT
+                    workspace_id AS \"workspace_id: Varchar<50>\",
+                    worker AS \"worker: Varchar<255>\",
+                    started_at,
+                    canceled_by AS \"canceled_by: Varchar<255>\",
+                    canceled_reason,
+                    flow_status AS \"flow_status: Json<FlowStatus>\",
+                    memory_peak,
+                    completed_at,
+                    duration_ms,
+                    status AS \"status: JobStatus\",
+                    result AS \"result: Json<Box<RawValue>>\",
+                    deleted
+                FROM v2_job_completed WHERE id = $1 LIMIT 1",
+                id,
+            )
+            .fetch_optional(e)
+            .await
+            .map_err(Into::into)
+            .and_then(unwrap_or_error(&loc, "JobCompleted", id))?;
+
+            IS_COMPLETED.insert(*id, ());
+            Ok(Arc::new(JobState {
+                id: *id,
+                workspace_id: job.workspace_id,
+                worker: job.worker,
+                started_at: job.started_at,
+                canceled_by: job.canceled_by,
+                canceled_reason: job.canceled_reason,
+                flow_status: job.flow_status,
+                memory_peak: job.memory_peak,
+                inner: Completed {
+                    completed_at: job.completed_at,
+                    duration_ms: job.duration_ms,
+                    status: job.status,
+                    result: job.result,
+                    deleted: job.deleted,
+                },
+            }))
+        })
+    }
+
+    pub async fn is_completed<'c>(e: impl PgExecutor<'c>, id: &Uuid) -> error::Result<bool> {
+        if IS_COMPLETED.get(id).is_some() {
+            return Ok(true);
+        }
+        let is_completed = sqlx::query!(
+            "SELECT NULL AS exists FROM v2_job_completed WHERE id = $1 LIMIT 1",
+            id,
+        )
+        .fetch_optional(e)
+        .await
+        .map(|r| r.is_some())?;
+        if is_completed {
+            IS_COMPLETED.insert(*id, ());
+        }
+        Ok(is_completed)
+    }
+
+    #[track_caller]
+    pub fn fetch_queued<'a, 'c>(
+        e: impl PgExecutor<'c> + Copy + 'a,
+        id: &'a Uuid,
+    ) -> impl Future<Output = error::Result<Option<Arc<Job>>>> + 'a {
+        let fetch = fetch_full(e, id).map_ok(|(job, _)| job);
+        async move {
+            match is_completed(e, id).await? {
+                true => Ok(None),
+                false => Ok(Some(fetch.await?)),
+            }
+        }
+    }
+
+    #[track_caller]
+    pub fn fetch<'a, 'c>(
+        e: impl PgExecutor<'c> + 'a,
+        id: &'a Uuid,
+    ) -> impl Future<Output = error::Result<Arc<Job>>> + 'a {
+        fetch_full(e, id).map_ok(|(job, _)| job)
+    }
+
+    #[track_caller]
+    pub fn fetch_raw_data<'a, 'c>(
+        e: impl PgExecutor<'c> + 'a,
+        id: &'a Uuid,
+    ) -> impl Future<Output = error::Result<Option<RawData>>> + 'a {
+        fetch_full(e, id).map_ok(|(_, raw_data)| raw_data)
+    }
 
     #[track_caller]
     pub fn fetch_script<'c>(

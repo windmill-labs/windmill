@@ -74,6 +74,9 @@ lazy_static::lazy_static! {
     pub static ref WORKER_PULL_QUERIES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
     pub static ref WORKER_SUSPENDED_PULL_QUERY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
 
+    pub static ref WORKER_TAGS_BY_PRIORITY: Arc<RwLock<Vec<Vec<String>>>> = Arc::new(RwLock::new(vec![]));
+    pub static ref WORKER_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
+
 
     pub static ref SMTP_CONFIG: Arc<RwLock<Option<Smtp>>> = Arc::new(RwLock::new(None));
     pub static ref INDEXER_CONFIG: Arc<RwLock<TantivyIndexerSettings>> = Arc::new(RwLock::new(TantivyIndexerSettings::default()));
@@ -169,9 +172,12 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
     ));
     let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
     *l = query;
+
+    *WORKER_TAGS.write().await = wc.worker_tags.clone();
 }
 
 pub async fn make_pull_query(wc: &WorkerConfig) {
+    let mut tags_by_priority = vec![];
     let mut queries = vec![];
     for tags in wc.priority_tags_sorted.iter() {
         if tags.tags.len() == 0 {
@@ -188,9 +194,12 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
             tags.tags.iter().map(|x| format!("'{x}'")).join(", ")
         ));
         queries.push(query);
+        tags_by_priority.push(tags.tags.clone());
     }
     let mut l = WORKER_PULL_QUERIES.write().await;
     *l = queries;
+
+    *WORKER_TAGS_BY_PRIORITY.write().await = tags_by_priority;
 }
 
 pub const TMP_DIR: &str = "/tmp/windmill";

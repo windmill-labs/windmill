@@ -88,7 +88,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    cancel, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs, PushArgsOwned,
+    cancel, get_result_and_success_by_id_from_flow, push, PushArgs, PushArgsOwned,
     PushIsolationLevel, RawJob,
 };
 
@@ -406,13 +406,13 @@ async fn cancel_job_api(
         .await?;
         Ok(id.to_string())
     } else {
-        if job_is_complete(&db, id, &w_id).await.unwrap_or(false) {
-            return Ok(format!("queued job id {} is already completed", id));
+        if cache::job::is_completed(&db, &id).await.unwrap_or(false) {
+            Ok(format!("queued job id {} is already completed", id))
         } else {
-            return Err(error::Error::NotFound(format!(
+            Err(Error::NotFound(format!(
                 "queued job id {} does not exist",
                 id
-            )));
+            )))
         }
     }
 }
@@ -512,13 +512,13 @@ async fn force_cancel(
         .await?;
         Ok(id.to_string())
     } else {
-        if job_is_complete(&db, id, &w_id).await.unwrap_or(false) {
-            return Ok(format!("queued job id {} is already completed", id));
+        if cache::job::is_completed(&db, &id).await.unwrap_or(false) {
+            Ok(format!("queued job id {} is already completed", id))
         } else {
-            return Err(error::Error::NotFound(format!(
+            Err(Error::NotFound(format!(
                 "queued job id {} does not exist",
                 id
-            )));
+            )))
         }
     }
 }
@@ -3112,7 +3112,7 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: raw_lock,
-                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id)
+                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, &job.id)
                     .await
                     .map_err(to_anyhow)?,
                 concurrent_limit: job.concurrent_limit,
@@ -4640,40 +4640,6 @@ async fn add_batch_jobs(
     }
     .push_many(tx, &uuids, &w_id, &args)
     .await?;
-
-    let uuids = sqlx::query_scalar!(
-        r#"WITH uuid_table as (
-            select unnest($4::uuid[]) as uuid
-        )
-        INSERT INTO v2_job_queue
-            (id, workspace_id, scheduled_for, tag)
-            (SELECT uuid, $1, $2, $3 FROM uuid_table) 
-        RETURNING id"#,
-        w_id,
-        Utc::now(),
-        tag,
-        &uuids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
-        &uuids,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    if let Some(flow_status) = flow_status {
-        sqlx::query!(
-            "INSERT INTO v2_job_flow_runtime (id, flow_status)
-            SELECT unnest($1::uuid[]), $2",
-            &uuids,
-            sqlx::types::Json(flow_status) as sqlx::types::Json<FlowStatus>
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
         sqlx::query!(

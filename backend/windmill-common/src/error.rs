@@ -30,6 +30,8 @@ pub enum Error {
     ConnectingToDatabase(String),
     #[error("Not found: {0}")]
     NotFound(String),
+    #[error("{0}: Not found: {1}")]
+    NotFoundAt(&'static Location<'static>, String),
     #[error("Not authorized: {0}")]
     NotAuthorized(String),
     #[error("Metric not found: {0}")]
@@ -90,6 +92,15 @@ impl Error {
     pub fn relocate_internal(self, loc: &'static Location<'static>) -> Self {
         match self {
             Self::InternalErr(s) | Self::InternalErrAt(_, s) => Self::InternalErrAt(loc, s),
+            Self::NotFound(s) | Self::NotFoundAt(_, s) => Self::NotFoundAt(loc, s),
+            _ => self,
+        }
+    }
+
+    pub fn without_location(self) -> Self {
+        match self {
+            Self::InternalErrAt(_, s) => Self::InternalErr(s),
+            Self::NotFoundAt(_, s) => Self::NotFound(s),
             _ => self,
         }
     }

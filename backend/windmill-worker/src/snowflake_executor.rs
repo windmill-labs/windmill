@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
 
-use windmill_common::jobs::QueuedJob;
+use windmill_common::jobs::Job;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
 use windmill_queue::HTTP_CLIENT;
@@ -240,7 +240,7 @@ fn do_snowflake_inner<'a>(
 }
 
 pub async fn do_snowflake(
-    job: &QueuedJob,
+    job: &Job,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

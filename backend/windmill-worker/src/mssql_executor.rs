@@ -10,7 +10,7 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::to_raw_value;
-use windmill_common::{error::to_anyhow, jobs::QueuedJob};
+use windmill_common::{error::to_anyhow, jobs::Job};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::append_logs;
 
@@ -33,7 +33,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn do_mssql(
-    job: &QueuedJob,
+    job: &Job,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -119,7 +119,9 @@ pub async fn do_mssql(
             let tcp = TcpStream::connect(config.get_addr()).await?;
             tcp.set_nodelay(true)?;
 
-            Client::connect(config, tcp.compat_write()).await.map_err(to_anyhow)?
+            Client::connect(config, tcp.compat_write())
+                .await
+                .map_err(to_anyhow)?
         }
         Err(e) => return Err(Error::Anyhow(to_anyhow(e))),
     };

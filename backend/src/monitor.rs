@@ -50,7 +50,6 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     indexer::load_indexer_config,
-    jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
     tracing_init::JSON_FMT,
@@ -1566,26 +1565,31 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
     }
 
-    let mut timeout_query =
-        "SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')"
-            .to_string();
-    if *RESTART_ZOMBIE_JOBS {
-        timeout_query.push_str(" AND same_worker = true");
-    };
-    let timeouts = sqlx::query_as::<_, QueuedJob>(&timeout_query)
-        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
+    let timeouts = sqlx::query!(
+        "SELECT id AS \"id!\", last_ping
+        FROM v2_as_queue
+        WHERE last_ping < now() - ($1 || ' seconds')::interval
+            AND running = true
+            AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')
+            AND ($2::BOOL = false OR same_worker = true)",
+        ZOMBIE_JOB_TIMEOUT.as_str(),
+        *RESTART_ZOMBIE_JOBS
+    )
+    .map(|row| (row.id, row.last_ping))
+    .fetch_all(db)
+    .await
+    .ok()
+    .unwrap_or_else(|| vec![]);
 
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
 
-    for job in timeouts {
+    for (id, last_ping) in timeouts {
+        let Ok(Some(job)) = windmill_common::cache::job::fetch_queued(db, &id).await else {
+            continue;
+        };
         tracing::info!("timedout zombie job {} {}", job.id, job.workspace_id,);
 
         // since the job is unrecoverable, the same worker queue should never be sent anything
@@ -1608,7 +1612,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             &job.permissioned_as,
             &label,
             *SCRIPT_TOKEN_EXPIRY,
-            &job.email,
+            &job.permissioned_as_email,
             &job.id,
         )
         .await
@@ -1621,7 +1625,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             force_client: None,
         };
 
-        let last_ping = job.last_ping.clone();
         let _ = handle_job_error(
             db,
             &client,

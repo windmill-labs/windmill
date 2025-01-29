@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use futures_core::Stream;
 use indexmap::IndexMap;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres, Transaction};
@@ -21,13 +22,15 @@ use crate::{
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
+    varchar::Varchar,
     worker::{to_raw_value, TMP_DIR},
 };
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum JobKind {
+    #[default]
     Script,
     #[allow(non_camel_case_types)]
     Script_Hub,
@@ -62,12 +65,178 @@ pub enum JobTriggerKind {
     Postgres,
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
+#[sqlx(type_name = "JOB_STATUS", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase"))]
+pub enum JobStatus {
+    Success,
+    Skipped,
+    Canceled,
+    Failure,
+}
+
 impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
             self,
             JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
         )
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Job<State = ()> {
+    pub id: Uuid,
+    pub workspace_id: Varchar<50>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Varchar<255>,
+    pub permissioned_as: Varchar<55>,
+    #[serde(rename = "email")]
+    pub permissioned_as_email: Varchar<255>,
+    #[serde(rename = "job_kind")]
+    pub kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "script_hash")]
+    pub runnable_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "script_path")]
+    pub runnable_path: Option<Varchar<255>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_job: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_lang: Option<ScriptLang>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_step: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_step_id: Option<Varchar<255>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "root_job")]
+    pub flow_root_job: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "schedule_path")]
+    pub trigger: Option<Varchar<255>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_kind: Option<JobTriggerKind>,
+    pub tag: Varchar<50>,
+    pub same_worker: bool,
+    pub visible_to_owner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrent_limit: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_run_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) raw_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) raw_lock: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) raw_flow: Option<Json<Box<RawValue>>>,
+    #[serde(flatten)]
+    pub inner: State,
+}
+
+#[derive(Serialize)]
+pub struct JobState<State> {
+    pub id: Uuid,
+    pub workspace_id: Varchar<50>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker: Option<Varchar<255>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_by: Option<Varchar<255>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canceled_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_status: Option<Json<FlowStatus>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mem_peak")]
+    pub memory_peak: Option<i32>,
+    #[serde(flatten)]
+    pub inner: State,
+}
+
+impl<T> std::ops::Deref for JobState<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> std::ops::DerefMut for JobState<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+pub struct Completed {
+    pub completed_at: chrono::DateTime<chrono::Utc>,
+    pub duration_ms: i64,
+    pub status: JobStatus,
+    pub result: Option<Json<Box<RawValue>>>,
+    pub deleted: bool,
+}
+
+pub struct Queued {
+    pub running: bool,
+    pub suspend: Option<i32>,
+    pub suspend_until: Option<chrono::DateTime<chrono::Utc>>,
+    pub scheduled_for: chrono::DateTime<chrono::Utc>,
+    pub leaf_jobs: Option<Json<Box<RawValue>>>,
+    pub ping: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl<S> Job<S> {
+    pub fn is_flow(&self) -> bool {
+        self.kind.is_flow()
+    }
+
+    pub fn script_path(&self) -> &str {
+        self.runnable_path.as_deref().unwrap_or("tmp/main")
+    }
+
+    pub fn full_path_with_workspace(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.workspace_id,
+            if self.is_flow() { "flow" } else { "script" },
+            self.script_path()
+        )
+    }
+}
+
+impl Serialize for Queued {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serde::Serializer::serialize_struct(serializer, "QueuedJob", 7)?;
+        state.serialize_field("type", "QueuedJob")?;
+        state.serialize_field("running", &self.running)?;
+        state.serialize_field("suspend", &self.suspend)?;
+        state.serialize_field("suspend_until", &self.suspend_until)?;
+        state.serialize_field("scheduled_for", &self.scheduled_for)?;
+        state.serialize_field("leaf_jobs", &self.leaf_jobs)?;
+        state.serialize_field("last_ping", &self.ping)?;
+        state.end()
+    }
+}
+
+impl Serialize for Completed {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serde::Serializer::serialize_struct(serializer, "CompletedJob", 9)?;
+        state.serialize_field("type", "CompletedJob")?;
+        state.serialize_field("completed_at", &self.completed_at)?;
+        state.serialize_field("duration_ms", &self.duration_ms)?;
+        state.serialize_field("status", &self.status)?;
+        state.serialize_field("result", &self.result)?;
+        state.serialize_field("deleted", &self.deleted)?;
+        state.serialize_field("success", &(self.status == JobStatus::Success))?;
+        state.serialize_field("is_skipped", &(self.status == JobStatus::Skipped))?;
+        state.serialize_field("canceled", &(self.status == JobStatus::Canceled))?;
+        state.end()
     }
 }
 
@@ -467,7 +636,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
 pub async fn script_hash_to_tag_and_limits<'c>(
     script_hash: &ScriptHash,
     db: &mut Transaction<'c, Postgres>,
-    w_id: &String,
+    w_id: &str,
 ) -> error::Result<(
     Option<Tag>,
     Option<String>,

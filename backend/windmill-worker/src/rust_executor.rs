@@ -7,7 +7,7 @@ use itertools::Itertools;
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
+    jobs::Job,
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
@@ -270,7 +270,7 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_rust_job(
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &str,

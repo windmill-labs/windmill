@@ -7,7 +7,7 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
-    jobs::QueuedJob,
+    jobs::Job,
     worker::write_file,
 };
 use windmill_parser::Typ;
@@ -133,7 +133,7 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
 pub async fn handle_php_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,

@@ -45,7 +45,7 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
+    jobs::{Job, PREPROCESSOR_FAKE_ENTRYPOINT},
     scripts::ScriptLang,
     worker::{exists_in_cache, save_cache, write_file},
     DB,
@@ -820,7 +820,7 @@ pub async fn handle_bun_job(
     requirements_o: Option<&String>,
     codebase: Option<&String>,
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -1550,7 +1550,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<Job>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
     let mut logs = "".to_string();

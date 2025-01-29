@@ -19,7 +19,7 @@ use windmill_common::{
 };
 
 use windmill_common::error::{self, Error};
-use windmill_common::jobs::QueuedJob;
+use windmill_common::jobs::Job;
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
@@ -422,7 +422,7 @@ fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> Stri
 #[cfg(not(feature = "csharp"))]
 pub async fn handle_csharp_job(
     _mem_peak: &mut i32,
-    _job: &QueuedJob,
+    _job: &Job,
     _db: &sqlx::Pool<sqlx::Postgres>,
     _client: &AuthedClientBackgroundTask,
     _inner_content: &str,
@@ -440,7 +440,7 @@ pub async fn handle_csharp_job(
 #[cfg(feature = "csharp")]
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &str,

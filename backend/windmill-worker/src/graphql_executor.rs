@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use futures::{stream, TryStreamExt};
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
-use windmill_common::jobs::QueuedJob;
+use windmill_common::jobs::Job;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
@@ -34,7 +34,7 @@ struct GraphqlError {
 }
 
 pub async fn do_graphql(
-    job: &QueuedJob,
+    job: &Job,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

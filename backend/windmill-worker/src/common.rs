@@ -25,8 +25,7 @@ use windmill_common::worker::{
 use windmill_common::{
     cache::{Cache, RawData},
     error::{self, Error},
-    jobs::QueuedJob,
-    scripts::ScriptHash,
+    jobs::Job,
     variables::ContextualVariable,
 };
 
@@ -46,7 +45,7 @@ use crate::{
 };
 
 pub async fn build_args_map<'a>(
-    job: &'a QueuedJob,
+    job: &'a Job,
     client: &AuthedClientBackgroundTask,
     db: &Pool<Postgres>,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
@@ -74,7 +73,7 @@ pub fn check_executor_binary_exists(
 }
 
 pub async fn build_args_values(
-    job: &QueuedJob,
+    job: &Job,
     client: &AuthedClientBackgroundTask,
     db: &Pool<Postgres>,
 ) -> error::Result<HashMap<String, serde_json::Value>> {
@@ -88,7 +87,7 @@ pub async fn build_args_values(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
     client: &AuthedClientBackgroundTask,
-    job: &QueuedJob,
+    job: &Job,
     job_dir: &str,
     db: &Pool<Postgres>,
 ) -> Result<(), Error> {
@@ -130,7 +129,7 @@ pub async fn transform_json<'a>(
     client: &AuthedClientBackgroundTask,
     workspace: &str,
     vs: &'a HashMap<String, Box<RawValue>>,
-    job: &QueuedJob,
+    job: &Job,
     db: &Pool<Postgres>,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
     let mut has_match = false;
@@ -169,7 +168,7 @@ pub async fn transform_json_as_values<'a>(
     client: &AuthedClientBackgroundTask,
     workspace: &str,
     vs: &'a HashMap<String, Box<RawValue>>,
-    job: &QueuedJob,
+    job: &Job,
     db: &Pool<Postgres>,
 ) -> error::Result<HashMap<String, serde_json::Value>> {
     let mut r: HashMap<String, serde_json::Value> = HashMap::new();
@@ -220,7 +219,7 @@ pub async fn transform_json_value(
     client: &AuthedClient,
     workspace: &str,
     v: Value,
-    job: &QueuedJob,
+    job: &Job,
     db: &Pool<Postgres>,
 ) -> error::Result<Value> {
     match v {
@@ -277,18 +276,19 @@ pub async fn transform_json_value(
                 db,
                 &job.workspace_id,
                 &client.token,
-                &job.email,
+                &job.permissioned_as_email,
                 &job.created_by,
                 &job.id.to_string(),
                 &job.permissioned_as,
-                job.script_path.clone(),
+                job.runnable_path.map(Into::into),
                 job.parent_job.map(|x| x.to_string()),
                 flow_path,
-                job.schedule_path.clone(),
-                job.flow_step_id.clone(),
-                job.root_job.clone().map(|x| x.to_string()),
+                job.trigger.map(Into::into),
+                job.flow_step_id.map(Into::into),
+                job.flow_root_job.clone().map(|x| x.to_string()),
                 None,
-                Some(job.scheduled_for.clone()),
+                // TODO(uael): Some(job.scheduled_for.clone()),
+                None,
             )
             .await;
 
@@ -394,7 +394,7 @@ pub fn capitalize(s: &str) -> String {
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn get_reserved_variables(
-    job: &QueuedJob,
+    job: &Job,
     token: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<HashMap<String, String>, Error> {
@@ -411,18 +411,19 @@ pub async fn get_reserved_variables(
         db,
         &job.workspace_id,
         token,
-        &job.email,
+        &job.permissioned_as_email,
         &job.created_by,
         &job.id.to_string(),
         &job.permissioned_as,
-        job.script_path.clone(),
+        job.runnable_path.map(Into::into),
         job.parent_job.map(|x| x.to_string()),
         flow_path,
-        job.schedule_path.clone(),
-        job.flow_step_id.clone(),
-        job.root_job.clone().map(|x| x.to_string()),
+        job.trigger.map(Into::into),
+        job.flow_step_id.map(Into::into),
+        job.flow_root_job.clone().map(|x| x.to_string()),
         None,
-        Some(job.scheduled_for.clone()),
+        // TODO(uael): Some(job.scheduled_for.clone()),
+        None,
     )
     .await
     .to_vec();
@@ -659,15 +660,15 @@ async fn hash_args(
 pub async fn cached_result_path(
     db: &DB,
     client: &AuthedClient,
-    job: &QueuedJob,
+    job: &Job,
     raw_data: Option<&RawData>,
 ) -> String {
     let mut hasher = sha2::Sha256::new();
-    hasher.update(&[job.job_kind as u8]);
-    if let Some(ScriptHash(hash)) = job.script_hash {
-        hasher.update(&hash.to_le_bytes())
+    hasher.update(&[job.kind as u8]);
+    if let Some(id) = job.runnable_id {
+        hasher.update(&id.to_le_bytes())
     } else {
-        job.script_path
+        job.runnable_path
             .as_ref()
             .inspect(|x| hasher.update(x.as_bytes()));
         match raw_data {
@@ -880,7 +881,7 @@ pub async fn get_cached_resource_value_if_valid(
 pub async fn save_in_cache(
     db: &Pool<Postgres>,
     _client: &AuthedClient,
-    job: &QueuedJob,
+    job: &Job,
     cached_path: String,
     r: Arc<Box<RawValue>>,
 ) {
@@ -908,11 +909,11 @@ pub async fn save_in_cache(
         (workspace_id, path, value, resource_type, created_by, edited_at)
         VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (workspace_id, path)
         DO UPDATE SET value = $3, edited_at = now()",
-        job.workspace_id,
+        job.workspace_id.as_str(),
         &cached_path,
         raw_json as Json<&CachedResource>,
         "cache",
-        job.created_by
+        job.created_by.as_str()
     )
     .execute(db)
     .await

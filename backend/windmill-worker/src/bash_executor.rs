@@ -15,7 +15,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error::Error,
-    jobs::QueuedJob,
+    jobs::Job,
     worker::{to_raw_value, write_file},
 };
 
@@ -62,7 +62,7 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     content: &str,
@@ -453,7 +453,7 @@ fn raw_to_string(x: &str) -> String {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
-    job: &QueuedJob,
+    job: &Job,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     content: &str,
