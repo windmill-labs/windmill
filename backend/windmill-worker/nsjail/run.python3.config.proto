@@ -123,6 +123,13 @@ mount {
     is_bind: true
 }
 
+mount {
+    src: "{GLOBAL_SITE_PACKAGES}"
+    dst: "{GLOBAL_SITE_PACKAGES}"
+    is_bind: true
+   	mandatory: false
+}
+
 {SHARED_MOUNT}
 
 {SHARED_DEPENDENCIES}

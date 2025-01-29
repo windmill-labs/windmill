@@ -902,6 +902,8 @@ pub async fn handle_python_job(
         tracing::debug!("Finished deps postinstall stage");
     }
 
+
+
     if no_uv {
         append_logs(
             &job.id,
@@ -1050,7 +1052,27 @@ except BaseException as e:
 
     let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    let additional_python_paths_folders = additional_python_paths.iter().join(":");
+
+    // Add /tmp/windmill/cache/python_xyz/global-site-packages to PYTHONPATH.
+    // Usefull if certain wheels needs to be preinstalled before execution.
+    let global_site_packages_path = py_version.to_cache_dir() + "/global-site-packages";
+    let additional_python_paths_folders = {
+        let mut paths= additional_python_paths.clone();
+        if std::fs::metadata(&global_site_packages_path).is_ok() {
+            // We want global_site_packages_path to be included in additonal_python_paths_folders, but
+            // we don't want it to be included in global_site_packages_path.
+            // The reason for this is that additional_python_paths_folders is used to fill PYTHONPATH env variable for jailed script
+            // When global_site_packages_path used to place mount point of wheels to the jail config.
+            // Since we handle mount of global_site_packages on our own, we don't want it to be mounted automatically.
+            // We do this because existence of every wheel in cache is mandatory and if it is not there and nsjail expects it, it is a bug.
+            // On the other side global_site_packages is purely optional.
+            // NOTE: This behaviour can be changed in future, so verification of wheels can be offloaded from nsjail to windmill
+            paths.insert(0, global_site_packages_path.clone());
+            //    ^^^^^^^^
+            // We also want this be priorotized, that's why we insert it to the beginning
+        }
+        paths.iter().join(":")
+    };
 
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
@@ -1080,6 +1102,7 @@ mount {{
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
