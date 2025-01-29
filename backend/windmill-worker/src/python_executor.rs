@@ -12,7 +12,7 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres};
 use tokio::{
-    fs::{create_dir_all, metadata, DirBuilder, File},
+    fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
     process::Command,
     sync::Semaphore,
