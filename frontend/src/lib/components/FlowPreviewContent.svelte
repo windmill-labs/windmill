@@ -191,26 +191,28 @@
 		</div>
 
 		{#if isRunning}
-			<Button
-				color="red"
-				on:click={async () => {
-					isRunning = false
-					try {
-						jobId &&
-							(await JobService.cancelQueuedJob({
-								workspace: $workspaceStore ?? '',
-								id: jobId,
-								requestBody: {}
-							}))
-					} catch {}
-				}}
-				size="sm"
-				btnClasses="w-full max-w-lg"
-				loading={true}
-				clickableWhileLoading
-			>
-				Cancel
-			</Button>
+			<div class="mx-auto">
+				<Button
+					color="red"
+					on:click={async () => {
+						isRunning = false
+						try {
+							jobId &&
+								(await JobService.cancelQueuedJob({
+									workspace: $workspaceStore ?? '',
+									id: jobId,
+									requestBody: {}
+								}))
+						} catch {}
+					}}
+					size="sm"
+					btnClasses="w-full max-w-lg"
+					loading={true}
+					clickableWhileLoading
+				>
+					Cancel
+				</Button>
+			</div>
 		{:else}
 			<div class="grow justify-center flex flex-row gap-4">
 				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
