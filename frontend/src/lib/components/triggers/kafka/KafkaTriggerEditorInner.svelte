@@ -46,7 +46,7 @@
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load kafka trigger: ${err}`, true)
+			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
 		} finally {
 			drawerLoading = false
 		}
@@ -154,9 +154,9 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit kafka trigger ${initialPath}`
+				? `Edit Kafka trigger ${initialPath}`
 				: `Kafka trigger ${initialPath}`
-			: 'New kafka trigger'}
+			: 'New Kafka trigger'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
@@ -173,7 +173,7 @@
 									workspace: $workspaceStore ?? '',
 									requestBody: { enabled: e.detail }
 								})
-								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} kafka trigger ${initialPath}`)
+								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
 							}}
 						/>
 					</div>
