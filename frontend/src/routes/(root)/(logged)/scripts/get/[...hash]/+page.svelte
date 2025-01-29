@@ -757,8 +757,8 @@
 			<svelte:fragment slot="postgres">
 				<div class="p-2">
 					<PostgresTriggersPanel path={script.path ?? ''} isFlow={false} />
-				</div></svelte:fragment
-			>
+				</div>
+			</svelte:fragment>
 			<svelte:fragment slot="nats">
 				<div class="p-2">
 					<NatsTriggersPanel path={script.path ?? ''} isFlow={false} />
