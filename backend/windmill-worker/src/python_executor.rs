@@ -1058,7 +1058,7 @@ except BaseException as e:
     let custom_wheels_path = py_version.to_cache_dir() + "/custom_wheels";
     let additional_python_paths_folders = {
         let mut paths= additional_python_paths.clone();
-        if metadata(&custom_wheels_path).await.is_ok() {
+        if std::fs::metadata(&custom_wheels_path).is_ok() {
             // We want custom_wheels_path to be included in additonal_python_paths_folders, but
             // we don't want it to be included in custom_wheels_path.
             // The reason for this is that additional_python_paths_folders is used to fill PYTHONPATH env variable for jailed script
