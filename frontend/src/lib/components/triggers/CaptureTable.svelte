@@ -330,7 +330,9 @@
 										disabled={testKind === 'preprocessor' && !hasPreprocessor}
 										title={isFlow && testKind === 'main'
 											? 'Test flow with args'
-											: 'Apply args to preprocessor'}
+											: testKind === 'preprocessor'
+											? 'Apply args to preprocessor'
+											: 'Apply args to inputs'}
 										startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 									>
 										{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
