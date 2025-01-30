@@ -436,7 +436,7 @@ jobs:
 
       - name: Update Dockerfile image reference
         run: |
-          sed -i 's|FROM ghcr.io/windmill-labs/windmill-ee:dev|FROM ghcr.io/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}|' ./docker/DockerfileNsjail
+          sed -i 's|FROM ghcr.io/windmill-labs/windmill-ee:dev|FROM ghcr.io/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}|' ./docker/DockerfileNsjail
           cat ./docker/DockerfileNsjail | grep "FROM"
         
       - name: Build and push publicly ee
