@@ -983,11 +983,11 @@ export async function requestInteractiveSlackApproval({
 }
 
 async function getMockedApi(): Promise<MockedApi | undefined> {
-  const mockedPath = getEnv("WM_MOCKED_API_FILE");
-
   if (mockedApi) {
     return mockedApi;
   }
+
+  const mockedPath = getEnv("WM_MOCKED_API_FILE");
 
   if (mockedPath) {
     console.info("Using mocked API from", mockedPath);
