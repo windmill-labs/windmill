@@ -544,7 +544,7 @@ pub mod script {
                     language: r.language,
                     envs: r.envs,
                     codebase: if let Some(use_tar) = r.use_tar {
-                        let sh = hash.0.to_string();
+                        let sh = hash.to_string();
                         if use_tar {
                             Some(format!("{sh}.tar"))
                         } else {
