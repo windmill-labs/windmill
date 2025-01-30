@@ -19,6 +19,7 @@
 	export let shouldDispatchChanges: boolean = false
 	export let diff: Record<string, SchemaDiff> = {}
 	export let nestedClasses = ''
+	export let isValid: boolean = true
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
@@ -98,6 +99,7 @@
 	{diff}
 	{nestedParent}
 	{shouldDispatchChanges}
+	bind:isValid
 >
 	<svelte:fragment slot="actions">
 		{#if !disableDnd}

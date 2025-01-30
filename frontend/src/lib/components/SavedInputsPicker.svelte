@@ -4,7 +4,7 @@
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { Edit, Trash2, Save } from 'lucide-svelte'
+	import { Edit, Trash2, Save, Eye } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
 	import { clickOutside } from '$lib/utils'
@@ -12,15 +12,23 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import PopoverV2 from '$lib/components/meltComponents/Popover.svelte'
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 
-	export let flowPath: string | null = null
 	export let previewArgs: any = undefined
+	export let runnableId: string | undefined = undefined
+	export let runnableType: RunnableType | undefined = undefined
+	export let isValid: boolean = false
+	export let noButton: boolean = false
+	export let jsonView: boolean = false
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
 		isSaving?: boolean
 		isNew?: boolean
 		isDeleting?: boolean
+		payloadData?: any
+		getFullPayload?: () => Promise<any>
 	}
 
 	let infiniteList: InfiniteList | null = null
@@ -29,10 +37,6 @@
 	let isEditing: EditableInput | null = null
 
 	const dispatch = createEventDispatcher()
-
-	$: runnableId = flowPath || undefined
-	let runnableType: RunnableType | undefined = undefined
-	$: runnableType = flowPath ? 'FlowPath' : undefined
 
 	async function updateInput(input: EditableInput | null) {
 		if (!input) return
@@ -57,13 +61,30 @@
 
 	function initLoadInputs() {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
-			return await InputService.listInputs({
+			const inputs = await InputService.listInputs({
 				workspace: $workspaceStore!,
 				runnableId,
 				runnableType,
 				page,
 				perPage
 			})
+			const inputsWithPayload = await Promise.all(
+				inputs.map(async (input) => {
+					const payloadData = await loadLargeArgs(input.id, undefined, false)
+					if (payloadData === 'WINDMILL_TOO_BIG') {
+						return {
+							...input,
+							payloadData: 'WINDMILL_TOO_BIG',
+							getFullPayload: () => loadLargeArgs(input.id, undefined, true)
+						}
+					}
+					return {
+						...input,
+						payloadData
+					}
+				})
+			)
+			return inputsWithPayload
 		}
 		infiniteList?.setLoader(loadInputsPageFn)
 
@@ -95,20 +116,21 @@
 		if (input.isEditing) return
 
 		if (selectedInput === input.id) {
-			selectedInput = null
-			selectedArgs = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 		} else {
 			selectedInput = input.id
-			selectedArgs = await loadLargeArgs(input.id, true, false)
-			dispatch('select', selectedArgs)
+			if (input.payloadData === 'WINDMILL_TOO_BIG') {
+				const fullPayload = await input.getFullPayload?.()
+				dispatch('select', fullPayload)
+			} else {
+				selectedArgs = structuredClone(input.payloadData ?? {})
+				dispatch('select', selectedArgs)
+			}
 		}
 	}
 
 	onDestroy(() => {
-		selectedInput = null
-		selectedArgs = undefined
-		dispatch('select', undefined)
+		resetSelected(true)
 	})
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
@@ -122,9 +144,7 @@
 			event.stopPropagation()
 			event.preventDefault()
 		} else if (event.key === 'Escape' && selectedInput) {
-			selectedInput = null
-			selectedArgs = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 			event.stopPropagation()
 			event.preventDefault()
 		}
@@ -151,42 +171,57 @@
 		}
 	}
 
-	$: $workspaceStore && flowPath && (infiniteList && initLoadInputs(), (draft = false))
+	export function refresh() {
+		infiniteList?.loadData('refresh')
+	}
+
+	export function resetSelected(dispatchEvent?: boolean) {
+		selectedInput = null
+		selectedArgs = undefined
+		if (dispatchEvent) {
+			dispatch('select', undefined)
+		}
+	}
+
+	$: $workspaceStore &&
+		runnableId &&
+		runnableType &&
+		(infiniteList && initLoadInputs(), (draft = false))
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
 
 <div
-	class="w-full flex flex-col gap-1 h-full overflow-y-auto p"
+	class="w-full flex flex-col gap-1 h-full overflow-y-auto"
 	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
 	on:click_outside={() => {
-		selectedInput = null
-		selectedArgs = undefined
-		dispatch('select', undefined)
+		resetSelected(true)
 	}}
 >
-	<div>
-		<Popover class="w-full" placement="bottom" disablePopup={flowPath && previewArgs}>
-			<svelte:fragment slot="text">
-				{#if !flowPath}
-					Save draft first before you can save inputs
-				{:else if !previewArgs}
-					Add inputs before saving
-				{/if}
-			</svelte:fragment>
-			<SaveInputsButton
-				{runnableId}
-				{runnableType}
-				args={previewArgs ?? {}}
-				disabled={!previewArgs || !flowPath}
-				on:update={() => {
-					infiniteList?.loadData('refresh')
-				}}
-				showTooltip={true}
-			/>
-		</Popover>
-	</div>
-	<div class="grow min-h-0">
+	{#if !noButton}
+		<div>
+			<Popover class="w-full" placement="bottom" disablePopup={runnableId && previewArgs}>
+				<svelte:fragment slot="text">
+					{#if !runnableId}
+						Save draft first before you can save inputs
+					{:else if !previewArgs}
+						Add inputs before saving
+					{/if}
+				</svelte:fragment>
+				<SaveInputsButton
+					{runnableId}
+					{runnableType}
+					args={previewArgs ?? {}}
+					disabled={!previewArgs || !runnableId || !isValid || jsonView}
+					on:update={() => {
+						refresh()
+					}}
+					showTooltip={true}
+				/>
+			</Popover>
+		</div>
+	{/if}
+	<div class="grow min-h-0" data-schema-picker>
 		{#if !draft}
 			<InfiniteList
 				bind:this={infiniteList}
@@ -208,9 +243,9 @@
 					</Cell>
 					<Cell>
 						<div
-							class="w-full flex items-center text-sm justify-between gap-4 px-4 text-left transition-all"
+							class="w-full flex items-center text-sm justify-between gap-4 py-1 text-left transition-all"
 						>
-							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0 p-1">
+							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
 								{#if isEditing && isEditing.id === item.id}
 									<form
 										on:submit={() => {
@@ -230,6 +265,25 @@
 								{/if}
 								{#if item.created_by == $userStore?.username || $userStore?.is_admin || $userStore?.is_super_admin}
 									<div class="items-center flex gap-2">
+										<PopoverV2 displayArrow={false} closeButton={false} openOnHover={true}>
+											<svelte:fragment slot="trigger">
+												<Eye class="w-4 h-4 group-hover:block hidden" />
+											</svelte:fragment>
+											<svelte:fragment slot="content">
+												<div class="p-2">
+													{#if item.payloadData === 'WINDMILL_TOO_BIG'}
+														<div class="text-center text-tertiary text-xs">
+															Payload too big to preview but can still be loaded
+														</div>
+													{:else}
+														<div class="max-w-60 overflow-auto">
+															<ObjectViewer json={item.payloadData} />
+														</div>
+													{/if}
+												</div>
+											</svelte:fragment>
+										</PopoverV2>
+
 										{#if !isEditing || isEditing?.id !== item.id}
 											<div class="group-hover:block hidden -my-2">
 												<Toggle

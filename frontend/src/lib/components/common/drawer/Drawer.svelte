@@ -11,6 +11,7 @@
 	export let alwaysOpen = false
 	export let shouldUsePortal: boolean = true
 	export let offset: number = 0
+	export let preventEscape = false
 
 	let disposable: Disposable | undefined = undefined
 
@@ -71,6 +72,7 @@
 		bind:this={disposable}
 		on:open
 		on:close
+		{preventEscape}
 	>
 		<aside
 			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??

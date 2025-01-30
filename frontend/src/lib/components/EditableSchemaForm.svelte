@@ -51,6 +51,7 @@
 	export let diff: Record<string, SchemaDiff> = {}
 	export let disableDnd: boolean = false
 	export let shouldDispatchChanges: boolean = false
+	export let isValid: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -303,6 +304,7 @@
 								dispatch('change', schema)
 							}}
 							{shouldDispatchChanges}
+							bind:isValid
 						/>
 
 						<slot name="runButton" />

@@ -9,6 +9,7 @@
 
 	export let open = false
 	export let id = (Math.random() + 1).toString(36).substring(10)
+	export let preventEscape = false
 
 	if (open) {
 		openedDrawers.push(id)
@@ -63,7 +64,10 @@
 		if (open) {
 			switch (event.key) {
 				case 'Escape':
-					if (id == openedDrawers[openedDrawers.length - 1] || openedDrawers.length == 0) {
+					if (
+						(id == openedDrawers[openedDrawers.length - 1] || openedDrawers.length == 0) &&
+						!preventEscape
+					) {
 						openedDrawers.pop()
 						event.preventDefault()
 						event.stopPropagation()

@@ -22,7 +22,7 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import SavedInputs from '$lib/components/SavedInputs.svelte'
+	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
 	import {
 		FolderOpen,
 		Archive,
@@ -60,10 +60,12 @@
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
+	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
 	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -74,6 +76,8 @@
 	let scheduledForStr: string | undefined = undefined
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
+	let inputSelected: 'saved' | 'history' | undefined = undefined
+	let jsonView = false
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -430,7 +434,7 @@
 		<svelte:fragment slot="form">
 			<div class="flex-col flex h-full justify-between">
 				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
-					<div class="flex flex-col gap-2 mb-8">
+					<div class="mb-1">
 						{#if !emptyString(flow?.description)}
 							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
 						{/if}
@@ -443,20 +447,41 @@
 						</Badge>
 					{/if}
 
-					<RunForm
-						bind:scheduledForStr
-						bind:invisible_to_owner
-						bind:overrideTag
-						viewKeybinding
-						{loading}
-						autofocus
-						detailed={false}
-						bind:isValid
-						runnable={flow}
-						runAction={runFlow}
-						bind:args
-						bind:this={runForm}
-					/>
+					<div class="flex flex-col align-left">
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge {inputSelected} />
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
+						</div>
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							{loading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={flow}
+							runAction={runFlow}
+							bind:args
+							bind:this={runForm}
+							{jsonView}
+						/>
+					</div>
+
 					<div class="py-10" />
 
 					{#if !emptyString(flow.summary)}
@@ -499,13 +524,14 @@
 			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="save_inputs">
-			<SavedInputs
+			<SavedInputsV2
+				{jsonView}
 				flowPath={flow?.path}
 				{isValid}
 				args={args ?? {}}
+				bind:inputSelected
 				on:selected_args={(e) => {
 					const nargs = JSON.parse(JSON.stringify(e.detail))
-					runForm?.setArgs(nargs)
 					args = nargs
 				}}
 			/>

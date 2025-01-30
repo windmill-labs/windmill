@@ -381,11 +381,11 @@
 			? 'border-2 border-green-500 bg-surface'
 			: ''
 	)}
+	data-schema-picker
 >
 	{#if diffStatus && typeof diffStatus === 'object' && diffStatus.diff !== 'same'}
 		<div
 			class="absolute top-0 right-2 rounded-md rounded-t-none flex flex-row overflow-hidden bg-surface"
-			data-schema-picker
 		>
 			<button
 				class="p-1 bg-green-500 text-white hover:bg-green-600"
