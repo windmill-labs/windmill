@@ -32,9 +32,9 @@
 	export let format: string | undefined = undefined
 	export let id: string | undefined
 
-	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
+	const appContext = getContext<AppViewerContext>('AppViewerContext')
 
-	$: componentInput && onchange?.()
+	$: componentInput && appContext?.onchange?.()
 </script>
 
 {#key subFieldType}

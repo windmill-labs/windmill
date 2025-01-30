@@ -18,17 +18,23 @@
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
 	import { inferArgs, loadSchema } from '$lib/infer'
-	import RunButton from './RunButton.svelte'
+	import AppRunButton from './AppRunButton.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
 	import { get } from 'svelte/store'
+	import RunButton from '$lib/components/RunButton.svelte'
 
 	export let runnable: RunnableByPath
-	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	export let fields:
+		| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+		| undefined
 	export let id: string
 	export let rawApps = false
+	export let isLoading = false
+	export let onRun = async () => {}
+	export let onCancel = async () => {}
 
 	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
 
@@ -46,7 +52,7 @@
 				if (!x.schema.order) {
 					x.schema.order = Object.keys(x.schema.properties ?? {})
 				}
-				fields = computeFields(schema, false, fields)
+				fields = computeFields(schema, false, fields ?? {})
 			}
 		} catch (e) {
 			notFound = true
@@ -62,7 +68,7 @@
 				if (!x.schema.order) {
 					x.schema.order = Object.keys(x.schema.properties ?? {})
 				}
-				fields = computeFields(schema, false, fields)
+				fields = computeFields(schema, false, fields ?? {})
 			}
 		} catch (e) {
 			notFound = true
@@ -113,7 +119,9 @@
 <div class="p-2 h-full flex flex-col gap-2">
 	<div class="flex flex-row-reverse w-full gap-2">
 		{#if !rawApps}
-			<RunButton hideShortcut {id} />
+			<AppRunButton hideShortcut {id} />
+		{:else}
+			<RunButton {isLoading} {onRun} {onCancel} />
 		{/if}
 
 		<Button

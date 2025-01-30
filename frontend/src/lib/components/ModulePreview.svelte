@@ -1,13 +1,12 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job, type Script, JobService } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 
-	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import Button from './common/button/Button.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import LogViewer from './LogViewer.svelte'
@@ -19,6 +18,7 @@
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
 	import ScriptFix from './copilot/ScriptFix.svelte'
+	import RunButton from '$lib/components/RunButton.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema | { properties?: Record<string, any> }
@@ -78,14 +78,7 @@
 				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag)
 			)
 		} else if (val.type == 'flow') {
-			await testJobLoader?.abstractRun(() =>
-				JobService.runFlowByPath({
-					workspace: $workspaceStore!,
-					path: val.path,
-					requestBody: args,
-					skipPreprocessor: true
-				})
-			)
+			await testJobLoader?.runFlowByPath(val.path, args)
 		} else {
 			throw Error('Not supported module type')
 		}
@@ -120,24 +113,12 @@
 		{/if}
 
 		<div class="w-full justify-center flex">
-			{#if testIsLoading}
-				<Button size="sm" on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red">
-					<Loader2 size={16} class="animate-spin mr-1" />
-					Cancel
-				</Button>
-			{:else}
-				<Button
-					color="dark"
-					btnClasses="truncate"
-					size="sm"
-					on:click={() => runTest(stepArgs)}
-					shortCut={{
-						Icon: CornerDownLeft
-					}}
-				>
-					Run
-				</Button>
-			{/if}
+			<RunButton
+				isLoading={testIsLoading}
+				hideShortcut={false}
+				onRun={() => runTest(stepArgs)}
+				onCancel={() => testJobLoader?.cancelJob()}
+			/>
 		</div>
 
 		<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />

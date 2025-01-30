@@ -14,7 +14,7 @@
 	import type { AppInput } from '../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
-	import RunButton from './RunButton.svelte'
+	import RunButton from './AppRunButton.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'

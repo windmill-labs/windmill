@@ -16,7 +16,8 @@
 	import type { InlineScript } from '../apps/types'
 	import type { AppInput } from '../apps/inputType'
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
-	import RunButtonInner from '../apps/editor/inlineScriptsPanel/RunButtonInner.svelte'
+	import RunButton from '$lib/components/RunButton.svelte'
+	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -25,6 +26,9 @@
 	export let id: string
 	export let fields: Record<string, AppInput> = {}
 	export let path: string
+	export let isLoading: boolean = false
+	export let onRun: () => Promise<void>
+	export let onCancel: () => Promise<void>
 
 	export let editor: Editor | undefined = undefined
 	let diffEditor: DiffEditor
@@ -54,22 +58,21 @@
 					inlineScript?.content,
 					emptySchema()
 				)
+				syncFields()
 			}
 		}
 	})
 
+	async function syncFields() {
+		if (inlineScript) {
+			const newSchema = inlineScript.schema ?? emptySchema()
+			fields = computeFields(newSchema, true, fields)
+		}
+	}
+
 	const dispatch = createEventDispatcher()
-	let runLoading = false
 
 	let drawerIsOpen: boolean | undefined = undefined
-
-	async function onRun() {
-		console.log('onRun')
-	}
-
-	async function onCancel() {
-		console.log('onCancel')
-	}
 </script>
 
 {#if inlineScript}
@@ -162,7 +165,7 @@
 				>
 					Format
 				</Button>
-				<RunButtonInner {onRun} {onCancel} />
+				<RunButton {isLoading} {onRun} {onCancel} />
 			</div>
 		</div>
 
@@ -178,18 +181,7 @@
 					scriptLang={inlineScript.language}
 					bind:code={inlineScript.content}
 					fixedOverflowWidgets={true}
-					cmdEnterAction={async () => {
-						if (inlineScript) {
-							inlineScript.content = editor?.getCode() ?? ''
-						}
-						try {
-							runLoading = true
-							// await Promise.all(
-							// 	$runnableComponents[id]?.cb?.map((f) => f?.(inlineScript, true)) ?? []
-							// )
-						} catch {}
-						runLoading = false
-					}}
+					cmdEnterAction={() => onRun()}
 					on:change={async (e) => {
 						if (inlineScript && inlineScript.language != 'frontend') {
 							if (inlineScript.lock != undefined) {
@@ -202,6 +194,7 @@
 							await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
 							if (JSON.stringify(inlineScript.schema) != oldSchema) {
 								inlineScript = inlineScript
+								syncFields()
 							}
 						}
 						// $app = $app

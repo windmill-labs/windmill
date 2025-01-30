@@ -64,9 +64,6 @@ const config = {
 		},
 		dedupe: ['vscode', 'monaco-editor']
 	},
-	worker: {
-		format: 'es'
-	},
 	assetsInclude: ['**/*.wasm']
 }
 

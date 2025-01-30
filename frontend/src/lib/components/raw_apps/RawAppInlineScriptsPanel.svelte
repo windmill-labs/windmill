@@ -20,10 +20,10 @@
 	class={twMerge('!overflow-visible')}
 	style={width !== undefined ? `width:${width}px;` : 'width: 100%;'}
 >
-	<Pane size={25}>
+	<Pane size={20}>
 		<RawAppInlineScriptPanelList bind:selectedRunnable {runnables} on:hidePanel />
 	</Pane>
-	<Pane size={75}>
+	<Pane size={80}>
 		{#if !selectedRunnable}
 			<div class="text-sm text-secondary text-center py-8 px-2">
 				Select a runnable on the left panel

@@ -960,6 +960,7 @@ async fn create_app_internal<'a>(
     )
     .execute(&mut *tx)
     .await?;
+
     audit_log(
         &mut *tx,
         &authed,
