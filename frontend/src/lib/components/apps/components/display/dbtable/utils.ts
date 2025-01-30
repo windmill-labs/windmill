@@ -477,12 +477,27 @@ export async function getDbSchemas(
 					if (!testResult.success) {
 						console.error(testResult.result?.['error']?.['message'])
 					} else {
+						if (testResult.result === 'WINDMILL_TOO_BIG') {
+							console.info('Result is too big, fetching result separately')
+							const data = await JobService.getCompletedJobResult({
+								workspace,
+								id: job
+							})
+							testResult.result = data
+						}
 						if (resourceType !== undefined) {
 							if (resourceType !== 'graphql') {
 								const { processingFn } = scripts[resourceType]
-								const schema: any =
-									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
-
+								let schema: any
+								try {
+									schema =
+										processingFn !== undefined ? processingFn(testResult.result) : testResult.result
+								} catch (e) {
+									console.error(e)
+									errorCallback('Error processing schema')
+									resolve()
+									return
+								}
 								const dbSchema = {
 									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 									schema,
