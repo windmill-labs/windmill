@@ -47,7 +47,6 @@ use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
