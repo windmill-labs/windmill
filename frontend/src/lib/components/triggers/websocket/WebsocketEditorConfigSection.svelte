@@ -94,7 +94,7 @@
 			bind:captureTable
 		/>
 	{/if}
-	<Section label="Websocket" {headless}>
+	<Section label="WebSocket" {headless}>
 		<div class="mb-2">
 			<ToggleButtonGroup
 				selected={url?.startsWith('$') ? 'runnable' : 'static'}

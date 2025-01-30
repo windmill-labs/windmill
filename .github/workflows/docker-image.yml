@@ -46,6 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Read EE repo commit hash
@@ -108,6 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Read EE repo commit hash
@@ -205,7 +207,6 @@ jobs:
       ARCH: amd64
     steps:
       - uses: actions/checkout@v4
-
       - run: |
           # pulling docker image with desired arch so that actions-docker-extract doesn't do it
           docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
@@ -291,6 +292,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
       - name: Prepare test run
         if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
@@ -354,7 +356,7 @@ jobs:
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
     needs: [tag_latest_ee]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}  && (github.event_name != 'workflow_dispatch') 
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch') 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -403,6 +405,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.ref }}
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
@@ -431,6 +434,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update Dockerfile image reference
+        run: |
+          sed -i 's|FROM ghcr.io/windmill-labs/windmill-ee:dev|FROM ghcr.io/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}|' ./docker/DockerfileNsjail
+          cat ./docker/DockerfileNsjail | grep "FROM"
+        
       - name: Build and push publicly ee
         uses: depot/build-push-action@v1
         with:
@@ -542,6 +550,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.ref }}
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2

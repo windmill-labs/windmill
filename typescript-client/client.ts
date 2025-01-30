@@ -983,30 +983,21 @@ export async function requestInteractiveSlackApproval({
 }
 
 async function getMockedApi(): Promise<MockedApi | undefined> {
-  const mockedPath = getEnv("WM_MOCKED_API_FILE");
-
   if (mockedApi) {
     return mockedApi;
   }
 
+  const mockedPath = getEnv("WM_MOCKED_API_FILE");
+
   if (mockedPath) {
     console.info("Using mocked API from", mockedPath);
+  } else {
+    return undefined;
   }
 
-  const path = getEnv("WM_MOCKED_API_FILE");
-  if (!path) {
-    console.warn(
-      "No mocked API file path provided at env variable WM_MOCKED_API_FILE. Using empty mocked API."
-    );
-    mockedApi = {
-      variables: {},
-      resources: {},
-    };
-    return mockedApi;
-  }
   try {
     const fs = await import("node:fs/promises");
-    const file = await fs.readFile(path, "utf-8");
+    const file = await fs.readFile(mockedPath, "utf-8");
     try {
       mockedApi = JSON.parse(file) as MockedApi;
       if (!mockedApi.variables) {
@@ -1017,12 +1008,20 @@ async function getMockedApi(): Promise<MockedApi | undefined> {
       }
       return mockedApi;
     } catch {
-      console.warn("Error parsing mocked API file at path", path);
-      return undefined;
+      console.warn("Error parsing mocked API file at path", mockedPath);
     }
   } catch {
-    console.warn("Error reading mocked API file at path", path);
-    return undefined;
+    console.warn("Error reading mocked API file at path", mockedPath);
+  }
+  if (!mockedApi) {
+    console.warn(
+      "No mocked API file path provided at env variable WM_MOCKED_API_FILE. Using empty mocked API."
+    );
+    mockedApi = {
+      variables: {},
+      resources: {},
+    };
+    return mockedApi;
   }
 }
 

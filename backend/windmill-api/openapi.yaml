@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.452.1
+  version: 1.453.1
   title: Windmill API
 
   contact:
@@ -7963,8 +7963,11 @@ paths:
                   type: string
                 url_runnable_args:
                   $ref: "#/components/schemas/ScriptArgs"
+                can_return_message:
+                  type: boolean
               required:
                 - url
+                - can_return_message
       responses:
         "200":
           description: successfuly connected to websocket
@@ -13139,6 +13142,8 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
+        can_return_message:
+          type: boolean
 
       required:
         - path
@@ -13152,6 +13157,7 @@ components:
         - workspace_id
         - enabled
         - filters
+        - can_return_message
 
     NewWebsocketTrigger:
       type: object
@@ -13183,6 +13189,8 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
+        can_return_message:
+          type: boolean
 
       required:
         - path
@@ -13190,6 +13198,7 @@ components:
         - url
         - is_flow
         - filters
+        - can_return_message
 
     EditWebsocketTrigger:
       type: object
@@ -13219,6 +13228,8 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
+        can_return_message:
+          type: boolean
 
       required:
         - path
@@ -13226,7 +13237,7 @@ components:
         - url
         - is_flow
         - filters
-
+        - can_return_message
     WebsocketTriggerInitialMessage:
       anyOf:
         - type: object
