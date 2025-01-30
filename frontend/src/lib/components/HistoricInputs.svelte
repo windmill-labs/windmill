@@ -22,6 +22,7 @@
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
 
+	let cachedArgs: Record<string, any> = {}
 	function initLoadInputs() {
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.getInputHistory({
@@ -35,6 +36,12 @@
 
 			const inputsWithPayload = await Promise.all(
 				inputs.map(async (input) => {
+					if (cachedArgs[input.id]) {
+						return {
+							...input,
+							payloadData: cachedArgs[input.id]
+						}
+					}
 					const payloadData = await loadArgsFromHistory(input.id, undefined, false)
 					if (payloadData === 'WINDMILL_TOO_BIG') {
 						return {
@@ -43,6 +50,7 @@
 							getFullPayload: () => loadArgsFromHistory(input.id, undefined, true)
 						}
 					}
+					cachedArgs[input.id] = payloadData
 					return {
 						...input,
 						payloadData

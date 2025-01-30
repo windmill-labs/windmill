@@ -70,7 +70,7 @@
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			class={twMerge(
-				'text-xs border w-full font-normal text-left p-1 rounded-md whitespace-nowrap overflow-hidden text-ellipsis',
+				'text-xs border w-full font-normal text-tertiary text-left p-1 rounded-md whitespace-nowrap overflow-hidden text-ellipsis',
 				hovering && 'border-surface'
 			)}
 			on:click={() => {
