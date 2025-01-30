@@ -5,7 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import Cell from '$lib/components/table/Cell.svelte'
 
-	export let payloadData: Record<string, any>
+	export let payloadData: Record<string, any> | string
 	export let date: string | undefined
 	export let selected = false
 	export let hovering = false
@@ -58,7 +58,7 @@
 
 <Cell
 	wrap
-	class="text-2xs font-normal text-left p-2 rounded-md overflow-auto text-ellipsis scrollbar-none"
+	class="text-2xs font-normal text-left py-2 rounded-md overflow-auto text-ellipsis scrollbar-none"
 	title={formatDate(date)}
 >
 	{formatDateShort(date)}
@@ -82,7 +82,15 @@
 			{JSON.stringify(payloadData)}
 		</div>
 		<svelte:fragment slot="overlay">
-			<ObjectViewer json={payloadData} />
+			{#if payloadData === 'WINDMILL_TOO_BIG'}
+				<div class="text-center text-tertiary text-xs">
+					Payload too big to preview but can still be loaded
+				</div>
+			{:else}
+				<div class="max-w-60 overflow-auto">
+					<ObjectViewer json={payloadData} />
+				</div>
+			{/if}
 		</svelte:fragment>
 	</CustomPopover>
 
