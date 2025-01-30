@@ -35,7 +35,7 @@ jobs:
         with:
           deno-version: v1.x
       - name: benchmark
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           -c
