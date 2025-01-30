@@ -29,7 +29,6 @@
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
-	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import {
@@ -42,6 +41,7 @@
 		applyDiff
 	} from '$lib/components/schema/schemaUtils'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
+	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -479,12 +479,17 @@
 									<CaptureButton on:openTriggers small={true} />
 								</div>
 							</svelete:fragment>
-							<CapturesInputs
-								on:select={(e) => {
-									updatePreviewSchemaAndArgs(e.detail ?? undefined)
-								}}
-								flowPath={$pathStore}
-							/>
+							<div class="h-full">
+								<CaptureTable
+									path={$pathStore}
+									on:select={(e) => {
+										updatePreviewSchemaAndArgs(e.detail ?? undefined)
+									}}
+									isFlow={true}
+									headless={true}
+									addButton={false}
+								/>
+							</div>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor

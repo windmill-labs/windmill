@@ -324,9 +324,8 @@
 	<div class="overflow-y-auto grow flex flex-col pt-4">
 		<div class="border-b">
 			<SchemaFormWithArgPicker
-				runnableId={initialPath}
+				runnableId={initialPath == '' ? $pathStore : initialPath}
 				runnableType={'FlowPath'}
-				flowPath={$pathStore}
 				previewArgs={$previewArgs}
 				on:openTriggers
 				on:select={(e) => {

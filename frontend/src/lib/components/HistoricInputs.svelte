@@ -12,11 +12,11 @@
 
 	export let runnableId: string | undefined = undefined
 	export let runnableType: RunnableType | undefined = undefined
+	export let loading: boolean = false
 
 	const dispatch = createEventDispatcher()
 
 	let jobs: Job[] = []
-	let loading: boolean = false
 	let hasMoreCurrentRuns = false
 	let page = 1
 	let infiniteList: InfiniteList | undefined = undefined
@@ -111,7 +111,7 @@
 
 	let jobHovered: string | undefined = undefined
 
-	function refresh() {
+	export function refresh() {
 		if (infiniteList) {
 			infiniteList.loadData('refresh')
 		}

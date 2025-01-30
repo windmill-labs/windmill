@@ -6,14 +6,13 @@
 	import { History, Save } from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
-	import CapturesInputs from './CapturesInputs.svelte'
 	import SavedInputsPicker from './SavedInputsPicker.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { fly } from 'svelte/transition'
+	import CaptureTable from './triggers/CaptureTable.svelte'
+	import RefreshButton from './common/button/RefreshButton.svelte'
 
 	export let runnableId: string = ''
 	export let runnableType: any
-	export let flowPath: string = ''
 	export let previewArgs: any
 	export let isValid: boolean = true
 	export let jsonView: boolean = false
@@ -72,15 +71,22 @@
 	let dropdownItems: any
 	let rightPanelOpen = false
 
+	let loading = false
+	let historicInputs: HistoricInputs | undefined = undefined
 	$: selectedTab, (dropdownItems = getDropdownItems())
 </script>
 
 <div class="h-fit">
 	<Splitpanes class={!rightPanelOpen ? 'splitter-hidden' : ''}>
 		<Pane class="!overflow-visible" size={70} minSize={30}>
-			<div class="relative w-full h-fit pr-12 pb-4" bind:clientHeight={rightHeight}>
-				<div class="absolute -right-[1px] -top-[1px] z-50">
-					<SideBarTab {dropdownItems} fullMenu={true} noTrigger={true} />
+			<div class="relative w-full h-fit pr-12 pb-4 overflow-hidden" bind:clientHeight={rightHeight}>
+				<div class="absolute right-[1px] -top-[1px] z-50">
+					<SideBarTab
+						expandRight={rightPanelOpen}
+						{dropdownItems}
+						fullMenu={true}
+						noTrigger={true}
+					/>
 				</div>
 				<slot />
 			</div>
@@ -88,14 +94,17 @@
 
 		<Pane minSize={rightPanelOpen ? 30 : 0}>
 			{#if rightPanelOpen}
-				<div
-					transition:fly={{ duration: 100, x: -200 }}
-					style="height: {rightHeight}px"
-					class="border-t border-r pb-2"
-				>
+				<div style="height: {rightHeight}px" class="border-t border-r pb-2">
 					{#if selectedTab === 'history'}
 						<FlowInputEditor title="History">
+							<svelete:fragment slot="action">
+								<div class="center-center">
+									<RefreshButton {loading} on:click={() => historicInputs?.refresh()} />
+								</div>
+							</svelete:fragment>
 							<HistoricInputs
+								bind:loading
+								bind:this={historicInputs}
 								{runnableId}
 								{runnableType}
 								on:select={(e) => {
@@ -123,12 +132,17 @@
 									<CaptureButton on:openTriggers small={true} />
 								</div>
 							</svelete:fragment>
-							<CapturesInputs
-								{flowPath}
-								on:select={(e) => {
-									dispatch('select', { payload: e.detail, type: 'captures' })
-								}}
-							/>
+							<div class="h-full">
+								<CaptureTable
+									path={runnableId}
+									on:select={(e) => {
+										dispatch('select', { payload: e.detail, type: 'captures' })
+									}}
+									isFlow={true}
+									headless={true}
+									addButton={false}
+								/>
+							</div>
 						</FlowInputEditor>
 					{/if}
 				</div>

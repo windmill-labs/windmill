@@ -10,6 +10,7 @@
 
 	export let fullMenu: boolean = false
 	export let noTrigger: boolean = false
+	export let expandRight = false
 
 	let open = false
 	let timeout: NodeJS.Timeout | null = null
@@ -34,7 +35,7 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class="flex flex-col relative !overflow-visible"
+	class="flex flex-col relative !overflow-visible {expandRight ? 'pr-2 -mr-2' : ''}"
 	on:mouseenter={handleMouseEnter}
 	on:mouseleave={handleMouseLeave}
 >
