@@ -30,7 +30,7 @@
 	export let captureTable: CaptureTable | undefined
 
 	const dispatch = createEventDispatcher<{
-		captureToggle: undefined
+		captureToggle: { disableOnly?: boolean }
 		updateSchema: { payloadData: Record<string, any>; redirect: boolean }
 	}>()
 
@@ -38,7 +38,10 @@
 
 	onDestroy(() => {
 		if (captureInfo.active) {
-			dispatch('captureToggle')
+			dispatch('captureToggle', {
+				// this on destroy can be called after capturing has already been stopped (aka after on destroy of the wrapper), make sure we do not start it again
+				disableOnly: true
+			})
 		}
 	})
 
@@ -70,7 +73,7 @@
 					<AnimatedButton animate={captureInfo.active} baseRadius="6px" wrapperClasses="ml-[-2px]">
 						<Button
 							size="xs2"
-							on:click={() => dispatch('captureToggle')}
+							on:click={() => dispatch('captureToggle', {})}
 							variant="border"
 							{disabled}
 							color="light"
