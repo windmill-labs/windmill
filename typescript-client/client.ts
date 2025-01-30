@@ -991,6 +991,8 @@ async function getMockedApi(): Promise<MockedApi | undefined> {
 
   if (mockedPath) {
     console.info("Using mocked API from", mockedPath);
+  } else {
+    return undefined;
   }
 
   const path = getEnv("WM_MOCKED_API_FILE");
