@@ -19,10 +19,9 @@
 
 	export let isFlow: boolean
 	export let path: string
-	export let args: Record<string, any> = { route_path: '', http_method: 'get' }
 	export let dirtyRoutePath: boolean = false
-	export let route_path = ''
-	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
+	export let route_path: string | undefined
+	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
@@ -36,12 +35,15 @@
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	let routeError: string = ''
-	async function validateRoute(path: string, method: typeof http_method): Promise<void> {
+	async function validateRoute(
+		path: string | undefined,
+		method: typeof http_method
+	): Promise<void> {
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
 		}
 		validateTimeout = setTimeout(async () => {
-			if (!/^[\w-:]+(\/[\w-:]+)*$/.test(path)) {
+			if (!path || !method || !/^[\w-:]+(\/[\w-:]+)*$/.test(path)) {
 				routeError = 'Endpoint not valid'
 			} else if (initialRoutePath !== path && (await routeExists(path, method))) {
 				routeError = 'Endpoint already taken'
@@ -52,7 +54,7 @@
 		}, 500)
 	}
 
-	async function routeExists(route_path: string, method: typeof http_method) {
+	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>) {
 		return await HttpTriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
@@ -67,9 +69,9 @@
 	}/${path.replaceAll('/', '.')}/${route_path}`
 
 	function getHttpRoute(route_path: string | undefined) {
-		return `${location.origin}${base}/api/r/${
-			isCloudHosted() ? $workspaceStore + '/' : ''
-		}${route_path}`
+		return `${location.origin}${base}/api/r/${isCloudHosted() ? $workspaceStore + '/' : ''}${
+			route_path ?? ''
+		}`
 	}
 
 	$: validateRoute(route_path, http_method)
@@ -78,13 +80,8 @@
 
 	$: fullRoute = getHttpRoute(route_path)
 
-	$: showCapture && (http_method = 'post')
-
-	function updateArgs(route_path: string, http_method: string) {
-		args && ((args.route_path = route_path), (args.http_method = http_method))
-	}
-
-	$: updateArgs(route_path, http_method)
+	$: !http_method && (http_method = 'post')
+	$: route_path === undefined && (route_path = '')
 </script>
 
 <div>
@@ -108,7 +105,7 @@
 				<CopyableCodeBlock
 					disabled={!captureInfo.active}
 					code={`curl \\
--X ${http_method.toUpperCase()} ${captureURL} \\
+-X ${(http_method ?? 'post').toUpperCase()} ${captureURL} \\
 -H 'Content-Type: application/json' \\
 -d '${JSON.stringify(runnableArgs ?? {}, null, 2)}'`}
 					language={bash}
