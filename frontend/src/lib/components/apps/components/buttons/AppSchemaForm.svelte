@@ -151,6 +151,7 @@
 					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 			>
 				<SchemaForm
+					onlyMaskPassword
 					defaultValues={resolvedConfig.defaultValues}
 					dynamicEnums={resolvedConfig.dynamicEnums}
 					schema={result}
