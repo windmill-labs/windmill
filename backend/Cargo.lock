@@ -10544,9 +10544,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "130.0.8"
+version = "130.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be16314fd485983a2a2e001d90a959d6c7c3eb800a2f481b11104f76cd5608cd"
+checksum = "a511192602f7b435b0a241c1947aa743eb7717f20a9195f4b5e8ed1952e01db1"
 dependencies = [
  "bindgen 0.70.1",
  "bitflags 2.8.0",
@@ -10890,6 +10890,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid 1.12.1",
+ "v8",
  "windmill-api",
  "windmill-api-client",
  "windmill-autoscaling",
