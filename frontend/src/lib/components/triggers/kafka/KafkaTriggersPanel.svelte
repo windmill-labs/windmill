@@ -51,7 +51,7 @@
 			})
 			$triggersCount = { ...($triggersCount ?? {}), kafka_count: kafkaTriggers?.length }
 		} catch (e) {
-			console.error('impossible to load kafka triggers', e)
+			console.error('impossible to load Kafka triggers', e)
 		}
 	}
 
@@ -108,7 +108,7 @@
 			{#if kafkaTriggers}
 				<Section label="Kafka triggers">
 					{#if kafkaTriggers.length == 0}
-						<div class="text-xs text-secondary text-center"> No kafka triggers </div>
+						<div class="text-xs text-secondary text-center"> No Kafka triggers </div>
 					{:else}
 						<div class="flex flex-col divide-y pt-2">
 							{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}

@@ -14,7 +14,7 @@
 	export let args: Record<string, any>
 
 	const kindToName: { [key: string]: string } = {
-		websocket: 'Websocket',
+		websocket: 'WebSocket',
 		nats: 'NATS server(s)',
 		kafka: 'Kafka broker(s)',
 		postgres: 'Postgres'
