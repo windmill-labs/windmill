@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.453.1](https://github.com/windmill-labs/windmill/compare/v1.453.0...v1.453.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* **frontend:** fetching job result (db schema) separatly if too big ([#5171](https://github.com/windmill-labs/windmill/issues/5171)) ([f29ee67](https://github.com/windmill-labs/windmill/commit/f29ee67d9d8547d7c4a79e14698b7d88a722e730))
+* **typescript-client:** fix typescript client mocked api behavior ([7f516f0](https://github.com/windmill-labs/windmill/commit/7f516f08682876f5a7ca409ec002cba6ec0c5c5b))
+
 ## [1.453.0](https://github.com/windmill-labs/windmill/compare/v1.452.1...v1.453.0) (2025-01-29)
 
 
