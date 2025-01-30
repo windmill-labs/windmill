@@ -10114,6 +10114,8 @@ paths:
                 properties:
                   connection_settings_str:
                     type: string
+                  azure_container_path:
+                    type: string
                 required:
                   - connection_settings_str
 
