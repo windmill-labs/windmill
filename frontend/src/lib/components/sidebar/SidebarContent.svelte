@@ -53,6 +53,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -121,6 +122,13 @@
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats'
+		},
+		{
+			label: 'Sqs' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/sqs_triggers',
+			icon: AwsIcon,
+			disabled: $userStore?.operator /*|| !$enterpriseLicense*/,
+			kind: 'sqs'
 		}
 	]
 

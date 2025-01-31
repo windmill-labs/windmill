@@ -8,6 +8,7 @@
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false
@@ -30,6 +31,8 @@
 			bind:url_runnable_args={args.url_runnable_args}
 			showCapture={false}
 		/>
+	{:else if triggerType === 'sqs'}
+		<SqsTriggerEditorConfigSection headless={true} can_write={true} showCapture={false} />
 	{:else if triggerType === 'webhook'}
 		<WebhooksConfigSection
 			{isFlow}

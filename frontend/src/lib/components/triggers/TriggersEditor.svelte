@@ -18,6 +18,7 @@
 	import { KafkaIcon, NatsIcon } from '../icons'
 	import KafkaTriggersPanel from './kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
+	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -55,6 +56,7 @@
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">WebSockets</Tab>
 				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
+				<Tab value="sqs" selectedClass="text-primary text-sm font-semibold">Sqs</Tab>
 				<Tab
 					value="kafka"
 					otherValues={['nats']}
@@ -141,6 +143,21 @@
 						{:else if $selectedTrigger === 'postgres'}
 							<div class="p-4">
 								<PostgresTriggersPanel {newItem} path={currentPath} {isFlow} />
+							</div>
+						{:else if $selectedTrigger === 'sqs'}
+							<div class="p-4">
+								<SqsTriggerPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									{newItem}
+									path={currentPath}
+									{isFlow}
+									isEditor={true}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+								/>
 							</div>
 						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats'}
 							<div class="p-4 flex flex-col gap-2">

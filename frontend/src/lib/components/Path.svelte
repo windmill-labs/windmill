@@ -43,6 +43,7 @@
 		| 'kafka_trigger'
 		| 'postgres_trigger'
 		| 'nats_trigger'
+		| 'sqs_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''

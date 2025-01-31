@@ -14,6 +14,7 @@
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -55,7 +56,10 @@
 			return acc
 		}, {})
 
-		if ((captureType === 'websocket' || captureType === 'kafka') && captureActive) {
+		if (
+			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'sqs') &&
+			captureActive
+		) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -121,17 +125,11 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-
-	let cloudDisabled =
-		(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-		isCloudHosted()
+	const streamingCaptures = ['sqs', 'websocket', 'postgres', 'kafka', 'nats']
+	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (
-			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-			config &&
-			captureActive
-		) {
+		if (streamingCaptures.includes(captureType) && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
@@ -172,6 +170,21 @@
 				headless={true}
 				bind:url={args.url}
 				bind:url_runnable_args={args.url_runnable_args}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={() => {
+					handleCapture()
+				}}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'sqs'}
+			<SqsTriggerEditorConfigSection
+				can_write={true}
+				headless={true}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable

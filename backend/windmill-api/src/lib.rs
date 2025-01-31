@@ -100,6 +100,8 @@ mod settings;
 mod slack_approvals;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
+#[cfg(feature = "sqs_trigger")]
+mod sqs_triggers_ee;
 mod static_assets;
 mod stripe_ee;
 #[cfg(feature = "enterprise")]
@@ -292,6 +294,48 @@ pub async fn run_server(
         }
     };
 
+    let sqs_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        {
+            sqs_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
+        {
+            Router::new()
+        }
+    };
+
+    let websocket_triggers_service = {
+        #[cfg(feature = "websocket")]
+        {
+            websocket_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "websocket"))]
+        Router::new()
+    };
+
+    let http_triggers_service = {
+        #[cfg(feature = "http_trigger")]
+        {
+            http_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "http_trigger"))]
+        Router::new()
+    };
+
+    let postgres_triggers_service = {
+        #[cfg(feature = "postgres_trigger")]
+        {
+            postgres_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "postgres_trigger"))]
+        Router::new()
+    };
+
     if !*CLOUD_HOSTED {
         #[cfg(feature = "websocket")]
         {
@@ -314,6 +358,11 @@ pub async fn run_server(
         {
             let db_killpill_rx = rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
+        }
+        #[cfg(feature = "sqs_trigger")]
+        {
+            let sqs_killpill_rx = rx.resubscribe();
+            sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
         }
     }
 
@@ -365,35 +414,12 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", {
-                            #[cfg(feature = "http_trigger")]
-                            {
-                                http_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "http_trigger"))]
-                            Router::new()
-                        })
-                        .nest("/websocket_triggers", {
-                            #[cfg(feature = "websocket")]
-                            {
-                                websocket_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "websocket"))]
-                            Router::new()
-                        })
+                        .nest("/http_triggers", http_triggers_service)
+                        .nest("/websocket_triggers", websocket_triggers_service)
                         .nest("/kafka_triggers", kafka_triggers_service)
                         .nest("/nats_triggers", nats_triggers_service)
-                        .nest("/postgres_triggers", {
-                            #[cfg(feature = "postgres_trigger")]
-                            {
-                                postgres_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "postgres_trigger"))]
-                            Router::new()
-                        }),
+                        .nest("/sqs_triggers", sqs_triggers_service)
+                        .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

@@ -88,6 +88,7 @@ pub enum TriggerKind {
     Kafka,
     Email,
     Nats,
+    Sqs
 }
 
 impl fmt::Display for TriggerKind {
@@ -99,6 +100,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
+            TriggerKind::Sqs => "sqs"
         };
         write!(f, "{}", s)
     }
@@ -118,6 +120,12 @@ pub struct KafkaTriggerConfig {
     pub connection: KafkaTriggerConfigConnection,
     pub topics: Vec<String>,
     pub group_id: String,
+}
+
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[derive(Serialize, Deserialize)]
+pub struct SqsTriggerConfig {
+
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -146,6 +154,8 @@ enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
     Websocket(WebsocketTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    Sqs(SqsTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "nats"))]

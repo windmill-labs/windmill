@@ -84,6 +84,15 @@
 			</button>
 			<button
 				class="hover:bg-surface-hover p-2 transition-colors duration-150"
+				on:click={() => handleClick('sqs')}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<Unplug size={16} />
+					<p class="text-xs text-secondary">Sqs</p>
+				</div>
+			</button>
+			<button
+				class="hover:bg-surface-hover p-2 transition-colors duration-150"
 				on:click={() => handleClick('email')}
 			>
 				<div class="flex flex-row items-center gap-2">

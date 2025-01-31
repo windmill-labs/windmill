@@ -12,6 +12,7 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 
 	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -30,6 +31,7 @@
 		| 'emails'
 		| 'eventStreams'
 		| 'postgres'
+		| 'sqs'
 	)[] = showOnlyWithCount
 		? ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'nats', 'emails']
 		: ['webhooks', 'schedules', 'routes', 'websockets', 'eventStreams', 'emails']
@@ -66,6 +68,7 @@
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
 		emails: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count' },
+		sqs: { icon: AwsIcon, countKey: 'sqs_count' },
 		eventStreams: { icon: PlugZap }
 	}
 
