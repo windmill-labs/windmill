@@ -24,7 +24,7 @@
 			size="xs2"
 			startIcon={{ icon: X }}
 			shortCut={{ key: 'esc', withoutModifier: true }}
-			nonCaptureEvent
+			on:click
 		/>
 	</div>
 </div>

@@ -7,7 +7,6 @@
 	import { Edit, Trash2, Save, Eye } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
-	import { clickOutside } from '$lib/utils'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import InfiniteList from './InfiniteList.svelte'
@@ -133,11 +132,6 @@
 		resetSelected(true)
 	})
 
-	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		const elements = document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
-		return elements ? (Array.from(elements) as HTMLElement[]) : []
-	}
-
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isEditing) {
 			setEditing(null)
@@ -191,13 +185,7 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div
-	class="w-full flex flex-col gap-1 h-full overflow-y-auto"
-	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-	on:click_outside={() => {
-		resetSelected(true)
-	}}
->
+<div class="w-full flex flex-col gap-1 h-full overflow-y-auto">
 	{#if !noButton}
 		<div>
 			<Popover class="w-full" placement="bottom" disablePopup={runnableId && previewArgs}>

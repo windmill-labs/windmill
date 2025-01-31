@@ -7,7 +7,6 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import JobLoader from './runs/JobLoader.svelte'
 	import { DataTable } from '$lib/components/table'
-	import { clickOutside } from '$lib/utils'
 	import InfiniteList from './InfiniteList.svelte'
 
 	export let runnableId: string | undefined = undefined
@@ -82,12 +81,6 @@
 		resetSelected(true)
 	})
 
-	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
-		) as HTMLElement[]
-	}
-
 	async function loadArgsFromHistory(
 		id: string | undefined,
 		input: boolean | undefined,
@@ -126,6 +119,7 @@
 	}
 
 	export function resetSelected(dispatchEvent?: boolean) {
+		console.log('resetSelected')
 		selected = undefined
 		if (dispatchEvent) {
 			dispatch('select', undefined)
@@ -159,15 +153,7 @@
 	/>
 {/if}
 
-<div
-	class="h-full w-full flex flex-col gap-4"
-	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-	on:click_outside={() => {
-		if (selected) {
-			resetSelected(true)
-		}
-	}}
->
+<div class="h-full w-full flex flex-col gap-4">
 	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading && (jobs == undefined || jobs?.length == 0)}
