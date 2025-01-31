@@ -23,7 +23,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::JobKind,
     scripts::ScriptHash,
-    variables::{build_crypt, decrypt_value_with_mc},
+    variables::{build_crypt, decrypt},
 };
 
 #[derive(Deserialize, Debug)]
@@ -853,7 +853,7 @@ async fn get_slack_token(db: &DB, slack_resource_path: &str, w_id: &str) -> anyh
 
     if slack_token.is_secret {
         let mc = build_crypt(&db, w_id).await?;
-        let bot_token = decrypt_value_with_mc(slack_token.value, mc).await?;
+        let bot_token = decrypt(&mc, slack_token.value)?;
         Ok(bot_token)
     } else {
         Ok(slack_token.value)
