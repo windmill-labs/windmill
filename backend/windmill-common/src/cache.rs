@@ -529,7 +529,7 @@ pub mod script {
                     lock AS \"lock: String\", \
                     language AS \"language: Option<ScriptLang>\", \
                     envs AS \"envs: Vec<String>\", \
-                    codebase AS \"codebase: String\" \
+                    codebase LIKE '%.tar' as use_tar \
                 FROM script WHERE hash = $1 LIMIT 1",
                 hash.0
             )
@@ -543,7 +543,16 @@ pub mod script {
                 meta: Some(ScriptMetadata {
                     language: r.language,
                     envs: r.envs,
-                    codebase: r.codebase,
+                    codebase: if let Some(use_tar) = r.use_tar {
+                        let sh = hash.to_string();
+                        if use_tar {
+                            Some(format!("{sh}.tar"))
+                        } else {
+                            Some(sh)
+                        }
+                    } else {
+                        None
+                    },
                 }),
             })
         });

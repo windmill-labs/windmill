@@ -1718,6 +1718,7 @@ pub async fn create_session_token<'c>(
     if COOKIE_DOMAIN.is_some() {
         cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
     }
+
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);
     cookie.set_expires(expire);
