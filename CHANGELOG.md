@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.455.1](https://github.com/windmill-labs/windmill/compare/v1.455.0...v1.455.1) (2025-01-31)
+
+
+### Bug Fixes
+
+* pin malachite version ([b74d3fd](https://github.com/windmill-labs/windmill/commit/b74d3fd6e08ea991f7a7360b79d54a45a8ee58be))
+
 ## [1.455.0](https://github.com/windmill-labs/windmill/compare/v1.454.1...v1.455.0) (2025-01-31)
 
 
