@@ -173,6 +173,10 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
+    sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
+        .execute(db)
+        .await?;
+
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
         .await
@@ -187,10 +191,6 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         }
         Err(err) => Err(err),
     }?;
-
-    sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
-        .execute(db)
-        .await?;
 
     if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
         tracing::error!("Could not apply flow versioning fix migration: {err:#}");
