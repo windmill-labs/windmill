@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.454.1](https://github.com/windmill-labs/windmill/compare/v1.454.0...v1.454.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* fix codebase script execution ([b1155a9](https://github.com/windmill-labs/windmill/commit/b1155a9012c726c1b1c3f1a62f3aa96b8504681c))
+
+## [1.454.0](https://github.com/windmill-labs/windmill/compare/v1.453.1...v1.454.0) (2025-01-30)
+
+
+### Features
+
+* history for flow inputs ([#5117](https://github.com/windmill-labs/windmill/issues/5117)) ([cd44056](https://github.com/windmill-labs/windmill/commit/cd440564d29aff39f6dc30ecbf0055696b07cf12))
+
+
+### Bug Fixes
+
+* fix app form password handling ([4812c0c](https://github.com/windmill-labs/windmill/commit/4812c0cc9e46fdb5944f7010efdf617f2fd23cff))
+* improve codebase support ([c8cc9d2](https://github.com/windmill-labs/windmill/commit/c8cc9d2941dda2fedb959e1156c4f9b4f7dfab43))
+
+## [1.453.1](https://github.com/windmill-labs/windmill/compare/v1.453.0...v1.453.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* **frontend:** fetching job result (db schema) separatly if too big ([#5171](https://github.com/windmill-labs/windmill/issues/5171)) ([f29ee67](https://github.com/windmill-labs/windmill/commit/f29ee67d9d8547d7c4a79e14698b7d88a722e730))
+* **typescript-client:** fix typescript client mocked api behavior ([7f516f0](https://github.com/windmill-labs/windmill/commit/7f516f08682876f5a7ca409ec002cba6ec0c5c5b))
+
 ## [1.453.0](https://github.com/windmill-labs/windmill/compare/v1.452.1...v1.453.0) (2025-01-29)
 
 

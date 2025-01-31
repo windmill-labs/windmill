@@ -5,7 +5,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { convert } from '@redocly/json-to-json-schema'
 	import { sendUserToast } from '$lib/toast'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
@@ -29,7 +29,6 @@
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
-	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import {
@@ -42,6 +41,7 @@
 		applyDiff
 	} from '$lib/components/schema/schemaUtils'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
+	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 
 	export let noEditor: boolean
 	export let disabled: boolean
@@ -49,7 +49,6 @@
 	const { flowStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let pendingJson: string
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
 	let payloadData: Record<string, any> | undefined = undefined
@@ -65,6 +64,8 @@
 	let runDisabled: boolean = false
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 	let savedPreviewArgs: Record<string, any> | undefined = undefined
+	let preventEscape = false
+	let isValid = true
 
 	function updateEditPanelSize(size: number | undefined) {
 		if (!$flowInputEditorState) return
@@ -244,19 +245,6 @@
 		previewArguments = structuredClone(payloadData)
 	}
 
-	function updatePayloadFromJson(jsonInput: string) {
-		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
-			updatePreviewSchemaAndArgs(undefined)
-			return
-		}
-		try {
-			const parsed = JSON.parse(jsonInput)
-			updatePreviewSchemaAndArgs(parsed)
-		} catch (error) {
-			updatePreviewSchemaAndArgs(undefined)
-		}
-	}
-
 	let tabButtonWidth = 0
 
 	let connectFirstNode: () => void = () => {}
@@ -325,7 +313,7 @@
 <!-- Add svelte:window to listen for keyboard events -->
 <svelte:window on:keydown={handleKeydown} />
 
-<Drawer bind:open={previewOpen} alwaysOpen size="75%">
+<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
 	<FlowPreviewContent
 		bind:this={flowPreviewContent}
 		open={previewOpen}
@@ -333,6 +321,7 @@
 		on:close={() => {
 			previewOpen = false
 		}}
+		bind:preventEscape
 	/>
 </Drawer>
 
@@ -378,6 +367,7 @@
 				on:schemaChange={() => {
 					resetArgs()
 				}}
+				bind:isValid
 			>
 				<svelte:fragment slot="openEditTab">
 					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
@@ -470,9 +460,8 @@
 							}}
 						>
 							<HistoricInputs
-								scriptHash={null}
-								scriptPath={null}
-								flowPath={$pathStore}
+								runnableId={initialPath ?? undefined}
+								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
@@ -490,12 +479,17 @@
 									<CaptureButton on:openTriggers small={true} />
 								</div>
 							</svelete:fragment>
-							<CapturesInputs
-								on:select={(e) => {
-									updatePreviewSchemaAndArgs(e.detail ?? undefined)
-								}}
-								flowPath={$pathStore}
-							/>
+							<div class="h-full">
+								<CaptureTable
+									path={$pathStore}
+									on:select={(e) => {
+										updatePreviewSchemaAndArgs(e.detail ?? undefined)
+									}}
+									isFlow={true}
+									headless={true}
+									addButton={false}
+								/>
+							</div>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
 						<FlowInputEditor
@@ -505,7 +499,8 @@
 							title="Saved inputs"
 						>
 							<SavedInputsPicker
-								flowPath={initialPath}
+								runnableId={initialPath ?? undefined}
+								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
@@ -513,6 +508,7 @@
 									preventEnter = e.detail
 								}}
 								previewArgs={previewArguments}
+								{isValid}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
@@ -522,26 +518,16 @@
 							}}
 							title="Json payload"
 						>
-							<SimpleEditor
+							<JsonInputs
 								on:focus={() => {
 									preventEnter = true
-									updatePayloadFromJson(pendingJson)
 								}}
 								on:blur={async () => {
 									preventEnter = false
-									setTimeout(() => {
-										if (payloadData) {
-											updatePayloadFromJson('')
-										}
-									}, 100)
 								}}
-								on:change={(e) => {
-									updatePayloadFromJson(e.detail.code)
+								on:select={(e) => {
+									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
-								bind:code={pendingJson}
-								lang="json"
-								class="h-full"
-								placeholder={'Write a JSON payload. The input schema will be inferred.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}'}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
@@ -575,7 +561,7 @@
 						<Button
 							color="dark"
 							btnClasses="w-fit"
-							disabled={runDisabled}
+							disabled={runDisabled || !isValid}
 							size="xs"
 							shortCut={{ Icon: CornerDownLeft, hide: false }}
 							on:click={() => {

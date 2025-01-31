@@ -47,7 +47,8 @@
 		<RouteEditorConfigSection
 			showCapture={false}
 			can_write={true}
-			bind:args
+			bind:route_path={args.route_path}
+			bind:http_method={args.http_method}
 			headless
 			{isFlow}
 			{path}
