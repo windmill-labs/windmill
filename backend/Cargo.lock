@@ -5088,9 +5088,9 @@ dependencies = [
 
 [[package]]
 name = "malachite"
-version = "0.4.21"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb64bb3a238dcba5765db7baaca4be7917041de5a3c74701f1de12ee74bc107d"
+checksum = "4a6ecab92657eb234bfe98abd0b17920772c6b14ce69256950142e2eb36d000b"
 dependencies = [
  "malachite-base",
  "malachite-nz",
@@ -11234,6 +11234,8 @@ dependencies = [
  "async-recursion",
  "itertools 0.14.0",
  "lazy_static",
+ "malachite",
+ "malachite-bigint",
  "phf",
  "regex",
  "regex-lite",
