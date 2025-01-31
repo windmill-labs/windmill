@@ -189,7 +189,7 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     }?;
 
     sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
-        .execute(&mut db)
+        .execute(db)
         .await?;
 
     if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
