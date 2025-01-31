@@ -173,9 +173,12 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
-    sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
+    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
         .execute(db)
-        .await?;
+        .await
+    {
+        tracing::warn!("Could not remove sqlx migration with version=20250131115248: {err:#}");
+    }
 
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
