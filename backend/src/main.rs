@@ -1034,7 +1034,6 @@ pub async fn run_workers(
         TAR_PY311_CACHE_DIR,
         TAR_PY312_CACHE_DIR,
         TAR_PY313_CACHE_DIR,
-        PIP_CACHE_DIR,
         BUN_DEPSTAR_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
