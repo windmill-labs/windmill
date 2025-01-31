@@ -177,7 +177,7 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         .execute(db)
         .await
     {
-        tracing::warn!("Could not remove sqlx migration with version=20250131115248: {err:#}");
+        tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
     }
 
     match sqlx::migrate!("../migrations")
