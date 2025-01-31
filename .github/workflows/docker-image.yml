@@ -26,7 +26,11 @@ on:
         description: "Tag the image"
         required: true
         default: "test"
-
+      nsjail:
+        description: "Build nsjail image (true, false)"
+        required: false
+        default: false
+        type: boolean
 concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
@@ -42,6 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Read EE repo commit hash
@@ -90,7 +95,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,oracledb,websocket,python,smtp,csharp,static_frontend,rust
+            features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -100,10 +105,11 @@ jobs:
 
   build_ee:
     runs-on: ubicloud
-    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee)
+    if: (github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail)
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Read EE repo commit hash
@@ -152,74 +158,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
-
-  build_ee_312:
-    runs-on: ubicloud
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Read EE repo commit hash
-        run: |
-          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
-
-      - uses: actions/checkout@v4
-        with:
-          repository: windmill-labs/windmill-ee-private
-          path: ./windmill-ee-private
-          ref: ${{ env.ee_repo_ref }}
-          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
-          fetch-depth: 0
-
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
-      - uses: depot/setup-action@v1
-
-      - name: Docker meta
-        id: meta-ee-public-py312
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-py312
-          flavor: |
-            latest=false
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - name: Login to registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Substitute EE code
-        run: |
-          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
-
-      - name: Build and push publicly ee
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,websocket,python,smtp,csharp,static_frontend,rust
-            PYTHON_IMAGE=python:3.12.2-slim-bookworm
-          tags: |
-            ${{ steps.meta-ee-public-py312.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public-py312.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
   # disabled until we make it 100% reliable and add more meaningful tests
@@ -263,7 +207,6 @@ jobs:
       ARCH: amd64
     steps:
       - uses: actions/checkout@v4
-
       - run: |
           # pulling docker image with desired arch so that actions-docker-extract doesn't do it
           docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
@@ -349,6 +292,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
       - name: Prepare test run
         if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
@@ -372,7 +316,7 @@ jobs:
     needs: [run_integration_test, build]
     if:
       github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/v'))
+      startsWith(github.ref, 'refs/tags/v'))  && (github.event_name != 'workflow_dispatch') 
     steps:
       - uses: actions/checkout@v4
         with:
@@ -392,7 +336,7 @@ jobs:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
     if:
-      github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
+      github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))
     steps:
       - uses: actions/checkout@v4
@@ -412,7 +356,7 @@ jobs:
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
     needs: [tag_latest_ee]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch') 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -455,12 +399,13 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     if:
-      (github.event_name != 'pull_request') && (github.event_name !=
-      'workflow_dispatch')
+      (github.event_name != 'pull_request') && ((github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.nsjail))
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.ref }}
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
@@ -489,6 +434,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update Dockerfile image reference
+        run: |
+          sed -i 's|FROM ghcr.io/windmill-labs/windmill-ee:dev|FROM ghcr.io/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}|' ./docker/DockerfileNsjail
+          cat ./docker/DockerfileNsjail | grep "FROM"
+        
       - name: Build and push publicly ee
         uses: depot/build-push-action@v1
         with:
@@ -505,7 +455,7 @@ jobs:
   build_ee_reports_privately:
     needs: [build_ee_nsjail]
     runs-on: ubicloud
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' &&  (github.event_name != 'workflow_dispatch')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -600,6 +550,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.ref }}
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2

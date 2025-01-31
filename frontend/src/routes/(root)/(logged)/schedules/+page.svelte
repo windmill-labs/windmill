@@ -11,7 +11,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import {
 		Calendar,
 		Circle,
@@ -232,8 +232,11 @@
 	}
 
 	onMount(() => {
+		console.log(`on mount: `, $userStore?.operator, $workspaceStore, $userWorkspaces)
 		loadQueryFilters()
 	})
+
+	$: $userWorkspaces && $userStore && $workspaceStore && console.log(`user workspaces: `, $userWorkspaces)
 
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled)
 </script>
@@ -247,6 +250,12 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.schedules}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 <CenteredPage>
 	<PageHeader
 		title="Schedules"
@@ -500,6 +509,7 @@
 		>
 	{/if}
 </CenteredPage>
+{/if}
 
 <ShareModal
 	bind:this={shareModal}

@@ -36,36 +36,38 @@ use windmill_common::{
 use windmill_common::variables::get_secret_value_as_admin;
 
 use windmill_queue::{append_logs, CanceledBy};
+use std::env::var;
 
 lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
-    std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
 
     static ref UV_PATH: String =
-    std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
+    var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
 
     static ref PY_CONCURRENT_DOWNLOADS: usize =
-    std::env::var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+    var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
     static ref FLOCK_PATH: String =
-    std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
+    var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
-    static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
-    static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
+    static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
+    static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
+    static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
-    pub static ref USE_SYSTEM_PYTHON: bool = std::env::var("USE_SYSTEM_PYTHON")
+    pub static ref USE_SYSTEM_PYTHON: bool = var("USE_SYSTEM_PYTHON")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
-    pub static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
+    pub static ref USE_PIP_COMPILE: bool = var("USE_PIP_COMPILE")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
-    pub static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
+    pub static ref USE_PIP_INSTALL: bool = var("USE_PIP_INSTALL")
         .ok().map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
-    static ref EPHEMERAL_TOKEN_CMD: Option<String> = std::env::var("EPHEMERAL_TOKEN_CMD").ok();
+    static ref EPHEMERAL_TOKEN_CMD: Option<String> = var("EPHEMERAL_TOKEN_CMD").ok();
 }
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
@@ -533,10 +535,10 @@ pub async fn uv_pip_compile(
             args.extend(["--index-url", url, "--no-emit-index-url"]);
             pip_args.push(format!("--index-url {}", url));
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             args.extend(["--trusted-host", host]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
         }
         let pip_args_str = pip_args.join(" ");
@@ -622,11 +624,14 @@ pub async fn uv_pip_compile(
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             args.extend(["--trusted-host", host]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
+        }
+        if *NATIVE_CERT {
+            args.extend(["--native-tls"]);
         }
         tracing::error!("uv args: {:?}", args);
 
@@ -898,6 +903,8 @@ pub async fn handle_python_job(
         tracing::debug!("Finished deps postinstall stage");
     }
 
+
+
     if no_uv {
         append_logs(
             &job.id,
@@ -1046,7 +1053,27 @@ except BaseException as e:
 
     let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    let additional_python_paths_folders = additional_python_paths.iter().join(":");
+
+    // Add /tmp/windmill/cache/python_xyz/global-site-packages to PYTHONPATH.
+    // Usefull if certain wheels needs to be preinstalled before execution.
+    let global_site_packages_path = py_version.to_cache_dir() + "/global-site-packages";
+    let additional_python_paths_folders = {
+        let mut paths= additional_python_paths.clone();
+        if std::fs::metadata(&global_site_packages_path).is_ok() {
+            // We want global_site_packages_path to be included in additonal_python_paths_folders, but
+            // we don't want it to be included in global_site_packages_path.
+            // The reason for this is that additional_python_paths_folders is used to fill PYTHONPATH env variable for jailed script
+            // When global_site_packages_path used to place mount point of wheels to the jail config.
+            // Since we handle mount of global_site_packages on our own, we don't want it to be mounted automatically.
+            // We do this because existence of every wheel in cache is mandatory and if it is not there and nsjail expects it, it is a bug.
+            // On the other side global_site_packages is purely optional.
+            // NOTE: This behaviour can be changed in future, so verification of wheels can be offloaded from nsjail to windmill
+            paths.insert(0, global_site_packages_path.clone());
+            //    ^^^^^^^^
+            // We also want this be priorotized, that's why we insert it to the beginning
+        }
+        paths.iter().join(":")
+    };
 
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
@@ -1076,6 +1103,7 @@ mount {{
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
@@ -1573,11 +1601,14 @@ async fn spawn_uv_install(
         if let Some(url) = pip_index_url.as_ref() {
             vars.push(("INDEX_URL", url));
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            vars.push(("PIP_INDEX_CERT", cert_path));
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            vars.push(("SSL_CERT_FILE", cert_path));
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
+        }
+        if *NATIVE_CERT {
+            vars.push(("UV_NATIVE_TLS", "true"));
         }
         let _owner;
         if let Some(py_path) = py_path.as_ref() {
@@ -1675,18 +1706,26 @@ async fn spawn_uv_install(
             });
         }
 
+        let mut envs = vec![("PATH", PATH_ENV.as_str())];
+        envs.push(("HOME", HOME_ENV.as_str()));
+
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            command_args.extend(["--cert", cert_path]);
-        }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             command_args.extend(["--trusted-host", &host]);
         }
-
-        let mut envs = vec![("PATH", PATH_ENV.as_str())];
-        envs.push(("HOME", HOME_ENV.as_str()));
+        if *NATIVE_CERT {
+            command_args.extend(["--native-tls"]);
+        }
+        // TODO:
+        // Track https://github.com/astral-sh/uv/issues/6715
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            // Once merged --cert can be used instead
+            // 
+            // command_args.extend(["--cert", cert_path]);
+            envs.push(("SSL_CERT_FILE", cert_path));
+        }
 
         tracing::debug!("uv pip install command: {:?}", command_args);
 
@@ -2159,6 +2198,18 @@ pub async fn handle_python_reqs(
                                     db
                                 ).await;
                                 pids.lock().await.get_mut(i).and_then(|e| e.take());
+
+                                // Create a file to indicate that installation was successfull
+                                let valid_path = venv_p.clone() + "/.valid.windmill";
+                                // This is atomic operation, meaning, that it either completes and wheel is valid, 
+                                // or it does not and wheel is invalid and will be reinstalled next run
+                                if let Err(e) = File::create(&valid_path).await{
+                                    tracing::error!(
+                                    workspace_id = %w_id,
+                                    job_id = %job_id,
+                                        "Failed to create {}!\n{e}\n
+                                        This file needed for python jobs to function", valid_path)
+                                };
                                 return Ok(());
                             }
                         }

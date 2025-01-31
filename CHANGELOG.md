@@ -1,5 +1,128 @@
 # Changelog
 
+## [1.454.1](https://github.com/windmill-labs/windmill/compare/v1.454.0...v1.454.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* fix codebase script execution ([b1155a9](https://github.com/windmill-labs/windmill/commit/b1155a9012c726c1b1c3f1a62f3aa96b8504681c))
+
+## [1.454.0](https://github.com/windmill-labs/windmill/compare/v1.453.1...v1.454.0) (2025-01-30)
+
+
+### Features
+
+* history for flow inputs ([#5117](https://github.com/windmill-labs/windmill/issues/5117)) ([cd44056](https://github.com/windmill-labs/windmill/commit/cd440564d29aff39f6dc30ecbf0055696b07cf12))
+
+
+### Bug Fixes
+
+* fix app form password handling ([4812c0c](https://github.com/windmill-labs/windmill/commit/4812c0cc9e46fdb5944f7010efdf617f2fd23cff))
+* improve codebase support ([c8cc9d2](https://github.com/windmill-labs/windmill/commit/c8cc9d2941dda2fedb959e1156c4f9b4f7dfab43))
+
+## [1.453.1](https://github.com/windmill-labs/windmill/compare/v1.453.0...v1.453.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* **frontend:** fetching job result (db schema) separatly if too big ([#5171](https://github.com/windmill-labs/windmill/issues/5171)) ([f29ee67](https://github.com/windmill-labs/windmill/commit/f29ee67d9d8547d7c4a79e14698b7d88a722e730))
+* **typescript-client:** fix typescript client mocked api behavior ([7f516f0](https://github.com/windmill-labs/windmill/commit/7f516f08682876f5a7ca409ec002cba6ec0c5c5b))
+
+## [1.453.0](https://github.com/windmill-labs/windmill/compare/v1.452.1...v1.453.0) (2025-01-29)
+
+
+### Features
+
+* custom response headers ([#5156](https://github.com/windmill-labs/windmill/issues/5156)) ([5544d42](https://github.com/windmill-labs/windmill/commit/5544d42a2db652660051b5f2e05f8db0102400fa))
+* **python:** add `custom_wheels` directory to `PYTHONPATH` ([#5169](https://github.com/windmill-labs/windmill/issues/5169)) ([c60f8da](https://github.com/windmill-labs/windmill/commit/c60f8dacf191c5255ef8fca462d6d3d571b86b07))
+* websocket trigger allow returning messages ([#5168](https://github.com/windmill-labs/windmill/issues/5168)) ([487c273](https://github.com/windmill-labs/windmill/commit/487c273bfbc5bf1731947c922f32cd026cca47f9))
+
+
+### Bug Fixes
+
+* oracledb tag for native workers + client not working on arm systems ([#5162](https://github.com/windmill-labs/windmill/issues/5162)) ([a1579c1](https://github.com/windmill-labs/windmill/commit/a1579c1654a2ddf9f6fc8f05f62b37bb09303752))
+* **python:** fix uv can't find ssl certificates ([#5157](https://github.com/windmill-labs/windmill/issues/5157)) ([680fb18](https://github.com/windmill-labs/windmill/commit/680fb1852a192e384e23e2f5ceea473383f9f5aa))
+
+## [1.452.1](https://github.com/windmill-labs/windmill/compare/v1.452.0...v1.452.1) (2025-01-27)
+
+
+### Bug Fixes
+
+* fix broken tabs for apps ([eaf633c](https://github.com/windmill-labs/windmill/commit/eaf633ce7675bf86108ebfc81ed735c26031ad71))
+
+## [1.452.0](https://github.com/windmill-labs/windmill/compare/v1.451.0...v1.452.0) (2025-01-27)
+
+
+### Features
+
+* mssql executor supports azure db redirect ([#5150](https://github.com/windmill-labs/windmill/issues/5150)) ([fdb7122](https://github.com/windmill-labs/windmill/commit/fdb712234eb7f1a9374012d51e1cb25ee5aaa410))
+* **postgres, trigger:** support ssl ([#5149](https://github.com/windmill-labs/windmill/issues/5149)) ([e0b6aa4](https://github.com/windmill-labs/windmill/commit/e0b6aa42a28a4273f3a7bb7465396f2756e60a92))
+* test trigger connection ([#5145](https://github.com/windmill-labs/windmill/issues/5145)) ([d17397b](https://github.com/windmill-labs/windmill/commit/d17397b0703fb6a7dabf9db75d3c30ec26cdbe1e))
+
+## [1.451.0](https://github.com/windmill-labs/windmill/compare/v1.450.1...v1.451.0) (2025-01-27)
+
+
+### Features
+
+* app builder accordion list and accordion tab component ([#5132](https://github.com/windmill-labs/windmill/issues/5132)) ([0e41023](https://github.com/windmill-labs/windmill/commit/0e41023889fb2f26ef5dc2a736dd59b819d92bf1))
+* **typescript-client:** add ability to mock typescript api for testing ([f9ce01c](https://github.com/windmill-labs/windmill/commit/f9ce01c1dcda581d943e3cf58008cc6c89d39c5f))
+
+
+### Bug Fixes
+
+* **frontend:** make argInput indent optional ([#5144](https://github.com/windmill-labs/windmill/issues/5144)) ([b8152a3](https://github.com/windmill-labs/windmill/commit/b8152a3259fa0f791990e41d825f196d82c4084d))
+
+## [1.450.1](https://github.com/windmill-labs/windmill/compare/v1.450.0...v1.450.1) (2025-01-26)
+
+
+### Bug Fixes
+
+* fix SCIM/SAML settings persistence ([697a060](https://github.com/windmill-labs/windmill/commit/697a060e3e01a183b6ac2371eee319b01ee891cf))
+
+## [1.450.0](https://github.com/windmill-labs/windmill/compare/v1.449.3...v1.450.0) (2025-01-26)
+
+
+### Features
+
+* **cli:** improve codebase support + remove --stateful + warn when pushing stale metadata ([#5139](https://github.com/windmill-labs/windmill/issues/5139)) ([b47e9c1](https://github.com/windmill-labs/windmill/commit/b47e9c14f277339ae51fd3a40e00e8ba4e8a1390))
+
+## [1.449.3](https://github.com/windmill-labs/windmill/compare/v1.449.2...v1.449.3) (2025-01-25)
+
+
+### Bug Fixes
+
+* include postgres triggers in build [#5137](https://github.com/windmill-labs/windmill/issues/5137) ([27a25d4](https://github.com/windmill-labs/windmill/commit/27a25d4af9ca0f0e0ed1d06a462fdd7cf966ce2b))
+* update tests to rust 1.83.0 ([f29c702](https://github.com/windmill-labs/windmill/commit/f29c70279f14c2cdbf6e330ae266060f81f32bb6))
+
+## [1.449.2](https://github.com/windmill-labs/windmill/compare/v1.449.1...v1.449.2) (2025-01-25)
+
+
+### Bug Fixes
+
+* update rust to 1.83.0 ([#5135](https://github.com/windmill-labs/windmill/issues/5135)) ([5381c76](https://github.com/windmill-labs/windmill/commit/5381c76b7d194d75f58d70b29aa3f5f8589fa899))
+
+## [1.449.1](https://github.com/windmill-labs/windmill/compare/v1.449.0...v1.449.1) (2025-01-25)
+
+
+### Bug Fixes
+
+* Fix python refetching wheels from S3 ([#5133](https://github.com/windmill-labs/windmill/issues/5133)) ([2f1804b](https://github.com/windmill-labs/windmill/commit/2f1804b6d0e6f3492608967f8937d5e34481661b))
+
+## [1.449.0](https://github.com/windmill-labs/windmill/compare/v1.448.1...v1.449.0) (2025-01-24)
+
+
+### Features
+
+* **frontend:** operator visibility setting per workspace ([#5124](https://github.com/windmill-labs/windmill/issues/5124)) ([1a1ea68](https://github.com/windmill-labs/windmill/commit/1a1ea682166af62133d3df2816490e3ebc92462f))
+* msft teams support for critical alerts ([#5113](https://github.com/windmill-labs/windmill/issues/5113)) ([a88fbb2](https://github.com/windmill-labs/windmill/commit/a88fbb238ae21ca53bccd53ccfd3c77e2946fda2))
+* postgres triggers ([#4860](https://github.com/windmill-labs/windmill/issues/4860)) ([316a216](https://github.com/windmill-labs/windmill/commit/316a2167e7648052afb3d7456c5ab9324348e56c))
+* **python:** Multiple runtime versions ([#4579](https://github.com/windmill-labs/windmill/issues/4579)) ([e47dd69](https://github.com/windmill-labs/windmill/commit/e47dd697f96883f8f97bf469e69d3344f12d9633))
+
+
+### Bug Fixes
+
+* **bun, windows:** Fix "A required privilege is not held by the client." ([#5126](https://github.com/windmill-labs/windmill/issues/5126)) ([74bb660](https://github.com/windmill-labs/windmill/commit/74bb660b9799e79e31c33d96a4f06d77094287d5))
+
 ## [1.448.1](https://github.com/windmill-labs/windmill/compare/v1.448.0...v1.448.1) (2025-01-22)
 
 

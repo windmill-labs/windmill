@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.448.1"
+version = "1.454.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.448.1"
+version = "1.454.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -61,7 +61,7 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "dep:deno_core"]
+deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
@@ -116,6 +116,7 @@ deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 quote.workspace = true
 memchr.workspace = true
+v8 = { workspace = true, optional = true }
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -131,6 +132,7 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
+
 
 
 [workspace.dependencies]
@@ -157,6 +159,7 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+v8 = "=130.0.7"  # Exact version
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
@@ -265,6 +268,7 @@ convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
 rust-postgres = { package = "tokio-postgres", git = "https://github.com/imor/rust-postgres", rev = "20265ef38e32a06f76b6f9b678e2077fc2211f6b"}
+rust-postgres-native-tls = { package = "postgres-native-tls", git = "https://github.com/imor/rust-postgres", features = ["runtime"], rev = "20265ef38e32a06f76b6f9b678e2077fc2211f6b" }
 bit-vec = "=0.6.3"
 mappable-rc = "^0"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls", "rust_decimal"]}

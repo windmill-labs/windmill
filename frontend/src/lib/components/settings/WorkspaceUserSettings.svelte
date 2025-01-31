@@ -3,7 +3,7 @@
 	import { Badge, Button, Popup, Skeleton } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-
+	import WorkspaceOperatorSettings from '$lib/components/settings/WorkspaceOperatorSettings.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 
@@ -440,6 +440,8 @@
 		</tbody>
 	</DataTable>
 </div>
+
+<WorkspaceOperatorSettings />
 
 {#if showInvites}
 	<PageHeader

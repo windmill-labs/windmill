@@ -11,6 +11,7 @@
 	import type { Schema } from '$lib/common'
 	import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 
 	export let url: string | undefined
 	export let url_runnable_args: Record<string, unknown> | undefined
@@ -93,7 +94,7 @@
 			bind:captureTable
 		/>
 	{/if}
-	<Section label="Websocket" {headless}>
+	<Section label="WebSocket" {headless}>
 		<div class="mb-2">
 			<ToggleButtonGroup
 				selected={url?.startsWith('$') ? 'runnable' : 'static'}
@@ -181,6 +182,10 @@
 					</div>
 				</label>
 			</div>
+		{/if}
+
+		{#if isValid}
+			<TestTriggerConnection kind="websocket" args={{ url, url_runnable_args }} />
 		{/if}
 	</Section>
 </div>

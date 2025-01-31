@@ -55,8 +55,11 @@
 	let selectedTable: 'all' | 'specific' = 'specific'
 	let tab: 'advanced' | 'basic'
 	let config: { isLogical: boolean; show: boolean } = { isLogical: false, show: false }
+	let loadingConfiguration = false
 	$: table_to_track = selectedTable === 'all' ? [] : relations
-
+	$: if (postgres_resource_path === undefined) {
+		config.show = false
+	}
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -107,10 +110,12 @@
 			config.show = false
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
+			relations = []
+			transaction_to_track = []
 			tab = 'basic'
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load postgres trigger: ${err}`, true)
+			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
 		}
@@ -253,12 +258,12 @@
 	}
 
 	const checkDatabaseConfiguration = async () => {
+		if (emptyString(postgres_resource_path)) {
+			sendUserToast('You must first pick a database resource', true)
+			return
+		}
 		try {
-			if (emptyString(postgres_resource_path)) {
-				sendUserToast('You must first pick a database resource', true)
-				return
-			}
-
+			loadingConfiguration = true
 			config.isLogical = await PostgresTriggerService.isValidPostgresConfiguration({
 				workspace: $workspaceStore!,
 				path: postgres_resource_path
@@ -267,6 +272,7 @@
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
+		loadingConfiguration = false
 	}
 </script>
 
@@ -316,7 +322,10 @@
 			{/if}
 		</svelte:fragment>
 		{#if drawerLoading}
-			<Loader2 class="animate-spin" />
+			<div class="flex flex-col items-center justify-center h-full w-full">
+				<Loader2 size="50" class="animate-spin" />
+				<p>Loading...</p>
+			</div>
 		{:else}
 			<div class="flex flex-col gap-5">
 				<Alert title="Info" type="info">
@@ -350,7 +359,11 @@
 					<div class="flex flex-col mb-2 gap-3">
 						<ResourcePicker bind:value={postgres_resource_path} resourceType={'postgresql'} />
 						{#if postgres_resource_path}
-							<Button on:click={checkDatabaseConfiguration} color="gray" size="sm"
+							<Button
+								loading={loadingConfiguration}
+								on:click={checkDatabaseConfiguration}
+								color="gray"
+								size="sm"
 								>Check Database Configuration
 								<Tooltip>
 									<p class="text-sm">
@@ -443,7 +456,7 @@
 									bind:selected={transaction_to_track}
 								/>
 							</Section>
-							<Section label="Publication">
+							<Section label="Table Tracking">
 								<p class="text-xs mb-3 text-tertiary">
 									Select the tables to track. You can choose to track
 									<strong>all tables in your database</strong>,
@@ -456,6 +469,7 @@
 									<Tab value="basic"
 										><div class="flex flex-row gap-1"
 											>Basic<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
 												><p
 													>Choose the <strong>relations</strong> to track without worrying about the
 													underlying mechanics of creating a
@@ -469,6 +483,7 @@
 									<Tab value="advanced"
 										><div class="flex flex-row gap-1"
 											>Advanced<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#advanced"
 												><p
 													>Select a specific <strong>publication</strong> from your database to
 													track, and manage it by <strong>creating</strong>,
@@ -488,10 +503,11 @@
 												<RelationPicker bind:selectedTable bind:relations />
 											</TabContent>
 											<TabContent value="advanced">
-												<div class="flex flex-col gap-4"
+												<div class="flex flex-col gap-6"
 													><Section
-														label="Slot name"
+														label="Replication slot management"
 														tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
+														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
 													>
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup
@@ -529,8 +545,9 @@
 													</Section>
 
 													<Section
-														label="Publication"
+														label="Publication management"
 														tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
+														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
 													>
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup

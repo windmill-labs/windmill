@@ -14,7 +14,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import { json } from 'svelte-highlight/languages'
 	import { Highlight } from 'svelte-highlight'
-	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -166,10 +166,6 @@
 	let drawer: Drawer
 
 	let dirtyPath = false
-
-	let args: Record<string, any> = { route_path: '' }
-
-	$: args && (route_path = args.route_path)
 </script>
 
 {#if static_asset_config}
@@ -227,7 +223,6 @@
 					isFlow={is_flow}
 					{path}
 					bind:route_path
-					bind:args
 					bind:isValid
 					bind:dirtyRoutePath
 					bind:http_method

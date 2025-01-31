@@ -24,9 +24,9 @@
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
 		http: 'New custom HTTP route',
-		websocket: 'New websocket trigger',
+		websocket: 'New WebSocket trigger',
 		webhook: 'Webhook',
-		kafka: 'New kafka trigger',
+		kafka: 'New Kafka trigger',
 		email: 'Email trigger',
 		nats: 'NATS trigger'
 	}
