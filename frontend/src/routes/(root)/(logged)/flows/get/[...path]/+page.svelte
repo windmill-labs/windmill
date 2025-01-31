@@ -344,7 +344,7 @@
 	let stepDetail: FlowModule | string | undefined = undefined
 	let token = 'TOKEN_TO_CREATE'
 	let rightPaneSelected = 'saved_inputs'
-
+	let savedInputsV2: SavedInputsV2 | undefined = undefined
 	let flowHistory: FlowHistory | undefined = undefined
 </script>
 
@@ -449,7 +449,12 @@
 
 					<div class="flex flex-col align-left">
 						<div class="flex flex-row justify-between">
-							<InputSelectedBadge {inputSelected} />
+							<InputSelectedBadge
+								on:click={() => {
+									savedInputsV2?.resetSelected()
+								}}
+								{inputSelected}
+							/>
 							<Toggle
 								bind:checked={jsonView}
 								label="JSON View"
@@ -525,6 +530,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="save_inputs">
 			<SavedInputsV2
+				bind:this={savedInputsV2}
 				{jsonView}
 				flowPath={flow?.path}
 				{isValid}

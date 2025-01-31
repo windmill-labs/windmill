@@ -161,6 +161,7 @@
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	let renderCount: number = 0
+	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -324,6 +325,7 @@
 	<div class="overflow-y-auto grow flex flex-col pt-4">
 		<div class="border-b">
 			<SchemaFormWithArgPicker
+				bind:this={schemaFormWithArgPicker}
 				runnableId={initialPath == '' ? $pathStore : initialPath}
 				runnableType={'FlowPath'}
 				previewArgs={$previewArgs}
@@ -335,7 +337,10 @@
 				{jsonView}
 			>
 				<div class="w-full flex flex-row justify-between">
-					<InputSelectedBadge {inputSelected} />
+					<InputSelectedBadge
+						on:click={() => schemaFormWithArgPicker?.resetSelected()}
+						{inputSelected}
+					/>
 					<div class="flex flex-row gap-2">
 						<Toggle
 							bind:checked={jsonView}
