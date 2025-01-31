@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.454.1"
+version = "1.455.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.454.1"
+version = "1.455.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -191,6 +191,8 @@ rand = "^0"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
+malachite = "=0.4.18"
+malachite-bigint = "=0.2.0"
 rustpython-parser = "^0"
 php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb411dec09450946ef57920b7ffced7f6495d" }
 cron = "^0"
