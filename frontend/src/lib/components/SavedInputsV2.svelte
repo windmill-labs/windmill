@@ -18,6 +18,11 @@
 	export let isValid: boolean
 	export let args: object
 
+	export function resetSelected() {
+		historicInputs?.resetSelected(true)
+		savedInputsPicker?.resetSelected(true)
+	}
+
 	let savedArgs: any = undefined
 	let runnableType: RunnableType | undefined = undefined
 	let savedInputsPicker: SavedInputsPicker | undefined = undefined

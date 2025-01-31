@@ -19,6 +19,13 @@
 
 	const dispatch = createEventDispatcher()
 
+	export function resetSelected() {
+		console.log('resetSelected')
+		historicInputs?.resetSelected(true)
+		savedInputsPicker?.resetSelected(true)
+		captureTable?.resetSelected(true)
+	}
+
 	const getDropdownItems = () => {
 		return [
 			{
@@ -71,7 +78,9 @@
 	let dropdownItems: any
 	let rightPanelOpen = false
 
+	let savedInputsPicker: SavedInputsPicker | undefined = undefined
 	let loading = false
+	let captureTable: CaptureTable | undefined = undefined
 	let historicInputs: HistoricInputs | undefined = undefined
 	$: selectedTab, (dropdownItems = getDropdownItems())
 </script>
@@ -119,6 +128,7 @@
 								{runnableId}
 								{runnableType}
 								{previewArgs}
+								bind:this={savedInputsPicker}
 								on:select={(e) => {
 									dispatch('select', { payload: e.detail, type: 'saved' })
 								}}
@@ -138,6 +148,7 @@
 									on:select={(e) => {
 										dispatch('select', { payload: e.detail, type: 'captures' })
 									}}
+									bind:this={captureTable}
 									isFlow={true}
 									headless={true}
 									addButton={false}
