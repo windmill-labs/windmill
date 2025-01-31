@@ -156,5 +156,5 @@
 </script>
 
 {#if schema}
-	<SchemaForm {schema} bind:args />
+	<SchemaForm onlyMaskPassword {schema} bind:args />
 {/if}
