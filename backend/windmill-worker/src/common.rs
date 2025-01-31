@@ -18,7 +18,7 @@ use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
-use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
+use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
     to_raw_value, write_file, CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
 };
@@ -255,11 +255,9 @@ pub async fn transform_json_value(
             let encrypted = y.strip_prefix("$encrypted:").unwrap();
             let mc =
                 build_crypt_with_key_suffix(&db, &job.workspace_id, &job.id.to_string()).await?;
-            decrypt_value_with_mc(encrypted.to_string(), mc)
-                .await
-                .and_then(|x| {
-                    serde_json::from_str(&x).map_err(|e| Error::InternalErr(e.to_string()))
-                })
+            decrypt(&mc, encrypted.to_string()).and_then(|x| {
+                serde_json::from_str(&x).map_err(|e| Error::InternalErr(e.to_string()))
+            })
 
             // let path = y.strip_prefix("$res:").unwrap();
         }
