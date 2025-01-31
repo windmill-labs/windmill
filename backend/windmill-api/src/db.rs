@@ -188,6 +188,10 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         Err(err) => Err(err),
     }?;
 
+    sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
+        .execute(&mut db)
+        .await?;
+
     if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
         tracing::error!("Could not apply flow versioning fix migration: {err:#}");
     }
