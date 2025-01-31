@@ -650,6 +650,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 				{#if selectedTab !== 'custom' || customPath !== undefined}
 					{#key selectedTab + JSON.stringify(customPathSchema ?? {})}
 						<SchemaForm
+							onlyMaskPassword
 							bind:isValid={areArgsValid}
 							bind:args
 							schema={selectedTab !== 'custom'

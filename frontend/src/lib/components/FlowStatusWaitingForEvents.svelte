@@ -145,7 +145,7 @@
 
 				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 					<div class="w-full border rounded-lg p-2">
-						<SchemaForm bind:args={default_payload} {defaultValues} {schema} />
+						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
 					</div>
 				{/if}
 				<Tooltip
