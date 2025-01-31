@@ -22,6 +22,7 @@ export interface SyncOptions {
   excludes?: string[];
   defaultTs?: "bun" | "deno";
   codebases?: Codebase[];
+  parallel?: number;
 }
 
 export interface Codebase {

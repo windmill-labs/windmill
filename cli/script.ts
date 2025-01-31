@@ -193,11 +193,12 @@ export async function handleFile(
         bundleContent = execSync(
           codebase.customBundler + " " + path
         ).toString();
-        log.info("Custom bundler executed");
+        log.info("Custom bundler executed for " + path);
       } else {
         const esbuild = await import("npm:esbuild");
 
-        log.info(`Starting building the bundle for ${path}`);
+        log.info(`Started bundling ${path} ...`);
+        const startTime = performance.now();
         const out = await esbuild.build({
           entryPoints: [path],
           format: "cjs",
@@ -210,19 +211,20 @@ export async function handleFile(
           packages: "bundle",
           target: "node20.15.1",
         });
+        const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
         log.info(
-          "Bundle size: " + (bundleContent.length / 1024).toFixed(0) + "kB"
+          `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
       }
       if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
         const archiveNpm = await import("npm:@ayonli/jsext/archive");
-
         log.info(
-          `Using the following asset configuration: ${JSON.stringify(
+          `Using the following asset configuration for ${path}: ${JSON.stringify(
             codebase.assets
           )}`
         );
+        const startTime = performance.now();
         const tarball = new archiveNpm.Tarball();
         tarball.append(
           new File([bundleContent], "main.js", { type: "text/plain" })
@@ -233,10 +235,10 @@ export async function handleFile(
           const file = new File([blob], asset.to);
           tarball.append(file);
         }
-        log.info("Tarball size: " + (tarball.size / 1024).toFixed(0) + "kB");
+        const endTime = performance.now();
+        log.info(`Finished creating tarball for ${path}: ${(tarball.size / 1024).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`);
         bundleContent = tarball;
       }
-      log.info(`Finished building the bundle for ${path}`);
     }
     let typed =
       opts?.skipScriptsMetadata ? undefined :
@@ -364,24 +366,23 @@ export async function handleFile(
         }
       }
 
-      log.info(
-        colors.yellow.bold(`Creating script with a parent ${remotePath}`)
-      );
+
+      log.info(`Updating script ${remotePath} ...`);
       const body = {
         ...requestBodyCommon,
         parent_hash: remote.hash,
       };
-      await createScript(bundleContent, workspaceId, body, workspace);
+      const execTime = await createScript(bundleContent, workspaceId, body, workspace);
+      log.info(colors.yellow.bold(`Updated script ${remotePath} (${execTime.toFixed(0)}ms)`));
     } else {
-      log.info(
-        colors.yellow.bold(`Creating script without parent ${remotePath}`)
-      );
-
+      log.info(`Creating new script ${remotePath} ...`);
       const body = {
         ...requestBodyCommon,
         parent_hash: undefined,
       };
-      await createScript(bundleContent, workspaceId, body, workspace);
+      const execTime = await createScript(bundleContent, workspaceId, body, workspace);
+      log.info(colors.yellow.bold(`Created new script ${remotePath} (${execTime.toFixed(0)}ms)`));
+
     }
     return true;
   }
@@ -416,7 +417,8 @@ async function createScript(
   workspaceId: string,
   body: NewScript,
   workspace: Workspace
-) {
+): Promise<number> {
+  const start = performance.now();
   if (!bundleContent) {
     try {
       // no parent hash
@@ -427,7 +429,7 @@ async function createScript(
     } catch (e: any) {
       throw Error(
         `Script creation for ${body.path} with parent ${body.parent_hash
-        }  was not successful: ${e.body ?? e.message}`
+        }  was not successful: ${e.body ?? e.message} `
       );
     }
   } else {
@@ -447,16 +449,17 @@ async function createScript(
       "/scripts/create_snapshot";
     const req = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${workspace.token}` },
+      headers: { Authorization: `Bearer ${workspace.token} ` },
       body: form,
     });
     if (req.status != 201) {
       throw Error(
         `Script snapshot creation was not successful: ${req.status} - ${req.statusText
-        } - ${await req.text()}`
+        } - ${await req.text()} `
       );
     }
   }
+  return performance.now() - start;
 }
 
 export async function findContentFile(filePath: string) {
@@ -868,7 +871,7 @@ async function generateMetadata(
   } & SyncOptions,
   scriptPath: string | undefined
 ) {
-  log.info("This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`");
+  log.info("This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`");
   if (scriptPath == "") {
     scriptPath = undefined;
   }
@@ -924,7 +927,7 @@ async function generateMetadata(
       );
       if (candidate) {
         hasAny = true;
-        log.info(colors.green(`+ ${candidate}`));
+        log.info(colors.green(`+ ${candidate} `));
       }
     }
     if (hasAny) {
@@ -987,7 +990,7 @@ const command = new Command()
   .action(bootstrap as any)
   .command(
     "generate-metadata",
-    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)"
+    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate - locks`)"
   )
   .arguments("[script:file]")
   .option("--yes", "Skip confirmation prompt")

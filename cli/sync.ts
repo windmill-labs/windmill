@@ -1390,244 +1390,299 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       return;
     }
 
+    const start = performance.now();
     log.info(colors.gray(`Applying changes to files ...`));
 
-    const alreadySynced: string[] = [];
 
-
-
-
-    for await (const change of changes) {
-      const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
-      let stateExists = true;
+    let stateful = opts.stateful;
+    if (stateful) {
       try {
-        await Deno.stat(stateTarget);
+        await Deno.stat(path.join(Deno.cwd(), ".wmill"));
       } catch {
-        stateExists = false;
+        stateful = false;
+      }
+    }
+
+    // Group changes by base path (before first dot)
+    const groupedChanges = new Map<string, typeof changes>();
+    for (const change of changes) {
+      const basePath = change.path.split('.')[0];
+      if (!groupedChanges.has(basePath)) {
+        groupedChanges.set(basePath, []);
+      }
+      groupedChanges.get(basePath)!.push(change);
+    }
+
+
+
+    let parallelizationFactor = opts.parallel ?? 1;
+    if (parallelizationFactor <= 0) {
+      parallelizationFactor = 1;
+    }
+    const groupedChangesArray = Array.from(groupedChanges.entries());
+    log.info(`found changes for ${groupedChangesArray.length} items with a total of ${groupedChangesArray.reduce((acc, [_, changes]) => acc + changes.length, 0)} files to process`);
+    if (parallelizationFactor > 1) {
+      log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
+    }
+
+    // Create a pool of workers that processes items as they become available
+    const pool = new Set();
+    const queue = [...groupedChangesArray];
+
+    while (queue.length > 0 || pool.size > 0) {
+      // Fill the pool until we reach parallelizationFactor
+      while (pool.size < parallelizationFactor && queue.length > 0) {
+        const [_basePath, changes] = queue.shift()!;
+        const promise = (async () => {
+          const alreadySynced: string[] = [];
+
+          for await (const change of changes) {
+            let stateTarget = undefined;
+            if (stateful) {
+              try {
+                stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
+                await Deno.stat(stateTarget);
+              } catch {
+                stateTarget = undefined;
+              }
+            }
+
+            if (change.name === "edited") {
+              if (
+                await handleScriptMetadata(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  globalDeps,
+                  codebases,
+                  opts
+                )
+              ) {
+                if (stateTarget) {
+                  await Deno.writeTextFile(stateTarget, change.after);
+                }
+                continue;
+              } else if (
+                await handleFile(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  globalDeps,
+                  codebases
+                )
+              ) {
+                if (stateTarget) {
+                  await Deno.writeTextFile(stateTarget, change.after);
+                }
+                continue;
+              }
+              if (stateTarget) {
+                await ensureDir(path.dirname(stateTarget));
+                log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
+              }
+
+              if (isFileResource(change.path)) {
+                const resourceFilePath = await findResourceFile(change.path);
+                if (!alreadySynced.includes(resourceFilePath)) {
+                  alreadySynced.push(resourceFilePath);
+
+                  const newObj = parseFromPath(
+                    resourceFilePath,
+                    await Deno.readTextFile(resourceFilePath)
+                  );
+
+                  await pushResource(
+                    workspace.workspaceId,
+                    resourceFilePath,
+                    undefined,
+                    newObj
+                  );
+                  if (stateTarget) {
+                    await Deno.writeTextFile(stateTarget, change.after);
+                  }
+                  continue;
+                }
+              }
+              const oldObj = parseFromPath(change.path, change.before);
+              const newObj = parseFromPath(change.path, change.after);
+
+              await pushObj(
+                workspace.workspaceId,
+                change.path,
+                oldObj,
+                newObj,
+                opts.plainSecrets ?? false,
+                alreadySynced,
+                opts.message
+              );
+
+              if (stateTarget) {
+                await Deno.writeTextFile(stateTarget, change.after);
+              }
+            } else if (change.name === "added") {
+              if (
+                change.path.endsWith(".script.json") ||
+                change.path.endsWith(".script.yaml") ||
+                change.path.endsWith(".lock") ||
+                isFileResource(change.path)
+              ) {
+                continue;
+              } else if (
+                await handleFile(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  opts,
+                  globalDeps,
+                  codebases
+                )
+              ) {
+                continue;
+              }
+              if (stateTarget) {
+                await ensureDir(path.dirname(stateTarget));
+                log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
+              }
+              const obj = parseFromPath(change.path, change.content);
+              await pushObj(
+                workspace.workspaceId,
+                change.path,
+                undefined,
+                obj,
+                opts.plainSecrets ?? false,
+                [],
+                opts.message
+              );
+
+              if (stateTarget) {
+                await Deno.writeTextFile(stateTarget, change.content);
+              }
+            } else if (change.name === "deleted") {
+              if (change.path.endsWith(".lock")) {
+                continue;
+              }
+              const typ = getTypeStrFromPath(change.path);
+
+              if (typ == "script") {
+                log.info(`Archiving ${typ} ${change.path}`);
+              } else {
+                log.info(`Deleting ${typ} ${change.path}`);
+              }
+              const workspaceId = workspace.workspaceId;
+              const target = change.path.replaceAll(SEP, "/");
+              switch (typ) {
+                case "script": {
+                  const script = await wmill.getScriptByPath({
+                    workspace: workspaceId,
+                    path: removeExtensionToPath(target),
+                  });
+                  await wmill.archiveScriptByHash({
+                    workspace: workspaceId,
+                    hash: script.hash,
+                  });
+                  break;
+                }
+                case "folder":
+                  await wmill.deleteFolder({
+                    workspace: workspaceId,
+                    name: change.path.split(SEP)[1],
+                  });
+                  break;
+                case "resource":
+                  await wmill.deleteResource({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".resource.json"),
+                  });
+                  break;
+                case "resource-type":
+                  await wmill.deleteResourceType({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".resource-type.json"),
+                  });
+                  break;
+                case "flow":
+                  await wmill.deleteFlowByPath({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".flow/flow.json"),
+                  });
+                  break;
+                case "app":
+                  await wmill.deleteApp({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".app/app.json"),
+                  });
+                  break;
+                case "schedule":
+                  await wmill.deleteSchedule({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".schedule.json"),
+                  });
+                  break;
+                case "variable":
+                  await wmill.deleteVariable({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".variable.json"),
+                  });
+                  break;
+                case "user": {
+                  const users = await wmill.listUsers({
+                    workspace: workspaceId,
+                  });
+
+                  const email = removeSuffix(
+                    removePathPrefix(change.path, "users"),
+                    ".user.json"
+                  );
+                  const user = users.find((u) => u.email === email);
+                  if (!user) {
+                    throw new Error(`User ${email} not found`);
+                  }
+                  await wmill.deleteUser({
+                    workspace: workspaceId,
+                    username: user.username,
+                  });
+                  break;
+                }
+                case "group":
+                  await wmill.deleteGroup({
+                    workspace: workspaceId,
+                    name: removeSuffix(
+                      removePathPrefix(change.path, "groups"),
+                      ".group.json"
+                    ),
+                  });
+                  break;
+                default:
+                  break;
+              }
+              if (stateTarget) {
+                try {
+                  await Deno.remove(stateTarget);
+                } catch {
+                  // state target may not exist already
+                }
+              }
+            }
+          }
+        })();
+
+        pool.add(promise);
+        // Remove from pool when complete
+        promise.then(() => pool.delete(promise));
       }
 
-      if (change.name === "edited") {
-        if (
-          await handleScriptMetadata(
-            change.path,
-            workspace,
-            alreadySynced,
-            opts.message,
-            globalDeps,
-            codebases,
-            opts
-          )
-        ) {
-          if (opts.stateful && stateExists) {
-            await Deno.writeTextFile(stateTarget, change.after);
-          }
-          continue;
-        } else if (
-          await handleFile(
-            change.path,
-            workspace,
-            alreadySynced,
-            opts.message,
-            opts,
-            globalDeps,
-            codebases
-          )
-        ) {
-          if (opts.stateful && stateExists) {
-            await Deno.writeTextFile(stateTarget, change.after);
-          }
-          continue;
-        }
-        if (opts.stateful) {
-          await ensureDir(path.dirname(stateTarget));
-          log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
-        }
-
-        if (isFileResource(change.path)) {
-          const resourceFilePath = await findResourceFile(change.path);
-          if (!alreadySynced.includes(resourceFilePath)) {
-            alreadySynced.push(resourceFilePath);
-
-            const newObj = parseFromPath(
-              resourceFilePath,
-              await Deno.readTextFile(resourceFilePath)
-            );
-
-            await pushResource(
-              workspace.workspaceId,
-              resourceFilePath,
-              undefined,
-              newObj
-            );
-            if (opts.stateful && stateExists) {
-              await Deno.writeTextFile(stateTarget, change.after);
-            }
-            continue;
-          }
-        }
-        const oldObj = parseFromPath(change.path, change.before);
-        const newObj = parseFromPath(change.path, change.after);
-
-        await pushObj(
-          workspace.workspaceId,
-          change.path,
-          oldObj,
-          newObj,
-          opts.plainSecrets ?? false,
-          alreadySynced,
-          opts.message
-        );
-
-        if (opts.stateful && stateExists) {
-          await Deno.writeTextFile(stateTarget, change.after);
-        }
-      } else if (change.name === "added") {
-        if (
-          change.path.endsWith(".script.json") ||
-          change.path.endsWith(".script.yaml") ||
-          change.path.endsWith(".lock") ||
-          isFileResource(change.path)
-        ) {
-          continue;
-        } else if (
-          await handleFile(
-            change.path,
-            workspace,
-            alreadySynced,
-            opts.message,
-            opts,
-            globalDeps,
-            codebases
-          )
-        ) {
-          continue;
-        }
-        if (opts.stateful && stateExists) {
-          await ensureDir(path.dirname(stateTarget));
-          log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
-        }
-        const obj = parseFromPath(change.path, change.content);
-        await pushObj(
-          workspace.workspaceId,
-          change.path,
-          undefined,
-          obj,
-          opts.plainSecrets ?? false,
-          [],
-          opts.message
-        );
-
-        if (opts.stateful && stateExists) {
-          await Deno.writeTextFile(stateTarget, change.content);
-        }
-      } else if (change.name === "deleted") {
-        if (change.path.endsWith(".lock")) {
-          continue;
-        }
-        const typ = getTypeStrFromPath(change.path);
-
-        if (typ == "script") {
-          log.info(`Archiving ${typ} ${change.path}`);
-        } else {
-          log.info(`Deleting ${typ} ${change.path}`);
-        }
-        const workspaceId = workspace.workspaceId;
-        const target = change.path.replaceAll(SEP, "/");
-        switch (typ) {
-          case "script": {
-            const script = await wmill.getScriptByPath({
-              workspace: workspaceId,
-              path: removeExtensionToPath(target),
-            });
-            await wmill.archiveScriptByHash({
-              workspace: workspaceId,
-              hash: script.hash,
-            });
-            break;
-          }
-          case "folder":
-            await wmill.deleteFolder({
-              workspace: workspaceId,
-              name: change.path.split(SEP)[1],
-            });
-            break;
-          case "resource":
-            await wmill.deleteResource({
-              workspace: workspaceId,
-              path: removeSuffix(target, ".resource.json"),
-            });
-            break;
-          case "resource-type":
-            await wmill.deleteResourceType({
-              workspace: workspaceId,
-              path: removeSuffix(target, ".resource-type.json"),
-            });
-            break;
-          case "flow":
-            await wmill.deleteFlowByPath({
-              workspace: workspaceId,
-              path: removeSuffix(target, ".flow/flow.json"),
-            });
-            break;
-          case "app":
-            await wmill.deleteApp({
-              workspace: workspaceId,
-              path: removeSuffix(target, ".app/app.json"),
-            });
-            break;
-          case "schedule":
-            await wmill.deleteSchedule({
-              workspace: workspaceId,
-              path: removeSuffix(target, ".schedule.json"),
-            });
-            break;
-          case "variable":
-            await wmill.deleteVariable({
-              workspace: workspaceId,
-              path: removeSuffix(target, ".variable.json"),
-            });
-            break;
-          case "user": {
-            const users = await wmill.listUsers({
-              workspace: workspaceId,
-            });
-
-            const email = removeSuffix(
-              removePathPrefix(change.path, "users"),
-              ".user.json"
-            );
-            const user = users.find((u) => u.email === email);
-            if (!user) {
-              throw new Error(`User ${email} not found`);
-            }
-            await wmill.deleteUser({
-              workspace: workspaceId,
-              username: user.username,
-            });
-            break;
-          }
-          case "group":
-            await wmill.deleteGroup({
-              workspace: workspaceId,
-              name: removeSuffix(
-                removePathPrefix(change.path, "groups"),
-                ".group.json"
-              ),
-            });
-            break;
-          default:
-            break;
-        }
-        try {
-          await Deno.remove(stateTarget);
-        } catch {
-          // state target may not exist already
-        }
+      // Wait for at least one task to complete before continuing
+      if (pool.size > 0) {
+        await Promise.race(pool);
       }
     }
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}.`
+        `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
       )
     );
   }
@@ -1698,6 +1753,10 @@ const command = new Command()
   .option(
     "--message <message:string>",
     "Include a message that will be added to all scripts/flows/apps updated during this push"
+  )
+  .option(
+    "--parallel <number>",
+    "Number of changes to process in parallel"
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);
