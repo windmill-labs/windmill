@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.456.0](https://github.com/windmill-labs/windmill/compare/v1.455.2...v1.456.0) (2025-02-01)
+
+
+### Features
+
+* flow history picker for flow status + load last flow state ([611d5e8](https://github.com/windmill-labs/windmill/commit/611d5e8bf3d64106c3e9698687d2ec3710988517))
+
+
+### Bug Fixes
+
+* only start smtp servers if email domain is set ([6d9edc8](https://github.com/windmill-labs/windmill/commit/6d9edc8c2b01c99339c156dc84def13b0a2205a6))
+
 ## [1.455.2](https://github.com/windmill-labs/windmill/compare/v1.455.1...v1.455.2) (2025-01-31)
 
 
