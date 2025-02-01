@@ -28,8 +28,9 @@
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
-	let loading = false
-
+	let aws_resource_path: string = ''
+	//let loading = false
+	let queue_name = ''
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -98,7 +99,9 @@
 				requestBody: {
 					path,
 					script_path,
-					is_flow
+					is_flow,
+					queue_name,
+					aws_resource_path
 				}
 			})
 			sendUserToast(`SqsTrigger ${path} updated`)
@@ -106,6 +109,8 @@
 			await SqsTriggerService.createSqsTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
+					aws_resource_path,
+					queue_name,
 					path,
 					script_path,
 					is_flow
@@ -200,6 +205,13 @@
 							allowRefresh
 						/>
 					</div>
+				</Section>
+
+				<Section label="Queue information">
+					<p class="text-xs mb-1 text-tertiary">
+						Enter the name of the queue you want to listen to <Required required={true} />
+					</p>
+					<input type="text" placeholder={'Queue name'} bind:value={queue_name} />
 				</Section>
 			</div>
 		{/if}
