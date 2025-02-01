@@ -469,12 +469,15 @@ pub async fn get_full_hub_script_by_path(
     let script;
     if tokio::fs::metadata(&cache_path).await.is_err() {
         script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
-        crate::worker::write_file(
+        if let Err(e) = crate::worker::write_file(
             HUB_CACHE_DIR,
             &version,
             &serde_json::to_string(&script).map_err(to_anyhow)?,
-        )?;
-        tracing::info!("wrote hub script {path} to cache");
+        ) {
+            tracing::error!("failed to write hub script {path} to cache: {e}");
+        } else {
+            tracing::info!("wrote hub script {path} to cache");
+        }
     } else {
         let cache_content = tokio::fs::read_to_string(cache_path).await?;
         script = serde_json::from_str(&cache_content).unwrap();
