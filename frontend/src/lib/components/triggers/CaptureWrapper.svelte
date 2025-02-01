@@ -189,9 +189,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'webhook'}
