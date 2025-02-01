@@ -22,9 +22,11 @@
 	let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
 
 	export async function loadData(loadOption: 'refresh' | 'forceRefresh' | 'loadMore' = 'loadMore') {
+		// console.log('loadData', loadOption, length, items?.length)
+
 		if (!loadInputs) return
 		loading = true
-		hasMore = hasMore
+		hasMore = length === perPage * page
 
 		if (hasMore && loadOption === 'loadMore') {
 			page++
@@ -160,7 +162,7 @@
 
 	@keyframes greenHighlight {
 		0% {
-			background-color: rgba(70, 255, 138, 0.5);
+			background-color: rgba(70, 255, 138, 0.4);
 			box-shadow: 0 0 15px rgb(34 197 94 / 0.3);
 		}
 		100% {
@@ -170,7 +172,7 @@
 	}
 
 	:global(.animate-slideIn) {
-		animation: greenHighlight 2s ease-out forwards;
+		animation: greenHighlight 1s ease-out forwards;
 		will-change: transform, opacity, background-color, box-shadow;
 		position: relative;
 	}
