@@ -14,8 +14,6 @@ use axum::{
 #[cfg(feature = "http_trigger")]
 use http::HeaderMap;
 use hyper::StatusCode;
-use itertools::Itertools;
-use pg_escape::quote_literal;
 #[cfg(feature = "http_trigger")]
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -41,15 +39,18 @@ use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 #[cfg(feature = "postgres_trigger")]
-use crate::postgres_triggers::PublicationData;
+use crate::postgres_triggers::{
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection, PublicationData,
+};
+#[cfg(feature = "postgres_trigger")]
+use itertools::Itertools;
+#[cfg(feature = "postgres_trigger")]
+use pg_escape::quote_literal;
 
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
-    postgres_triggers::{
-        create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-        generate_random_string, get_database_connection,
-    },
     users::fetch_api_authed,
 };
 
@@ -216,6 +217,7 @@ async fn get_configs(
     Ok(Json(configs))
 }
 
+#[cfg(feature = "postgres_trigger")]
 async fn set_postgres_trigger_config(
     w_id: &str,
     authed: ApiAuthed,
@@ -280,10 +282,13 @@ async fn set_postgres_trigger_config(
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
+    #[cfg(feature = "postgres_trigger")] Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(mut nc): Json<NewCaptureConfig>,
+    Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
+    
+    #[cfg(feature = "postgres_trigger")]
+    let mut nc = nc;
     #[cfg(feature = "postgres_trigger")]
     if let TriggerKind::Postgres = nc.trigger_kind {
         nc = set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?;
