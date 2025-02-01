@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.456.0](https://github.com/windmill-labs/windmill/compare/v1.455.2...v1.456.0) (2025-02-01)
+
+
+### Features
+
+* flow history picker for flow status + load last flow state ([611d5e8](https://github.com/windmill-labs/windmill/commit/611d5e8bf3d64106c3e9698687d2ec3710988517))
+
+
+### Bug Fixes
+
+* only start smtp servers if email domain is set ([6d9edc8](https://github.com/windmill-labs/windmill/commit/6d9edc8c2b01c99339c156dc84def13b0a2205a6))
+
+## [1.455.2](https://github.com/windmill-labs/windmill/compare/v1.455.1...v1.455.2) (2025-01-31)
+
+
+### Bug Fixes
+
+* fix worker restart on otel setting set from undefined to null ([#5183](https://github.com/windmill-labs/windmill/issues/5183)) ([940fb03](https://github.com/windmill-labs/windmill/commit/940fb030232ea7944db94bfdf8b30a96f30baa21))
+* improve autoscaling num workers inc ([2638dfc](https://github.com/windmill-labs/windmill/commit/2638dfcf00522af733c49b2c02a78ec4028623e0))
+* improve history and saved inputs rever mechanism ([0b0e564](https://github.com/windmill-labs/windmill/commit/0b0e5640d8fa9682ad0a4349c863b743321be1f4))
+
+## [1.455.1](https://github.com/windmill-labs/windmill/compare/v1.455.0...v1.455.1) (2025-01-31)
+
+
+### Bug Fixes
+
+* pin malachite version ([b74d3fd](https://github.com/windmill-labs/windmill/commit/b74d3fd6e08ea991f7a7360b79d54a45a8ee58be))
+
+## [1.455.0](https://github.com/windmill-labs/windmill/compare/v1.454.1...v1.455.0) (2025-01-31)
+
+
+### Features
+
+* **cli:** add --parallel option to push + display timings ([73dbb8f](https://github.com/windmill-labs/windmill/commit/73dbb8fb80f56942d35e5b5cda9715bba5d5c98f))
+* duckdb connection settings with azure blob storage ([#5180](https://github.com/windmill-labs/windmill/issues/5180)) ([8ba0f3a](https://github.com/windmill-labs/windmill/commit/8ba0f3addd0a02dba87c30739b44f524019a5e5a))
+* polars connection settings with azure blob storage ([#5175](https://github.com/windmill-labs/windmill/issues/5175)) ([8b65f1b](https://github.com/windmill-labs/windmill/commit/8b65f1bc3829d6b02bf38bf1449d3061ef62a08c))
+
+
+### Bug Fixes
+
+* capture panel never stopping + http saved config ([#5179](https://github.com/windmill-labs/windmill/issues/5179)) ([ff3339d](https://github.com/windmill-labs/windmill/commit/ff3339dc4e9ea4641b847fa5ef51bedcf6a3a429))
+* restart zombie job correctly handle concurrency limits ([#5181](https://github.com/windmill-labs/windmill/issues/5181)) ([8a93418](https://github.com/windmill-labs/windmill/commit/8a93418c25d180859bda76b9218e750e4b407fed))
+
 ## [1.454.1](https://github.com/windmill-labs/windmill/compare/v1.454.0...v1.454.1) (2025-01-30)
 
 

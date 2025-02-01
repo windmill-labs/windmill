@@ -34,7 +34,11 @@ use http::HeaderValue;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
+use windmill_common::global_settings::load_value_from_global_settings;
+use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
+use windmill_common::worker::HUB_CACHE_DIR;
 
+use std::fs::DirBuilder;
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
@@ -205,6 +209,13 @@ pub async fn run_server(
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
+    for x in [HUB_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .expect("could not create initial server dir");
+    }
+
     #[cfg(feature = "enterprise")]
     let ext_jwks = ExternalJwks::load().await;
     let auth_cache = Arc::new(crate::auth::AuthCache::new(
@@ -244,16 +255,32 @@ pub async fn run_server(
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
 
-        #[cfg(feature = "smtp")]
+        let mut start_smtp_server = false;
+        if let Some(smtp_settings) =
+            load_value_from_global_settings(&db, EMAIL_DOMAIN_SETTING).await?
         {
-            let smtp_server = Arc::new(SmtpServer {
-                db: db.clone(),
-                user_db: user_db,
-                auth_cache: auth_cache.clone(),
-                base_internal_url: base_internal_url.clone(),
-            });
-            if let Err(err) = smtp_server.start_listener_thread(addr).await {
-                tracing::error!("Error starting SMTP server: {err:#}");
+            if smtp_settings.as_str().unwrap_or("") != "" {
+                start_smtp_server = true;
+            }
+        }
+        if !start_smtp_server {
+            tracing::info!("SMTP server not started because email domain is not set");
+        } else {
+            #[cfg(feature = "smtp")]
+            {
+                let smtp_server = Arc::new(SmtpServer {
+                    db: db.clone(),
+                    user_db: user_db,
+                    auth_cache: auth_cache.clone(),
+                    base_internal_url: base_internal_url.clone(),
+                });
+                if let Err(err) = smtp_server.start_listener_thread(addr).await {
+                    tracing::error!("Error starting SMTP server: {err:#}");
+                }
+            }
+            #[cfg(not(feature = "smtp"))]
+            {
+                tracing::info!("SMTP server not started because SMTP feature is not enabled");
             }
         }
     }
