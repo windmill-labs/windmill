@@ -468,7 +468,7 @@
 								runnableId={initialPath ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
-									updatePreviewSchemaAndArgs(e.detail ?? undefined)
+									updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
 								}}
 							/>
 						</FlowInputEditor>
