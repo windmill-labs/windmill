@@ -38,10 +38,12 @@ use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
+#[cfg(feature = "postgres_trigger")]
+use crate::postgres_triggers::PublicationData;
+
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
-    postgres_triggers::PublicationData,
     users::fetch_api_authed,
 };
 
