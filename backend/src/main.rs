@@ -17,13 +17,11 @@ use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     collections::HashMap,
+    fs::{create_dir_all, DirBuilder},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::{
-    fs::{create_dir_all, DirBuilder, File},
-    io::AsyncReadExt,
-};
+use tokio::{fs::File, io::AsyncReadExt};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -47,7 +45,7 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION},
-    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
+    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
 
@@ -73,7 +71,7 @@ use windmill_worker::{
     DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
     POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
     RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR,
-    TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, TMP_LOGS_DIR, UV_CACHE_DIR,
+    TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -140,8 +138,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
         )
     })?;
 
-    create_dir_all(HUB_CACHE_DIR).await?;
-    create_dir_all(BUN_BUNDLE_CACHE_DIR).await?;
+    create_dir_all(HUB_CACHE_DIR)?;
+    create_dir_all(BUN_BUNDLE_CACHE_DIR)?;
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
@@ -152,7 +150,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             .is_some_and(|x| x == &ScriptLang::Deno)
         {
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
-            create_dir_all(&job_dir).await?;
+            create_dir_all(&job_dir)?;
             let _ = windmill_worker::generate_deno_lock(
                 &Uuid::nil(),
                 &res.content,
@@ -170,7 +168,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
         } else if res.language.as_ref().is_some_and(|x| x == &ScriptLang::Bun) {
             let job_id = Uuid::new_v4();
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
-            create_dir_all(&job_dir).await?;
+            create_dir_all(&job_dir)?;
             if let Some(lockfile) = res.lockfile {
                 let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
                 let envs = windmill_worker::get_common_bun_proc_envs(None).await;
@@ -505,7 +503,6 @@ Windmill Community Edition {GIT_VERSION}
         DirBuilder::new()
             .recursive(true)
             .create("/tmp/windmill")
-            .await
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]
@@ -1047,7 +1044,6 @@ pub async fn run_workers(
         DirBuilder::new()
             .recursive(true)
             .create(x)
-            .await
             .expect("could not create initial worker dir");
     }
 

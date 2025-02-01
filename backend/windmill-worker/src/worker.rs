@@ -262,8 +262,6 @@ pub async fn create_token_for_owner(
     Ok(format!("jwt_{}", token))
 }
 
-pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
-
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
