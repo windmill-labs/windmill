@@ -41,6 +41,7 @@ use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
+    postgres_triggers::PublicationData,
     users::fetch_api_authed,
 };
 
@@ -139,8 +140,9 @@ pub struct NatsTriggerConfig {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
     pub postgres_resource_path: String,
-    pub publication_name: String,
-    pub replication_slot_name: String,
+    pub publication_name: Option<String>,
+    pub replication_slot_name: Option<String>,
+    pub publication: PublicationData,
 }
 
 #[cfg(feature = "websocket")]
@@ -201,7 +203,6 @@ async fn get_configs(
     )
     .fetch_all(&mut *tx)
     .await?;
-
     tx.commit().await?;
 
     Ok(Json(configs))

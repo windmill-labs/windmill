@@ -11,7 +11,7 @@
 	import { fade } from 'svelte/transition'
 	export let relations: Relations[] = []
 	export let selectedTable: 'all' | 'specific'
-
+	export let can_write: boolean = true
 	export function validRelations(relations: Relations[]): boolean {
 		let result: {
 			schemaIndex: number
@@ -182,11 +182,11 @@
 									!Array.isArray(relations[i].table_to_track)
 								) {
 									relations[i].table_to_track = []
-									relations[i].table_to_track = relations[i].table_to_track.concat({
-										table_name: '',
-										columns_name: []
-									})
 								}
+								relations[i].table_to_track = relations[i].table_to_track.concat({
+									table_name: '',
+									columns_name: []
+								})
 							}}
 							startIcon={{ icon: Plus }}
 						>
@@ -212,6 +212,7 @@
 				color="light"
 				size="xs"
 				btnClasses="mt-1"
+				disabled={!can_write}
 				on:click={() => {
 					if (relations == undefined || !Array.isArray(relations)) {
 						relations = []

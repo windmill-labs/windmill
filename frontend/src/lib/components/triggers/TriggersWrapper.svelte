@@ -33,10 +33,11 @@
 		/>
 	{:else if triggerType === 'postgres'}
 		<PostgresEditorConfigSection
-			bind:relations={args.relations}
-			bind:transaction_to_track={args.transaction_to_track}
-			bind:postgres_resource_path={args.postgres_resource_path}
+			can_write={true}
+			headless={true}
 			showCapture={false}
+			bind:publication={args.publication}
+			bind:postgres_resource_path={args.postgres_resource_path}
 		/>
 	{:else if triggerType === 'webhook'}
 		<WebhooksConfigSection

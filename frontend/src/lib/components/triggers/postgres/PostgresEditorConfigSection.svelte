@@ -7,24 +7,47 @@
 	import Required from '$lib/components/Required.svelte'
 	import MultiSelect from 'svelte-multiselect'
 	import RelationPicker from './RelationPicker.svelte'
-	import type { Relations } from '$lib/gen'
+	import type { PublicationData } from '$lib/gen'
 	import { emptyString } from '$lib/utils'
 
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let selectedTable: 'all' | 'specific' = 'specific'
-	export let transaction_to_track: string[] = ['Insert', 'Update', 'Delete']
-	export let relations: Relations[] = []
 	export let headless: boolean = false
+	export let can_write: boolean = false
 	export let showCapture: boolean = false
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean = false
 	export let postgres_resource_path: string = ''
+	export let publication: PublicationData = {
+		transaction_to_track: ['Insert', 'Update', 'Delete'],
+		table_to_track: [
+			{
+				schema_name: 'public',
+				table_to_track: []
+			}
+		]
+	}
+	$: publication =
+		publication === undefined
+			? {
+					transaction_to_track: ['Insert', 'Update', 'Delete'],
+					table_to_track: [
+						{
+							schema_name: 'public',
+							table_to_track: []
+						}
+					]
+			  }
+			: publication
+	let notEmpty = publication.table_to_track && publication.table_to_track.length > 0
+
+	$: notEmpty = publication.table_to_track && publication.table_to_track.length > 0
+	let selectedTable: 'all' | 'specific' = notEmpty ? 'specific' : 'all'
 	$: isValid =
 		!emptyString(postgres_resource_path) &&
-		transaction_to_track?.length > 0 &&
-		(selectedTable === 'all' || table_to_track?.length > 0)
-	$: table_to_track = selectedTable === 'all' ? [] : relations
+		publication.transaction_to_track.length > 0 &&
+		(selectedTable === 'all' || (notEmpty ?? false))
+	$: selectedTable === 'all' && (publication.table_to_track = [])
 </script>
 
 <div>
@@ -47,7 +70,11 @@
 				<p class="text-xs mb-1 text-tertiary">
 					Pick a database to connect to <Required required={true} />
 				</p>
-				<ResourcePicker bind:value={postgres_resource_path} resourceType={'postgresql'} />
+				<ResourcePicker
+					disabled={!can_write}
+					bind:value={postgres_resource_path}
+					resourceType={'postgresql'}
+				/>
 				{#if postgres_resource_path}
 					<TestTriggerConnection kind="postgres" args={{ postgres_resource_path }} />
 				{/if}
@@ -64,10 +91,9 @@
 					noMatchingOptionsMsg=""
 					createOptionMsg={null}
 					duplicates={false}
-					bind:value={transaction_to_track}
 					options={transactionType}
 					allowUserOptions="append"
-					bind:selected={transaction_to_track}
+					bind:selected={publication.transaction_to_track}
 				/>
 			</Section>
 			<Section label="Table tracking">
@@ -79,7 +105,7 @@
 					<strong>specific columns of a table</strong>. Additionally, you can apply a
 					<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
 				</p>
-				<RelationPicker bind:selectedTable bind:relations />
+				<RelationPicker bind:selectedTable bind:relations={publication.table_to_track} />
 			</Section>
 		</div>
 	</Section>

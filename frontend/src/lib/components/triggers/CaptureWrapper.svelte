@@ -1,11 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import {
-		CaptureService,
-		PostgresTriggerService,
-		type CaptureConfig,
-		type CaptureTriggerKind
-	} from '$lib/gen'
+	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
 	import { onDestroy } from 'svelte'
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -32,43 +27,22 @@
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
-	export async function setConfig() {
+	export async function setConfig(): Promise<boolean> {
 		try {
-			let requestBody: {
-				trigger_kind: CaptureTriggerKind
-				path: string
-				is_flow: boolean
-				trigger_config: Record<string, any> | undefined
-			} = {
-				trigger_kind: captureType,
-				path,
-				is_flow: isFlow,
-				trigger_config: undefined
-			}
-
-			if (captureType === 'postgres') {
-				const result = await PostgresTriggerService.createPostgresPublicationReplication({
-					path: args.postgres_resource_path,
-					workspace: $workspaceStore!,
-					requestBody: {
-						table_to_track: args.relations,
-						transaction_to_track: args.transaction_to_track
-					}
-				})
-				requestBody.trigger_config = {
-					postgres_resource_path: args.postgres_resource_path,
-					...result
-				}
-			} else if (args && Object.keys(args).length > 0) {
-				requestBody.trigger_config = args
-			}
 			await CaptureService.setCaptureConfig({
-				requestBody,
+				requestBody: {
+					trigger_kind: captureType,
+					path,
+					is_flow: isFlow,
+					trigger_config: args && Object.keys(args).length > 0 ? args : undefined
+				},
 				workspace: $workspaceStore!
 			})
 		} catch (error) {
 			sendUserToast(error.body, true)
+			return false
 		}
+		return true
 	}
 
 	let captureActive = false
@@ -147,8 +121,7 @@
 	}
 
 	export async function handleCapture() {
-		if (!captureActive) {
-			await setConfig()
+		if (!captureActive && (await setConfig())) {
 			capture()
 		} else {
 			captureActive = false
@@ -158,22 +131,11 @@
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
 
-	let cloudDisabled =
-		(captureType === 'postgres' ||
-			captureType === 'websocket' ||
-			captureType === 'kafka' ||
-			captureType === 'nats') &&
-		isCloudHosted()
+	const streamingTrigger = ['postgres', 'websocket', 'kafka', 'nats']
+	let cloudDisabled = streamingTrigger.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (
-			(captureType === 'postgres' ||
-				captureType === 'websocket' ||
-				captureType === 'kafka' ||
-				captureType === 'nats') &&
-			config &&
-			captureActive
-		) {
+		if (streamingTrigger.includes(captureType) && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
@@ -228,10 +190,11 @@
 		{:else if captureType === 'postgres'}
 			<PostgresEditorConfigSection
 				bind:postgres_resource_path={args.postgres_resource_path}
-				bind:relations={args.relations}
-				bind:transaction_to_track={args.transaction_to_track}
+				bind:publication={args.publication}
 				{showCapture}
 				{captureInfo}
+				can_write={true}
+				headless={true}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema

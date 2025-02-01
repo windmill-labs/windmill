@@ -3,7 +3,7 @@
 	import { PostgresTriggerService, type PostgresTrigger } from '$lib/gen'
 
 	import { canWrite, sendUserToast } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert, Skeleton } from '$lib/components/common'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -23,12 +23,25 @@
 
 	$: path && loadTriggers()
 
-	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, selectedTrigger, defaultValues } =
+		getContext<TriggerContext>('TriggerContext')
 
-	let databaseTriggers: (PostgresTrigger & { canWrite: boolean })[] | undefined = undefined
+
+	onMount(() => {
+		if (
+			defaultValues &&
+			$selectedTrigger === 'postgres' &&
+			Object.keys($defaultValues ?? {}).length > 0
+		) {
+			postgresTriggerEditor.openNew(isFlow, path, $defaultValues)
+			defaultValues.set(undefined)
+		}
+	})
+
+	let postgresTriggers: (PostgresTrigger & { canWrite: boolean })[] | undefined = undefined
 	export async function loadTriggers() {
 		try {
-			databaseTriggers = (
+			postgresTriggers = (
 				await PostgresTriggerService.listPostgresTriggers({
 					workspace: $workspaceStore ?? '',
 					path,
@@ -37,7 +50,7 @@
 			).map((x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
-			$triggersCount = { ...($triggersCount ?? {}), postgres_count: databaseTriggers?.length }
+			$triggersCount = { ...($triggersCount ?? {}), postgres_count: postgresTriggers?.length }
 		} catch (err) {
 			sendUserToast(`Could not load postgres triggers ${err.body}`, true)
 		}
@@ -82,21 +95,21 @@
 		{#if !newItem}
 			<Section label="Postgres">
 				<div class="flex flex-col gap-4">
-					{#if databaseTriggers}
-						{#if databaseTriggers.length == 0}
+					{#if postgresTriggers}
+						{#if postgresTriggers.length == 0}
 							<div class="text-xs text-secondary"> No Postgres triggers </div>
 						{:else}
 							<div class="flex flex-col divide-y pt-2">
-								{#each databaseTriggers as databaseTriggers (databaseTriggers.path)}
+								{#each postgresTriggers as postgresTriggers (postgresTriggers.path)}
 									<div class="grid grid-cols-5 text-2xs items-center py-2">
-										<div class="col-span-2 truncate">{databaseTriggers.path}</div>
+										<div class="col-span-2 truncate">{postgresTriggers.path}</div>
 										<div class="flex justify-end">
 											<button
 												on:click={() =>
-													postgresTriggerEditor?.openEdit(databaseTriggers.path, isFlow)}
+													postgresTriggerEditor?.openEdit(postgresTriggers.path, isFlow)}
 												class="px-2"
 											>
-												{#if databaseTriggers.canWrite}
+												{#if postgresTriggers.canWrite}
 													Edit
 												{:else}
 													View

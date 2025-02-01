@@ -4,6 +4,10 @@ use crate::{
     resources::get_resource_value_interpolated_internal,
     users::fetch_api_authed,
 };
+use chrono::Utc;
+use itertools::Itertools;
+use pg_escape::{quote_identifier, quote_literal};
+use rand::Rng;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 
@@ -17,7 +21,7 @@ use handler::{
     exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
     is_database_in_logical_level, list_database_publication, list_postgres_triggers,
     list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Database,
-    PostgresTrigger,
+    PostgresTrigger, Relations,
 };
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -31,8 +35,108 @@ mod relation;
 mod replication_message;
 mod trigger;
 
-pub use handler::create_custom_slot_and_publication;
+pub use handler::PublicationData;
 pub use trigger::start_database;
+
+pub fn get_new_slot_query(name: &str) -> String {
+    let query = format!(
+        r#"
+        SELECT 
+                *
+        FROM
+            pg_create_logical_replication_slot({}, 'pgoutput');"#,
+        quote_literal(&name)
+    );
+
+    query
+}
+
+
+pub fn get_create_publication_query(
+    publication_name: &str,
+    table_to_track: Option<&[Relations]>,
+    transaction_to_track: &[&str],
+) -> String {
+    let mut query = String::from("CREATE PUBLICATION ");
+
+    query.push_str(&quote_identifier(publication_name));
+
+    match table_to_track {
+        Some(database_component) if !database_component.is_empty() => {
+            query.push_str(" FOR");
+            for (i, schema) in database_component.iter().enumerate() {
+                if schema.table_to_track.is_empty() {
+                    query.push_str(" TABLES IN SCHEMA ");
+                    query.push_str(&quote_identifier(&schema.schema_name));
+                } else {
+                    query.push_str(" TABLE ONLY ");
+                    for (j, table) in schema.table_to_track.iter().enumerate() {
+                        let table_name = quote_identifier(&table.table_name);
+                        let schema_name = quote_identifier(&schema.schema_name);
+                        let full_name = format!("{}.{}", &schema_name, &table_name);
+                        query.push_str(&full_name);
+                        if !table.columns_name.is_empty() {
+                            query.push_str(" (");
+                            let columns = table
+                                .columns_name
+                                .iter()
+                                .map(|column| quote_identifier(column))
+                                .join(", ");
+                            query.push_str(&columns);
+                            query.push_str(")");
+                        }
+
+                        if let Some(where_clause) = &table.where_clause {
+                            query.push_str(" WHERE (");
+                            query.push_str(where_clause);
+                            query.push(')');
+                        }
+
+                        if j + 1 != schema.table_to_track.len() {
+                            query.push_str(", ");
+                        }
+                    }
+                }
+                if i < database_component.len() - 1 {
+                    query.push_str(", ");
+                }
+            }
+        }
+        _ => {
+            query.push_str(" FOR ALL TABLES ");
+        }
+    };
+
+    if !transaction_to_track.is_empty() {
+        let transactions = || transaction_to_track.iter().join(", ");
+        query.push_str(" WITH (publish = '");
+        query.push_str(&transactions());
+        query.push_str("');");
+    }
+
+    query
+}
+
+pub fn generate_random_string() -> String {
+    let generate_random_string = move || {
+        let timestamp = Utc::now().timestamp_millis().to_string();
+        let mut rng = rand::rng();
+        let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+        let random_part = (0..10)
+            .map(|_| {
+                charset
+                    .chars()
+                    .nth(rng.random_range(0..charset.len()))
+                    .unwrap()
+            })
+            .collect::<String>();
+
+        format!("{}_{}", timestamp, random_part)
+    };
+
+    generate_random_string()
+}
 
 pub async fn get_database_resource(
     authed: ApiAuthed,
@@ -101,10 +205,6 @@ pub fn workspaced_service() -> Router {
         .route(
             "/is_valid_postgres_configuration/*path",
             get(is_database_in_logical_level),
-        )
-        .route(
-            "/create_custom_publication_and_slot/*path",
-            post(create_custom_slot_and_publication),
         )
         .nest("/publication", publication_service())
         .nest("/slot", slot_service())

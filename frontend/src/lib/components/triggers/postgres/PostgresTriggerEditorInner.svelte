@@ -360,9 +360,14 @@
 						Pick a database to connect to <Required required={true} />
 					</p>
 					<div class="flex flex-col mb-2 gap-3">
-						<ResourcePicker bind:value={postgres_resource_path} resourceType={'postgresql'} />
+						<ResourcePicker
+							disabled={!can_write}
+							bind:value={postgres_resource_path}
+							resourceType={'postgresql'}
+						/>
 						{#if postgres_resource_path}
 							<Button
+								disabled={!can_write}
 								loading={loadingConfiguration}
 								on:click={checkDatabaseConfiguration}
 								color="gray"
@@ -414,6 +419,7 @@
 						{#if script_path === undefined && is_flow === false}
 							<div class="flex">
 								<Button
+									disabled={!can_write}
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
@@ -453,7 +459,6 @@
 									noMatchingOptionsMsg=""
 									createOptionMsg={null}
 									duplicates={false}
-									bind:value={transaction_to_track}
 									options={transactionType}
 									allowUserOptions="append"
 									bind:selected={transaction_to_track}
@@ -503,7 +508,7 @@
 									<svelte:fragment slot="content">
 										<div class="mt-5 overflow-hidden bg-surface">
 											<TabContent value="basic">
-												<RelationPicker bind:selectedTable bind:relations />
+												<RelationPicker {can_write} bind:selectedTable bind:relations />
 											</TabContent>
 											<TabContent value="advanced">
 												<div class="flex flex-col gap-6"
@@ -518,6 +523,7 @@
 																on:selected={() => {
 																	replication_slot_name = ''
 																}}
+																disabled={!can_write}
 															>
 																<ToggleButton value="create" label="Create Slot" />
 																<ToggleButton value="get" label="Get Slot" />
@@ -555,6 +561,7 @@
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup
 																bind:selected={selectedPublicationAction}
+																disabled={!can_write}
 																on:selected={() => {
 																	if (selectedPublicationAction === 'create') {
 																		selectedTable = 'specific'
@@ -574,6 +581,7 @@
 															{#if selectedPublicationAction === 'create'}
 																<div class="flex gap-3">
 																	<input
+																		disabled={!can_write}
 																		type="text"
 																		bind:value={publication_name}
 																		placeholder={'Publication Name'}
@@ -583,12 +591,14 @@
 																		size="xs"
 																		variant="border"
 																		disabled={emptyStringTrimmed(publication_name) ||
-																			(selectedTable != 'all' && relations.length === 0)}
+																			(selectedTable != 'all' && relations.length === 0) ||
+																			!can_write}
 																		on:click={createPublication}>Create</Button
 																	>
 																</div>
 															{:else}
 																<PublicationPicker
+																	{can_write}
 																	{postgres_resource_path}
 																	bind:transaction_to_track
 																	bind:table_to_track
@@ -598,7 +608,7 @@
 																	bind:selectedTable
 																/>
 															{/if}
-															<RelationPicker bind:selectedTable bind:relations />
+															<RelationPicker {can_write} bind:selectedTable bind:relations />
 														</div>
 													</Section></div
 												>

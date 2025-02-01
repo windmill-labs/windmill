@@ -11,6 +11,7 @@
 	import { RefreshCw } from 'lucide-svelte'
 
 	export let items: string[] = []
+	export let can_write: boolean = true
 	export let publication_name: string = ''
 	export let postgres_resource_path: string = ''
 	export let table_to_track: Relations[] = []
@@ -96,6 +97,7 @@
 
 <div class="flex gap-1">
 	<Select
+		disabled={!can_write}
 		class="grow shrink max-w-full"
 		bind:justValue={publication_name}
 		value={publication_name}
@@ -109,6 +111,7 @@
 		on:select={getAllRelations}
 	/>
 	<Button
+		disabled={!can_write}
 		variant="border"
 		color="light"
 		wrapperClasses="self-stretch"
@@ -120,14 +123,14 @@
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name)}
+		disabled={emptyString(publication_name) || !can_write}
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name)}
+		disabled={emptyString(publication_name) || !can_write}
 		on:click={deletePublication}>Delete</Button
 	>
 </div>
