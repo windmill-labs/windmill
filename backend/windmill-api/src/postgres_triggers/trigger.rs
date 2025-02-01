@@ -17,7 +17,6 @@ use crate::{
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
 use futures::{pin_mut, SinkExt, StreamExt};
-use itertools::Itertools;
 use native_tls::TlsConnector;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
@@ -33,7 +32,8 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use super::{
-    generate_random_string, get_create_publication_query, get_new_slot_query, handler::{Database, PostgresTrigger}, replication_message::PrimaryKeepAliveBody
+    handler::{Database, PostgresTrigger},
+    replication_message::PrimaryKeepAliveBody,
 };
 
 pub struct LogicalReplicationSettings {
@@ -398,7 +398,6 @@ impl PostgresConfig {
         let publication_name;
         let replication_slot_name;
         let workspace_id;
-        let name = generate_random_string();
 
         let authed = match self {
             PostgresConfig::Trigger(trigger) => {
@@ -411,16 +410,12 @@ impl PostgresConfig {
             PostgresConfig::Capture(capture) => {
                 postgres_resource_path = &capture.trigger_config.postgres_resource_path;
                 workspace_id = &capture.workspace_id;
-                publication_name = capture
-                    .trigger_config
-                    .publication_name
-                    .as_ref()
-                    .unwrap_or(&name);
+                publication_name = capture.trigger_config.publication_name.as_ref().unwrap();
                 replication_slot_name = capture
                     .trigger_config
                     .replication_slot_name
                     .as_ref()
-                    .unwrap_or(publication_name);
+                    .unwrap();
                 capture.fetch_authed(db).await?
             }
         };
@@ -436,43 +431,6 @@ impl PostgresConfig {
 
         let client = PostgresSimpleClient::new(&database).await?;
 
-        if let PostgresConfig::Capture(capture) = self {
-            client
-                .0
-                .simple_query(&format!(
-                    "DROP PUBLICATION IF EXISTS {}",
-                    quote_identifier(publication_name)
-                ))
-                .await?;
-
-            let query = get_create_publication_query(
-                publication_name,
-                capture.trigger_config.publication.table_to_track.as_deref(),
-                &capture
-                    .trigger_config
-                    .publication
-                    .transaction_to_track
-                    .iter()
-                    .map(AsRef::as_ref)
-                    .collect_vec(),
-            );
-
-            client.0.simple_query(&query).await?;
-
-            let row = client
-                .0
-                .simple_query(&format!(
-                    "SELECT slot_name FROM pg_replication_slots WHERE slot_name = {}",
-                    quote_literal(replication_slot_name)
-                ))
-                .await?;
-
-            if !row.row_exist() {
-                let query = get_new_slot_query(replication_slot_name);
-
-                client.0.simple_query(&query).await?;
-            }
-        };
         let (logical_replication_stream, logical_replication_settings) = client
             .get_logical_replication_stream(&publication_name, &replication_slot_name)
             .await?;

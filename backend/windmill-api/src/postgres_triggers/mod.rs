@@ -9,7 +9,12 @@ use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::Rng;
 use serde_json::value::RawValue;
+use sqlx::{
+    postgres::{PgConnectOptions, PgSslMode},
+    Connection, PgConnection,
+};
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use axum::{
     routing::{delete, get, post},
@@ -38,7 +43,51 @@ mod trigger;
 pub use handler::PublicationData;
 pub use trigger::start_database;
 
-pub fn get_new_slot_query(name: &str) -> String {
+pub async fn get_database_connection(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    postgres_resource_path: &str,
+    w_id: &str,
+) -> std::result::Result<PgConnection, windmill_common::error::Error> {
+    let database = get_database_resource(authed, user_db, db, postgres_resource_path, w_id).await?;
+
+    Ok(get_raw_postgres_connection(&database).await?)
+}
+
+pub async fn get_raw_postgres_connection(
+    db: &Database,
+) -> std::result::Result<PgConnection, Error> {
+    let options = {
+        let sslmode = if !db.sslmode.is_empty() {
+            PgSslMode::from_str(&db.sslmode)?
+        } else {
+            PgSslMode::Prefer
+        };
+        let options = PgConnectOptions::new()
+            .host(&db.host)
+            .database(&db.dbname)
+            .port(db.port)
+            .ssl_mode(sslmode)
+            .username(&db.user);
+
+        let options = if !db.root_certificate_pem.is_empty() {
+            options.ssl_root_cert_from_pem(db.root_certificate_pem.as_bytes().to_vec())
+        } else {
+            options
+        };
+
+        if !db.password.is_empty() {
+            options.password(&db.password)
+        } else {
+            options
+        }
+    };
+
+    Ok(PgConnection::connect_with(&options).await?)
+}
+
+pub fn create_logical_replication_slot_query(name: &str) -> String {
     let query = format!(
         r#"
         SELECT 
@@ -51,8 +100,7 @@ pub fn get_new_slot_query(name: &str) -> String {
     query
 }
 
-
-pub fn get_create_publication_query(
+pub fn create_publication_query(
     publication_name: &str,
     table_to_track: Option<&[Relations]>,
     transaction_to_track: &[&str],
@@ -117,25 +165,29 @@ pub fn get_create_publication_query(
     query
 }
 
+pub fn drop_publication_query(publication_name: &str) -> String {
+    let mut query = String::from("DROP PUBLICATION IF EXISTS ");
+    let quoted_publication_name = quote_identifier(publication_name);
+    query.push_str(&quoted_publication_name);
+    query.push_str(";");
+    query
+}
+
 pub fn generate_random_string() -> String {
-    let generate_random_string = move || {
-        let timestamp = Utc::now().timestamp_millis().to_string();
-        let mut rng = rand::rng();
-        let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let timestamp = Utc::now().timestamp_millis().to_string();
+    let mut rng = rand::rng();
+    let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-        let random_part = (0..10)
-            .map(|_| {
-                charset
-                    .chars()
-                    .nth(rng.random_range(0..charset.len()))
-                    .unwrap()
-            })
-            .collect::<String>();
+    let random_part = (0..10)
+        .map(|_| {
+            charset
+                .chars()
+                .nth(rng.random_range(0..charset.len()))
+                .unwrap()
+        })
+        .collect::<String>();
 
-        format!("{}_{}", timestamp, random_part)
-    };
-
-    generate_random_string()
+    format!("{}_{}", timestamp, random_part)
 }
 
 pub async fn get_database_resource(

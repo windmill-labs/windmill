@@ -1,9 +1,6 @@
-use std::{
-    collections::{
-        hash_map::Entry::{Occupied, Vacant},
-        HashMap,
-    },
-    str::FromStr,
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
 };
 
 use crate::{
@@ -21,10 +18,7 @@ use quick_cache::sync::Cache;
 use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::{
-    postgres::{types::Oid, PgConnectOptions, PgSslMode},
-    Connection, FromRow, PgConnection,
-};
+use sqlx::{postgres::types::Oid, FromRow, PgConnection};
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::Error;
 use windmill_common::{
@@ -34,7 +28,10 @@ use windmill_common::{
     worker::CLOUD_HOSTED,
 };
 
-use super::{generate_random_string, get_create_publication_query, get_database_resource, get_new_slot_query};
+use super::{
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection,
+};
 use lazy_static::lazy_static;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
@@ -142,50 +139,6 @@ pub async fn test_postgres_connection(
         })??;
 
     Ok(())
-}
-
-pub async fn get_database_connection(
-    authed: ApiAuthed,
-    user_db: Option<UserDB>,
-    db: &DB,
-    postgres_resource_path: &str,
-    w_id: &str,
-) -> std::result::Result<PgConnection, windmill_common::error::Error> {
-    let database = get_database_resource(authed, user_db, db, postgres_resource_path, w_id).await?;
-
-    Ok(get_raw_postgres_connection(&database).await?)
-}
-
-pub async fn get_raw_postgres_connection(
-    db: &Database,
-) -> std::result::Result<PgConnection, Error> {
-    let options = {
-        let sslmode = if !db.sslmode.is_empty() {
-            PgSslMode::from_str(&db.sslmode)?
-        } else {
-            PgSslMode::Prefer
-        };
-        let options = PgConnectOptions::new()
-            .host(&db.host)
-            .database(&db.dbname)
-            .port(db.port)
-            .ssl_mode(sslmode)
-            .username(&db.user);
-
-        let options = if !db.root_certificate_pem.is_empty() {
-            options.ssl_root_cert_from_pem(db.root_certificate_pem.as_bytes().to_vec())
-        } else {
-            options
-        };
-
-        if !db.password.is_empty() {
-            options.password(&db.password)
-        } else {
-            options
-        }
-    };
-
-    Ok(PgConnection::connect_with(&options).await?)
 }
 
 #[derive(Deserialize, Debug)]
@@ -303,7 +256,7 @@ async fn create_custom_slot_and_publication_inner(
     let publication_name = format!("windmill_trigger_{}", generate_random_string());
     let replication_slot_name = publication_name.clone();
 
-    let query = get_create_publication_query(
+    let query = create_publication_query(
         &publication_name,
         publication.table_to_track.as_deref(),
         &publication
@@ -324,7 +277,7 @@ async fn create_custom_slot_and_publication_inner(
 
     sqlx::query(&query).execute(&mut connection).await?;
 
-    let query = get_new_slot_query(&replication_slot_name);
+    let query = create_logical_replication_slot_query(&replication_slot_name);
 
     sqlx::query(&query).execute(&mut connection).await?;
 
@@ -364,10 +317,7 @@ pub async fn create_postgres_trigger(
         ));
     }
 
-    let create_slot = replication_slot_name.is_none();
-    let create_publication = publication_name.is_none();
-
-    let (pub_name, slot_name) = if create_publication || create_slot {
+    let (pub_name, slot_name) = if publication_name.is_none() && replication_slot_name.is_none() {
         if publication.is_none() {
             return Err(Error::BadRequest("publication must be set".to_string()));
         }
@@ -384,6 +334,13 @@ pub async fn create_postgres_trigger(
 
         (publication_name, replication_slot_name)
     } else {
+        if publication_name.is_none() {
+            return Err(Error::BadRequest("Missing publication name".to_string()));
+        } else if replication_slot_name.is_none() {
+            return Err(Error::BadRequest(
+                "Missing replication slot name".to_string(),
+            ));
+        }
         (replication_slot_name.unwrap(), publication_name.unwrap())
     };
 
@@ -598,7 +555,6 @@ pub struct Slot {
     name: String,
 }
 
-
 pub async fn create_slot(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -615,7 +571,7 @@ pub async fn create_slot(
     )
     .await?;
 
-    let query = get_new_slot_query(&name);
+    let query = create_logical_replication_slot_query(&name);
 
     sqlx::query(&query).execute(&mut connection).await?;
 
@@ -735,7 +691,7 @@ pub async fn create_publication(
     )
     .await?;
 
-    let query = get_create_publication_query(
+    let query = create_publication_query(
         &publication_name,
         table_to_track.as_deref(),
         &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
@@ -747,14 +703,6 @@ pub async fn create_publication(
         "Publication {} successfully created!",
         publication_name
     ))
-}
-
-pub fn drop_publication_query(publication_name: &str) -> String {
-    let mut query = String::from("DROP PUBLICATION IF EXISTS ");
-    let quoted_publication_name = quote_identifier(publication_name);
-    query.push_str(&quoted_publication_name);
-    query.push_str(";");
-    query
 }
 
 pub async fn delete_publication(
@@ -795,7 +743,7 @@ pub fn get_update_publication_query(
         Some(ref relations) if !relations.is_empty() => {
             if all_table {
                 queries.push(drop_publication_query(&publication_name));
-                queries.push(get_create_publication_query(
+                queries.push(create_publication_query(
                     &publication_name,
                     table_to_track.as_deref(),
                     &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),

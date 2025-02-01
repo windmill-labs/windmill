@@ -14,6 +14,8 @@ use axum::{
 #[cfg(feature = "http_trigger")]
 use http::HeaderMap;
 use hyper::StatusCode;
+use itertools::Itertools;
+use pg_escape::quote_literal;
 #[cfg(feature = "http_trigger")]
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -44,6 +46,10 @@ use crate::postgres_triggers::PublicationData;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
+    postgres_triggers::{
+        create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+        generate_random_string, get_database_connection,
+    },
     users::fetch_api_authed,
 };
 
@@ -210,12 +216,79 @@ async fn get_configs(
     Ok(Json(configs))
 }
 
+async fn set_postgres_trigger_config(
+    w_id: &str,
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    mut capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    let Some(TriggerConfig::Postgres(mut postgres_config)) = capture_config.trigger_config else {
+        return Err(windmill_common::error::Error::BadRequest(
+            "Invalid postgres config".to_string(),
+        ));
+    };
+
+    let mut connection = get_database_connection(
+        authed,
+        Some(user_db),
+        &db,
+        &postgres_config.postgres_resource_path,
+        &w_id,
+    )
+    .await?;
+
+    let publication_name = postgres_config
+        .publication_name
+        .get_or_insert(generate_random_string());
+    let replication_slot_name = postgres_config
+        .replication_slot_name
+        .get_or_insert(publication_name.clone());
+
+    let query = drop_publication_query(&publication_name);
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    let query = create_publication_query(
+        &publication_name,
+        postgres_config.publication.table_to_track.as_deref(),
+        &postgres_config
+            .publication
+            .transaction_to_track
+            .iter()
+            .map(AsRef::as_ref)
+            .collect_vec(),
+    );
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    let query = format!(
+        "SELECT 1 from pg_replication_slots WHERE slot_name = {}",
+        quote_literal(replication_slot_name)
+    );
+
+    let row = sqlx::query(&query).fetch_optional(&mut connection).await?;
+
+    if row.is_none() {
+        let query = create_logical_replication_slot_query(&replication_slot_name);
+        sqlx::query(&query).execute(&mut connection).await?;
+    }
+    capture_config.trigger_config = Some(TriggerConfig::Postgres(postgres_config));
+    Ok(capture_config)
+}
+
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(nc): Json<NewCaptureConfig>,
+    Json(mut nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
+    #[cfg(feature = "postgres_trigger")]
+    if let TriggerKind::Postgres = nc.trigger_kind {
+        nc = set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?;
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
