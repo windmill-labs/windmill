@@ -8537,6 +8537,10 @@ paths:
             schema:
               type: object
               properties:
+                connection:
+                  type: object
+              required:
+                - connection
       responses:
         "200":
           description: successfuly connected to sqs
