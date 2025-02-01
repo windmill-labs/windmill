@@ -19,8 +19,11 @@
 
 	const dispatch = createEventDispatcher()
 
+	export function refreshHistory() {
+		historicInputs?.refresh()
+	}
+
 	export function resetSelected() {
-		console.log('resetSelected')
 		historicInputs?.resetSelected(true)
 		savedInputsPicker?.resetSelected(true)
 		captureTable?.resetSelected(true)
@@ -116,7 +119,7 @@
 								{runnableId}
 								{runnableType}
 								on:select={(e) => {
-									dispatch('select', { payload: e.detail, type: 'history' })
+									dispatch('select', { payload: e.detail.args, type: 'history' })
 								}}
 							/>
 						</FlowInputEditor>

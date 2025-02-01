@@ -16,6 +16,7 @@
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
+	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -54,6 +55,11 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
+	let renderCount: number = 0
+	let initial: boolean = false
+	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
+	let currentJobId: string | undefined = undefined
+
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
 			return $flowStore
@@ -74,6 +80,9 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
+		if (initial) {
+			initial = false
+		}
 		try {
 			lastPreviewFlow = JSON.stringify($flowStore)
 			jobProgressReset()
@@ -89,6 +98,7 @@
 			isRunning = false
 			jobId = undefined
 		}
+		schemaFormWithArgPicker?.refreshHistory()
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -159,9 +169,6 @@
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
-
-	let renderCount: number = 0
-	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -389,8 +396,43 @@
 				{/if}
 			</SchemaFormWithArgPicker>
 		</div>
-		<div class="pt-4 flex flex-col grow">
+		<div class="pt-4 flex flex-col grow relative">
+			<div
+				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
+			>
+				<FlowHistoryJobPicker
+					on:select={(e) => {
+						if (!currentJobId) {
+							currentJobId = jobId
+						}
+						const detail = e.detail
+						initial = detail.initial
+						jobId = detail.jobId
+					}}
+					on:unselect={() => {
+						jobId = currentJobId
+						currentJobId = undefined
+					}}
+					path={initialPath == '' ? $pathStore : initialPath}
+				/>
+			</div>
 			{#if jobId}
+				{#if initial}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						on:click={() => {
+							initial = false
+						}}
+						class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 rounded bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+					>
+						<div class="text-center text-primary text-lg py-2 pt-20"
+							><span class="font-bold border p-2 bg-surface-secondary rounded-md"
+								>Previous run of this flow from history</span
+							></div
+						>
+					</div>
+				{/if}
 				<FlowStatusViewer
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults

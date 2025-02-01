@@ -28,7 +28,7 @@
 	export let argFilter: string | undefined
 	export let resultFilter: string | undefined = undefined
 	export let schedulePath: string | undefined = undefined
-	export let jobKindsCat: string
+	export let jobKindsCat: string | undefined = undefined
 	export let minTs: string | undefined = undefined
 	export let maxTs: string | undefined = undefined
 	export let jobKinds: string = ''
@@ -91,6 +91,9 @@
 	}
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
+		if (jobKindsCat == undefined && jobKinds != undefined) {
+			return jobKinds
+		}
 		if (jobKindsCat == 'all') {
 			let kinds: CompletedJob['job_kind'][] = [
 				'script',
@@ -103,7 +106,7 @@
 				'script_hub',
 				'flowscript',
 				'flownode',
-				'appscript',
+				'appscript'
 			]
 			return kinds.join(',')
 		} else if (jobKindsCat == 'dependencies') {
@@ -120,7 +123,13 @@
 			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
 			return kinds.join(',')
 		} else {
-			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'flowscript', 'flownode', 'appscript']
+			let kinds: CompletedJob['job_kind'][] = [
+				'script',
+				'flow',
+				'flowscript',
+				'flownode',
+				'appscript'
+			]
 			return kinds.join(',')
 		}
 	}

@@ -95,7 +95,7 @@
 					{runnableType}
 					on:select={(e) => {
 						if (e.detail) savedInputsPicker?.resetSelected()
-						selectArgs(e.detail, e.detail ? 'history' : undefined)
+						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
 				/>
 			</Section>

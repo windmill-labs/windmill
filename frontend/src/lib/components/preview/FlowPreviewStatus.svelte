@@ -6,6 +6,7 @@
 	import { ExternalLinkIcon } from 'lucide-svelte'
 	import type { FlowStatusViewerContext } from '../graph'
 	import { getContext } from 'svelte'
+	import { truncateRev } from '$lib/utils'
 	export let job: QueuedJob | CompletedJob
 
 	let { hideJobId } = getContext<FlowStatusViewerContext>('FlowStatusViewer')
@@ -22,7 +23,7 @@
 					target="_blank"
 					href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
 				>
-					{job?.id}
+					{truncateRev(job?.id, 8)}
 					<ExternalLinkIcon size={14} class="inline mb-1 ml-1" />
 				</a>
 			</div>

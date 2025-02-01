@@ -10,6 +10,9 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
+
+	export let loading = false
+
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
@@ -91,20 +94,22 @@
 	Test flow
 </Button>
 
-<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
-	<FlowPreviewContent
-		bind:this={flowPreviewContent}
-		open={previewOpen}
-		bind:previewMode
-		bind:job
-		bind:jobId
-		on:close={() => {
-			previewOpen = false
-		}}
-		on:openTriggers={(e) => {
-			previewOpen = false
-			dispatch('openTriggers', e.detail)
-		}}
-		bind:preventEscape
-	/>
-</Drawer>
+{#if !loading}
+	<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
+		<FlowPreviewContent
+			bind:this={flowPreviewContent}
+			open={previewOpen}
+			bind:previewMode
+			bind:job
+			bind:jobId
+			on:close={() => {
+				previewOpen = false
+			}}
+			on:openTriggers={(e) => {
+				previewOpen = false
+				dispatch('openTriggers', e.detail)
+			}}
+			bind:preventEscape
+		/>
+	</Drawer>
+{/if}
