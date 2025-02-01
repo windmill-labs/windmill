@@ -1506,9 +1506,20 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
 async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null
-                WHERE last_ping < now() - ($1 || ' seconds')::interval
-                 AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false RETURNING id, workspace_id, last_ping",
+                "WITH zombie_jobs AS (
+                    UPDATE queue SET running = false, started_at = null
+                    WHERE last_ping < now() - ($1 || ' seconds')::interval
+                     AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false 
+                    RETURNING id, workspace_id, last_ping
+                ),
+                update_concurrency AS (
+                    UPDATE concurrency_counter cc
+                    SET job_uuids = job_uuids - zj.id::text
+                    FROM zombie_jobs zj
+                    INNER JOIN concurrency_key ck ON ck.job_id = zj.id
+                    WHERE cc.concurrency_id = ck.key
+                )
+                SELECT id, workspace_id, last_ping FROM zombie_jobs",
                 *ZOMBIE_JOB_TIMEOUT,
             )
             .fetch_all(db)
@@ -1652,12 +1663,31 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             tracing::error!(error_message);
             report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None).await;
             // if the flow hasn't started and is a zombie, we can simply restart it
+            let mut tx = db.begin().await?;
+
+            let concurrency_key =
+                sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", flow.id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+
+            if let Some(key) = concurrency_key {
+                sqlx::query!(
+                    "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
+                    key,
+                    flow.id.hyphenated().to_string()
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+
             sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
                 flow.id
             )
-            .execute(db)
+            .execute(&mut *tx)
             .await?;
+
+            tx.commit().await?;
         } else {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();

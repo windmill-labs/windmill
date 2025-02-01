@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.453.0
+  version: 1.455.2
   title: Windmill API
 
   contact:
@@ -4444,7 +4444,7 @@ paths:
 
   /w/{workspace}/scripts/delete/p/{path}:
     post:
-      summary: delete all scripts at a given path (require admin)
+      summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
       tags:
         - script
@@ -10141,6 +10141,8 @@ paths:
                 type: object
                 properties:
                   connection_settings_str:
+                    type: string
+                  azure_container_path:
                     type: string
                 required:
                   - connection_settings_str

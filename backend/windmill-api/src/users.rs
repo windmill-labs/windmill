@@ -47,7 +47,6 @@ use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
@@ -1724,23 +1723,7 @@ pub async fn create_session_token<'c>(
     expire += time::Duration::days(3);
     cookie.set_expires(expire);
     cookies.add(cookie);
-    clear_windmill_dev(&cookies).await;
     Ok(token)
-}
-
-async fn clear_windmill_dev(cookies: &Cookies) {
-    if !*CLOUD_HOSTED && BASE_URL.read().await.ends_with(".windmill.dev") {
-        //clear .windmill.dev cookie
-        let mut cookie = Cookie::new(COOKIE_NAME, "".to_string());
-        cookie.set_secure(IS_SECURE.read().await.clone());
-        cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
-        cookie.set_http_only(true);
-        cookie.set_path(COOKIE_PATH);
-        cookie.set_domain(".windmill.dev");
-        // set expire in min timestamp
-        cookie.set_expires(time::OffsetDateTime::UNIX_EPOCH);
-        cookies.add(cookie);
-    }
 }
 
 async fn create_token(

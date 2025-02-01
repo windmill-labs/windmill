@@ -7,35 +7,22 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import JobLoader from './runs/JobLoader.svelte'
 	import { DataTable } from '$lib/components/table'
-	import { clickOutside } from '$lib/utils'
 	import InfiniteList from './InfiniteList.svelte'
 
-	export let scriptHash: string | null = null
-	export let scriptPath: string | null = null
-	export let flowPath: string | null = null
+	export let runnableId: string | undefined = undefined
+	export let runnableType: RunnableType | undefined = undefined
+	export let loading: boolean = false
 
 	const dispatch = createEventDispatcher()
 
 	let jobs: Job[] = []
-	let loading: boolean = false
 	let hasMoreCurrentRuns = false
 	let page = 1
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
 
-	let runnableType: RunnableType | undefined = undefined
-	$: runnableType = scriptHash
-		? 'ScriptHash'
-		: scriptPath
-		? 'ScriptPath'
-		: flowPath
-		? 'FlowPath'
-		: undefined
-
-	let runnableId: string | undefined = undefined
+	let cachedArgs: Record<string, any> = {}
 	function initLoadInputs() {
-		runnableId = scriptHash || scriptPath || flowPath || undefined
-
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.getInputHistory({
 				workspace: $workspaceStore!,
@@ -48,7 +35,21 @@
 
 			const inputsWithPayload = await Promise.all(
 				inputs.map(async (input) => {
+					if (cachedArgs[input.id]) {
+						return {
+							...input,
+							payloadData: cachedArgs[input.id]
+						}
+					}
 					const payloadData = await loadArgsFromHistory(input.id, undefined, false)
+					if (payloadData === 'WINDMILL_TOO_BIG') {
+						return {
+							...input,
+							payloadData: 'WINDMILL_TOO_BIG',
+							getFullPayload: () => loadArgsFromHistory(input.id, undefined, true)
+						}
+					}
+					cachedArgs[input.id] = payloadData
 					return {
 						...input,
 						payloadData
@@ -60,28 +61,25 @@
 		infiniteList?.setLoader(loadInputsPageFn)
 	}
 
-	function handleSelected(data: any) {
+	async function handleSelected(data: any) {
 		if (selected === data.id) {
-			selected = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 			return
 		}
 		selected = data.id
-		dispatch('select', data.payloadData)
+		if (data.payloadData === 'WINDMILL_TOO_BIG') {
+			const fullPayload = await data.getFullPayload?.()
+			dispatch('select', fullPayload)
+		} else {
+			dispatch('select', structuredClone(data.payloadData))
+		}
 	}
 
 	let selected: string | undefined = undefined
 
 	onDestroy(() => {
-		selected = undefined
-		dispatch('select', undefined)
+		resetSelected(true)
 	})
-
-	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
-		) as HTMLElement[]
-	}
 
 	async function loadArgsFromHistory(
 		id: string | undefined,
@@ -100,8 +98,7 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
-			selected = undefined
-			dispatch('select', undefined)
+			resetSelected(true)
 			event.stopPropagation()
 			event.preventDefault()
 		}
@@ -115,14 +112,22 @@
 
 	let jobHovered: string | undefined = undefined
 
-	function refresh() {
+	export function refresh() {
 		if (infiniteList) {
 			infiniteList.loadData('refresh')
 		}
 	}
 
+	export function resetSelected(dispatchEvent?: boolean) {
+		console.log('resetSelected')
+		selected = undefined
+		if (dispatchEvent) {
+			dispatch('select', undefined)
+		}
+	}
+
 	$: !loading && refresh()
-	$: $workspaceStore && (scriptHash || scriptPath || flowPath) && infiniteList && initLoadInputs()
+	$: $workspaceStore && runnableId && runnableType && infiniteList && initLoadInputs()
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -148,24 +153,15 @@
 	/>
 {/if}
 
-<div
-	class="h-full w-full flex flex-col gap-4"
-	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-	on:click_outside={() => {
-		if (selected) {
-			selected = undefined
-			dispatch('select', undefined)
-		}
-	}}
->
-	<div class="grow-0">
+<div class="h-full w-full flex flex-col gap-4">
+	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading && (jobs == undefined || jobs?.length == 0)}
 				<div class="text-center text-tertiary text-xs py-2">Loading current runs...</div>
 			{:else if jobs?.length > 0}
 				<colgroup>
 					<col class="w-8" />
-					<col class="w-20" />
+					<col class="w-16" />
 					<col />
 				</colgroup>
 
@@ -190,7 +186,7 @@
 		</DataTable>
 	</div>
 
-	<div class="min-h-0 grow">
+	<div class="min-h-0 grow" data-schema-picker>
 		<InfiniteList
 			bind:this={infiniteList}
 			selectedItemId={selected}
@@ -200,7 +196,7 @@
 			<svelte:fragment slot="columns">
 				<colgroup>
 					<col class="w-8" />
-					<col class="w-20" />
+					<col class="w-16" />
 					<col />
 				</colgroup>
 			</svelte:fragment>
@@ -213,7 +209,9 @@
 				/>
 			</svelte:fragment>
 			<svelte:fragment slot="empty">
-				<div class="text-center text-tertiary text-xs py-2">No previous Runs</div>
+				<div class="text-center text-tertiary text-xs py-2">
+					{runnableId ? 'No previous inputs' : 'Save draft to see previous runs'}
+				</div>
 			</svelte:fragment>
 		</InfiniteList>
 	</div>

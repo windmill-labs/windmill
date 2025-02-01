@@ -15,7 +15,7 @@ export function deepEqual<T>(a: T, b: T): boolean {
     if (Array.isArray(a)) {
       length = a.length;
       if (length != b.length) return false;
-      for (i = length; i-- !== 0; ) {
+      for (i = length; i-- !== 0;) {
         if (!deepEqual(a[i], b[i])) return false;
       }
       return true;
@@ -43,7 +43,7 @@ export function deepEqual<T>(a: T, b: T): boolean {
     if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
       length = a.length;
       if (length != b.length) return false;
-      for (i = length; i-- !== 0; ) {
+      for (i = length; i-- !== 0;) {
         if (a[i] !== b[i]) return false;
       }
       return true;
@@ -66,11 +66,11 @@ export function deepEqual<T>(a: T, b: T): boolean {
     length = keys.length;
     if (length !== Object.keys(b).length) return false;
 
-    for (i = length; i-- !== 0; ) {
+    for (i = length; i-- !== 0;) {
       if (!Object.prototype.hasOwnProperty.call(b, keys[i])) return false;
     }
 
-    for (i = length; i-- !== 0; ) {
+    for (i = length; i-- !== 0;) {
       const key = keys[i];
       if (!deepEqual(a[key], b[key])) return false;
     }
@@ -141,4 +141,12 @@ export function isFileResource(path: string): boolean {
     splitPath[1] == "resource" &&
     splitPath[2] == "file"
   );
+}
+
+export function printSync(input: string | Uint8Array, to = Deno.stdout) {
+  let bytesWritten = 0
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input
+  while (bytesWritten < bytes.length) {
+    bytesWritten += to.writeSync(bytes.subarray(bytesWritten))
+  }
 }

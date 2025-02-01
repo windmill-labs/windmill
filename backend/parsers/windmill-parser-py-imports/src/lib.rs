@@ -37,6 +37,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "smb" => "pysmb",
     "PIL" => "Pillow",
     "googleapiclient" => "google-api-python-client",
+    "googlecloudbigquery" => "google-cloud-bigquery",
     "dateutil" => "python-dateutil",
     "mailparser" => "mail-parser",
     "mailparser-reply" => "mail-parser-reply",

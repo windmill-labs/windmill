@@ -27,7 +27,7 @@
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
-	export async function setConfig(): Promise<boolean> {
+	export async function setConfig() {
 		try {
 			await CaptureService.setCaptureConfig({
 				requestBody: {
@@ -40,9 +40,7 @@
 			})
 		} catch (error) {
 			sendUserToast(error.body, true)
-			return false
 		}
-		return true
 	}
 
 	let captureActive = false
@@ -120,11 +118,12 @@
 		)
 	}
 
-	export async function handleCapture() {
-		if (!captureActive && (await setConfig())) {
-			capture()
-		} else {
+	export async function handleCapture(e: CustomEvent<{ disableOnly?: boolean }>) {
+		if (captureActive || e.detail.disableOnly) {
 			captureActive = false
+		} else {
+			await setConfig()
+			capture()
 		}
 	}
 
@@ -182,9 +181,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'postgres'}
@@ -199,9 +196,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'webhook'}
@@ -218,9 +213,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'http'}
@@ -230,16 +223,15 @@
 				{showCapture}
 				can_write={true}
 				runnableArgs={data?.args}
-				bind:args
+				bind:route_path={args.route_path}
+				bind:http_method={args.http_method}
 				headless
 				{captureInfo}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'email'}
@@ -256,9 +248,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'kafka'}
@@ -273,9 +263,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'nats'}
@@ -290,9 +278,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 			/>
 		{/if}
 	</div>
