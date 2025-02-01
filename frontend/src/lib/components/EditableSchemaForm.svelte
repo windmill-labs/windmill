@@ -233,7 +233,7 @@
 
 	$: !!editTab ? openEditTab() : closeEditTab()
 
-	let pannelButtonWidth: number = 0
+	let panelButtonWidth: number = 0
 	export let pannelExtraButtonWidth: number = 0
 
 	export function updateJson() {
@@ -246,8 +246,8 @@
 	<div class="relative z-[100000]">
 		<div
 			class="absolute"
-			style="right: calc({editPanelSize}% - 2px - {pannelExtraButtonWidth}px); top: 0px;"
-			bind:clientWidth={pannelButtonWidth}
+			style="right: calc({editPanelSize}% - 1px - {pannelExtraButtonWidth}px); top: 0px;"
+			bind:clientWidth={panelButtonWidth}
 		>
 			<slot name="openEditTab" />
 		</div>
@@ -265,7 +265,7 @@
 							<div
 								style={editPanelSize > 0
 									? `width: 100%;`
-									: `width: calc(100% - ${pannelButtonWidth - pannelExtraButtonWidth}px);`}
+									: `width: calc(100% - ${panelButtonWidth - pannelExtraButtonWidth}px);`}
 							>
 								<slot name="addProperty" />
 							</div>
@@ -317,7 +317,7 @@
 			<Pane
 				bind:size={editPanelSize}
 				minSize={noPreview ? 100 : 50}
-				class={twMerge('border rounded-md', pannelButtonWidth > 0 ? 'rounded-tl-none' : '')}
+				class={twMerge('border rounded-md', panelButtonWidth > 0 ? 'rounded-tl-none' : '')}
 			>
 				{#if editTab !== 'inputEditor'}
 					<slot name="extraTab" />
