@@ -32,15 +32,15 @@ use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
+        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -785,11 +785,12 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 EXPOSE_METRICS_SETTING  => {
                                                     tracing::info!("Metrics setting changed, restarting");
-                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::rng().random_range(0..40);
-                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill to server");
+                                                    send_delayed_killpill(&tx, 40, "metrics setting change").await;
+                                                },
+                                                EMAIL_DOMAIN_SETTING => {
+                                                    tracing::info!("Email domain setting changed");
+                                                    if server_mode {
+                                                        send_delayed_killpill(&tx, 4, "email domain setting change").await;
                                                     }
                                                 },
                                                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -799,29 +800,17 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 OTEL_SETTING => {
                                                     tracing::info!("OTEL setting changed, restarting");
-                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::rng().random_range(0..4);
-                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill");
-                                                    }
+                                                    send_delayed_killpill(&tx, 4, "OTEL setting change").await;
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {
                                                     if server_mode {
                                                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                                                        // we wait a bit randomly to avoid having all servers shutdown at same time
-                                                        let rd_delay = rand::rng().random_range(0..4);
-                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                        if let Err(e) = tx.send(()) {
-                                                            tracing::error!(error = %e, "Could not send killpill to server");
-                                                        }
+                                                        send_delayed_killpill(&tx, 4, "request size limit change").await;
                                                     }
                                                 },
                                                 SAML_METADATA_SETTING => {
                                                     tracing::info!("SAML metadata change detected, killing server expecting to be restarted");
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill to server");
-                                                    }
+                                                    send_delayed_killpill(&tx, 0, "SAML metadata change").await;
                                                 },
                                                 HUB_BASE_URL_SETTING => {
                                                     if let Err(e) = reload_hub_base_url_setting(&db, server_mode).await {
@@ -1093,4 +1082,19 @@ pub async fn run_workers(
 
     futures::future::try_join_all(handles).await?;
     Ok(())
+}
+
+async fn send_delayed_killpill(
+    tx: &tokio::sync::broadcast::Sender<()>,
+    max_delay_secs: u64,
+    context: &str,
+) {
+    // Random delay to avoid all servers/workers shutting down simultaneously
+    let rd_delay = rand::rng().random_range(0..max_delay_secs);
+    tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
+    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+
+    if let Err(e) = tx.send(()) {
+        tracing::error!(error = %e, "Could not send killpill for {context}");
+    }
 }
