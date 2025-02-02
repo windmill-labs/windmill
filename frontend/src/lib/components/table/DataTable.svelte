@@ -31,7 +31,7 @@
 	let tableHeight: number = 0
 	const dispatch = createEventDispatcher()
 	let tableContainer: HTMLDivElement
-	let isLoading = false
+	export let loading = false
 
 	setContext<DatatableContext>('datatable', {
 		size
@@ -40,23 +40,19 @@
 	$: contentHeight = tableHeight - footerHeight
 
 	function checkScrollStatus() {
-		if (!infiniteScroll || isLoading) return
+		if (!infiniteScroll || loading) return
 
 		const hasScrollbar = tableContainer.scrollHeight > tableContainer.clientHeight
 		if (!hasScrollbar && hasMore) {
-			isLoading = true
 			dispatch('loadMore')
-			setTimeout(() => {
-				isLoading = false
-			}, 200)
 		}
 	}
 
 	function handleScroll() {
-		if (!infiniteScroll || isLoading) {
-			if (isLoading) {
+		if (!infiniteScroll || loading) {
+			if (loading) {
 				const checkAgain = () => {
-					if (!isLoading) {
+					if (!loading) {
 						handleScroll()
 					}
 				}
@@ -67,15 +63,11 @@
 
 		const { scrollTop, scrollHeight, clientHeight } = tableContainer
 		if (scrollHeight - (scrollTop + clientHeight) < 50) {
-			isLoading = true
 			dispatch('loadMore')
-			setTimeout(() => {
-				isLoading = false
-			}, 1000)
 		}
 	}
 
-	$: if (tableContainer && hasMore && !isLoading) {
+	$: if (tableContainer && hasMore && !loading) {
 		checkScrollStatus()
 	}
 </script>

@@ -7,6 +7,8 @@
 	export let closeButton: boolean = true
 	export let displayArrow: boolean = false
 	export let placement: any = 'bottom'
+	export let disablePopup: boolean = false
+	export let openOnHover: boolean = false
 
 	const {
 		elements: { trigger, content, arrow, close },
@@ -22,7 +24,14 @@
 	$: sync.open(open, (v) => (open = v))
 </script>
 
-<button class="w-full h-full" type="button" use:melt={$trigger} aria-label="Popup button">
+<button
+	class="w-full h-full"
+	type="button"
+	use:melt={$trigger}
+	aria-label="Popup button"
+	on:mouseenter={() => (openOnHover ? (open = true) : null)}
+	on:mouseleave={() => (openOnHover ? (open = false) : null)}
+>
 	<slot name="trigger" />
 </button>
 

@@ -821,7 +821,7 @@
 		As a non logged in user, you can only see jobs ran by anonymous users like you
 	</Alert>
 {:else if job}
-	<div class="flow-root w-full space-y-4 {wideResults ? '' : 'max-w-7xl'} mx-auto px-4">
+	<div class="flow-root w-full space-y-4 {wideResults ? '' : 'max-w-7xl px-4'} mx-auto">
 		<!-- {#if innerModules.length > 0 && true}
 			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
 		{:else}
@@ -933,6 +933,8 @@
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
+			{:else}
+				<div class="h-[30px]" />
 			{/if}
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">

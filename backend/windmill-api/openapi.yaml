@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.452.1
+  version: 1.456.0
   title: Windmill API
 
   contact:
@@ -4444,7 +4444,7 @@ paths:
 
   /w/{workspace}/scripts/delete/p/{path}:
     post:
-      summary: delete all scripts at a given path (require admin)
+      summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
       tags:
         - script
@@ -8055,8 +8055,11 @@ paths:
                   type: string
                 url_runnable_args:
                   $ref: "#/components/schemas/ScriptArgs"
+                can_return_message:
+                  type: boolean
               required:
                 - url
+                - can_return_message
       responses:
         "200":
           description: successfuly connected to websocket
@@ -9916,6 +9919,25 @@ paths:
                   $ref: "#/components/schemas/Capture"
 
   /w/{workspace}/capture/{id}:
+    get:
+      summary: get a capture
+      operationId: getCapture
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: capture
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capture"
     delete:
       summary: delete a capture
       operationId: deleteCapture
@@ -10183,6 +10205,8 @@ paths:
                 type: object
                 properties:
                   connection_settings_str:
+                    type: string
+                  azure_container_path:
                     type: string
                 required:
                   - connection_settings_str
@@ -13212,6 +13236,8 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
+        can_return_message:
+          type: boolean
 
       required:
         - path
@@ -13225,6 +13251,7 @@ components:
         - workspace_id
         - enabled
         - filters
+        - can_return_message
 
     NewWebsocketTrigger:
       type: object
@@ -13256,6 +13283,8 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
+        can_return_message:
+          type: boolean
 
       required:
         - path
@@ -13263,6 +13292,7 @@ components:
         - url
         - is_flow
         - filters
+        - can_return_message
 
     EditWebsocketTrigger:
       type: object
@@ -13292,6 +13322,8 @@ components:
             $ref: "#/components/schemas/WebsocketTriggerInitialMessage"
         url_runnable_args:
           $ref: "#/components/schemas/ScriptArgs"
+        can_return_message:
+          type: boolean
 
       required:
         - path
@@ -13299,7 +13331,7 @@ components:
         - url
         - is_flow
         - filters
-
+        - can_return_message
     WebsocketTriggerInitialMessage:
       anyOf:
         - type: object

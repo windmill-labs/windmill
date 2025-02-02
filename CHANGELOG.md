@@ -1,5 +1,91 @@
 # Changelog
 
+## [1.456.0](https://github.com/windmill-labs/windmill/compare/v1.455.2...v1.456.0) (2025-02-01)
+
+
+### Features
+
+* flow history picker for flow status + load last flow state ([611d5e8](https://github.com/windmill-labs/windmill/commit/611d5e8bf3d64106c3e9698687d2ec3710988517))
+
+
+### Bug Fixes
+
+* only start smtp servers if email domain is set ([6d9edc8](https://github.com/windmill-labs/windmill/commit/6d9edc8c2b01c99339c156dc84def13b0a2205a6))
+
+## [1.455.2](https://github.com/windmill-labs/windmill/compare/v1.455.1...v1.455.2) (2025-01-31)
+
+
+### Bug Fixes
+
+* fix worker restart on otel setting set from undefined to null ([#5183](https://github.com/windmill-labs/windmill/issues/5183)) ([940fb03](https://github.com/windmill-labs/windmill/commit/940fb030232ea7944db94bfdf8b30a96f30baa21))
+* improve autoscaling num workers inc ([2638dfc](https://github.com/windmill-labs/windmill/commit/2638dfcf00522af733c49b2c02a78ec4028623e0))
+* improve history and saved inputs rever mechanism ([0b0e564](https://github.com/windmill-labs/windmill/commit/0b0e5640d8fa9682ad0a4349c863b743321be1f4))
+
+## [1.455.1](https://github.com/windmill-labs/windmill/compare/v1.455.0...v1.455.1) (2025-01-31)
+
+
+### Bug Fixes
+
+* pin malachite version ([b74d3fd](https://github.com/windmill-labs/windmill/commit/b74d3fd6e08ea991f7a7360b79d54a45a8ee58be))
+
+## [1.455.0](https://github.com/windmill-labs/windmill/compare/v1.454.1...v1.455.0) (2025-01-31)
+
+
+### Features
+
+* **cli:** add --parallel option to push + display timings ([73dbb8f](https://github.com/windmill-labs/windmill/commit/73dbb8fb80f56942d35e5b5cda9715bba5d5c98f))
+* duckdb connection settings with azure blob storage ([#5180](https://github.com/windmill-labs/windmill/issues/5180)) ([8ba0f3a](https://github.com/windmill-labs/windmill/commit/8ba0f3addd0a02dba87c30739b44f524019a5e5a))
+* polars connection settings with azure blob storage ([#5175](https://github.com/windmill-labs/windmill/issues/5175)) ([8b65f1b](https://github.com/windmill-labs/windmill/commit/8b65f1bc3829d6b02bf38bf1449d3061ef62a08c))
+
+
+### Bug Fixes
+
+* capture panel never stopping + http saved config ([#5179](https://github.com/windmill-labs/windmill/issues/5179)) ([ff3339d](https://github.com/windmill-labs/windmill/commit/ff3339dc4e9ea4641b847fa5ef51bedcf6a3a429))
+* restart zombie job correctly handle concurrency limits ([#5181](https://github.com/windmill-labs/windmill/issues/5181)) ([8a93418](https://github.com/windmill-labs/windmill/commit/8a93418c25d180859bda76b9218e750e4b407fed))
+
+## [1.454.1](https://github.com/windmill-labs/windmill/compare/v1.454.0...v1.454.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* fix codebase script execution ([b1155a9](https://github.com/windmill-labs/windmill/commit/b1155a9012c726c1b1c3f1a62f3aa96b8504681c))
+
+## [1.454.0](https://github.com/windmill-labs/windmill/compare/v1.453.1...v1.454.0) (2025-01-30)
+
+
+### Features
+
+* history for flow inputs ([#5117](https://github.com/windmill-labs/windmill/issues/5117)) ([cd44056](https://github.com/windmill-labs/windmill/commit/cd440564d29aff39f6dc30ecbf0055696b07cf12))
+
+
+### Bug Fixes
+
+* fix app form password handling ([4812c0c](https://github.com/windmill-labs/windmill/commit/4812c0cc9e46fdb5944f7010efdf617f2fd23cff))
+* improve codebase support ([c8cc9d2](https://github.com/windmill-labs/windmill/commit/c8cc9d2941dda2fedb959e1156c4f9b4f7dfab43))
+
+## [1.453.1](https://github.com/windmill-labs/windmill/compare/v1.453.0...v1.453.1) (2025-01-30)
+
+
+### Bug Fixes
+
+* **frontend:** fetching job result (db schema) separatly if too big ([#5171](https://github.com/windmill-labs/windmill/issues/5171)) ([f29ee67](https://github.com/windmill-labs/windmill/commit/f29ee67d9d8547d7c4a79e14698b7d88a722e730))
+* **typescript-client:** fix typescript client mocked api behavior ([7f516f0](https://github.com/windmill-labs/windmill/commit/7f516f08682876f5a7ca409ec002cba6ec0c5c5b))
+
+## [1.453.0](https://github.com/windmill-labs/windmill/compare/v1.452.1...v1.453.0) (2025-01-29)
+
+
+### Features
+
+* custom response headers ([#5156](https://github.com/windmill-labs/windmill/issues/5156)) ([5544d42](https://github.com/windmill-labs/windmill/commit/5544d42a2db652660051b5f2e05f8db0102400fa))
+* **python:** add `custom_wheels` directory to `PYTHONPATH` ([#5169](https://github.com/windmill-labs/windmill/issues/5169)) ([c60f8da](https://github.com/windmill-labs/windmill/commit/c60f8dacf191c5255ef8fca462d6d3d571b86b07))
+* websocket trigger allow returning messages ([#5168](https://github.com/windmill-labs/windmill/issues/5168)) ([487c273](https://github.com/windmill-labs/windmill/commit/487c273bfbc5bf1731947c922f32cd026cca47f9))
+
+
+### Bug Fixes
+
+* oracledb tag for native workers + client not working on arm systems ([#5162](https://github.com/windmill-labs/windmill/issues/5162)) ([a1579c1](https://github.com/windmill-labs/windmill/commit/a1579c1654a2ddf9f6fc8f05f62b37bb09303752))
+* **python:** fix uv can't find ssl certificates ([#5157](https://github.com/windmill-labs/windmill/issues/5157)) ([680fb18](https://github.com/windmill-labs/windmill/commit/680fb1852a192e384e23e2f5ceea473383f9f5aa))
+
 ## [1.452.1](https://github.com/windmill-labs/windmill/compare/v1.452.0...v1.452.1) (2025-01-27)
 
 

@@ -9,13 +9,14 @@
 	export let documentationLink: string | undefined = undefined
 	export let eeOnly = false
 	export let small: boolean = false
+	export let wrapperClass: string = ''
 
 	export let collapsable: boolean = false
 	export let collapsed: boolean = true
 	export let headless: boolean = false
 </script>
 
-<div class="w-full flex flex-col">
+<div class={twMerge('w-full flex flex-col', wrapperClass)}>
 	{#if !headless}
 		<div class="flex flex-row justify-between items-center mb-2">
 			<h2

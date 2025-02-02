@@ -9,12 +9,14 @@
 use axum::body::Body;
 use axum::http::HeaderValue;
 use futures::TryFutureExt;
+use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use sqlx::Pool;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::str::FromStr;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
@@ -1966,20 +1968,34 @@ async fn resume_suspended_job_internal(
         resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
     }
 
+    let approver = approver.unwrap_or_else(|| "anonymous".to_string());
+
     let audit_author = match authed {
         Some(authed) => (&authed).into(),
-        None => {
-            let approver = approver.unwrap_or_else(|| "anonymous".to_string());
-            AuditAuthor { email: approver.clone(), username: approver, username_override: None }
-        }
+        None => AuditAuthor {
+            email: approver.clone(),
+            username: approver.clone(),
+            username_override: None,
+        },
     };
     audit_log(
         &mut *tx,
         &audit_author,
-        "jobs.approved",
+        "jobs.suspend_resume",
         ActionKind::Update,
         &w_id,
-        Some(&serde_json::json!({"approved": approved, "job_id": job_id}).to_string()),
+        Some(
+            &serde_json::json!({
+                "approved": approved,
+                "job_id": job_id,
+                "details": if approved {
+                    format!("Approved by {}", &approver)
+                } else {
+                    format!("Cancelled by {}", &approver)
+                }
+            })
+            .to_string(),
+        ),
         None,
     )
     .await?;
@@ -3522,15 +3538,17 @@ lazy_static::lazy_static! {
 pub struct WindmillCompositeResult {
     windmill_status_code: Option<u16>,
     windmill_content_type: Option<String>,
+    windmill_headers: Option<HashMap<String, String>>,
     result: Option<Box<RawValue>>,
 }
-pub async fn run_wait_result(
+
+pub async fn run_wait_result_internal(
     db: &DB,
     uuid: Uuid,
     w_id: String,
     node_id_for_empty_return: Option<String>,
     username: &str,
-) -> error::Result<Response> {
+) -> error::Result<(Box<RawValue>, bool)> {
     let mut result = None;
     let mut success = false;
     let timeout = TIMEOUT_WAIT_RESULT.read().await.clone().unwrap_or(600);
@@ -3602,81 +3620,110 @@ pub async fn run_wait_result(
         };
         tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
     }
+
     if let Some(result) = result {
         g.done = true;
+        Ok((result, success))
+    } else {
+        Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
+    }
+}
 
-        let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
-        match composite_result {
-            Ok(WindmillCompositeResult {
-                windmill_status_code,
-                windmill_content_type,
-                result: result_value,
-            }) => {
-                if windmill_content_type.is_none() && windmill_status_code.is_none() {
-                    return Ok((
-                        if success {
-                            StatusCode::OK
-                        } else {
-                            StatusCode::INTERNAL_SERVER_ERROR
-                        },
-                        Json(result),
-                    )
-                        .into_response());
-                }
+pub async fn run_wait_result(
+    db: &DB,
+    uuid: Uuid,
+    w_id: String,
+    node_id_for_empty_return: Option<String>,
+    username: &str,
+) -> error::Result<Response> {
+    let (result, success) =
+        run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username).await?;
 
-                let status_code_or_default = windmill_status_code
-                    .map(|val| match StatusCode::from_u16(val) {
-                        Ok(sc) => Ok(sc),
-                        Err(_) => Err(Error::ExecutionErr("Invalid status code".to_string())),
-                    })
-                    .unwrap_or_else(|| {
-                        if !success {
-                            Ok(StatusCode::INTERNAL_SERVER_ERROR)
-                        } else if result_value.is_some() {
-                            Ok(StatusCode::OK)
-                        } else {
-                            Ok(StatusCode::NO_CONTENT)
-                        }
-                    })?;
-
-                if windmill_content_type.is_some() {
-                    let serialized_json_result = result_value
-                        .map(|val| val.get().to_owned())
-                        .unwrap_or_else(String::new);
-                    // if the `result` was just a single string, the below removes the surrounding quotes by parsing it as a string.
-                    // it falls back to the original serialized JSON if it doesn't work.
-                    let serialized_result =
-                        serde_json::from_str::<String>(serialized_json_result.as_str())
-                            .ok()
-                            .unwrap_or(serialized_json_result);
-                    return Ok((
-                        status_code_or_default,
-                        [(
-                            http::header::CONTENT_TYPE,
-                            HeaderValue::from_str(windmill_content_type.unwrap().as_str()).unwrap(),
-                        )],
-                        serialized_result,
-                    )
-                        .into_response());
-                }
+    let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
+    match composite_result {
+        Ok(WindmillCompositeResult {
+            windmill_status_code,
+            windmill_content_type,
+            windmill_headers,
+            result: result_value,
+        }) => {
+            if windmill_content_type.is_none()
+                && windmill_status_code.is_none()
+                && windmill_headers.is_none()
+            {
                 return Ok((
-                    status_code_or_default,
-                    Json(result_value), // default to JSON result if no content type is provided
+                    if success {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    },
+                    Json(result),
                 )
                     .into_response());
             }
-            _ => Ok((
-                if success {
-                    StatusCode::OK
-                } else {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                },
-                Json(result),
-            )
-                .into_response()),
+
+            let status_code_or_default = windmill_status_code
+                .map(|val| match StatusCode::from_u16(val) {
+                    Ok(sc) => Ok(sc),
+                    Err(_) => Err(Error::ExecutionErr("Invalid status code".to_string())),
+                })
+                .unwrap_or_else(|| {
+                    if !success {
+                        Ok(StatusCode::INTERNAL_SERVER_ERROR)
+                    } else if result_value.is_some() {
+                        Ok(StatusCode::OK)
+                    } else {
+                        Ok(StatusCode::NO_CONTENT)
+                    }
+                })?;
+
+            let mut headers = HeaderMap::new();
+
+            if let Some(windmill_headers) = windmill_headers {
+                for (k, v) in windmill_headers {
+                    let k = HeaderName::from_str(k.as_str()).map_err(|err| {
+                        Error::InternalErr(format!("Invalid header name {k}: {err}"))
+                    })?;
+                    let v = HeaderValue::from_str(v.as_str()).map_err(|err| {
+                        Error::InternalErr(format!("Invalid header value {v}: {err}"))
+                    })?;
+                    headers.insert(k, v);
+                }
+            }
+
+            if let Some(content_type) = windmill_content_type {
+                let serialized_json_result = result_value
+                    .map(|val| val.get().to_owned())
+                    .unwrap_or_else(String::new);
+                // if the `result` was just a single string, the below removes the surrounding quotes by parsing it as a string.
+                // it falls back to the original serialized JSON if it doesn't work.
+                let serialized_result =
+                    serde_json::from_str::<String>(serialized_json_result.as_str())
+                        .ok()
+                        .unwrap_or(serialized_json_result);
+                headers.insert(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_str(content_type.as_str()).map_err(|err| {
+                        Error::InternalErr(format!("Invalid content type {content_type}: {err}"))
+                    })?,
+                );
+                return Ok((status_code_or_default, headers, serialized_result).into_response());
+            }
+            if let Some(result_value) = result_value {
+                return Ok((status_code_or_default, headers, Json(result_value)).into_response());
+            } else {
+                Ok((status_code_or_default, headers).into_response())
+            }
         }
-    } else {
-        Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
+        _ => Ok((
+            if success {
+                StatusCode::OK
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+            Json(result),
+        )
+            .into_response()),
     }
 }
 

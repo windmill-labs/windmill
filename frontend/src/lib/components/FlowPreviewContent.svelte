@@ -1,32 +1,26 @@
 <script lang="ts">
 	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { Badge, Button, Drawer, Popup } from './common'
+	import { Badge, Button, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
+	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import {
-		AlertTriangle,
-		ArrowRight,
-		CornerDownLeft,
-		Play,
-		RefreshCw,
-		X,
-		ArrowLeftIcon
-	} from 'lucide-svelte'
+	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils'
-	import CapturesInputs from '$lib/components/CapturesInputs.svelte'
-	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
+	import Toggle from './Toggle.svelte'
+	import JsonInputs from './JsonInputs.svelte'
+	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
+	export let preventEscape = false
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
@@ -39,6 +33,10 @@
 
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
+	let jsonView: boolean = false
+	let jsonEditor: JsonInputs
+	let schemaHeight = 0
+	let isValid: boolean = true
 
 	export function test() {
 		renderCount++
@@ -56,6 +54,11 @@
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
+
+	let renderCount: number = 0
+	let initial: boolean = false
+	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
+	let currentJobId: string | undefined = undefined
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
@@ -77,17 +80,25 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
+		if (initial) {
+			initial = false
+		}
 		try {
 			lastPreviewFlow = JSON.stringify($flowStore)
 			jobProgressReset()
 			const newFlow = extractFlow(previewMode)
 			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 			isRunning = true
+			if (inputSelected) {
+				savedArgs = $previewArgs
+				inputSelected = undefined
+			}
 		} catch (e) {
 			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
 			jobId = undefined
 		}
+		schemaFormWithArgPicker?.refreshHistory()
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -97,6 +108,14 @@
 					if (event.ctrlKey || event.metaKey) {
 						event.preventDefault()
 						runPreview($previewArgs, undefined)
+					}
+					break
+
+				case 'Escape':
+					if (preventEscape) {
+						selectInput(undefined)
+						event.preventDefault()
+						event.stopPropagation
 					}
 					break
 			}
@@ -124,97 +143,38 @@
 		}
 	}
 
+	let savedArgs = $previewArgs
+	let inputSelected: 'captures' | 'history' | 'saved' | undefined = undefined
+	async function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
+		if (!input) {
+			$previewArgs = savedArgs
+			inputSelected = undefined
+			setTimeout(() => {
+				preventEscape = false
+			}, 100)
+		} else {
+			$previewArgs = input
+			inputSelected = type
+			preventEscape = true
+			jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
+		}
+	}
+
+	export function refresh() {
+		renderCount++
+	}
+
 	$: if (job?.type === 'CompletedJob') {
 		isRunning = false
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
-
-	let inputLibraryDrawer: Drawer
-	let captureLibraryDrawer: Drawer
-	let renderCount: number = 0
-
-	let selectedCapture: Record<string, any> | undefined = undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-<Drawer bind:this={inputLibraryDrawer}>
-	<DrawerContent title="Input library {initialPath}" on:close={inputLibraryDrawer?.toggleDrawer}>
-		<SavedInputs
-			flowPath={initialPath}
-			isValid={true}
-			args={$previewArgs}
-			on:selected_args={(e) => {
-				$previewArgs = JSON.parse(JSON.stringify(e.detail))
-				inputLibraryDrawer?.closeDrawer()
-				renderCount++
-			}}
-		/>
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={captureLibraryDrawer}>
-	<DrawerContent
-		title="Trigger captures library {initialPath}"
-		on:close={captureLibraryDrawer?.toggleDrawer}
-	>
-		<div class="h-full flex flex-col gap-2">
-			<div class="min-h-0 grow h-full">
-				<CapturesInputs
-					flowPath={$pathStore}
-					headless={false}
-					addButton={true}
-					on:select={(e) => {
-						selectedCapture = e.detail
-					}}
-					on:openTriggers={(e) => {
-						dispatch('openTriggers', e.detail)
-						captureLibraryDrawer?.closeDrawer()
-					}}
-				/>
-			</div>
-
-			<div class="w-full flex flex-col gap-2 px-2 py-2 h-[50%]">
-				<div class="w-full flex flex-col">
-					<Button
-						color="blue"
-						btnClasses="w-full"
-						size="sm"
-						spacingSize="xl"
-						on:click={async () => {
-							$previewArgs = JSON.parse(JSON.stringify(selectedCapture))
-							captureLibraryDrawer?.closeDrawer()
-							renderCount++
-						}}
-						disabled={!selectedCapture}
-					>
-						<ArrowLeftIcon class="w-4 h-4 mr-2" />
-						Use input
-					</Button>
-				</div>
-				<div class="w-full min-h-0 grow overflow-auto">
-					{#if typeof selectedCapture == 'string' && selectedCapture == 'WINDMILL_TOO_BIG'}
-						<div class="text-secondary mt-2">
-							Payload too big to preview but can still be loaded</div
-						>
-					{:else if Object.keys(selectedCapture || {}).length > 0}
-						<div class=" overflow-auto h-full p-2">
-							<ObjectViewer json={selectedCapture} />
-						</div>
-					{:else}
-						<div class="text-center text-tertiary">
-							Select an Input to preview scripts arguments
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-	</DrawerContent>
-</Drawer>
-
-<div class="flex flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full" id="flow-preview-content">
-	<div class="flex flex-row justify-between w-full items-center gap-x-2">
+<div class="flex flex-col space-y-2 h-screen bg-surface px-4 py-2 w-full" id="flow-preview-content">
+	<div class="flex flex-row w-full items-center gap-x-2">
 		<div class="w-8">
 			<Button
 				on:click={() => dispatch('close')}
@@ -227,28 +187,30 @@
 		</div>
 
 		{#if isRunning}
-			<Button
-				color="red"
-				on:click={async () => {
-					isRunning = false
-					try {
-						jobId &&
-							(await JobService.cancelQueuedJob({
-								workspace: $workspaceStore ?? '',
-								id: jobId,
-								requestBody: {}
-							}))
-					} catch {}
-				}}
-				size="sm"
-				btnClasses="w-full max-w-lg"
-				loading={true}
-				clickableWhileLoading
-			>
-				Cancel
-			</Button>
+			<div class="mx-auto">
+				<Button
+					color="red"
+					on:click={async () => {
+						isRunning = false
+						try {
+							jobId &&
+								(await JobService.cancelQueuedJob({
+									workspace: $workspaceStore ?? '',
+									id: jobId,
+									requestBody: {}
+								}))
+						} catch {}
+					}}
+					size="sm"
+					btnClasses="w-full max-w-lg"
+					loading={true}
+					clickableWhileLoading
+				>
+					Cancel
+				</Button>
+			</div>
 		{:else}
-			<div class="flex flex-row gap-4">
+			<div class="grow justify-center flex flex-row gap-4">
 				{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
 					{#if selectedJobStepType == 'single'}
 						<Button
@@ -352,26 +314,6 @@
 				</Button>
 			</div>
 		{/if}
-		<div class="flex gap-2">
-			<Button
-				btnClasses="h-full truncate"
-				size="sm"
-				variant="border"
-				on:click={() => {
-					captureLibraryDrawer?.openDrawer()
-				}}>Trigger captures library</Button
-			>
-			{#if initialPath != ''}
-				<Button
-					btnClasses="h-full truncate"
-					size="sm"
-					variant="border"
-					on:click={() => {
-						inputLibraryDrawer?.openDrawer()
-					}}>Past runs/Input library</Button
-				>
-			{/if}
-		</div>
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
 		{#if lastPreviewFlow && JSON.stringify($flowStore) != lastPreviewFlow}
@@ -387,20 +329,110 @@
 		<FlowProgressBar {job} bind:reset={jobProgressReset} />
 	</div>
 
-	<div class="overflow-y-auto grow flex flex-col pr-4">
+	<div class="overflow-y-auto grow flex flex-col pt-4">
 		<div class="border-b">
-			{#key renderCount}
-				<SchemaForm
-					noVariablePicker
-					compact
-					class="py-4 max-w-3xl"
-					schema={$flowStore.schema}
-					bind:args={$previewArgs}
-				/>
-			{/key}
+			<SchemaFormWithArgPicker
+				bind:this={schemaFormWithArgPicker}
+				runnableId={initialPath == '' ? $pathStore : initialPath}
+				runnableType={'FlowPath'}
+				previewArgs={$previewArgs}
+				on:openTriggers
+				on:select={(e) => {
+					selectInput(e.detail.payload, e.detail?.type)
+				}}
+				{isValid}
+				{jsonView}
+			>
+				<div class="w-full flex flex-row justify-between">
+					<InputSelectedBadge
+						on:click={() => schemaFormWithArgPicker?.resetSelected()}
+						{inputSelected}
+					/>
+					<div class="flex flex-row gap-2">
+						<Toggle
+							bind:checked={jsonView}
+							label="JSON View"
+							size="xs"
+							options={{
+								right: 'JSON',
+								rightTooltip: 'Fill args from JSON'
+							}}
+							lightMode
+							on:change={(e) => {
+								jsonEditor?.setCode(JSON.stringify($previewArgs ?? {}, null, '\t'))
+								refresh()
+							}}
+						/>
+					</div>
+				</div>
+				{#if jsonView}
+					<div class="py-2" style="height: {Math.max(schemaHeight, 100)}px" data-schema-picker>
+						<JsonInputs
+							bind:this={jsonEditor}
+							on:select={(e) => {
+								if (e.detail) {
+									$previewArgs = e.detail
+								}
+							}}
+							updateOnBlur={false}
+							placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+						/>
+					</div>
+				{:else}
+					{#key renderCount}
+						<div bind:clientHeight={schemaHeight} class="min-h-[40vh]">
+							<SchemaForm
+								noVariablePicker
+								compact
+								schema={$flowStore.schema}
+								bind:args={$previewArgs}
+								on:change={() => {
+									savedArgs = $previewArgs
+								}}
+								bind:isValid
+							/>
+						</div>
+					{/key}
+				{/if}
+			</SchemaFormWithArgPicker>
 		</div>
-		<div class="pt-4 flex flex-col grow">
+		<div class="pt-4 flex flex-col grow relative">
+			<div
+				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
+			>
+				<FlowHistoryJobPicker
+					on:select={(e) => {
+						if (!currentJobId) {
+							currentJobId = jobId
+						}
+						const detail = e.detail
+						initial = detail.initial
+						jobId = detail.jobId
+					}}
+					on:unselect={() => {
+						jobId = currentJobId
+						currentJobId = undefined
+					}}
+					path={initialPath == '' ? $pathStore : initialPath}
+				/>
+			</div>
 			{#if jobId}
+				{#if initial}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						on:click={() => {
+							initial = false
+						}}
+						class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 rounded bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+					>
+						<div class="text-center text-primary text-lg py-2 pt-20"
+							><span class="font-bold border p-2 bg-surface-secondary rounded-md"
+								>Previous run of this flow from history</span
+							></div
+						>
+					</div>
+				{/if}
 				<FlowStatusViewer
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults

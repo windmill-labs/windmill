@@ -136,7 +136,7 @@
 			</div>
 		</div>
 		<CronInput bind:schedule={$primarySchedule.cron} bind:timezone={$primarySchedule.timezone} />
-		<SchemaForm {schema} bind:args={$primarySchedule.args} />
+		<SchemaForm onlyMaskPassword {schema} bind:args={$primarySchedule.args} />
 		{#if emptyString($primarySchedule.cron)}
 			<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 		{/if}

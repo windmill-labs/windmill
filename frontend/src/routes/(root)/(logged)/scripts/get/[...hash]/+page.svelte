@@ -18,12 +18,7 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		enterpriseLicense,
-		hubBaseUrlStore,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { onDestroy } from 'svelte'
@@ -46,7 +41,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
-	import SavedInputs from '$lib/components/SavedInputs.svelte'
+	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
 	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -92,6 +87,8 @@
 	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -104,6 +101,8 @@
 	let scheduledForStr: string | undefined = undefined
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
+	let inputSelected: 'saved' | 'history' | undefined = undefined
+	let jsonView = false
 
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
@@ -497,6 +496,8 @@
 
 	let token = 'TOKEN_TO_CREATE'
 	let rightPaneSelected = 'saved_inputs'
+
+	let savedInputsV2: SavedInputsV2 | undefined = undefined
 </script>
 
 <MoveDrawer
@@ -599,7 +600,7 @@
 			</svelte:fragment>
 			<svelte:fragment slot="form">
 				<div class="p-8 w-full max-w-3xl mx-auto">
-					<div class="flex flex-col gap-0.5 mb-4">
+					<div class="flex flex-col gap-0.5 mb-1">
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
 								{#if script.lock_error_logs}
@@ -651,21 +652,46 @@
 						</Badge>
 					{/if}
 
-					<RunForm
-						bind:scheduledForStr
-						bind:invisible_to_owner
-						bind:overrideTag
-						viewKeybinding
-						loading={runLoading}
-						autofocus
-						detailed={false}
-						bind:isValid
-						runnable={script}
-						runAction={runScript}
-						bind:args
-						schedulable={true}
-						bind:this={runForm}
-					/>
+					<div class="flex flex-col align-left">
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge
+								on:click={() => {
+									savedInputsV2?.resetSelected()
+								}}
+								{inputSelected}
+							/>
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
+						</div>
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							loading={runLoading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={script}
+							runAction={runScript}
+							bind:args
+							schedulable={true}
+							bind:this={runForm}
+							{jsonView}
+						/>
+					</div>
 
 					<div class="py-10" />
 					{#if !emptyString(script.summary)}
@@ -695,14 +721,16 @@
 			</svelte:fragment>
 			<svelte:fragment slot="save_inputs">
 				{#if args}
-					<SavedInputs
+					<SavedInputsV2
+						bind:this={savedInputsV2}
 						scriptPath={script?.path}
 						scriptHash={topHash}
 						{isValid}
+						{jsonView}
 						{args}
+						bind:inputSelected
 						on:selected_args={(e) => {
 							const nargs = JSON.parse(JSON.stringify(e.detail))
-							runForm?.setArgs(nargs)
 							args = nargs
 						}}
 					/>
@@ -737,6 +765,7 @@
 			<svelte:fragment slot="postgres">
 				<div class="p-2">
 					<PostgresTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="nats">
 				<div class="p-2">

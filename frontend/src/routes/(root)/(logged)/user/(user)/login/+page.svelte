@@ -12,6 +12,7 @@
 	import { clearStores } from '$lib/storeUtils'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
+	import { onMount } from 'svelte'
 
 	const email = $page.url.searchParams.get('email') ?? ''
 	const password = $page.url.searchParams.get('password') ?? ''
@@ -20,6 +21,26 @@
 
 	let showPassword = false
 	let firstTime = false
+
+	function clearWindmillCloudCookies() {
+		const domain = window.location.hostname
+		// Check if the domain ends with ".windmill.dev" but is NOT "app.windmill.dev"
+		if (
+			domain.endsWith('.windmill.dev') &&
+			domain !== 'app.windmill.dev' &&
+			domain !== 'internal.windmill.dev'
+		) {
+			// Remove the "token" cookie for the current domain and its parent domain
+			document.cookie = `token=; domain=.windmill.dev; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; Secure; SameSite=None`
+			document.cookie = `token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; Secure; SameSite=None`
+
+			console.log('Token cookie removed for windmill cloud instance.')
+		}
+	}
+
+	onMount(() => {
+		clearWindmillCloudCookies()
+	})
 
 	async function redirectUser() {
 		if (rd?.startsWith('http')) {
@@ -80,7 +101,6 @@
 	}
 
 	try {
-		
 		setLicense()
 		redirectIfNecessary()
 		checkFirstTimeSetup()
