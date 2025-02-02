@@ -703,6 +703,7 @@ pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<S
     Ok(value)
 }
 
+#[allow(dead_code)]
 pub async fn get_resource<T>(
     authed: ApiAuthed,
     user_db: Option<UserDB>,
