@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     db::{ApiAuthed, DB},
-    postgres_triggers::mapper::{Mapper, MappingInfo},
+    postgres_triggers::mapper::{Mapper, MappingInfo}, variables::get_resource,
 };
 use axum::{
     extract::{Path, Query},
@@ -37,11 +37,10 @@ use windmill_common::{
     worker::CLOUD_HOSTED,
 };
 
-use super::get_database_resource;
 use lazy_static::lazy_static;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
-pub struct Database {
+pub struct Postgres {
     pub user: String,
     pub password: String,
     pub host: String,
@@ -120,12 +119,12 @@ pub async fn get_database_connection(
     postgres_resource_path: &str,
     w_id: &str,
 ) -> Result<PgConnection, windmill_common::error::Error> {
-    let database = get_database_resource(authed, user_db, db, postgres_resource_path, w_id).await?;
+    let database = get_resource::<Postgres>(authed, user_db, db, postgres_resource_path, w_id).await?;
 
     Ok(get_raw_postgres_connection(&database).await?)
 }
 
-pub async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Error> {
+pub async fn get_raw_postgres_connection(db: &Postgres) -> Result<PgConnection, Error> {
     let options = {
         let sslmode = if !db.sslmode.is_empty() {
             PgSslMode::from_str(&db.sslmode)?

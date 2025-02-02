@@ -10935,6 +10935,7 @@ dependencies = [
  "async-stream",
  "async-stripe",
  "async_zip",
+ "aws-config",
  "aws-sdk-sqs",
  "axum",
  "base32",

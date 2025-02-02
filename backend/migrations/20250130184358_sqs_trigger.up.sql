@@ -1,7 +1,7 @@
 -- Add up migration script here
 CREATE TABLE sqs_trigger(
     path VARCHAR(255) NOT NULL,
-    queue_name VARCHAR(255) NOT NULL,
+    queue_url VARCHAR(255) NOT NULL,
     aws_resource_path VARCHAR(255) NOT NULL,
     script_path VARCHAR(255) NOT NULL,
     is_flow BOOLEAN NOT NULL,

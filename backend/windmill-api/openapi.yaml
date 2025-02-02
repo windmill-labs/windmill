@@ -13447,7 +13447,7 @@ components:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        queue_name:
+        queue_url:
           type: string
         aws_resource_path:
           type: string
@@ -13462,14 +13462,14 @@ components:
           type: boolean
 
       required:
-        - queue_name
+        - queue_url
         - aws_resource_path
         - enabled
 
     NewSqsTrigger:
       type: object
       properties:
-        queue_name:
+        queue_url:
           type: string
         aws_resource_path:
           type: string
@@ -13482,7 +13482,7 @@ components:
         enabled:
           type: boolean
       required:
-        - queue_name
+        - queue_url
         - aws_resource_path        
         - path
         - script_path
@@ -13491,7 +13491,7 @@ components:
     EditSqsTrigger:
       type: object
       properties:
-        queue_name:
+        queue_url:
           type: string
         aws_resource_path:
           type: string
@@ -13501,12 +13501,15 @@ components:
           type: string
         is_flow:
           type: boolean
+        enabled:
+          type: boolean
       required:
-        - queue_name
+        - queue_url
         - aws_resource_path      
         - path
         - script_path
         - is_flow
+        - enabled
 
 
     Slot:

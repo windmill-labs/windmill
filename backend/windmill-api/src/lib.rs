@@ -322,12 +322,12 @@ pub async fn run_server(
     };
 
     let sqs_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        #[cfg(all(feature = "sqs_trigger"))]
         {
             sqs_triggers_ee::workspaced_service()
         }
 
-        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
+        #[cfg(not(feature = "sqs_trigger"))]
         {
             Router::new()
         }

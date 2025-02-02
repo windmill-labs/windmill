@@ -13,6 +13,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SqsTriggerService } from '$lib/gen'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -30,7 +31,7 @@
 	let drawerLoading = true
 	let aws_resource_path: string = ''
 	//let loading = false
-	let queue_name = ''
+	let queue_url = ''
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -99,8 +100,9 @@
 				requestBody: {
 					path,
 					script_path,
+					enabled,
 					is_flow,
-					queue_name,
+					queue_url,
 					aws_resource_path
 				}
 			})
@@ -109,8 +111,9 @@
 			await SqsTriggerService.createSqsTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
+					enabled: true,
 					aws_resource_path,
-					queue_name,
+					queue_url,
 					path,
 					script_path,
 					is_flow
@@ -207,11 +210,22 @@
 					</div>
 				</Section>
 
-				<Section label="Queue information">
+				<Section label="AWS connection setup">
 					<p class="text-xs mb-1 text-tertiary">
-						Enter the name of the queue you want to listen to <Required required={true} />
+						Select an AWS resource with credentials to authenticate your account. <Required
+							required={true}
+						/>
 					</p>
-					<input type="text" placeholder={'Queue name'} bind:value={queue_name} />
+					<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+				</Section>
+
+				<Section label="SQS Queue Selection">
+					<p class="text-xs mb-1 text-tertiary">
+						Provide the URL of the SQS queue the application should listen to. <Required
+							required={true}
+						/>
+					</p>
+					<input type="text" placeholder={'Queue url'} bind:value={queue_url} />
 				</Section>
 			</div>
 		{/if}

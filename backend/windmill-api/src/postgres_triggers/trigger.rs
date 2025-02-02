@@ -3,7 +3,6 @@ use std::{collections::HashMap, pin::Pin};
 use crate::{
     db::DB,
     postgres_triggers::{
-        get_database_resource,
         relation::RelationConverter,
         replication_message::{
             LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
@@ -11,7 +10,7 @@ use crate::{
         },
         run_job,
     },
-    users::fetch_api_authed,
+    users::fetch_api_authed, variables::get_resource,
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -22,11 +21,11 @@ use rand::seq::SliceRandom;
 use rust_postgres::{config::SslMode, Client, Config, CopyBothDuplex, SimpleQueryMessage};
 use rust_postgres_native_tls::MakeTlsConnector;
 use windmill_common::{
-    db::UserDB, utils::report_critical_error, worker::to_raw_value, INSTANCE_NAME,
+     db::UserDB, utils::report_critical_error, worker::to_raw_value, INSTANCE_NAME
 };
 
 use super::{
-    handler::{Database, PostgresTrigger},
+    handler::{Postgres, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
 };
 
@@ -72,7 +71,7 @@ enum Error {
 pub struct PostgresSimpleClient(Client);
 
 impl PostgresSimpleClient {
-    async fn new(database: &Database) -> Result<Self, Error> {
+    async fn new(database: &Postgres) -> Result<Self, Error> {
         let ssl_mode = match database.sslmode.as_ref() {
             "disable" => SslMode::Disable,
             "" | "prefer" | "allow" => SslMode::Prefer,
@@ -275,7 +274,7 @@ async fn listen_to_transactions(
         )
         .await?;
 
-        let database = get_database_resource(
+        let database = get_resource::<Postgres>(
             authed,
             Some(UserDB::new(db.clone())),
             &db,
