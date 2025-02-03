@@ -126,7 +126,7 @@ export const vueTemplate = {
 }`,
 }
 
-const appVueRouter = `
+export const appVueRouter = `
 <template>
   <div class="container">
     <!-- Navigation tabs -->
@@ -291,7 +291,7 @@ button.active {
 }
 </style>`
 
-const appSvelteRouter = `
+export const appSvelteRouter = `
 <script>
 import { onMount, onDestroy } from 'svelte';
 
@@ -456,7 +456,7 @@ button.active {
 }
 </style>`
 
-const appReactRouter = `
+export const appReactRouter = `
 import React, { useState, useEffect } from 'react';
 
 const tabs = [
