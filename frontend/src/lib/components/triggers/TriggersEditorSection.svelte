@@ -52,12 +52,7 @@
 	}
 </script>
 
-<Section
-	label={captureTypeLabels[triggerType]}
-	collapsable={!alwaysOpened}
-	bind:collapsed
-	animate={!alwaysOpened}
->
+<Section label={captureTypeLabels[triggerType]} collapsable={!alwaysOpened} bind:collapsed>
 	<svelte:fragment slot="action">
 		{#if !collapsed || alwaysOpened}
 			<div class="flex flex-row grow w-min-0 gap-2 items-center justify-end">
