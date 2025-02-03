@@ -74,7 +74,7 @@
 				on:updateSchema
 				on:testWithArgs
 				{newItem}
-				allwaysOpened={true}
+				alwaysOpened={true}
 			/>
 		{:else}
 			<div>

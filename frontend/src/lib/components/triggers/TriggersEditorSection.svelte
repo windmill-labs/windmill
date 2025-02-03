@@ -22,7 +22,7 @@
 	export let hasPreprocessor: boolean = false
 	export let newItem: boolean
 	export let openForm: boolean = false
-	export let allwaysOpened: boolean = false
+	export let alwaysOpened: boolean = false
 	export let showCapture: boolean = false
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
@@ -54,12 +54,12 @@
 
 <Section
 	label={captureTypeLabels[triggerType]}
-	collapsable={!allwaysOpened}
+	collapsable={!alwaysOpened}
 	bind:collapsed
-	animate={!allwaysOpened}
+	animate={!alwaysOpened}
 >
 	<svelte:fragment slot="action">
-		{#if !collapsed || allwaysOpened}
+		{#if !collapsed || alwaysOpened}
 			<div class="flex flex-row grow w-min-0 gap-2 items-center justify-end">
 				{#if isEditor}
 					<Button
