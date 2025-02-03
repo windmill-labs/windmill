@@ -933,6 +933,8 @@
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
+			{:else}
+				<div class="h-[30px]" />
 			{/if}
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">

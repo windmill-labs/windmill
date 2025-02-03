@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.455.1
+  version: 1.456.0
   title: Windmill API
 
   contact:
@@ -4475,7 +4475,7 @@ paths:
 
   /w/{workspace}/scripts/delete/p/{path}:
     post:
-      summary: delete all scripts at a given path (require admin)
+      summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
       tags:
         - script

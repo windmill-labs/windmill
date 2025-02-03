@@ -10,6 +10,7 @@
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::db::ApiAuthed;
 
@@ -464,9 +465,11 @@ async fn list_user_usage(
         require_admin(authed.is_admin, &authed.username)?;
     }
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as!(
-        UserWithUsage,
-        "
+    let rows = tokio::time::timeout(
+        Duration::from_secs(300),
+        sqlx::query_as!(
+            UserWithUsage,
+            "
     SELECT usr.email, usage.executions
         FROM usr
             , LATERAL (
@@ -479,10 +482,12 @@ async fn list_user_usage(
             ) usage
         WHERE workspace_id = $1
         ",
-        w_id
+            w_id
+        )
+        .fetch_all(&mut *tx),
     )
-    .fetch_all(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("Timed out while fetching user usage: {e:#}")))??;
     tx.commit().await?;
     Ok(Json(rows))
 }

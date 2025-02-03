@@ -1,66 +1,23 @@
 <script lang="ts">
-	import { InputService, type RunnableType, type Job } from '$lib/gen/index.js'
-	import { workspaceStore } from '$lib/stores.js'
+	import { type RunnableType, type Job } from '$lib/gen/index.js'
 	import { sendUserToast } from '$lib/utils.js'
-	import JobSchemaPicker from '$lib/components/schema/JobSchemaPicker.svelte'
 	import RunningJobSchemaPicker from '$lib/components/schema/RunningJobSchemaPicker.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import JobLoader from './runs/JobLoader.svelte'
 	import { DataTable } from '$lib/components/table'
-	import { clickOutside } from '$lib/utils'
-	import InfiniteList from './InfiniteList.svelte'
+	import HistoricList from './HistoricList.svelte'
 
 	export let runnableId: string | undefined = undefined
 	export let runnableType: RunnableType | undefined = undefined
 	export let loading: boolean = false
+	export let selected: string | undefined = undefined
 
+	let historicList: HistoricList | undefined = undefined
 	const dispatch = createEventDispatcher()
 
 	let jobs: Job[] = []
 	let hasMoreCurrentRuns = false
 	let page = 1
-	let infiniteList: InfiniteList | undefined = undefined
-	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
-
-	let cachedArgs: Record<string, any> = {}
-	function initLoadInputs() {
-		loadInputsPageFn = async (page: number, perPage: number) => {
-			const inputs = await InputService.getInputHistory({
-				workspace: $workspaceStore!,
-				runnableId,
-				runnableType,
-				page,
-				perPage,
-				includePreview: true
-			})
-
-			const inputsWithPayload = await Promise.all(
-				inputs.map(async (input) => {
-					if (cachedArgs[input.id]) {
-						return {
-							...input,
-							payloadData: cachedArgs[input.id]
-						}
-					}
-					const payloadData = await loadArgsFromHistory(input.id, undefined, false)
-					if (payloadData === 'WINDMILL_TOO_BIG') {
-						return {
-							...input,
-							payloadData: 'WINDMILL_TOO_BIG',
-							getFullPayload: () => loadArgsFromHistory(input.id, undefined, true)
-						}
-					}
-					cachedArgs[input.id] = payloadData
-					return {
-						...input,
-						payloadData
-					}
-				})
-			)
-			return inputsWithPayload
-		}
-		infiniteList?.setLoader(loadInputsPageFn)
-	}
 
 	async function handleSelected(data: any) {
 		if (selected === data.id) {
@@ -70,38 +27,15 @@
 		selected = data.id
 		if (data.payloadData === 'WINDMILL_TOO_BIG') {
 			const fullPayload = await data.getFullPayload?.()
-			dispatch('select', fullPayload)
+			dispatch('select', { args: fullPayload, jobId: data.id })
 		} else {
-			dispatch('select', structuredClone(data.payloadData))
+			dispatch('select', { args: structuredClone(data.payloadData), jobId: data.id })
 		}
 	}
-
-	let selected: string | undefined = undefined
 
 	onDestroy(() => {
 		resetSelected(true)
 	})
-
-	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
-		) as HTMLElement[]
-	}
-
-	async function loadArgsFromHistory(
-		id: string | undefined,
-		input: boolean | undefined,
-		allowLarge: boolean
-	): Promise<any> {
-		if (!id) return
-		const payloadData = await InputService.getArgsFromHistoryOrSavedInput({
-			jobOrInputId: id,
-			workspace: $workspaceStore!,
-			input,
-			allowLarge
-		})
-		return payloadData
-	}
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
@@ -120,9 +54,7 @@
 	let jobHovered: string | undefined = undefined
 
 	export function refresh() {
-		if (infiniteList) {
-			infiniteList.loadData('refresh')
-		}
+		historicList?.refresh()
 	}
 
 	export function resetSelected(dispatchEvent?: boolean) {
@@ -132,8 +64,16 @@
 		}
 	}
 
-	$: !loading && refresh()
-	$: $workspaceStore && runnableId && runnableType && infiniteList && initLoadInputs()
+	function getJobKinds(runnableType: RunnableType | undefined) {
+		if (runnableType === 'FlowPath') {
+			return 'flow,flowpreview'
+		} else if (runnableType === 'ScriptPath') {
+			return 'script,preview'
+		} else if (runnableType === 'ScriptHash') {
+			return 'script,preview'
+		}
+		return 'all'
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -143,7 +83,7 @@
 		bind:jobs
 		path={runnableId}
 		isSkipped={false}
-		jobKindsCat="all"
+		jobKinds={getJobKinds(runnableType)}
 		user={null}
 		label={null}
 		folder={null}
@@ -159,15 +99,7 @@
 	/>
 {/if}
 
-<div
-	class="h-full w-full flex flex-col gap-4"
-	use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-	on:click_outside={() => {
-		if (selected) {
-			resetSelected(true)
-		}
-	}}
->
+<div class="h-full max-h-full min-h-0 w-full flex flex-col gap-4">
 	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading && (jobs == undefined || jobs?.length == 0)}
@@ -201,32 +133,13 @@
 	</div>
 
 	<div class="min-h-0 grow" data-schema-picker>
-		<InfiniteList
-			bind:this={infiniteList}
-			selectedItemId={selected}
+		<HistoricList
+			bind:this={historicList}
 			on:error={(e) => handleError(e.detail)}
 			on:select={(e) => handleSelected(e.detail)}
-		>
-			<svelte:fragment slot="columns">
-				<colgroup>
-					<col class="w-8" />
-					<col class="w-16" />
-					<col />
-				</colgroup>
-			</svelte:fragment>
-			<svelte:fragment let:item let:hover>
-				<JobSchemaPicker
-					job={item}
-					selected={selected === item.id}
-					hovering={hover}
-					payloadData={item.payloadData}
-				/>
-			</svelte:fragment>
-			<svelte:fragment slot="empty">
-				<div class="text-center text-tertiary text-xs py-2">
-					{runnableId ? 'No previous inputs' : 'Save draft to see previous runs'}
-				</div>
-			</svelte:fragment>
-		</InfiniteList>
+			{runnableId}
+			{runnableType}
+			{selected}
+		/>
 	</div>
 </div>

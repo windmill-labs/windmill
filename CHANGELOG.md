@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.456.0](https://github.com/windmill-labs/windmill/compare/v1.455.2...v1.456.0) (2025-02-01)
+
+
+### Features
+
+* flow history picker for flow status + load last flow state ([611d5e8](https://github.com/windmill-labs/windmill/commit/611d5e8bf3d64106c3e9698687d2ec3710988517))
+
+
+### Bug Fixes
+
+* only start smtp servers if email domain is set ([6d9edc8](https://github.com/windmill-labs/windmill/commit/6d9edc8c2b01c99339c156dc84def13b0a2205a6))
+
+## [1.455.2](https://github.com/windmill-labs/windmill/compare/v1.455.1...v1.455.2) (2025-01-31)
+
+
+### Bug Fixes
+
+* fix worker restart on otel setting set from undefined to null ([#5183](https://github.com/windmill-labs/windmill/issues/5183)) ([940fb03](https://github.com/windmill-labs/windmill/commit/940fb030232ea7944db94bfdf8b30a96f30baa21))
+* improve autoscaling num workers inc ([2638dfc](https://github.com/windmill-labs/windmill/commit/2638dfcf00522af733c49b2c02a78ec4028623e0))
+* improve history and saved inputs rever mechanism ([0b0e564](https://github.com/windmill-labs/windmill/commit/0b0e5640d8fa9682ad0a4349c863b743321be1f4))
+
 ## [1.455.1](https://github.com/windmill-labs/windmill/compare/v1.455.0...v1.455.1) (2025-01-31)
 
 
