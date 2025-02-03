@@ -26,12 +26,12 @@
 	export let showCapture: boolean = false
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
-		http: 'New custom HTTP route',
-		websocket: 'New WebSocket trigger',
+		http: '+ New custom HTTP route',
+		websocket: '+ New WebSocket trigger',
 		webhook: 'Webhook',
-		kafka: 'New Kafka trigger',
+		kafka: '+ New Kafka trigger',
 		email: 'Email trigger',
-		nats: 'New NATS trigger'
+		nats: '+ New NATS trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')
