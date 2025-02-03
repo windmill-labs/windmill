@@ -19,7 +19,7 @@ use tokio::{
     task,
 };
 use uuid::Uuid;
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{
@@ -76,10 +76,10 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK: &str =
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use crate::global_cache::{build_tar_and_push, pull_from_tar};
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
@@ -632,7 +632,7 @@ pub async fn uv_pip_compile(
         if *NATIVE_CERT {
             args.extend(["--native-tls"]);
         }
-        tracing::error!("uv args: {:?}", args);
+        tracing::debug!("uv args: {:?}", args);
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -1828,12 +1828,12 @@ pub async fn handle_python_reqs(
         instant: std::time::Instant,
         db: Pool<Postgres>,
     ) {
-        #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         {
             (s3_pull, s3_push) = (false, false);
         }
 
-        #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if OBJECT_STORE_CACHE_SETTINGS.read().await.is_none() {
             (s3_pull, s3_push) = (false, false);
         }
@@ -2112,7 +2112,7 @@ pub async fn handle_python_reqs(
     let mut handles = Vec::with_capacity(total_to_install);
     // let mem_peak_thread_safe = Arc::new(tokio::sync::Mutex::new(0));
 
-    #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
     let total_time = std::time::Instant::now();
@@ -2171,7 +2171,7 @@ pub async fn handle_python_reqs(
             );
 
             let start = std::time::Instant::now();
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if is_not_pro {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                     tokio::select! {
@@ -2301,10 +2301,10 @@ pub async fn handle_python_reqs(
                 }
             };
 
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             let s3_push = is_not_pro;
 
-            #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let s3_push = false;
 
             print_success(
@@ -2321,7 +2321,7 @@ pub async fn handle_python_reqs(
             )
             .await;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if s3_push {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                     tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(), no_uv_install));
