@@ -122,26 +122,28 @@
 		{/if}
 		<div class="flex flex-col w-full gap-4">
 			<label class="block grow w-full">
-				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-					<div>
-						Path
-						<Required required={true} />
+				<div class="flex flex-col gap-1">
+					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+						<div>
+							Path
+							<Required required={true} />
+						</div>
+						<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
 					</div>
-					<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
+					<!-- svelte-ignore a11y-autofocus -->
+					<input
+						type="text"
+						autocomplete="off"
+						bind:value={route_path}
+						disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+						class={routeError === ''
+							? ''
+							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+						on:input={() => {
+							dirtyRoutePath = true
+						}}
+					/>
 				</div>
-				<!-- svelte-ignore a11y-autofocus -->
-				<input
-					type="text"
-					autocomplete="off"
-					bind:value={route_path}
-					disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-					class={routeError === ''
-						? ''
-						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-					on:input={() => {
-						dirtyRoutePath = true
-					}}
-				/>
 			</label>
 
 			<ToggleButtonGroup

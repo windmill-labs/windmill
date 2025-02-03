@@ -32,7 +32,13 @@
 			showCapture={false}
 		/>
 	{:else if triggerType === 'sqs'}
-		<SqsTriggerEditorConfigSection headless={true} can_write={true} showCapture={false} />
+		<SqsTriggerEditorConfigSection
+			bind:queue_url={args.queue_url}
+			bind:aws_resource_path={args.aws_resource_path}
+			headless={true}
+			can_write={true}
+			showCapture={false}
+		/>
 	{:else if triggerType === 'webhook'}
 		<WebhooksConfigSection
 			{isFlow}

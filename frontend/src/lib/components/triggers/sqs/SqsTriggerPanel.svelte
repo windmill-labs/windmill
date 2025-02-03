@@ -6,7 +6,7 @@
 	import { getContext, onMount } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Section from '$lib/components/Section.svelte'
-	import { Alert, Skeleton } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import TriggersEditorSection from '../TriggersEditorSection.svelte'
@@ -19,6 +19,8 @@
 	export let hasPreprocessor: boolean = false
 
 	let sqsTriggerEditor: SqsTriggerEditor
+	let openForm = true
+	let dontCloseOnLoad = false
 
 	$: path && loadTriggers()
 
@@ -49,6 +51,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), websocket_count: sqsTriggers?.length }
+			openForm = sqsTriggers?.length === 0 || dontCloseOnLoad
 		} catch (e) {
 			console.error('impossible to load SQS triggers', e)
 		}
@@ -68,9 +71,43 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
-		<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">
-			/**/
+		<Description
+			link="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-how-it-works.html"
+		>
+			SQS triggers allow your scripts/flows to process messages from Amazon Simple Queue Service
+			(SQS) in real time. Each trigger listens to an SQS queue and executes a script or a flow when
+			new messages arrive.
 		</Description>
+
+		{#if !newItem && sqsTriggers && sqsTriggers.length > 0}
+			<Section label="WebSockets">
+				<div class="flex flex-col gap-4">
+					<div class="flex flex-col divide-y pt-2">
+						{#each sqsTriggers as sqsTriggers (sqsTriggers.path)}
+							<div class="grid grid-cols-5 text-2xs items-center py-2">
+								<div class="col-span-2 truncate">{sqsTriggers.path}</div>
+								<div class="col-span-2 truncate">
+									{sqsTriggers.queue_url}
+								</div>
+								<div class="flex justify-end">
+									<button
+										on:click={() => sqsTriggerEditor?.openEdit(sqsTriggers.path, isFlow)}
+										class="px-2"
+									>
+										{#if sqsTriggers.canWrite}
+											Edit
+										{:else}
+											View
+										{/if}
+									</button>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			</Section>
+		{/if}
+
 		<TriggersEditorSection
 			on:applyArgs
 			on:saveTrigger={(e) => {
@@ -87,43 +124,8 @@
 			{canHavePreprocessor}
 			{hasPreprocessor}
 			{newItem}
+			{openForm}
+			bind:showCapture={dontCloseOnLoad}
 		/>
-
-		{#if !newItem}
-			<Section label="Sqs">
-				<div class="flex flex-col gap-4">
-					{#if sqsTriggers}
-						{#if sqsTriggers.length == 0}
-							<div class="text-xs text-secondary text-center"> No Sqs triggers </div>
-						{:else}
-							<div class="flex flex-col divide-y pt-2">
-								{#each sqsTriggers as sqsTriggers (sqsTriggers.path)}
-									<div class="grid grid-cols-5 text-2xs items-center py-2">
-										<div class="col-span-2 truncate">{sqsTriggers.path}</div>
-										<div class="col-span-2 truncate">
-											{sqsTriggers.path}
-										</div>
-										<div class="flex justify-end">
-											<button
-												on:click={() => sqsTriggerEditor?.openEdit(sqsTriggers.path, isFlow)}
-												class="px-2"
-											>
-												{#if sqsTriggers.canWrite}
-													Edit
-												{:else}
-													View
-												{/if}
-											</button>
-										</div>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					{:else}
-						<Skeleton layout={[[8]]} />
-					{/if}
-				</div>
-			</Section>
-		{/if}
 	</div>
 {/if}

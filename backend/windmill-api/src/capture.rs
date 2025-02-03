@@ -123,7 +123,7 @@ pub struct KafkaTriggerConfig {
 }
 
 #[cfg(feature = "sqs_trigger")]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String
@@ -210,6 +210,10 @@ async fn set_config(
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+
+    if let Some(TriggerConfig::Sqs(sqs)) = &nc.trigger_config {
+        println!("{:#?}", &sqs);
+    }
 
     sqlx::query!(
         "INSERT INTO capture_config

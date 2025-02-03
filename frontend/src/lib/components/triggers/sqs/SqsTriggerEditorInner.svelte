@@ -65,6 +65,8 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
+			aws_resource_path = defaultValues?.aws_resource_path ?? ''
+			queue_url = defaultValues?.queue_url ?? ''
 			path = ''
 			initialPath = ''
 			edit = false
@@ -82,7 +84,8 @@
 			})
 			script_path = s.script_path
 			initialScriptPath = s.script_path
-
+			aws_resource_path = s.aws_resource_path
+			queue_url = s.queue_url
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled
@@ -155,7 +158,11 @@
 				{/if}
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' || emptyString(script_path) || !can_write}
+					disabled={pathError != '' ||
+						emptyString(script_path) ||
+						emptyString(aws_resource_path) ||
+						emptyString(queue_url) ||
+						!can_write}
 					on:click={updateTrigger}
 				>
 					Save

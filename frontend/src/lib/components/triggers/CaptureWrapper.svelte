@@ -183,6 +183,8 @@
 			<SqsTriggerEditorConfigSection
 				can_write={true}
 				headless={true}
+				bind:queue_url={args.queue_url}
+				bind:aws_resource_path={args.aws_resource_path}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable
