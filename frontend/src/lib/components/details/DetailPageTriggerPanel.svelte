@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Tabs, Tab } from '$lib/components/common'
+	import { Tabs, TabFlex } from '$lib/components/common'
 	import {
 		CalendarCheck2,
 		MailIcon,
@@ -31,6 +31,17 @@
 
 	export let eventStreamType: 'kafka' | 'nats' = 'kafka'
 
+	const tabs = [
+		{ value: 'webhooks', label: 'Webhooks', icon: Webhook, otherValues: [] },
+		{ value: 'schedules', label: 'Schedules', icon: CalendarCheck2, otherValues: [] },
+		{ value: 'routes', label: 'HTTP', icon: Route, otherValues: [] },
+		{ value: 'websockets', label: 'WebSockets', icon: Unplug, otherValues: [] },
+		{ value: 'postgres', label: 'Postgres', icon: Unplug, otherValues: [] },
+		{ value: 'kafka', label: 'Event streams', icon: PlugZap, otherValues: ['nats'] },
+		{ value: 'emails', label: 'Email', icon: MailIcon, otherValues: [] },
+		{ value: 'cli', label: 'CLI', icon: Terminal, otherValues: [] }
+	]
+
 	$: {
 		if (triggerSelected === 'kafka' || triggerSelected === 'nats') {
 			eventStreamType = triggerSelected
@@ -43,54 +54,15 @@
 {#if !simplfiedPoll}
 	<div class="flex flex-col h-full">
 		<Tabs bind:selected={triggerSelected} wrapperClass="flex-none w-full">
-			<Tab value="webhooks">
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<Webhook size={12} />
-					Webhooks
-				</span>
-			</Tab>
-			<Tab value="schedules">
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<CalendarCheck2 size={12} />
-					Schedules
-				</span>
-			</Tab>
-			<Tab value="routes">
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<Route size={12} />
-					HTTP
-				</span>
-			</Tab>
-			<Tab value="websockets">
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<Unplug size={12} />
-					WebSockets
-				</span>
-			</Tab>
-			<Tab value="postgres">
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<Unplug size={12} />
-					Postgres
-				</span>
-			</Tab>
-			<Tab value="kafka" otherValues={['nats']}>
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<PlugZap size={12} />
-					Event streams
-				</span>
-			</Tab>
-			<Tab value="emails">
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<MailIcon size={12} />
-					Email
-				</span>
-			</Tab>
-			<Tab value="cli">
-				<span class="flex flex-row gap-2 items-center text-xs">
-					<Terminal size={12} />
-					CLI
-				</span>
-			</Tab>
+			{#each tabs as tab}
+				<TabFlex
+					value={tab.value}
+					otherValues={tab.otherValues}
+					icon={tab.icon}
+					label={tab.label}
+					selected={triggerSelected === tab.value}
+				/>
+			{/each}
 
 			<svelte:fragment slot="content">
 				<div class="min-h-0 grow overflow-y-auto">
