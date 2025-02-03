@@ -23,6 +23,7 @@
 	export let newItem: boolean
 	export let openForm: boolean = false
 	export let allwaysOpened: boolean = false
+	export let showCapture: boolean = false
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
 		http: 'New custom HTTP route',
@@ -40,7 +41,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	let showCapture = false
 	let init = false
 	$: updateShowCapture(!!$captureOn)
 	function updateShowCapture(show: boolean) {

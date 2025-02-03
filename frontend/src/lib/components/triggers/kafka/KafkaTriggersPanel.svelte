@@ -20,6 +20,7 @@
 
 	let kafkaTriggerEditor: KafkaTriggerEditor
 	let openForm = true
+	let dontCloseOnLoad = false
 
 	$: path && loadTriggers()
 
@@ -50,7 +51,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), kafka_count: kafkaTriggers?.length }
-			openForm = kafkaTriggers?.length === 0
+			openForm = kafkaTriggers?.length === 0 || dontCloseOnLoad
 		} catch (e) {
 			console.error('impossible to load Kafka triggers', e)
 		}
@@ -130,6 +131,7 @@
 			{hasPreprocessor}
 			{newItem}
 			{openForm}
+			bind:showCapture={dontCloseOnLoad}
 		/>
 	</div>
 {/if}

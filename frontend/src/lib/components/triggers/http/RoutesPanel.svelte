@@ -20,6 +20,7 @@
 
 	let routeEditor: RouteEditor
 	let openForm = true
+	let dontCloseOnLoad = false
 
 	$: path && loadTriggers()
 	const { triggersCount, selectedTrigger, defaultValues } =
@@ -49,7 +50,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), http_routes_count: httpTriggers?.length }
-			openForm = httpTriggers?.length === 0
+			openForm = httpTriggers?.length === 0 || dontCloseOnLoad
 		} catch (e) {
 			console.error('impossible to load http routes', e)
 		}
@@ -107,6 +108,7 @@
 		on:addPreprocessor
 		on:updateSchema
 		on:testWithArgs
+		bind:showCapture={dontCloseOnLoad}
 		cloudDisabled={false}
 		triggerType="http"
 		{isFlow}

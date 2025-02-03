@@ -20,6 +20,7 @@
 
 	let wsTriggerEditor: WebsocketTriggerEditor
 	let openForm = true
+	let dontCloseOnLoad = false
 
 	$: path && loadTriggers()
 
@@ -50,7 +51,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), websocket_count: wsTriggers?.length }
-			openForm = wsTriggers?.length === 0
+			openForm = wsTriggers?.length === 0 || dontCloseOnLoad
 		} catch (e) {
 			console.error('impossible to load WS triggers', e)
 		}
