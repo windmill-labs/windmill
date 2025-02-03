@@ -1,4 +1,5 @@
 target/
+.minio-data/
 .DS_Store
 nohup.out
 local/
