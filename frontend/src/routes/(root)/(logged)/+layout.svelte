@@ -192,11 +192,9 @@
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
 		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used } =
-			await WorkspaceService.getUsedTriggers(
-			{
-					workspace: $workspaceStore ?? ''
-				}
-		)
+			await WorkspaceService.getUsedTriggers({
+				workspace: $workspaceStore ?? ''
+			})
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -244,13 +242,17 @@
 	async function loadCopilot(workspace: string) {
 		initAllAiWorkspace(workspace)
 		try {
-			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
-		} catch (err) {
-			console.log(err)
+			const info = await WorkspaceService.getCopilotInfo({ workspace })
 			copilotInfo.set({
-				ai_provider: '',
+				...info,
+				ai_provider: info.ai_provider ?? 'openai'
+			})
+		} catch (err) {
+			copilotInfo.set({
+				ai_provider: 'openai',
 				exists_ai_resource: false,
-				code_completion_enabled: false
+				code_completion_model: undefined,
+				ai_models: []
 			})
 			console.error('Could not get copilot info')
 		}
@@ -294,7 +296,13 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $workspaceStore && $userStore && $devopsRole !== undefined && ($devopsRole || $userStore.is_admin)) {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			$devopsRole !== undefined &&
+			($devopsRole || $userStore.is_admin)
+		) {
 			mountModal = true
 			loadCriticalAlertsMuted()
 		}

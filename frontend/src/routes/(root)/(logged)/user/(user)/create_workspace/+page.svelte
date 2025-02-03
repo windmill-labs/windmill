@@ -6,7 +6,8 @@
 		SettingService,
 		UserService,
 		VariableService,
-		WorkspaceService
+		WorkspaceService,
+		type AIProvider
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
@@ -18,12 +19,12 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
+	import TestAIKey from '$lib/components/copilot/TestAIKey.svelte'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import type { AiProviderTypes } from '$lib/components/copilot/lib'
+	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -41,8 +42,12 @@
 	let colorEnabled = false
 
 	function generateRandomColor() {
-		const randomColor = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
-		workspaceColor = randomColor;
+		const randomColor =
+			'#' +
+			Math.floor(Math.random() * 16777215)
+				.toString(16)
+				.padStart(6, '0')
+		workspaceColor = randomColor
 	}
 
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
@@ -111,7 +116,8 @@
 				workspace: id,
 				requestBody: {
 					ai_resource: { path, provider: selected },
-					code_completion_enabled: codeCompletionEnabled
+					ai_models: aiKey ? AI_DEFAULT_MODELS[selected].slice(0, 1) : [],
+					code_completion_model: codeCompletionEnabled ? AI_DEFAULT_MODELS[selected][0] : undefined
 				}
 			})
 		}
@@ -178,7 +184,7 @@
 
 	let auto_invite = false
 	let operatorOnly = false
-	let selected: AiProviderTypes = 'openai'
+	let selected: Exclude<AIProvider, 'customai'> = 'openai'
 </script>
 
 <CenteredModal title="New Workspace">
@@ -198,11 +204,23 @@
 	</label>
 	<label class="block pb-4">
 		<span class="text-secondary text-sm">Workspace color</span>
-		<span class="ml-5 text-tertiary text-xs">Color to identify the current workspace in the list of workspaces</span>
+		<span class="ml-5 text-tertiary text-xs"
+			>Color to identify the current workspace in the list of workspaces</span
+		>
 		<div class="flex items-center gap-2">
 			<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
-			{#if colorEnabled}<input class="w-10" type="color" bind:value={workspaceColor} disabled={!colorEnabled} />{/if}
-			<input type="text" class="w-24 text-sm" bind:value={workspaceColor} disabled={!colorEnabled} />
+			{#if colorEnabled}<input
+					class="w-10"
+					type="color"
+					bind:value={workspaceColor}
+					disabled={!colorEnabled}
+				/>{/if}
+			<input
+				type="text"
+				class="w-24 text-sm"
+				bind:value={workspaceColor}
+				disabled={!colorEnabled}
+			/>
 			<Button on:click={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>
 		</div>
 	</label>
@@ -230,9 +248,10 @@
 			</span>
 			<div class="pb-2">
 				<ToggleButtonGroup bind:selected>
-					<ToggleButton value="openai" label="OpenAi" />
+					<ToggleButton value="openai" label="OpenAI" />
 					<ToggleButton value="anthropic" label="Anthropic" />
 					<ToggleButton value="mistral" label="Mistral" />
+					<ToggleButton value="deepseek" label="DeepSeek" />
 				</ToggleButtonGroup>
 			</div>
 		</div>
@@ -243,7 +262,12 @@
 				bind:value={aiKey}
 				on:keyup={handleKeyUp}
 			/>
-			<TestAiKey apiKey={aiKey} disabled={!aiKey} aiProvider={selected} />
+			<TestAIKey
+				apiKey={aiKey}
+				disabled={!aiKey}
+				aiProvider={selected}
+				model={AI_DEFAULT_MODELS[selected][0]}
+			/>
 		</div>
 		{#if aiKey}
 			<Toggle

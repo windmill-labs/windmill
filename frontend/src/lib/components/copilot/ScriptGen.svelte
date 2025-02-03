@@ -2,18 +2,18 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import {
-		MAX_SCHEMA_LENGTH,
-		SUPPORTED_LANGUAGES,
-		addThousandsSeparator,
-		copilot,
-		type AiProviderTypes
-	} from './lib'
+	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import Popup from '../common/popup/Popup.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
+	import {
+		dbSchemas,
+		copilotInfo,
+		type DBSchema,
+		workspaceStore,
+		copilotSessionModel
+	} from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -25,16 +25,7 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import {
-		AlertTriangle,
-		Ban,
-		Bot,
-		Check,
-		ExternalLink,
-		HistoryIcon,
-		Wand2,
-		X
-	} from 'lucide-svelte'
+	import { AlertTriangle, Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
@@ -74,7 +65,7 @@
 			return
 		}
 		savePrompt()
-		const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
+		const aiProvider = $copilotInfo.ai_provider
 		try {
 			genLoading = true
 			blockPopupOpen = true
@@ -248,6 +239,16 @@
 		}
 	}
 
+	function checkForInvalidModel() {
+		if (
+			!$copilotSessionModel ||
+			($copilotSessionModel && !$copilotInfo.ai_models.includes($copilotSessionModel))
+		) {
+			$copilotSessionModel = $copilotInfo.ai_models[0]
+		}
+	}
+	$: $copilotInfo && checkForInvalidModel()
+
 	onDestroy(() => {
 		abortController?.abort()
 	})
@@ -399,21 +400,27 @@
 				</div>
 			{:else if $copilotInfo.exists_ai_resource}
 				<div class="flex flex-col gap-4">
-					<div class="flex flex-row justify-between items-center">
+					<div class="flex flex-row justify-between items-center w-96 gap-2">
 						<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>
 							<ToggleButton value={'gen'} label="Generate from scratch" small light />
 							<ToggleButton value={'edit'} label="Edit existing code" small light />
 						</ToggleButtonGroup>
 
-						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							{#if $copilotInfo.ai_provider === 'openai'}
-								GPT-4o
-							{:else if $copilotInfo.ai_provider === 'anthropic'}
-								Claude-3.5
-							{:else}
-								Codestral
+						<div>
+							{#if $copilotInfo.ai_models.length > 1}
+								<select
+									bind:value={$copilotSessionModel}
+									class="text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
+								>
+									{#each $copilotInfo.ai_models as model}
+										<option value={model} class="pr-4">{model}</option>
+									{/each}
+								</select>
+							{:else if $copilotInfo.ai_models.length === 1}
+								<p class="text-xs text-secondary">
+									{$copilotInfo.ai_models[0]}
+								</p>
 							{/if}
-							<Bot size={14} />
 						</div>
 					</div>
 					<div class="flex w-96 items-start">

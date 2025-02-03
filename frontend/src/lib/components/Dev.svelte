@@ -112,12 +112,17 @@
 		if (workspace) {
 			initAllAiWorkspace(workspace)
 			try {
-				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
+				const info = await WorkspaceService.getCopilotInfo({ workspace })
+				copilotInfo.set({
+					...info,
+					ai_provider: info.ai_provider ?? 'openai'
+				})
 			} catch (err) {
 				copilotInfo.set({
-					ai_provider: '',
+					ai_provider: 'openai',
 					exists_ai_resource: false,
-					code_completion_enabled: false
+					code_completion_model: undefined,
+					ai_models: []
 				})
 
 				console.error('Could not get copilot info')
