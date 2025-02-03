@@ -21,6 +21,8 @@
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 	export let newItem: boolean
+	export let openForm: boolean = false
+	export let allwaysOpened: boolean = false
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
 		http: 'New custom HTTP route',
@@ -28,12 +30,13 @@
 		webhook: 'Webhook',
 		kafka: 'New Kafka trigger',
 		email: 'Email trigger',
-		nats: 'NATS trigger'
+		nats: 'New NATS trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')
 
 	let args: Record<string, any> = {}
+	$: collapsed = !openForm
 
 	const dispatch = createEventDispatcher()
 
@@ -49,55 +52,62 @@
 	}
 </script>
 
-<Section label={captureTypeLabels[triggerType]}>
+<Section
+	label={captureTypeLabels[triggerType]}
+	collapsable={!allwaysOpened}
+	bind:collapsed
+	animate={!allwaysOpened}
+>
 	<svelte:fragment slot="action">
-		<div class="flex flex-row grow w-min-0 gap-2 items-center justify-end">
-			{#if isEditor}
-				<Button
-					size="xs2"
-					on:click={() => {
-						showCapture = !showCapture
-					}}
-					variant="border"
-					color="light"
-					endIcon={{
-						icon: ChevronDown,
-						classes: twMerge('transition', showCapture ? 'rotate-180' : '')
-					}}
-				>
-					Test trigger
-				</Button>
-			{/if}
-
-			{#if !noSave}
-				{@const disabled = newItem || cloudDisabled}
-				<Popover notClickable>
+		{#if !collapsed || allwaysOpened}
+			<div class="flex flex-row grow w-min-0 gap-2 items-center justify-end">
+				{#if isEditor}
 					<Button
 						size="xs2"
-						{disabled}
-						startIcon={{ icon: Save }}
 						on:click={() => {
-							dispatch('saveTrigger', {
-								config: args
-							})
+							showCapture = !showCapture
+						}}
+						variant="border"
+						color="light"
+						endIcon={{
+							icon: ChevronDown,
+							classes: twMerge('transition', showCapture ? 'rotate-180' : '')
 						}}
 					>
-						Save
+						Test trigger
 					</Button>
-					<svelte:fragment slot="text">
-						{#if disabled}
-							{#if newItem}
-								Deploy the runnable to enable trigger creation
-							{:else if cloudDisabled}
-								{capitalize(triggerType)} triggers are disabled in the multi-tenant cloud
+				{/if}
+
+				{#if !noSave}
+					{@const disabled = newItem || cloudDisabled}
+					<Popover notClickable>
+						<Button
+							size="xs2"
+							{disabled}
+							startIcon={{ icon: Save }}
+							on:click={() => {
+								dispatch('saveTrigger', {
+									config: args
+								})
+							}}
+						>
+							Save
+						</Button>
+						<svelte:fragment slot="text">
+							{#if disabled}
+								{#if newItem}
+									Deploy the runnable to enable trigger creation
+								{:else if cloudDisabled}
+									{capitalize(triggerType)} triggers are disabled in the multi-tenant cloud
+								{/if}
+							{:else}
+								Create new {captureTypeLabels[triggerType].toLowerCase()}
 							{/if}
-						{:else}
-							Create new {captureTypeLabels[triggerType].toLowerCase()}
-						{/if}
-					</svelte:fragment>
-				</Popover>
-			{/if}
-		</div>
+						</svelte:fragment>
+					</Popover>
+				{/if}
+			</div>
+		{/if}
 	</svelte:fragment>
 
 	{#if isEditor}

@@ -53,5 +53,6 @@
 		{canHavePreprocessor}
 		{hasPreprocessor}
 		{newItem}
+		allwaysOpened={true}
 	/>
 </div>

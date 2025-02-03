@@ -6,7 +6,6 @@
 	import NatsTriggerEditor from './NatsTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Section from '$lib/components/Section.svelte'
-	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Description from '$lib/components/Description.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -20,6 +19,7 @@
 	export let hasPreprocessor: boolean = false
 
 	let natsTriggerEditor: NatsTriggerEditor
+	let openForm = true
 
 	$: path && loadTriggers()
 
@@ -50,6 +50,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), nats_count: natsTriggers?.length }
+			openForm = natsTriggers?.length === 0
 		} catch (e) {
 			console.error('impossible to load nats triggers', e)
 		}
@@ -85,6 +86,34 @@
 		<Description link="https://www.windmill.dev/docs/core_concepts/nats_triggers">
 			NATS triggers execute scripts and flows in response to messages published to NATS subjects.
 		</Description>
+
+		{#if !newItem && natsTriggers && natsTriggers.length > 0}
+			<Section label="NATS Triggers">
+				<div class="flex flex-col divide-y pt-2">
+					{#each natsTriggers as natsTrigger (natsTrigger.path)}
+						<div class="grid grid-cols-5 text-2xs items-center py-2">
+							<div class="col-span-2 truncate">{natsTrigger.path}</div>
+							<div class="col-span-2 truncate">
+								{natsTrigger.nats_resource_path}
+							</div>
+							<div class="flex justify-end">
+								<button
+									on:click={() => natsTriggerEditor?.openEdit(natsTrigger.path, isFlow)}
+									class="px-2"
+								>
+									{#if natsTrigger.canWrite}
+										Edit
+									{:else}
+										View
+									{/if}
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</Section>
+		{/if}
+
 		<TriggersEditorSection
 			on:saveTrigger={(e) => {
 				saveTrigger(path, e.detail.config)
@@ -100,41 +129,7 @@
 			{canHavePreprocessor}
 			{hasPreprocessor}
 			{newItem}
+			{openForm}
 		/>
-
-		{#if !newItem}
-			{#if natsTriggers}
-				<Section label="NATS Triggers">
-					{#if natsTriggers.length == 0}
-						<div class="text-xs text-secondary text-center"> No nats triggers </div>
-					{:else}
-						<div class="flex flex-col divide-y pt-2">
-							{#each natsTriggers as natsTrigger (natsTrigger.path)}
-								<div class="grid grid-cols-5 text-2xs items-center py-2">
-									<div class="col-span-2 truncate">{natsTrigger.path}</div>
-									<div class="col-span-2 truncate">
-										{natsTrigger.nats_resource_path}
-									</div>
-									<div class="flex justify-end">
-										<button
-											on:click={() => natsTriggerEditor?.openEdit(natsTrigger.path, isFlow)}
-											class="px-2"
-										>
-											{#if natsTrigger.canWrite}
-												Edit
-											{:else}
-												View
-											{/if}
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</Section>
-			{:else}
-				<Skeleton layout={[[8]]} />
-			{/if}
-		{/if}
 	</div>
 {/if}
