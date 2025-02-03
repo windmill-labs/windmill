@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-svelte'
+	import { AlertTriangle, ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
 
 	export let label: string | undefined = undefined
 	export let tooltip: string | undefined = undefined
@@ -14,6 +15,7 @@
 	export let collapsable: boolean = false
 	export let collapsed: boolean = true
 	export let headless: boolean = false
+	export let animate: boolean = false
 </script>
 
 <div class={twMerge('w-full flex flex-col', wrapperClass)}>
@@ -27,11 +29,14 @@
 			>
 				{#if collapsable}
 					<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
-						{#if collapsed}
-							<ChevronRight size={16} />
-						{:else}
-							<ChevronDown size={16} />
-						{/if}
+						<ChevronRight
+							size={16}
+							class={twMerge(
+								'transition',
+								collapsed ? '' : 'rotate-90',
+								animate ? 'duration-200' : 'duration-0'
+							)}
+						/>
 						{label}
 					</button>
 				{:else}
@@ -58,7 +63,10 @@
 		</div>
 	{/if}
 	{#if !collapsable || !collapsed}
-		<div class={twMerge('grow min-h-0', $$props.class)}>
+		<div
+			class={twMerge('grow min-h-0', $$props.class)}
+			transition:slide={animate ? { duration: 200 } : { duration: 0 }}
+		>
 			<slot />
 		</div>
 	{/if}
