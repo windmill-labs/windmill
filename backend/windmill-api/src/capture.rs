@@ -211,10 +211,6 @@ async fn set_config(
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
 
-    if let Some(TriggerConfig::Sqs(sqs)) = &nc.trigger_config {
-        println!("{:#?}", &sqs);
-    }
-
     sqlx::query!(
         "INSERT INTO capture_config
             (workspace_id, path, is_flow, trigger_kind, trigger_config, owner, email)
