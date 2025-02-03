@@ -173,6 +173,10 @@ pub fn drop_publication_query(publication_name: &str) -> String {
     query
 }
 
+pub fn drop_logical_replication_slot_query(replication_slot_name: &str) -> String {
+    format!("SELECT pg_drop_replication_slot({});", quote_literal(&replication_slot_name))
+}
+
 pub fn generate_random_string() -> String {
     let timestamp = Utc::now().timestamp_millis().to_string();
     let mut rng = rand::rng();

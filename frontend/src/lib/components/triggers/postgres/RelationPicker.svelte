@@ -5,63 +5,13 @@
 	import Required from '$lib/components/Required.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { Relations } from '$lib/gen'
-	import { emptyString, sendUserToast } from '$lib/utils'
 	import { Plus, X } from 'lucide-svelte'
 	import MultiSelect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
+	import { invalidRelations } from './utils'
 	export let relations: Relations[] = []
 	export let selectedTable: 'all' | 'specific'
 	export let can_write: boolean = true
-	export function validRelations(relations: Relations[]): boolean {
-		let result: {
-			schemaIndex: number
-			tableIndex: number
-			schemaError: boolean
-			tableError: boolean
-			schemaName?: string
-		} = {
-			schemaIndex: -1,
-			tableIndex: -1,
-			schemaError: false,
-			tableError: false
-		}
-
-		for (const [schemaIndex, relation] of relations.entries()) {
-			if (emptyString(relation.schema_name)) {
-				result.schemaError = true
-				result.schemaIndex = schemaIndex + 1
-				break
-			} else {
-				const tableToTrack = relation.table_to_track
-				if (tableToTrack.length > 0) {
-					for (const [tableIndex, table] of tableToTrack.entries()) {
-						if (emptyString(table.table_name)) {
-							result.tableError = true
-							result.tableIndex = tableIndex + 1
-							result.schemaName = relation.schema_name
-							result.schemaIndex = schemaIndex + 1
-							break
-						}
-					}
-					if (result.tableError) {
-						break
-					}
-				}
-			}
-		}
-
-		const error = result.tableError || result.schemaError
-
-		if (error === true) {
-			let errorMessage = result.schemaError
-				? `Schema Error: Please enter a name for schema number ${result.schemaIndex}`
-				: `Table Error: Please enter a name for table number ${result.tableIndex} inside schema number ${result.schemaIndex}`
-			errorMessage += emptyString(result.schemaName) ? '' : ` named: ${result.schemaName}`
-			sendUserToast(errorMessage, true)
-		}
-
-		return !error
-	}
 </script>
 
 <div class="flex flex-col gap-4">
@@ -220,7 +170,7 @@
 							schema_name: '',
 							table_to_track: []
 						})
-					} else if (validRelations(relations)) {
+					} else if (invalidRelations(relations, true)[0] === false) {
 						relations = relations.concat({
 							schema_name: '',
 							table_to_track: []

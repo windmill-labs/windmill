@@ -15,6 +15,7 @@
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
+	import { invalidRelations } from './postgres/utils'
 
 	export let isFlow: boolean
 	export let path: string
@@ -27,7 +28,10 @@
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
-	export async function setConfig() {
+	export async function setConfig(): Promise<boolean> {
+		if (captureType === 'postgres' && invalidRelations(args.publication.table_to_track, true)[0]) {
+			return false
+		}
 		try {
 			await CaptureService.setCaptureConfig({
 				requestBody: {
@@ -38,8 +42,10 @@
 				},
 				workspace: $workspaceStore!
 			})
+			return true
 		} catch (error) {
 			sendUserToast(error.body, true)
+			return false
 		}
 	}
 
@@ -122,8 +128,11 @@
 		if (captureActive || e.detail.disableOnly) {
 			captureActive = false
 		} else {
-			await setConfig()
-			capture()
+			const configSet = await setConfig()
+
+			if (configSet) {
+				capture()
+			}
 		}
 	}
 

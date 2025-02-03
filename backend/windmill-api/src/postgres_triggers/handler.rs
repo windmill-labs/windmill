@@ -29,8 +29,7 @@ use windmill_common::{
 };
 
 use super::{
-    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-    generate_random_string, get_database_connection,
+    create_logical_replication_slot_query, create_publication_query, drop_logical_replication_slot_query, drop_publication_query, generate_random_string, get_database_connection
 };
 use lazy_static::lazy_static;
 
@@ -150,12 +149,12 @@ pub enum Language {
 #[derive(Debug, Deserialize)]
 pub struct TemplateScript {
     postgres_resource_path: String,
-    #[serde(deserialize_with = "check_if_not_duplication_relation")]
+    #[serde(deserialize_with = "check_if_valid_relation")]
     relations: Option<Vec<Relations>>,
     language: Language,
 }
 
-fn check_if_not_duplication_relation<'de, D>(
+fn check_if_valid_relation<'de, D>(
     relations: D,
 ) -> std::result::Result<Option<Vec<Relations>>, D::Error>
 where
@@ -462,7 +461,7 @@ pub async fn list_postgres_triggers(
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PublicationData {
-    #[serde(default, deserialize_with = "check_if_not_duplication_relation")]
+    #[serde(default, deserialize_with = "check_if_valid_relation")]
     pub table_to_track: Option<Vec<Relations>>,
     #[serde(deserialize_with = "check_if_valid_transaction_type")]
     pub transaction_to_track: Vec<String>,
@@ -594,7 +593,7 @@ pub async fn drop_slot_name(
     )
     .await?;
 
-    let query = format!("SELECT pg_drop_replication_slot({});", quote_literal(&name));
+    let query = drop_logical_replication_slot_query(&name);
     sqlx::query(&query).execute(&mut connection).await?;
 
     Ok(format!("Slot name {} deleted!", name))

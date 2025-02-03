@@ -25,6 +25,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import RelationPicker from './RelationPicker.svelte'
+	import { invalidRelations } from './utils'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -187,6 +188,9 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		if (selectedTable === 'specific' && invalidRelations(table_to_track, true)[0] === true) {
+			return
+		}
 		if (edit) {
 			await PostgresTriggerService.updatePostgresTrigger({
 				workspace: $workspaceStore!,
@@ -317,6 +321,7 @@
 						((emptyString(replication_slot_name) || emptyString(publication_name)) &&
 							tab === 'advanced') ||
 						(relations.length === 0 && tab === 'basic') ||
+						transaction_to_track.length === 0 ||
 						!can_write}
 					on:click={updateTrigger}
 				>

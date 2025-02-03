@@ -242,7 +242,7 @@ async fn set_postgres_trigger_config(
 
     let publication_name = postgres_config
         .publication_name
-        .get_or_insert(generate_random_string());
+        .get_or_insert(format!("windmill_capture_{}", generate_random_string()));
     let replication_slot_name = postgres_config
         .replication_slot_name
         .get_or_insert(publication_name.clone());
@@ -286,7 +286,6 @@ async fn set_config(
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
-    
     #[cfg(feature = "postgres_trigger")]
     let mut nc = nc;
     #[cfg(feature = "postgres_trigger")]

@@ -32,6 +32,7 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use super::{
+    drop_logical_replication_slot_query, drop_publication_query, get_database_connection,
     handler::{Database, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
 };
@@ -375,6 +376,13 @@ impl PostgresTrigger {
     }
 }
 
+struct PgInfo<'a> {
+    postgres_resource_path: &'a str,
+    publication_name: &'a str,
+    replication_slot_name: &'a str,
+    workspace_id: &'a str,
+}
+
 impl PostgresConfig {
     async fn update_ping(&self, db: &DB, error: Option<&str>) -> Option<()> {
         match self {
@@ -390,22 +398,18 @@ impl PostgresConfig {
         }
     }
 
-    async fn start_logical_replication_streaming(
-        &self,
-        db: &DB,
-    ) -> std::result::Result<(CopyBothDuplex<Bytes>, LogicalReplicationSettings), Error> {
+    fn retrieve_info(&self) -> PgInfo {
         let postgres_resource_path;
         let publication_name;
         let replication_slot_name;
         let workspace_id;
 
-        let authed = match self {
+        match self {
             PostgresConfig::Trigger(trigger) => {
                 postgres_resource_path = &trigger.postgres_resource_path;
                 publication_name = &trigger.publication_name;
                 replication_slot_name = &trigger.replication_slot_name;
                 workspace_id = &trigger.workspace_id;
-                trigger.fetch_authed(db).await?
             }
             PostgresConfig::Capture(capture) => {
                 postgres_resource_path = &capture.trigger_config.postgres_resource_path;
@@ -416,8 +420,26 @@ impl PostgresConfig {
                     .replication_slot_name
                     .as_ref()
                     .unwrap();
-                capture.fetch_authed(db).await?
             }
+        };
+
+        PgInfo { postgres_resource_path, replication_slot_name, workspace_id, publication_name }
+    }
+
+    async fn start_logical_replication_streaming(
+        &self,
+        db: &DB,
+    ) -> std::result::Result<(CopyBothDuplex<Bytes>, LogicalReplicationSettings), Error> {
+        let PgInfo {
+            publication_name,
+            replication_slot_name,
+            workspace_id,
+            postgres_resource_path,
+        } = self.retrieve_info();
+
+        let authed = match self {
+            PostgresConfig::Trigger(trigger) => trigger.fetch_authed(db).await?,
+            PostgresConfig::Capture(capture) => capture.fetch_authed(db).await?,
         };
 
         let database = get_database_resource(
@@ -456,6 +478,44 @@ impl PostgresConfig {
             PostgresConfig::Capture(capture) => capture.handle(&db, args, extra).await,
         }
     }
+
+    async fn cleanup(&self, db: &DB) -> Result<(), Error> {
+        match self {
+            PostgresConfig::Trigger(_) => Ok(()),
+            PostgresConfig::Capture(capture) => {
+                let publication_name = capture.trigger_config.publication_name.as_ref().unwrap();
+                let replication_slot_name = capture
+                    .trigger_config
+                    .replication_slot_name
+                    .as_ref()
+                    .unwrap();
+                let postgres_resource_path = &capture.trigger_config.postgres_resource_path;
+                let workspace_id = &capture.workspace_id;
+                let authed = capture.fetch_authed(&db).await?;
+
+                let user_db = UserDB::new(db.clone());
+
+                let mut connection = get_database_connection(
+                    authed.clone(),
+                    Some(user_db.clone()),
+                    &db,
+                    postgres_resource_path,
+                    workspace_id,
+                )
+                .await?;
+
+                let query = drop_logical_replication_slot_query(replication_slot_name);
+
+                let _ = sqlx::query(&query).execute(&mut connection).await;
+
+                let query = drop_publication_query(publication_name);
+
+                let _ = sqlx::query(&query).execute(&mut connection).await;
+                
+                Ok(())
+            }
+        }
+    }
 }
 
 async fn listen_to_transactions(
@@ -466,18 +526,22 @@ async fn listen_to_transactions(
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
+            let _ = pg.cleanup(&db).await;
             return;
         }
         _ = loop_ping(&db, &pg, Some("Connecting...")) => {
+            let _ = pg.cleanup(&db).await;
             return;
         }
         result = pg.start_logical_replication_streaming(&db) => {
             tokio::select! {
                 biased;
                 _ = killpill_rx.recv() => {
+                    let _ = pg.cleanup(&db).await;
                     return;
                 }
                 _ = loop_ping(&db, &pg, None) => {
+                    let _ = pg.cleanup(&db).await;
                     return;
                 }
                 _ = {
@@ -588,6 +652,7 @@ async fn listen_to_transactions(
                         }
                     }
                 } => {
+                    let _ = pg.cleanup(&db).await;
                     return;
                 }
             }
