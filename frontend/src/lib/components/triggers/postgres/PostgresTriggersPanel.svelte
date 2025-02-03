@@ -20,12 +20,13 @@
 	export let isEditor: boolean = false
 
 	let postgresTriggerEditor: PostgresTriggerEditor
+	let openForm = true
+	let dontCloseOnLoad = false
 
 	$: path && loadTriggers()
 
 	const { triggersCount, selectedTrigger, defaultValues } =
 		getContext<TriggerContext>('TriggerContext')
-
 
 	onMount(() => {
 		if (
@@ -51,6 +52,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), postgres_count: postgresTriggers?.length }
+			openForm = postgresTriggers?.length === 0 || dontCloseOnLoad
 		} catch (err) {
 			sendUserToast(`Could not load postgres triggers ${err.body}`, true)
 		}
@@ -75,24 +77,8 @@
 			database. Listening is done using Postgres's logical replication streaming protocol, ensuring
 			efficient and low-latency triggering.
 		</Description>
-		<TriggersEditorSection
-			on:applyArgs
-			on:saveTrigger={(e) => {
-				postgresTriggerEditor?.openNew(isFlow, path, e.detail.config)
-			}}
-			on:addPreprocessor
-			on:updateSchema
-			on:testWithArgs
-			cloudDisabled={false}
-			triggerType="postgres"
-			{isFlow}
-			{path}
-			{isEditor}
-			{canHavePreprocessor}
-			{hasPreprocessor}
-			{newItem}
-		/>
-		{#if !newItem}
+
+		{#if !newItem && postgresTriggers && postgresTriggers.length > 0}
 			<Section label="Postgres">
 				<div class="flex flex-col gap-4">
 					{#if postgresTriggers}
@@ -126,5 +112,23 @@
 				</div>
 			</Section>
 		{/if}
+		<TriggersEditorSection
+			on:applyArgs
+			on:saveTrigger={(e) => {
+				postgresTriggerEditor?.openNew(isFlow, path, e.detail.config)
+			}}
+			on:addPreprocessor
+			on:updateSchema
+			on:testWithArgs
+			cloudDisabled={false}
+			triggerType="postgres"
+			{isFlow}
+			{path}
+			{isEditor}
+			{canHavePreprocessor}
+			{hasPreprocessor}
+			{newItem}
+			{openForm}
+		/>
 	</div>
 {/if}
