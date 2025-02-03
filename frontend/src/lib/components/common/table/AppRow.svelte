@@ -81,6 +81,14 @@
 				</div></Badge
 			>
 		{/if}
+		{#if app.raw_app}
+			<Badge small>
+				<div class="flex gap-1 items-center">
+					<FileJson size={14} />
+					Raw
+				</div></Badge
+			>
+		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
 		<div class="w-8 center-center" />

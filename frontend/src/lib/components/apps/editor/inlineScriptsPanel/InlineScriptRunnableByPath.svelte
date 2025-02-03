@@ -44,13 +44,14 @@
 
 	const dispatch = createEventDispatcher()
 
-	async function refreshScript(x: RunnableByPath) {
+	async function refreshScript(runnable: RunnableByPath) {
 		try {
-			let { schema } = await getScriptByPath(x.path)
-			if (!deepEqual(x.schema, schema)) {
-				x.schema = schema
-				if (!x.schema.order) {
-					x.schema.order = Object.keys(x.schema.properties ?? {})
+			let { schema } = await getScriptByPath(runnable.path)
+			console.log('schema1', schema)
+			if (!deepEqual(runnable.schema, schema)) {
+				runnable.schema = schema
+				if (!runnable.schema.order) {
+					runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
 				}
 				fields = computeFields(schema, false, fields ?? {})
 			}
@@ -60,13 +61,14 @@
 		}
 	}
 
-	async function refreshFlow(x: RunnableByPath) {
+	async function refreshFlow(runnable: RunnableByPath) {
 		try {
-			const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
-			if (!deepEqual(x.schema, schema)) {
-				x.schema = schema
-				if (!x.schema.order) {
-					x.schema.order = Object.keys(x.schema.properties ?? {})
+			const { schema } =
+				(await loadSchema($workspaceStore ?? '', runnable.path, 'flow')) ?? emptySchema()
+			if (!deepEqual(runnable.schema, schema)) {
+				runnable.schema = schema
+				if (!runnable.schema.order) {
+					runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
 				}
 				fields = computeFields(schema, false, fields ?? {})
 			}
@@ -99,6 +101,7 @@
 		if (deepEqual(runnable, lastRunnable)) {
 			return
 		}
+		console.log('runnable', runnable)
 		notFound = false
 		if (runnable.runType == 'script') {
 			refreshScript(runnable)

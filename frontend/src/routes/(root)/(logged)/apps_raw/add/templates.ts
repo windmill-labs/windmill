@@ -68,13 +68,12 @@ const indexCss = `body {
     background: blue;
 }`
 
-const policyJson = 'foo'
 
 export const react19Template = {
-	'/index.tsx': reactIndex,
-	'/App.tsx': appTsx,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.tsx': reactIndex,
+  '/App.tsx': appTsx,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
         "react": "19.0.0",
         "react-dom": "19.0.0",
@@ -85,14 +84,13 @@ export const react19Template = {
         "@types/react": "^19.0.0"
     }
 }`,
-	'/policy.json': policyJson
 }
 
 export const react18Template = {
-	'/index.tsx': reactIndex,
-	'/App.tsx': appTsx,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.tsx': reactIndex,
+  '/App.tsx': appTsx,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
         "react": "18.3.1",
         "react-dom": "18.3.1"
@@ -102,33 +100,30 @@ export const react18Template = {
         "@types/react": "^19.0.0"
     }
 }`,
-	'/policy.json': policyJson
 }
 
 export const svelte5Template = {
-	'/index.ts': indexSvelte,
-	'/App.svelte': appSvelte,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.ts': indexSvelte,
+  '/App.svelte': appSvelte,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
         "svelte": "5.16.1",
         "windmill-client": "^1"
     }
 }`,
-	'/policy.json': policyJson
 }
 
 export const vueTemplate = {
-	'/index.ts': indexVue,
-	'/App.vue': appVue,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.ts': indexVue,
+  '/App.vue': appVue,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
         "core-js": "3.26.1",
         "vue": "3.5.13"
     }
 }`,
-	'/policy.json': policyJson
 }
 
 const appVueRouter = `

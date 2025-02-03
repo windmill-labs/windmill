@@ -149,10 +149,16 @@
 	/>
 	<Splitpanes id="o2" horizontal class="grow">
 		<Pane bind:size={appPanelSize}>
-			<iframe
+			<!-- <iframe
 				bind:this={iframe}
 				title="UI builder"
 				src="http://localhost:4000/ui_builder/index.html"
+				class="w-full h-full"
+			/> -->
+			<iframe
+				bind:this={iframe}
+				title="UI builder"
+				src="/ui_builder/index.html"
 				class="w-full h-full"
 			/>
 		</Pane>

@@ -35,14 +35,7 @@
 		type Value,
 		replaceFalseWithUndefined
 	} from '../../../utils'
-	import type {
-		AppInput,
-		ConnectedAppInput,
-		RowAppInput,
-		Runnable,
-		StaticAppInput,
-		UserAppInput
-	} from '../inputType'
+	import type { AppInput, Runnable } from '../inputType'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
@@ -54,7 +47,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
@@ -81,23 +73,7 @@
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
-
-	async function hash(message) {
-		try {
-			const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
-			const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8) // hash the message
-			const hashArray = Array.from(new Uint8Array(hashBuffer)) // convert buffer to byte array
-			const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
-			return hashHex
-		} catch {
-			//subtle not available, trying pure js
-			const hash = new Sha256()
-			hash.update(message ?? '')
-			const result = Array.from(await hash.digest())
-			const hex = result.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
-			return hex
-		}
-	}
+	import { collectStaticFields, hash, type TriggerableV2 } from './commonAppUtils'
 
 	export let policy: Policy
 	export let fromHub: boolean = false
@@ -173,24 +149,6 @@
 
 	function closeDraftDrawer() {
 		draftDrawerOpen = false
-	}
-
-	function collectStaticFields(
-		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	) {
-		return Object.fromEntries(
-			Object.entries(fields ?? {})
-				.filter(([k, v]) => v.type == 'static')
-				.map(([k, v]) => {
-					return [k, v['value']]
-				})
-		)
-	}
-
-	type TriggerableV2 = {
-		static_inputs: Record<string, any>
-		one_of_inputs?: Record<string, any[] | undefined>
-		allow_user_resources?: string[]
 	}
 
 	async function computeTriggerables() {

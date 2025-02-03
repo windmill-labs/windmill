@@ -47,6 +47,8 @@
 	import type { HiddenRunnable } from '../apps/types'
 	import type { Writable } from 'svelte/store'
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
+	import type { Runnable } from '../apps/inputType'
+	import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
 
 	// async function hash(message) {
 	// 	try {
@@ -145,83 +147,56 @@
 	// }
 
 	async function computeTriggerables() {
-		// const items = allItems(app.grid, app.subgrids)
-
-		// console.debug('items', items)
-
-		// const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
-		// 	items
-		// 		.flatMap((x) => {
-		// 			let c = x.data as AppComponent
-		// 			let r: { input: AppInput | undefined; id: string }[] = [
-		// 				{ input: c.componentInput, id: x.id }
-		// 			]
-
-		// 			const processed = r
-		// 				.filter((x) => x.input)
-		// 				.map(async (o) => {
-		// 					if (o.input?.type == 'runnable') {
-		// 						return await processRunnable(o.id, o.input.runnable, o.input.fields)
-		// 					}
-		// 				})
-
-		// 			return processed as Promise<[string, TriggerableV2] | undefined>[]
-		// 		})
-		// 		.concat(
-		// 			Object.values(app.hiddenInlineScripts ?? {}).map(async (v, i) => {
-		// 				return await processRunnable(BG_PREFIX + i, v, v.fields)
-		// 			}) as Promise<[string, TriggerableV2] | undefined>[]
-		// 		)
-		// )) as ([string, TriggerableV2] | undefined)[]
-
-		// const ntriggerables: Record<string, TriggerableV2> = Object.fromEntries(
-		// 	allTriggers.filter(Boolean) as [string, TriggerableV2][]
-		// )
-
 		policy.execution_mode = 'publisher'
 		policy.on_behalf_of_email = $userStore?.email
 		policy.on_behalf_of = $userStore?.username.includes('@')
 			? $userStore?.username
 			: `u/${$userStore?.username}`
-		policy.triggerables_v2 = {}
+		policy.triggerables_v2 = Object.fromEntries(
+			(await Promise.all(
+				Object.values($runnables).map(async (runnable) => {
+					return await processRunnable(runnable.name, runnable, runnable.fields)
+				})
+			)) as [string, TriggerableV2][]
+		)
+		return policy
 	}
 
-	// async function processRunnable(
-	// 	id: string,
-	// 	runnable: Runnable,
-	// 	fields: Record<string, any>
-	// ): Promise<[string, TriggerableV2] | undefined> {
-	// 	const staticInputs = collectStaticFields(fields)
-	// 	const oneOfInputs = collectOneOfFields(fields, app)
-	// 	const allowUserResources: string[] = Object.entries(fields)
-	// 		.map(([k, v]) => {
-	// 			return v['allowUserResources'] ? k : undefined
-	// 		})
-	// 		.filter(Boolean) as string[]
+	async function processRunnable(
+		id: string,
+		runnable: Runnable,
+		fields: Record<string, any>
+	): Promise<[string, TriggerableV2] | undefined> {
+		const staticInputs = collectStaticFields(fields)
+		const allowUserResources: string[] = Object.entries(fields)
+			.map(([k, v]) => {
+				return v['allowUserResources'] ? k : undefined
+			})
+			.filter(Boolean) as string[]
 
-	// 	if (runnable?.type == 'runnableByName') {
-	// 		let hex = await hash(runnable.inlineScript?.content)
-	// 		console.log('hex', hex, id)
-	// 		return [
-	// 			`${id}:rawscript/${hex}`,
-	// 			{
-	// 				static_inputs: staticInputs,
-	// 				one_of_inputs: oneOfInputs,
-	// 				allow_user_resources: allowUserResources
-	// 			}
-	// 		]
-	// 	} else if (runnable?.type == 'runnableByPath') {
-	// 		let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
-	// 		return [
-	// 			`${id}:${prefix}/${runnable.path}`,
-	// 			{
-	// 				static_inputs: staticInputs,
-	// 				one_of_inputs: oneOfInputs,
-	// 				allow_user_resources: allowUserResources
-	// 			}
-	// 		]
-	// 	}
-	// }
+		if (runnable?.type == 'runnableByName') {
+			let hex = await hash(runnable.inlineScript?.content)
+			console.log('hex', hex, id)
+			return [
+				`${id}:rawscript/${hex}`,
+				{
+					static_inputs: staticInputs,
+					one_of_inputs: {},
+					allow_user_resources: allowUserResources
+				}
+			]
+		} else if (runnable?.type == 'runnableByPath') {
+			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
+			return [
+				`${id}:${prefix}/${runnable.path}`,
+				{
+					static_inputs: staticInputs,
+					one_of_inputs: {},
+					allow_user_resources: allowUserResources
+				}
+			]
+		}
+	}
 
 	async function createApp(path: string) {
 		if (!app) {

@@ -91,8 +91,7 @@
 				/>
 			</div>
 		{:else if componentInput?.type === 'user' || componentInput?.type == undefined}
-			<span class="text-2xs italic text-tertiary">Field's value is provided by function caller</span
-			>
+			<span class="text-2xs italic text-tertiary">Field's value is a frontend input</span>
 		{/if}
 		{#if componentInput?.type === 'user' && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

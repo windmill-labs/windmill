@@ -90,7 +90,7 @@
 			type: 'runnableByPath',
 			path,
 			runType: 'hubscript',
-			schema,
+			schema: schema.schema,
 			name: defaultIfEmptyString(schema.summary, path)
 		} as const
 		dispatch('pick', {

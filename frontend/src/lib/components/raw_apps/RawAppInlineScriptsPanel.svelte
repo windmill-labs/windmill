@@ -5,7 +5,7 @@
 	import type { Writable } from 'svelte/store'
 	import { workspaceStore } from '$lib/stores'
 	import RawAppInlineScriptPanelList from './RawAppInlineScriptPanelList.svelte'
-	import RawAppInlineScripRunnable from './RawAppInlineScripRunnable.svelte'
+	import RawAppInlineScripRunnable from './RawAppInlineScriptRunnable.svelte'
 	import { createScriptFromInlineScript } from '../apps/editor/inlineScriptsPanel/utils'
 	import type { Runnable } from '../apps/inputType'
 
@@ -41,11 +41,11 @@
 						)
 					}}
 					on:delete={() => {
-						selectedRunnable = undefined
 						runnables.update((runnables) => {
 							if (selectedRunnable) {
 								delete runnables[selectedRunnable]
 							}
+							selectedRunnable = undefined
 							return { ...runnables }
 						})
 					}}
