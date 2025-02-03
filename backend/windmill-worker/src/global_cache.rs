@@ -4,19 +4,19 @@
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use object_store::ObjectStore;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::error;
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use std::sync::Arc;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub const TARGET: &str = const_format::concatcp!(std::env::consts::OS, "_", std::env::consts::ARCH);
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
@@ -86,7 +86,7 @@ pub async fn build_tar_and_push(
     Ok(())
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_from_tar(
     client: Arc<dyn ObjectStore>,
     folder: String,
