@@ -13,6 +13,9 @@ use windmill_common::error;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use std::sync::Arc;
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub const TARGET: &str = const_format::concatcp!(std::env::consts::OS, "_", std::env::consts::ARCH);
+
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
@@ -57,7 +60,7 @@ pub async fn build_tar_and_push(
     if let Err(e) = s3_client
         .put(
             &Path::from(format!(
-                "/tar/{}/{folder_name}.tar",
+                "/tar/{TARGET}/{}/{folder_name}.tar",
                 if no_uv { "pip" } else { &python_xyz }
             )),
             std::fs::read(&tar_path)?.into(),
@@ -100,7 +103,7 @@ pub async fn pull_from_tar(
     let start = Instant::now();
 
     let tar_path = format!(
-        "tar/{}/{folder_name}.tar",
+        "tar/{TARGET}/{}/{folder_name}.tar",
         if no_uv { "pip".to_owned() } else { python_xyz }
     );
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
