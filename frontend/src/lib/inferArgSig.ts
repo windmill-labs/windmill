@@ -103,7 +103,6 @@ export function argSigToJsonSchemaType(
 		newS.format = `dynselect-${t.dynselect}`
 	} else if (typeof t !== 'string' && `list` in t) {
 		newS.type = 'array'
-		console.log(t.list)
 		if (t.list === 'int' || t.list === 'float') {
 			newS.items = { type: 'number' }
 			newS.originalType = 'number[]'
@@ -111,7 +110,6 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string', contentEncoding: 'base64' }
 			newS.originalType = 'bytes[]'
 		} else if (t.list && typeof t.list == 'object' && 'str' in t.list && t.list.str) {
-			console.log('str', t.list.str)
 			newS.items = { type: 'string', enum: t.list.str }
 			newS.originalType = 'enum[]'
 		} else if (t.list == 'string' || (t.list && typeof t.list == 'object' && 'str' in t.list)) {
