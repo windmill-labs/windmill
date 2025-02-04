@@ -23,7 +23,13 @@
 </script>
 
 {#if !disabled}
-	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
+	<Popover
+		appearTimeout={0}
+		disappearTimeout={0}
+		class="w-full"
+		disablePopup={!isCollapsed}
+		placement="right"
+	>
 		<button
 			on:click={(e) => {
 				if (stopPropagationOnClick) e.preventDefault()
@@ -42,8 +48,8 @@
 				$$props.class
 			)}
 			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 4px);` : ''}
-			title={label}
 			use:melt={trigger}
+			title={isCollapsed ? undefined : label}
 		>
 			{#if icon}
 				<svelte:component

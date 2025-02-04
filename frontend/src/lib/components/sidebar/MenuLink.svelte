@@ -23,7 +23,13 @@
 </script>
 
 {#if !disabled}
-	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
+	<Popover
+		appearTimeout={0}
+		disappearTimeout={0}
+		class="w-full"
+		disablePopup={!isCollapsed}
+		placement="right"
+	>
 		<a
 			{href}
 			class={classNames(
