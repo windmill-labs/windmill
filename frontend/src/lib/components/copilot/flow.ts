@@ -1,21 +1,17 @@
 import {
-	type FlowModule,
 	ScriptService,
-	type RawScript,
-	type PathScript,
+	type AIProvider,
+	type FlowModule,
 	type InputTransform,
+	type PathScript,
+	type RawScript,
 	type Script
 } from '$lib/gen'
-import {
-	addResourceTypes,
-	deltaCodeCompletion,
-	getNonStreamingCompletion,
-	type AiProviderTypes
-} from './lib'
+import { scriptLangToEditorLang } from '$lib/scripts'
 import type { Writable } from 'svelte/store'
 import type Editor from '../Editor.svelte'
 import type { Drawer } from '../common'
-import { scriptLangToEditorLang } from '$lib/scripts'
+import { addResourceTypes, deltaCodeCompletion, getNonStreamingCompletion } from './lib'
 
 export type FlowCopilotModule = {
 	id: string
@@ -259,7 +255,7 @@ export async function stepCopilot(
 		| undefined,
 	isFirstInLoop: boolean,
 	abortController: AbortController,
-	aiProvider: AiProviderTypes
+	aiProvider: AIProvider
 ) {
 	if (module.source !== 'custom') {
 		throw new Error('Not a custom module')
@@ -328,7 +324,7 @@ export async function glueCopilot(
 	},
 	isFirstInLoop: boolean,
 	abortController: AbortController,
-	aiProvider: AiProviderTypes
+	aiProvider: AIProvider
 ) {
 	const { prevCode, prevLang } = await getPreviousStepContent(pastModule, workspace)
 
