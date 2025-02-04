@@ -308,6 +308,9 @@ impl PyVersion {
 
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd
+            .env_clear()
+            .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
             .args(["python", "install", v, "--python-preference=only-managed"])
             // TODO: Do we need these?
             .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
@@ -343,6 +346,9 @@ impl PyVersion {
         let mut child_cmd = Command::new(uv_cmd);
         let output = child_cmd
             // .current_dir(job_dir)
+            .env_clear()
+            .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
             .args([
                 "python",
                 "find",
