@@ -907,7 +907,7 @@ impl Default for WorkerConfigOpt {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Clone)]
 pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub priority_tags_sorted: Vec<PriorityTags>,
@@ -917,6 +917,13 @@ pub struct WorkerConfig {
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
+}
+
+impl std::fmt::Debug for WorkerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}", 
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.init_bash, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
