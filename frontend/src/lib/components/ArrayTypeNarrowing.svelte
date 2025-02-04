@@ -124,7 +124,7 @@
 				</div>
 			{/each}
 		</div>
-		{#if canEditResourceType || originalType == 'string[]'}
+		{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 			<div class="flex flex-row mb-1 mt-2">
 				<Button
 					color="light"
