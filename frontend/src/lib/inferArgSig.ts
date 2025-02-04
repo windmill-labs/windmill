@@ -5,23 +5,23 @@ export function argSigToJsonSchemaType(
 		| string
 		| { resource: string | null }
 		| {
-				list:
-					| (string | { object: { key: string; typ: any }[] })
-					| { str: any }
-					| { object: { key: string; typ: any }[] }
-					| null
-		  }
+			list:
+			| (string | { object: { key: string; typ: any }[] })
+			| { str: any }
+			| { object: { key: string; typ: any }[] }
+			| null
+		}
 		| { dynselect: string }
 		| { str: string[] | null }
 		| { object: { key: string; typ: any }[] }
 		| {
-				oneof: [
-					{
-						label: string
-						properties: { key: string; typ: any }[]
-					}
-				]
-		  },
+			oneof: [
+				{
+					label: string
+					properties: { key: string; typ: any }[]
+				}
+			]
+		},
 	oldS: SchemaProperty
 ): void {
 	const newS: SchemaProperty = { type: '' }
@@ -103,19 +103,26 @@ export function argSigToJsonSchemaType(
 		newS.format = `dynselect-${t.dynselect}`
 	} else if (typeof t !== 'string' && `list` in t) {
 		newS.type = 'array'
+		console.log(t.list)
 		if (t.list === 'int' || t.list === 'float') {
 			newS.items = { type: 'number' }
+			newS.originalType = 'number[]'
 		} else if (t.list === 'bytes') {
 			newS.items = { type: 'string', contentEncoding: 'base64' }
-		} else if (t.list == 'string') {
-			newS.items = { type: 'string' }
-		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
+			newS.originalType = 'bytes[]'
+		} else if (t.list && typeof t.list == 'object' && 'str' in t.list && t.list.str) {
+			console.log('str', t.list.str)
 			newS.items = { type: 'string', enum: t.list.str }
+			newS.originalType = 'enum[]'
+		} else if (t.list == 'string' || (t.list && typeof t.list == 'object' && 'str' in t.list)) {
+			newS.items = { type: 'string', enum: oldS.items?.enum }
+			newS.originalType = 'string[]'
 		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
 			newS.items = {
 				type: 'resource',
 				resourceType: t.list.resource as string
 			}
+			newS.originalType = 'resource[]'
 		} else if (
 			t.list &&
 			typeof t.list == 'object' &&
@@ -131,8 +138,10 @@ export function argSigToJsonSchemaType(
 			}
 
 			newS.items = { type: 'object', properties: properties }
+			newS.originalType = 'record[]'
 		} else {
 			newS.items = { type: 'object' }
+			newS.originalType = 'object[]'
 		}
 	} else {
 		newS.type = 'object'
