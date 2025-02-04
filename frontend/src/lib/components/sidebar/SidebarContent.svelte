@@ -354,6 +354,7 @@
 											role="menuitem"
 											tabindex="-1"
 											use:melt={item}
+											data-disabled={subItem.disabled ? true : undefined}
 										>
 											<div class="flex flex-row items-center gap-2">
 												{#if subItem.icon}
