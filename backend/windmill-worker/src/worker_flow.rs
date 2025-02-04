@@ -35,12 +35,12 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
+    ApprovalConditions, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId};
 use windmill_common::jobs::{
-    script_hash_to_tag_and_limits, script_path_to_payload, BranchResults, JobKind, JobPayload,
-    OnBehalfOf, QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
+    script_hash_to_tag_and_limits, script_path_to_payload, JobKind, JobPayload, OnBehalfOf,
+    QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
@@ -179,11 +179,6 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     skip_error_handler: bool,
 }
 
-#[derive(FromRow)]
-pub struct RowArgs {
-    pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
-}
-
 #[derive(Deserialize)]
 struct RecoveryObject {
     recover: Option<bool>,
@@ -226,7 +221,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 script_hash AS \"script_hash: ScriptHash\",
                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",
                 raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-            FROM queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
             flow,
             w_id
         )
@@ -355,14 +350,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 )),
                                 _ => None,
                             };
-                        let args = sqlx::query_as::<_, RowArgs>(
+                        let args = sqlx::query_scalar!(
                             "SELECT
-                                        args
-                                    FROM queue
-                                    WHERE id = $2",
+                                args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
+                            FROM v2_job
+                            WHERE id = $1",
+                            flow
                         )
-                        .bind(old_status.step)
-                        .bind(flow)
                         .fetch_one(db)
                         .await
                         .map_err(|e| {
@@ -370,7 +364,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         })?;
                         compute_bool_from_expr(
                             &expr,
-                            Marc::new(args.args.unwrap_or_default().0),
+                            Marc::new(args.unwrap_or_default().0),
                             result.clone(),
                             all_iters,
                             None,
@@ -414,22 +408,18 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if matches!(module_step, Step::PreprocessorStep) {
             sqlx::query!(
-                "UPDATE queue SET args = (select result FROM completed_job WHERE id = $1) WHERE id = $2",
+                "UPDATE v2_job SET
+                    args = (SELECT result FROM v2_job_completed WHERE id = $1),
+                    preprocessed = TRUE
+                WHERE id = $2",
                 job_id_for_status,
                 flow
-            ).execute(db).await.map_err(|e| {
-                Error::internal_err(format!("error while updating args in preprocessing step: {e:#}"))
-            })?;
-
-            sqlx::query!(
-                r#"UPDATE completed_job SET args = '{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}'::jsonb WHERE id = $1"#,
-                job_id_for_status
             )
             .execute(db)
             .await
             .map_err(|e| {
                 Error::internal_err(format!(
-                    "error while deleting args of preprocessing step: {e:#}"
+                    "error while updating args in preprocessing step: {e:#}"
                 ))
             })?;
         }
@@ -448,7 +438,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 ..
             } if *parallel => {
                 let (nindex, len) = match (iterator, branchall) {
-                    (Some(Iterator { itered, .. }), _) => {
+                    (Some(FlowIterator { itered, .. }), _) => {
                         let position = if flow_jobs_success.is_some() {
                             find_flow_job_index(jobs, job_id_for_status)
                         } else {
@@ -457,24 +447,27 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                         let nindex = if let Some(position) = position {
                             sqlx::query_scalar!(
-                            "UPDATE queue
-                            SET flow_status = JSONB_SET(
-                                JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
-                                ARRAY['modules', $1::TEXT, 'iterator', 'index'],
-                                ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
-                            ),
-                            last_ping = NULL
-                            WHERE id = $2
-                            RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int",
-                            old_status.step,
-                            flow,
-                            position as i32,
-                            json!(success)
-                        )} else {
+                                "UPDATE v2_job_status SET
+                                    flow_status = JSONB_SET(
+                                        JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
+                                        ARRAY['modules', $1::TEXT, 'iterator', 'index'],
+                                        ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
+                                    )
+                                WHERE id = $2
+                                RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int",
+                                old_status.step,
+                                flow,
+                                position as i32,
+                                json!(success)
+                            )
+                        } else {
                             sqlx::query_scalar!(
-                                "UPDATE queue
-                                SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'iterator', 'index'], ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb),
-                                last_ping = NULL
+                                "UPDATE v2_job_status SET
+                                    flow_status = JSONB_SET(
+                                        flow_status,
+                                        ARRAY['modules', $1::TEXT, 'iterator', 'index'],
+                                        ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
+                                    )
                                 WHERE id = $2
                                 RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int",
                                 old_status.step,
@@ -504,11 +497,12 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                         let nindex = if let Some(position) = position {
                             sqlx::query_scalar!(
-                                "UPDATE queue
-                                SET flow_status = JSONB_SET(
-                                JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
-                                ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb),
-                                last_ping = NULL
+                                "UPDATE v2_job_status SET
+                                    flow_status = JSONB_SET(
+                                        JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
+                                        ARRAY['modules', $1::TEXT, 'branchall', 'branch'],
+                                        ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb
+                                    )
                                 WHERE id = $2
                                 RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int",
                                 old_status.step,
@@ -516,15 +510,20 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 position as i32,
                                 json!(success)
                             )
-                        } else { sqlx::query_scalar!(
-                            "UPDATE queue
-                            SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb),
-                            last_ping = NULL
-                            WHERE id = $2
-                            RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int",
-                            old_status.step,
-                            flow
-                        )}
+                        } else {
+                            sqlx::query_scalar!(
+                                "UPDATE v2_job_status SET
+                                    flow_status = JSONB_SET(
+                                        flow_status,
+                                        ARRAY['modules', $1::TEXT, 'branchall', 'branch'],
+                                        ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb
+                                    )
+                                WHERE id = $2
+                                RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int",
+                                old_status.step,
+                                flow
+                            )
+                        }
                         .fetch_one(&mut *tx)
                         .await
                         .map_err(|e| {
@@ -539,6 +538,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                         "unexpected status for parallel module"
                     )))?,
                 };
+                // reset ping after updating flow status:
+                let _ = sqlx::query!("UPDATE v2_job_runtime SET ping = NULL WHERE id = $1", flow)
+                    .execute(&mut *tx)
+                    .await?;
                 if nindex == len {
                     let mut flow_jobs_success = flow_jobs_success.clone();
                     if let Some(flow_job_success) = flow_jobs_success.as_mut() {
@@ -552,7 +555,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     let new_status = if skip_loop_failures
                         || sqlx::query_scalar!(
-                            "SELECT success AS \"success!\" FROM completed_job WHERE id = ANY($1)",
+                            "SELECT success AS \"success!\" FROM v2_as_completed_job WHERE id = ANY($1)",
                             jobs.as_slice()
                         )
                         .fetch_all(&mut *tx)
@@ -611,7 +614,11 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     if parallelism.is_some() {
                         sqlx::query!(
-                            "UPDATE queue SET suspend = 0 WHERE parent_job = $1 AND suspend = $2 AND (flow_status->'step')::int = 0",
+                            "UPDATE v2_job_queue q SET suspend = 0
+                            FROM v2_job j, v2_job_status f
+                            WHERE parent_job = $1
+                                AND f.id = j.id AND q.id = j.id
+                                AND suspend = $2 AND (f.flow_status->'step')::int = 0",
                             flow,
                             nindex
                         )
@@ -642,7 +649,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             }
             FlowStatusModule::InProgress {
-                iterator: Some(windmill_common::flow_status::Iterator { index, itered, .. }),
+                iterator: Some(FlowIterator { index, itered, .. }),
                 flow_jobs_success,
                 flow_jobs,
                 while_loop,
@@ -715,7 +722,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
                     {
                         sqlx::query_scalar!(
-                            "SELECT job_kind = 'identity' FROM completed_job WHERE id = $1",
+                            "SELECT kind = 'identity' FROM v2_job WHERE id = $1",
                             job_id_for_status
                         )
                         .fetch_one(db)
@@ -770,7 +777,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         let step_counter = if inc_step_counter {
             sqlx::query!(
-                "UPDATE queue
+                "UPDATE v2_job_status
                 SET flow_status = JSONB_SET(flow_status, ARRAY['step'], $1)
                 WHERE id = $2",
                 json!(old_status.step + 1),
@@ -794,7 +801,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         if let Some(new_status) = new_status.as_ref() {
             if is_failure_step {
                 let parent_module = sqlx::query_scalar!(
-                    "SELECT flow_status->'failure_module'->>'parent_module' FROM queue WHERE id = $1",
+                    "SELECT flow_status->'failure_module'->>'parent_module' FROM v2_job_status WHERE id = $1",
                     flow
                 )
                 .fetch_one(&mut *tx)
@@ -805,7 +812,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
 
                 sqlx::query!(
-                    "UPDATE queue
+                    "UPDATE v2_job_status
                     SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)
                     WHERE id = $2",
                     json!(FlowStatusModuleWParent {
@@ -823,7 +830,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
             } else if matches!(module_step, Step::PreprocessorStep) {
                 sqlx::query!(
-                    "UPDATE queue
+                    "UPDATE v2_job_status
                     SET flow_status = JSONB_SET(flow_status, ARRAY['preprocessor_module'], $1)
                     WHERE id = $2",
                     json!(new_status),
@@ -838,7 +845,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
             } else {
                 sqlx::query!(
-                    "UPDATE queue
+                    "UPDATE v2_job_status
                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)
                     WHERE id = $3",
                     old_status.step.to_string(),
@@ -853,9 +860,9 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                 if let Some(job_result) = new_status.job_result() {
                     sqlx::query!(
-                        "UPDATE queue
-                        SET leaf_jobs = JSONB_SET(coalesce(leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)
-                        WHERE COALESCE((SELECT root_job FROM queue WHERE id = $3), $3) = id",
+                        "UPDATE v2_job_status
+                        SET flow_leaf_jobs = JSONB_SET(coalesce(flow_leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)
+                        WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $3), $3) = id",
                         new_status.id(),
                         json!(job_result),
                         flow
@@ -884,14 +891,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .as_ref()
                     .and_then(|m| m.stop_after_all_iters_if.as_ref().map(|x| x.expr.clone()))
                 {
-                    let args = sqlx::query_as::<_, RowArgs>(
-                        "SELECT
-                            args
-                        FROM queue
-                        WHERE id = $2",
+                    let args = sqlx::query_scalar!(
+                        "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
+                        FROM v2_job WHERE id = $1",
+                        flow
                     )
-                    .bind(old_status.step)
-                    .bind(flow)
                     .fetch_one(db)
                     .await
                     .map_err(|e| {
@@ -900,7 +904,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     let should_stop = compute_bool_from_expr(
                         &expr,
-                        Marc::new(args.args.unwrap_or_default().0),
+                        Marc::new(args.unwrap_or_default().0),
                         nresult.clone(),
                         None,
                         None,
@@ -930,7 +934,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             && matches!(&new_status, Some(FlowStatusModule::Success { .. }))
         {
             sqlx::query!(
-                "UPDATE queue
+                "UPDATE v2_job_status
                 SET flow_status = flow_status - 'retry'
                 WHERE id = $1",
                 flow
@@ -941,7 +945,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         }
 
         let flow_job = sqlx::query_as::<_, QueuedJob>(
-            "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
+            "SELECT * FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
         )
         .bind(flow)
         .bind(w_id)
@@ -1037,15 +1041,22 @@ pub async fn update_flow_status_after_job_completion_internal(
                     _cleanup_module.flow_jobs_to_clean
                 );
                 sqlx::query!(
-                    "UPDATE completed_job
-                    SET logs = '##DELETED##', args = '{}'::jsonb, result = '{}'::jsonb
-                    WHERE id = ANY($1)",
+                    "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
                     &_cleanup_module.flow_jobs_to_clean,
                 )
                 .execute(db)
                 .await
                 .map_err(|e| {
-                    Error::internal_err(format!("error while cleaning up completed_job: {e:#}"))
+                    Error::InternalErr(format!("error while cleaning up completed job: {e:#}"))
+                })?;
+                sqlx::query!(
+                    "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                    &_cleanup_module.flow_jobs_to_clean,
+                )
+                .execute(db)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("error while cleaning up completed job: {e:#}"))
                 })?;
             }
         }
@@ -1087,6 +1098,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     success,
                     stop_early && skip_if_stop_early,
                     Json(&nresult),
+                    None,
                     0,
                     None,
                     true,
@@ -1104,6 +1116,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             |e| json!({"error": format!("Impossible to serialize error: {e:#}")}),
                         ),
                     ),
+                    None,
                     0,
                     None,
                     true,
@@ -1193,18 +1206,23 @@ async fn set_success_in_flow_job_success<'c>(
         let position = find_flow_job_index(flow_jobs, job_id_for_status);
         if let Some(position) = position {
             sqlx::query!(
-            "UPDATE queue SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4) WHERE id = $2",
-            old_status.step as i32,
-            flow,
-            position as i32,
-            json!(success)
-        )
-        .execute(&mut **tx)
-        .await.map_err(|e| {
-            Error::internal_err(format!(
-                "error while setting flow_jobs_success: {e:#}"
-            ))
-        })?;
+                "UPDATE v2_job_status SET
+                    flow_status = JSONB_SET(
+                        flow_status,
+                        ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT],
+                        $4
+                    )
+                WHERE id = $2",
+                old_status.step as i32,
+                flow,
+                position as i32,
+                json!(success)
+            )
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("error while setting flow_jobs_success: {e:#}"))
+            })?;
         }
     }
     Ok(())
@@ -1215,13 +1233,13 @@ async fn retrieve_flow_jobs_results(
     w_id: &str,
     job_uuids: &Vec<Uuid>,
 ) -> error::Result<Box<RawValue>> {
-    let results = sqlx::query_as::<_, BranchResults>(
+    let results = sqlx::query!(
         "SELECT result, id
-        FROM completed_job
+        FROM v2_job_completed
         WHERE id = ANY($1) AND workspace_id = $2",
+        job_uuids.as_slice(),
+        w_id
     )
-    .bind(job_uuids.as_slice())
-    .bind(w_id)
     .fetch_all(db)
     .await?
     .into_iter()
@@ -1249,7 +1267,7 @@ async fn compute_skip_branchall_failure<'c>(
     flow_module: Option<&FlowModule>,
 ) -> Result<Option<bool>, Error> {
     let branch = if parallel {
-        sqlx::query_scalar!("SELECT script_path FROM completed_job WHERE id = $1", job)
+        sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", job)
             .fetch_one(db)
             .await
             .map_err(|e| {
@@ -1351,7 +1369,7 @@ async fn compute_bool_from_expr(
 
 pub async fn update_flow_status_in_progress(
     db: &DB,
-    w_id: &str,
+    _w_id: &str,
     flow: Uuid,
     job_in_progress: Uuid,
 ) -> error::Result<Step> {
@@ -1359,16 +1377,15 @@ pub async fn update_flow_status_in_progress(
     match step {
         Step::Step(step) => {
             sqlx::query!(
-                "UPDATE queue
-                SET flow_status = jsonb_set(
-                    jsonb_set(flow_status, ARRAY['modules', $4::INTEGER::TEXT, 'job'], to_jsonb($1::UUID::TEXT)),
-                    ARRAY['modules', $4::INTEGER::TEXT, 'type'],
-                    to_jsonb('InProgress'::text)
-                )
-                WHERE id = $2 AND workspace_id = $3",
+                "UPDATE v2_job_status SET
+                    flow_status = jsonb_set(
+                        jsonb_set(flow_status, ARRAY['modules', $3::INTEGER::TEXT, 'job'], to_jsonb($1::UUID::TEXT)),
+                        ARRAY['modules', $3::INTEGER::TEXT, 'type'],
+                        to_jsonb('InProgress'::text)
+                    )
+                WHERE id = $2",
                 job_in_progress,
                 flow,
-                w_id,
                 step as i32
             )
             .execute(db)
@@ -1376,32 +1393,30 @@ pub async fn update_flow_status_in_progress(
         }
         Step::PreprocessorStep => {
             sqlx::query!(
-                "UPDATE queue
-                SET flow_status = jsonb_set(
-                    jsonb_set(flow_status, ARRAY['preprocessor_module', 'job'], to_jsonb($1::UUID::TEXT)),
-                    ARRAY['preprocessor_module', 'type'],
-                    to_jsonb('InProgress'::text)
-                )
-                WHERE id = $2 AND workspace_id = $3",
+                "UPDATE v2_job_status SET
+                    flow_status = jsonb_set(
+                        jsonb_set(flow_status, ARRAY['preprocessor_module', 'job'], to_jsonb($1::UUID::TEXT)),
+                        ARRAY['preprocessor_module', 'type'],
+                        to_jsonb('InProgress'::text)
+                    )
+                WHERE id = $2",
                 job_in_progress,
-                flow,
-                w_id
+                flow
             )
             .execute(db)
             .await?;
         }
         Step::FailureStep => {
             sqlx::query!(
-                "UPDATE queue
-                SET flow_status = jsonb_set(
-                    jsonb_set(flow_status, ARRAY['failure_module', 'job'], to_jsonb($1::UUID::TEXT)),
-                    ARRAY['failure_module', 'type'],
-                    to_jsonb('InProgress'::text)
-                )
-                WHERE id = $2 AND workspace_id = $3",
+                "UPDATE v2_job_status SET
+                    flow_status = jsonb_set(
+                        jsonb_set(flow_status, ARRAY['failure_module', 'job'], to_jsonb($1::UUID::TEXT)),
+                        ARRAY['failure_module', 'type'],
+                        to_jsonb('InProgress'::text)
+                    )
+                WHERE id = $2",
                 job_in_progress,
-                flow,
-                w_id
+                flow
             )
             .execute(db)
             .await?;
@@ -1411,7 +1426,7 @@ pub async fn update_flow_status_in_progress(
     Ok(step)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Step {
     Step(usize),
     PreprocessorStep,
@@ -1433,7 +1448,8 @@ impl Step {
 #[instrument(level = "trace", skip_all)]
 pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
     let r = sqlx::query!(
-        "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len FROM queue WHERE id = $1",
+        "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
+        FROM v2_job_status WHERE id = $1",
         id
     )
     .fetch_one(db)
@@ -1691,7 +1707,7 @@ async fn push_next_flow_job(
             .await?;
             if no_flow_overlap {
                 let overlapping = sqlx::query_scalar!(
-                    "SELECT id AS \"id!\" FROM queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
+                    "SELECT id AS \"id!\" FROM v2_as_queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
                     flow_job.id
@@ -1804,7 +1820,7 @@ async fn push_next_flow_job(
              *
              * This only works because jobs::resume_job does the same thing. */
             sqlx::query_scalar!(
-                "SELECT null FROM queue WHERE id = $1 FOR UPDATE",
+                "SELECT null FROM v2_job_queue WHERE id = $1 FOR UPDATE",
                 flow_job.id
             )
             .fetch_one(&mut *tx)
@@ -1876,12 +1892,12 @@ async fn push_next_flow_job(
                     }
                 }
                 let approval_conditions = ApprovalConditions {
-                    user_auth_required: user_auth_required,
-                    user_groups_required: user_groups_required,
-                    self_approval_disabled: self_approval_disabled,
+                    user_auth_required,
+                    user_groups_required,
+                    self_approval_disabled,
                 };
                 sqlx::query!(
-                    "UPDATE queue
+                    "UPDATE v2_job_status
                     SET flow_status = JSONB_SET(flow_status, ARRAY['approval_conditions'], $1)
                     WHERE id = $2",
                     json!(approval_conditions),
@@ -1933,7 +1949,7 @@ async fn push_next_flow_job(
                 }
 
                 sqlx::query!(
-                    "UPDATE queue
+                    "UPDATE v2_job_status
                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
                     WHERE id = $3",
                     (status.step - 1).to_string(),
@@ -1954,7 +1970,7 @@ async fn push_next_flow_job(
 
                 // Remove the approval conditions from the flow status
                 sqlx::query!(
-                    "UPDATE queue
+                    "UPDATE v2_job_status
                     SET flow_status = flow_status - 'approval_conditions'
                     WHERE id = $1",
                     flow_job.id
@@ -1972,23 +1988,32 @@ async fn push_next_flow_job(
             ) && is_disapproved.is_none()
             {
                 sqlx::query!(
-                    "UPDATE queue SET
-                        flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step'::text], $1),
-                        suspend = $2,
-                        suspend_until = now() + $3
-                    WHERE id = $4",
-                    json!(FlowStatusModule::WaitingForEvents { id: status_module.id(), count: required_events, job: last }),
+                    "WITH suspend AS (
+                        UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + $3
+                        WHERE id = $4
+                        RETURNING id
+                    ) UPDATE v2_job_status SET flow_status = JSONB_SET(
+                        flow_status,
+                        ARRAY['modules', flow_status->>'step'::TEXT],
+                        $1
+                    ) WHERE id = (SELECT id FROM suspend)",
+                    json!(FlowStatusModule::WaitingForEvents {
+                        id: status_module.id(),
+                        count: required_events,
+                        job: last
+                    }),
                     (required_events - resume_messages.len() as u16) as i32,
-                    Duration::from_secs(suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)) as Duration,
+                    Duration::from_secs(
+                        suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
+                    ) as Duration,
                     flow_job.id,
                 )
                 .execute(&mut *tx)
                 .await?;
 
                 sqlx::query!(
-                    "UPDATE queue
-                    SET last_ping = null
-                    WHERE id = $1 AND last_ping = $2",
+                    "UPDATE v2_job_runtime SET ping = NULL
+                    WHERE id = $1 AND ping = $2",
                     flow_job.id,
                     flow_job.last_ping
                 )
@@ -2170,7 +2195,7 @@ async fn push_next_flow_job(
                 scheduled_for_o = Some(from_now(retry_in));
                 status.retry.failed_jobs.push(job.clone());
                 sqlx::query!(
-                    "UPDATE queue
+                    "UPDATE v2_job_status
                     SET flow_status = JSONB_SET(JSONB_SET(flow_status, ARRAY['retry'], $1), ARRAY['modules', $3::TEXT, 'failed_retries'], $4)
                     WHERE id = $2",
                     json!(RetryStatus { fail_count, ..status.retry.clone() }),
@@ -2207,7 +2232,7 @@ async fn push_next_flow_job(
 
                 if module.retry.as_ref().is_some_and(|x| x.has_attempts()) {
                     sqlx::query!(
-                        "UPDATE queue
+                        "UPDATE v2_job_status
                         SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
                         WHERE id = $2",
                         json!(RetryStatus { fail_count: 0, failed_jobs: vec![] }),
@@ -2267,7 +2292,7 @@ async fn push_next_flow_job(
         } else if let Some(id) = get_args_from_id {
             let args = sqlx::query_scalar!(
                 "SELECT args AS \"args: Json<HashMap<String, Box<RawValue>>>\"
-                FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                FROM v2_job WHERE id = $1 AND workspace_id = $2",
                 id,
                 &flow_job.workspace_id
             )
@@ -2354,7 +2379,7 @@ async fn push_next_flow_job(
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
         NextFlowTransform::EmptyInnerFlows => {
             sqlx::query!(
-                "UPDATE queue
+                "UPDATE v2_job_status
                 SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)
                 WHERE id = $3",
                 status.step.to_string(),
@@ -2405,9 +2430,7 @@ async fn push_next_flow_job(
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
             sqlx::query!(
-                "UPDATE queue
-                SET last_ping = now()
-                WHERE id = $1 AND last_ping < now()",
+                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1 AND ping < now()",
                 flow_job.id,
             )
             .execute(db)
@@ -2481,7 +2504,7 @@ async fn push_next_flow_job(
             }
             NextStatus::AllFlowJobs {
                 branchall: None,
-                iterator: Some(Iterator { itered, .. }),
+                iterator: Some(FlowIterator { itered, .. }),
                 simple_input_transforms,
             } => {
                 if let Ok(args) = args.as_ref() {
@@ -2631,9 +2654,11 @@ async fn push_next_flow_job(
 
                 if i as u16 >= p {
                     sqlx::query!(
-                        "UPDATE queue
-                    SET suspend = $1, suspend_until = now() + interval '14 day', running = true
-                    WHERE id = $2",
+                        "UPDATE v2_job_queue SET
+                            suspend = $1,
+                            suspend_until = now() + interval '14 day',
+                            running = true
+                        WHERE id = $2",
                         (i as u16 - p + 1) as i32,
                         uuid,
                     )
@@ -2650,7 +2675,7 @@ async fn push_next_flow_job(
             })?;
 
             sqlx::query!(
-                "UPDATE queue
+                "UPDATE v2_job_status
                 SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_clean', '[]'::jsonb) || $1)
                 WHERE id = $2",
                 uuid_singleton_json,
@@ -2709,7 +2734,7 @@ async fn push_next_flow_job(
             }
             FlowStatusModule::InProgress {
                 job: uuid,
-                iterator: Some(windmill_common::flow_status::Iterator { index, itered }),
+                iterator: Some(FlowIterator { index, itered }),
                 flow_jobs: Some(flow_jobs),
                 flow_jobs_success,
                 branch_chosen: None,
@@ -2779,9 +2804,12 @@ async fn push_next_flow_job(
     match step {
         Step::FailureStep => {
             sqlx::query!(
-                "UPDATE queue
-                SET flow_status = JSONB_SET(
-                    JSONB_SET(flow_status, ARRAY['failure_module'], $1), ARRAY['step'], $2)
+                "UPDATE v2_job_status SET
+                    flow_status = JSONB_SET(
+                        JSONB_SET(flow_status, ARRAY['failure_module'], $1),
+                        ARRAY['step'],
+                        $2
+                    )
                 WHERE id = $3",
                 json!(FlowStatusModuleWParent {
                     parent_module: Some(current_id.clone()),
@@ -2795,9 +2823,12 @@ async fn push_next_flow_job(
         }
         Step::PreprocessorStep => {
             sqlx::query!(
-                "UPDATE queue
-                SET flow_status = JSONB_SET(
-                    JSONB_SET(flow_status, ARRAY['preprocessor_module'], $1), ARRAY['step'], $2)
+                "UPDATE v2_job_status SET
+                    flow_status = JSONB_SET(
+                        JSONB_SET(flow_status, ARRAY['preprocessor_module'], $1),
+                        ARRAY['step'],
+                        $2
+                    )
                 WHERE id = $3",
                 json!(new_status),
                 json!(-1),
@@ -2808,9 +2839,12 @@ async fn push_next_flow_job(
         }
         Step::Step(i) => {
             sqlx::query!(
-                "UPDATE queue
-                SET flow_status = JSONB_SET(
-                    JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2), ARRAY['step'], $3)
+                "UPDATE v2_job_status SET
+                    flow_status = JSONB_SET(
+                        JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+                        ARRAY['step'],
+                        $3
+                    )
                 WHERE id = $4",
                 i as i32,
                 json!(new_status),
@@ -2825,9 +2859,7 @@ async fn push_next_flow_job(
     potentially_crash_for_testing();
 
     sqlx::query!(
-        "UPDATE queue
-        SET last_ping = null
-        WHERE id = $1",
+        "UPDATE v2_job_runtime SET ping = null WHERE id = $1",
         flow_job.id
     )
     .execute(&mut *tx)
@@ -2950,7 +2982,7 @@ enum NextStatus {
     },
     AllFlowJobs {
         branchall: Option<BranchAllStatus>,
-        iterator: Option<windmill_common::flow_status::Iterator>,
+        iterator: Option<FlowIterator>,
         simple_input_transforms: Option<HashMap<String, InputTransform>>,
     },
 }
@@ -3293,10 +3325,7 @@ async fn compute_next_flow_transform(
                         ContinuePayload::ParallelJobs(payloads),
                         NextStatus::AllFlowJobs {
                             branchall: None,
-                            iterator: Some(windmill_common::flow_status::Iterator {
-                                index: 0,
-                                itered,
-                            }),
+                            iterator: Some(FlowIterator { index: 0, itered }),
                             // we removed the is_simple_case for simple_input_transforms
                             // if is_simple {
                             //     match value {
@@ -3643,7 +3672,7 @@ async fn next_forloop_status(
         }
 
         FlowStatusModule::InProgress {
-            iterator: Some(windmill_common::flow_status::Iterator { itered, index }),
+            iterator: Some(FlowIterator { itered, index }),
             flow_jobs: Some(flow_jobs),
             flow_jobs_success,
             ..
@@ -3987,11 +4016,12 @@ async fn get_previous_job_result(
             Ok(Some(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?))
         }
         Some(FlowStatusModule::Success { job, .. }) => Ok(Some(
-            sqlx::query_scalar::<_, Json<Box<RawValue>>>(
-                "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            sqlx::query_scalar!(
+                "SELECT result AS \"result!: Json<Box<RawValue>>\"
+                FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+                job,
+                w_id
             )
-            .bind(job)
-            .bind(w_id)
             .fetch_one(db)
             .await?
             .0,
