@@ -580,7 +580,7 @@ export async function main(approver?: string) {
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -604,6 +604,9 @@ export async function preprocessor(
 			status?: number
 			description?: string
 			length: number
+		},
+		sqs?: {
+			queueUrl: string //The queue url
 		}
 	},
 	/* your other args */ 
@@ -617,7 +620,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
 	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
+		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
 		http?: {
 			route: string // The route path, e.g. "/users/:id"
 			path: string // The actual path called, e.g. "/users/123"
@@ -641,6 +644,9 @@ export async function preprocessor(
 			status?: number
 			description?: string
 			length: number
+		},
+		sqs?: {
+			queueUrl: string //The queue url
 		}
 	},
 	/* your other args */ 
@@ -704,12 +710,16 @@ class Nats(TypedDict):
 	description: str | None
 	length: int
 
+class Sqs(TypeDict):
+	queue_url: str #The queue url
+
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
+	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "sqs"]
 	http: Http | None
 	websocket: Websocket | None
 	kafka: Kafka | None
 	nats: Nats | None
+	sqs: Sqs | None
 
 def preprocessor(
 	wm_trigger: WmTrigger,

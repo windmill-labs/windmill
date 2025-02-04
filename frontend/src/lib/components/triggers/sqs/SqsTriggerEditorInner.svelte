@@ -30,7 +30,6 @@
 	let can_write = true
 	let drawerLoading = true
 	let aws_resource_path: string = ''
-	//let loading = false
 	let queue_url = ''
 	const dispatch = createEventDispatcher()
 
@@ -137,8 +136,8 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit Sqs trigger ${initialPath}`
-				: `Sqs trigger ${initialPath}`
+				? `Edit Amazon SQS trigger ${initialPath}`
+				: `Amazon SQS trigger ${initialPath}`
 			: 'New sqs trigger'}
 		on:close={drawer.closeDrawer}
 	>

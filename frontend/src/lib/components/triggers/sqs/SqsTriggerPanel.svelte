@@ -50,7 +50,7 @@
 			).map((x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
-			$triggersCount = { ...($triggersCount ?? {}), websocket_count: sqsTriggers?.length }
+			$triggersCount = { ...($triggersCount ?? {}), sqs_count: sqsTriggers?.length }
 			openForm = sqsTriggers?.length === 0 || dontCloseOnLoad
 		} catch (e) {
 			console.error('impossible to load SQS triggers', e)
@@ -67,7 +67,7 @@
 
 {#if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		Sqs triggers are disabled in the multi-tenant cloud.
+		Amazon SQS triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
@@ -80,7 +80,7 @@
 		</Description>
 
 		{#if !newItem && sqsTriggers && sqsTriggers.length > 0}
-			<Section label="WebSockets">
+			<Section label="Amazon SQS">
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-col divide-y pt-2">
 						{#each sqsTriggers as sqsTriggers (sqsTriggers.path)}

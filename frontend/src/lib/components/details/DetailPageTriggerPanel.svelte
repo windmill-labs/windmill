@@ -7,7 +7,10 @@
 		Terminal,
 		Webhook,
 		Unplug,
-		PlugZap
+		PlugZap,
+
+		Database
+
 	} from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
@@ -25,6 +28,7 @@
 		| 'websockets'
 		| 'kafka'
 		| 'postgres'
+		| 'sqs'
 		| 'nats'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
@@ -69,8 +73,14 @@
 			</Tab>
 			<Tab value="postgres">
 				<span class="flex flex-row gap-2 items-center text-xs">
-					<Unplug size={12} />
+					<Database size={12} />
 					Postgres
+				</span>
+			</Tab>
+			<Tab value="sqs">
+				<span class="flex flex-row gap-2 items-center text-xs">
+					<Unplug size={12} />
+					Amazon SQS
 				</span>
 			</Tab>
 			<Tab value="kafka" otherValues={['nats']}>
@@ -106,6 +116,8 @@
 						<slot name="websockets" />
 					{:else if triggerSelected === 'postgres'}
 						<slot name="postgres" />
+					{:else if triggerSelected === 'sqs'}
+						<slot name="sqs" />
 					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
 						<div class="m-1.5">
 							<ToggleButtonGroup bind:selected={eventStreamType}>

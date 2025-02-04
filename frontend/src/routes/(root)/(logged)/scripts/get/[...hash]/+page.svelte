@@ -89,6 +89,7 @@
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
+	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -755,6 +756,11 @@
 			<svelte:fragment slot="websockets">
 				<div class="p-2">
 					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="sqs">
+				<div class="p-2">
+					<SqsTriggerPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="kafka">

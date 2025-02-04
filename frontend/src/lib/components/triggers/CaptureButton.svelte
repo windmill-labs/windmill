@@ -88,7 +88,7 @@
 			>
 				<div class="flex flex-row items-center gap-2">
 					<Unplug size={16} />
-					<p class="text-xs text-secondary">Sqs</p>
+					<p class="text-xs text-secondary">Amazon SQS</p>
 				</div>
 			</button>
 			<button

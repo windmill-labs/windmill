@@ -56,7 +56,7 @@
 				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
 				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">WebSockets</Tab>
 				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
-				<Tab value="sqs" selectedClass="text-primary text-sm font-semibold">Sqs</Tab>
+				<Tab value="sqs" selectedClass="text-primary text-sm font-semibold">Amazon SQS</Tab>
 				<Tab
 					value="kafka"
 					otherValues={['nats']}

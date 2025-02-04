@@ -17,7 +17,7 @@
 		websocket: 'WebSocket',
 		nats: 'NATS server(s)',
 		kafka: 'Kafka broker(s)',
-		sqs: 'Sqs'
+		sqs: 'Amazon SQS'
 	}
 
 	let testLoading: boolean = false
