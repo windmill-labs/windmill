@@ -8,21 +8,21 @@
 		workspaceUsageStore
 	} from '$lib/stores'
 	import { Building, Plus, Settings } from 'lucide-svelte'
-
-	import Menu from '../common/menu/MenuV2.svelte'
+	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
+	import Menu from '$lib/components/meltComponents/Menu.svelte'
+	import { melt } from '@melt-ui/svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { isCloudHosted } from '$lib/cloud'
 	import { initAllAiWorkspace } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 
 	export let isCollapsed: boolean = false
+	export let createMenu: any
 
 	// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 	export let strictWorkspaceSelect = false
@@ -54,48 +54,50 @@
 	}
 </script>
 
-<Menu>
-	<div slot="trigger">
-		<MenuButton
+<Menu {createMenu} let:item>
+	<svelte:fragment slot="trigger" let:trigger>
+		<MenuButtonMelt
 			class="!text-xs"
 			icon={Building}
 			label={$workspaceStore ?? ''}
 			{isCollapsed}
 			color={$userWorkspaces.find((w) => w.id === $workspaceStore)?.color}
+			{trigger}
 		/>
-	</div>
+	</svelte:fragment>
 
 	<div class="divide-y" role="none">
 		<div class="py-1">
 			{#each $userWorkspaces as workspace}
-				<MenuItem>
-					<button
-						class={twMerge(
-							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
-							$workspaceStore === workspace.id
-								? 'cursor-default bg-surface-selected'
-								: 'cursor-pointer hover:bg-surface-hover'
-						)}
-						on:click={async () => {
-							await toggleSwitchWorkspace(workspace.id)
-						}}
-					>
-						<div class="flex items-center justify-between min-w-0 w-full">
-							<div>
-								<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
-								<div class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left">
-									{workspace.id}
-								</div>
+				<button
+					class={twMerge(
+						'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
+						$workspaceStore === workspace.id
+							? 'cursor-default bg-surface-selected'
+							: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
+					)}
+					on:click={async () => {
+						await toggleSwitchWorkspace(workspace.id)
+					}}
+					use:melt={item}
+				>
+					<div class="flex items-center justify-between min-w-0 w-full">
+						<div>
+							<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
+							<div
+								class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left"
+							>
+								{workspace.id}
 							</div>
-							{#if workspace.color}
-								<div
-									class="w-5 h-5 mr-2 rounded border border-gray-300 dark:border-gray-600"
-									style="background-color: {workspace.color}"
-								></div>
-							{/if}
 						</div>
-					</button>
-				</MenuItem>
+						{#if workspace.color}
+							<div
+								class="w-5 h-5 mr-2 rounded border border-gray-300 dark:border-gray-600"
+								style="background-color: {workspace.color}"
+							/>
+						{/if}
+					</div>
+				</button>
 			{/each}
 		</div>
 		{#if (isCloudHosted() || $superadmin) && !strictWorkspaceSelect}
@@ -118,9 +120,13 @@
 					on:click={() => {
 						localStorage.removeItem('workspace')
 					}}
-					class="text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary"
+					class={twMerge(
+						'text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary',
+						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+					)}
 					role="menuitem"
 					tabindex="-1"
+					use:melt={item}
 				>
 					All workspaces
 				</a>
@@ -128,17 +134,19 @@
 		{/if}
 		{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect}
 			<div class="py-1" role="none">
-				<MenuItem>
-					<a
-						href="{base}/workspace_settings"
-						class="text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
-						role="menuitem"
-						tabindex="-1"
-					>
-						<Settings size={16} />
-						Workspace settings
-					</a>
-				</MenuItem>
+				<a
+					href="{base}/workspace_settings"
+					class={twMerge(
+						'text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2',
+						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+					)}
+					role="menuitem"
+					tabindex="-1"
+					use:melt={item}
+				>
+					<Settings size={16} />
+					Workspace settings
+				</a>
 			</div>
 		{/if}
 	</div>
@@ -158,12 +166,16 @@
 			{#if $userStore?.is_admin}
 				<button
 					type="button"
-					class="text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+					class={twMerge(
+						'text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900',
+						'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900'
+					)}
 					role="menuitem"
 					tabindex="-1"
 					on:click={() => {
 						goto('/workspace_settings?tab=premium')
 					}}
+					use:melt={item}
 				>
 					Upgrade
 				</button>

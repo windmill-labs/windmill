@@ -17,7 +17,8 @@
 	const menu = createMenu({
 		positioning: {
 			placement
-		}
+		},
+		loop: true
 	})
 
 	//Melt

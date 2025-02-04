@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { Code2, LayoutDashboard, Star } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-
-	import Menu from '../common/menu/MenuV2.svelte'
-	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import { melt } from '@melt-ui/svelte'
+	import Menu from '$lib/components/meltComponents/Menu.svelte'
+	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
 	export let lightMode: boolean = false
 
 	export let isCollapsed: boolean = false
@@ -13,12 +12,20 @@
 		href: string
 		kind: 'script' | 'flow' | 'app' | 'raw_app'
 	}[]
+	export let createMenu: any
 </script>
 
-<Menu>
-	<div slot="trigger">
-		<MenuButton class="!text-xs" icon={Star} label={'Favorites'} {isCollapsed} {lightMode} />
-	</div>
+<Menu {createMenu} let:item>
+	<svelte:fragment slot="trigger" let:trigger>
+		<MenuButtonMelt
+			class="!text-xs"
+			icon={Star}
+			label={'Favorites'}
+			{isCollapsed}
+			{lightMode}
+			{trigger}
+		/>
+	</svelte:fragment>
 
 	<div class="overflow-hidden" role="none">
 		{#if !favoriteLinks.length}
@@ -30,22 +37,24 @@
 		{:else}
 			<div class="py-1 w-full max-w-full">
 				{#each favoriteLinks ?? [] as favorite (favorite.href)}
-					<MenuItem href={favorite.href}>
-						<span class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover">
-							<span class="center-center">
-								{#if favorite.kind == 'script'}
-									<Code2 size={16} />
-								{:else if favorite.kind == 'flow'}
-									<BarsStaggered size={16} />
-								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
-									<LayoutDashboard size={16} />
-								{/if}
-							</span>
-							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
-								{favorite.label}
-							</span>
+					<a
+						href={favorite.href}
+						use:melt={item}
+						class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover data-[highlighted]:bg-surface-hover"
+					>
+						<span class="center-center">
+							{#if favorite.kind == 'script'}
+								<Code2 size={16} />
+							{:else if favorite.kind == 'flow'}
+								<BarsStaggered size={16} />
+							{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
+								<LayoutDashboard size={16} />
+							{/if}
 						</span>
-					</MenuItem>
+						<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
+							{favorite.label}
+						</span>
+					</a>
 				{/each}
 			</div>
 		{/if}

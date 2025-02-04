@@ -51,6 +51,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
+	import Menubar from '$lib/components/meltComponents/Menubar.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -192,11 +193,9 @@
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
 		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used } =
-			await WorkspaceService.getUsedTriggers(
-			{
-					workspace: $workspaceStore ?? ''
-				}
-		)
+			await WorkspaceService.getUsedTriggers({
+				workspace: $workspaceStore ?? ''
+			})
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -294,7 +293,13 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $workspaceStore && $userStore && $devopsRole !== undefined && ($devopsRole || $userStore.is_admin)) {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			$devopsRole !== undefined &&
+			($devopsRole || $userStore.is_admin)
+		) {
 			mountModal = true
 			loadCriticalAlertsMuted()
 		}
@@ -409,8 +414,10 @@
 										Windmill
 									</div>
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-										<WorkspaceMenu />
-										<FavoriteMenu {favoriteLinks} />
+										<Menubar let:createMenu>
+											<WorkspaceMenu {createMenu} />
+											<FavoriteMenu {createMenu} {favoriteLinks} />
+										</Menubar>
 										<MenuButton
 											stopPropagationOnClick={true}
 											on:click={() => openSearchModal()}
@@ -462,8 +469,10 @@
 								</div>
 							</button>
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
-								<WorkspaceMenu {isCollapsed} />
-								<FavoriteMenu {favoriteLinks} {isCollapsed} />
+								<Menubar let:createMenu>
+									<WorkspaceMenu {createMenu} {isCollapsed} />
+									<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
 									on:click={() => openSearchModal()}
@@ -555,8 +564,10 @@
 							</div>
 
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-								<WorkspaceMenu />
-								<FavoriteMenu {favoriteLinks} />
+								<Menubar let:createMenu>
+									<WorkspaceMenu {createMenu} />
+									<FavoriteMenu {createMenu} {favoriteLinks} />
+								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
 									on:click={() => openSearchModal()}
