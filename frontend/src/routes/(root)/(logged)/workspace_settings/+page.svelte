@@ -1075,6 +1075,8 @@
 						value="customai"
 						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE only)')}
 						disabled={!$enterpriseLicense}
+						tooltip="Configure a custom AI provider that is OpenAI API compatible"
+						showTooltipIcon
 					/>
 				</ToggleButtonGroup>
 				<div class="flex gap-1">
@@ -1090,9 +1092,6 @@
 									if (aiProvider !== 'customai') {
 										aiModels = AI_DEFAULT_MODELS[aiProvider].slice(0, 1)
 									}
-								} else {
-									aiModels = []
-									codeCompletionModel = undefined
 								}
 							}}
 						/>

@@ -406,20 +406,20 @@
 							<ToggleButton value={'edit'} label="Edit existing code" small light />
 						</ToggleButtonGroup>
 
-						<div>
+						<div class="min-w-0">
 							{#if $copilotInfo.ai_models.length > 1}
 								<select
 									bind:value={$copilotSessionModel}
-									class="text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
+									class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
 								>
 									{#each $copilotInfo.ai_models as model}
 										<option value={model} class="pr-4">{model}</option>
 									{/each}
 								</select>
 							{:else if $copilotInfo.ai_models.length === 1}
-								<p class="text-xs text-secondary">
+								<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
 									{$copilotInfo.ai_models[0]}
-								</p>
+								</div>
 							{/if}
 						</div>
 					</div>

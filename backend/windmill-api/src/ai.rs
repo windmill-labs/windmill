@@ -102,7 +102,7 @@ mod deepseek {
 mod openai {
     use super::*;
 
-    const API_VERSION: &str = "2023-05-15";
+    const API_VERSION: &str = "2024-10-21";
 
     #[derive(Deserialize, Debug)]
     struct OpenaiResource {

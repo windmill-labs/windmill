@@ -64,7 +64,7 @@ class WorkspacedMistral implements WorkspacedAIProvider {
 namespace CustomAI {
 	export const customAIConfig: ChatCompletionCreateParamsStreaming = {
 		model: '',
-		max_completion_tokens: 8000, //TODO: make this dynamic
+		max_tokens: 8000, //TODO: make this dynamic
 		temperature: 0,
 		seed: 42,
 		stream: true,
@@ -75,7 +75,7 @@ namespace CustomAI {
 namespace DeepSeek {
 	export const deepseekConfig: ChatCompletionCreateParamsStreaming = {
 		model: '',
-		max_completion_tokens: 8000,
+		max_tokens: 8000,
 		temperature: 0,
 		seed: 42,
 		stream: true,
@@ -192,7 +192,7 @@ namespace OpenAi {
 
 	export const openaiConfig: ChatCompletionCreateParamsStreaming = {
 		temperature: 0,
-		max_completion_tokens: 16384,
+		max_tokens: 16384,
 		model: '',
 		seed: 42,
 		stream: true,
@@ -269,7 +269,6 @@ export async function testKey({
 	if (!apiKey && !resourcePath) {
 		throw new Error('API key or resource path is required')
 	}
-
 	const modelToTest = model ?? AI_DEFAULT_MODELS[aiProvider][0]
 
 	if (!modelToTest) {
@@ -471,13 +470,17 @@ export async function getNonStreamingCompletion(
 	forceModel?: string
 ) {
 	let response: string | undefined = ''
-	let model = forceModel ?? get(copilotSessionModel)
-	let info = get(copilotInfo)
-	const { ai_models: aiModels } = info
+	let model = forceModel
 
-	if (!model || !aiModels.includes(model)) {
-		console.warn('Invalid model, using default model:', aiModels[0])
-		model = aiModels[0]
+	if (!model) {
+		model = get(copilotSessionModel)
+		let info = get(copilotInfo)
+		const { ai_models: aiModels } = info
+
+		if (!model || !aiModels.includes(model)) {
+			console.warn('Invalid model, using default model:', aiModels[0])
+			model = aiModels[0]
+		}
 	}
 
 	if (!model) {
