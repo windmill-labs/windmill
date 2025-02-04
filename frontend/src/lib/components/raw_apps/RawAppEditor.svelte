@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { genWmillTs } from './utils'
 	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
 
 	export let initFiles: Record<string, string>
 	export let initRunnables: Record<string, HiddenRunnable>
@@ -117,9 +118,12 @@
 			)
 		})
 	}
+
+	let darkMode: boolean | undefined = undefined
 </script>
 
 <svelte:window on:message={listener} />
+<DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
 	workspace={$workspaceStore ?? ''}
@@ -149,18 +153,18 @@
 	/>
 	<Splitpanes id="o2" horizontal class="grow">
 		<Pane bind:size={appPanelSize}>
-			<!-- <iframe
+			<iframe
 				bind:this={iframe}
 				title="UI builder"
-				src="http://localhost:4000/ui_builder/index.html"
+				src="http://localhost:4000/ui_builder/index.html?dark={darkMode}"
 				class="w-full h-full"
-			/> -->
-			<iframe
+			/>
+			<!-- <iframe
 				bind:this={iframe}
 				title="UI builder"
 				src="/ui_builder/index.html"
 				class="w-full h-full"
-			/>
+			/> -->
 		</Pane>
 		<Pane>
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
