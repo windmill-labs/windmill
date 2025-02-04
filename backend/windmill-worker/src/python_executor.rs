@@ -661,7 +661,7 @@ pub async fn uv_pip_compile(
         if *NATIVE_CERT {
             args.extend(["--native-tls"]);
         }
-        tracing::error!("uv args: {:?}", args);
+        tracing::debug!("uv args: {:?}", args);
 
         #[cfg(windows)]
         let uv_cmd = "uv";
