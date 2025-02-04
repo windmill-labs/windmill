@@ -37,10 +37,10 @@
 	}
 </script>
 
-<div class="w-full h-8">
+<div class={twMerge('w-full h-8', $$props.class)}>
 	<ResolveOpen {open} on:open on:close />
 
-	<button class={twMerge('w-full', justifyEnd ? 'flex justify-end' : '')} {disabled}>
+	<button class={twMerge('w-full h-full', justifyEnd ? 'flex justify-end' : '')} {disabled}>
 		<slot name="trigger" trigger={$trigger} />
 	</button>
 

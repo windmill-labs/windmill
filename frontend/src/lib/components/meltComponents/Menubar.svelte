@@ -7,6 +7,6 @@
 	} = createMenubar()
 </script>
 
-<div use:melt={$menubar}>
+<div use:melt={$menubar} class={$$props.class}>
 	<slot {createMenu} />
 </div>
