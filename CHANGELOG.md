@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.457.0](https://github.com/windmill-labs/windmill/compare/v1.456.0...v1.457.0) (2025-02-04)
+
+
+### Features
+
+* more AI models ([#5207](https://github.com/windmill-labs/windmill/issues/5207)) ([245c871](https://github.com/windmill-labs/windmill/commit/245c8719fc4bf9779be6c653f057d9ffb2724886))
+* **python:** make S3 cache arch specific ([#5196](https://github.com/windmill-labs/windmill/issues/5196)) ([0e80775](https://github.com/windmill-labs/windmill/commit/0e80775d6d2bd1931fed6d5a1d63fc2e70980d55))
+
+
+### Bug Fixes
+
+* hide values of WHITELIST_ENVS ([62bfec0](https://github.com/windmill-labs/windmill/commit/62bfec029c00fd067b9906f546b3c9597a54c319))
+* **python:** clear env before installing/finding python ([#5209](https://github.com/windmill-labs/windmill/issues/5209)) ([97c1134](https://github.com/windmill-labs/windmill/commit/97c11340c3175ba946ac6fc77481899fed508af5))
+* support specialization of list of strings to list of enums ([76afbc3](https://github.com/windmill-labs/windmill/commit/76afbc3df33ec87aff47b0db8c57e64209f8f613))
+* timeout on list_user_usage after 300s ([fd0cd58](https://github.com/windmill-labs/windmill/commit/fd0cd587bbe8f453893ae600ae553ee74eb1ba04))
+
 ## [1.456.0](https://github.com/windmill-labs/windmill/compare/v1.455.2...v1.456.0) (2025-02-01)
 
 
