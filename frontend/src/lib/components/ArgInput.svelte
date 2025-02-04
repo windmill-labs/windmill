@@ -492,6 +492,7 @@
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
+								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
@@ -505,6 +506,7 @@
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
+								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}

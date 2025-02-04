@@ -119,7 +119,7 @@
 								{runnableId}
 								{runnableType}
 								on:select={(e) => {
-									dispatch('select', { payload: e.detail.args, type: 'history' })
+									dispatch('select', { payload: e.detail?.args, type: 'history' })
 								}}
 							/>
 						</FlowInputEditor>
