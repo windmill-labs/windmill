@@ -134,7 +134,7 @@ pub async fn test_postgres_connection(
     tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
         .await
         .map_err(|_| {
-            error::Error::BadConfig(format!("Timeout connecting to websocket after 30 seconds"))
+            error::Error::BadConfig(format!("Timeout connecting to postgres after 30 seconds"))
         })??;
 
     Ok(())

@@ -182,7 +182,6 @@ struct NewCaptureConfig {
     trigger_kind: TriggerKind,
     path: String,
     is_flow: bool,
-    // why is the option here ?
     trigger_config: Option<TriggerConfig>,
 }
 
@@ -287,11 +286,12 @@ async fn set_config(
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
     #[cfg(feature = "postgres_trigger")]
-    let mut nc = nc;
-    #[cfg(feature = "postgres_trigger")]
-    if let TriggerKind::Postgres = nc.trigger_kind {
-        nc = set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?;
+    let nc = if let TriggerKind::Postgres = nc.trigger_kind {
+        set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
     }
+    else {
+        nc
+    };
 
     let mut tx = user_db.begin(&authed).await?;
 

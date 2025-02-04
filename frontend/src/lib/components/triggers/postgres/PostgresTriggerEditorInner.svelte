@@ -148,8 +148,12 @@
 			config.show = false
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
-			transaction_to_track = defaultValues?.transaction_to_track || ['Insert', 'Update', 'Delete']
-			relations = defaultValues?.relations || [
+			transaction_to_track = defaultValues?.publication.transaction_to_track || [
+				'Insert',
+				'Update',
+				'Delete'
+			]
+			relations = defaultValues?.publication.table_to_track || [
 				{
 					schema_name: 'public',
 					table_to_track: []
@@ -187,7 +191,7 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (selectedTable === 'specific' && invalidRelations(table_to_track, true)[0] === true) {
+		if (selectedTable === 'specific' && invalidRelations(table_to_track, true).isError === true) {
 			return
 		}
 		if (edit) {
@@ -375,15 +379,15 @@
 								loading={loadingConfiguration}
 								on:click={checkDatabaseConfiguration}
 								color="gray"
-								size="sm"
-								>Check Database Configuration
-								<Tooltip>
+								size="xs"
+								>Check database configuration
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#requirements"
+								>
 									<p class="text-sm">
 										Verifies whether the database is configured with the required <strong
 											>settings</strong
-										>.<br /> The <strong>logical wal_level</strong> setting is essential for the streaming
-										feature to works. If it is not set, the trigger feature will not work, and the database
-										configuration must be updated.
+										>.
 									</p>
 								</Tooltip>
 							</Button>

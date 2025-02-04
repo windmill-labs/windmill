@@ -29,7 +29,7 @@
 	export let captureTable: CaptureTable | undefined = undefined
 
 	export async function setConfig(): Promise<boolean> {
-		if (captureType === 'postgres' && invalidRelations(args.publication.table_to_track, true)[0]) {
+		if (captureType === 'postgres' && invalidRelations(args.publication.table_to_track, true).isError) {
 			return false
 		}
 		try {

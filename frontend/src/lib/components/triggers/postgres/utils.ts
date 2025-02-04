@@ -8,16 +8,18 @@ type RelationError = {
     schemaError: boolean
     tableError: boolean
     schemaName?: string
+    isError: boolean
 }
 export function invalidRelations(
     relations: Relations[],
     showError?: boolean
-): [boolean, RelationError] {
+): RelationError {
     let result: RelationError = {
         schemaIndex: -1,
         tableIndex: -1,
         schemaError: false,
-        tableError: false
+        tableError: false,
+        isError: false
     }
 
     for (const [schemaIndex, relation] of relations.entries()) {
@@ -45,6 +47,7 @@ export function invalidRelations(
     }
 
     const error = result.tableError || result.schemaError
+    result.isError = error
     if (showError) {
         if (error === true) {
             let errorMessage = result.schemaError
@@ -55,5 +58,5 @@ export function invalidRelations(
         }
     }
 
-    return [error, result]
+    return result
 }

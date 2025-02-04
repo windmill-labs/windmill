@@ -710,7 +710,6 @@ class WmTrigger(TypedDict):
 	websocket: Websocket | None
 	kafka: Kafka | None
 	nats: Nats | None
- 	database: None
 
 def preprocessor(
 	wm_trigger: WmTrigger,

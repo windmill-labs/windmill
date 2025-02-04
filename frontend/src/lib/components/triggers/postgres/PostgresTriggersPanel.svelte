@@ -5,7 +5,7 @@
 	import { canWrite, sendUserToast } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { Alert, Skeleton } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import PostgresTriggerEditor from './PostgresTriggerEditor.svelte'
 	import Description from '$lib/components/Description.svelte'
@@ -81,34 +81,25 @@
 		{#if !newItem && postgresTriggers && postgresTriggers.length > 0}
 			<Section label="Postgres">
 				<div class="flex flex-col gap-4">
-					{#if postgresTriggers}
-						{#if postgresTriggers.length == 0}
-							<div class="text-xs text-secondary"> No Postgres triggers </div>
-						{:else}
-							<div class="flex flex-col divide-y pt-2">
-								{#each postgresTriggers as postgresTriggers (postgresTriggers.path)}
-									<div class="grid grid-cols-5 text-2xs items-center py-2">
-										<div class="col-span-2 truncate">{postgresTriggers.path}</div>
-										<div class="flex justify-end">
-											<button
-												on:click={() =>
-													postgresTriggerEditor?.openEdit(postgresTriggers.path, isFlow)}
-												class="px-2"
-											>
-												{#if postgresTriggers.canWrite}
-													Edit
-												{:else}
-													View
-												{/if}
-											</button>
-										</div>
-									</div>
-								{/each}
+					<div class="flex flex-col divide-y pt-2">
+						{#each postgresTriggers as postgresTriggers (postgresTriggers.path)}
+							<div class="grid grid-cols-5 text-2xs items-center py-2">
+								<div class="col-span-2 truncate">{postgresTriggers.path}</div>
+								<div class="flex justify-end">
+									<button
+										on:click={() => postgresTriggerEditor?.openEdit(postgresTriggers.path, isFlow)}
+										class="px-2"
+									>
+										{#if postgresTriggers.canWrite}
+											Edit
+										{:else}
+											View
+										{/if}
+									</button>
+								</div>
 							</div>
-						{/if}
-					{:else}
-						<Skeleton layout={[[8]]} />
-					{/if}
+						{/each}
+					</div>
 				</div>
 			</Section>
 		{/if}

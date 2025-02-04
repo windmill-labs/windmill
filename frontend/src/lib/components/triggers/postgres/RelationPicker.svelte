@@ -170,7 +170,7 @@
 							schema_name: '',
 							table_to_track: []
 						})
-					} else if (invalidRelations(relations, true)[0] === false) {
+					} else if (invalidRelations(relations, true).isError === false) {
 						relations = relations.concat({
 							schema_name: '',
 							table_to_track: []
