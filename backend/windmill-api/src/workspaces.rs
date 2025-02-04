@@ -1219,7 +1219,7 @@ async fn get_encryption_key(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<GetEncryptionKeyResponse> {
-    require_super_admin(&db, &authed.email).await?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let encryption_key_opt = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1",
