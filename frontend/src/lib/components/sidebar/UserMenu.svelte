@@ -8,30 +8,32 @@
 		isPremiumStore,
 		workspaceStore
 	} from '$lib/stores'
-	import Menu from '../common/menu/MenuV2.svelte'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { twMerge } from 'tailwind-merge'
 	import { Crown, HardHat, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
-	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import MenuButtonMelt from './MenuButtonMelt.svelte'
 
+	import { melt } from '@melt-ui/svelte'
+	import Menu from '$lib/components/meltComponents/Menu.svelte'
 	let darkMode: boolean = false
 	export let isCollapsed: boolean = false
 	export let lightMode: boolean = false
+	export let createMenu: (any) => any
 </script>
 
-<Menu>
-	<div slot="trigger" class="w-full">
-		<MenuButton
+<Menu {createMenu} let:item>
+	<svelte:fragment slot="trigger" let:trigger>
+		<MenuButtonMelt
 			class="!text-xs"
 			icon={User}
 			label={`User (${$userStore?.username ?? $userStore?.email})`}
 			{isCollapsed}
 			{lightMode}
+			{trigger}
 		/>
-	</div>
+	</svelte:fragment>
 	<div class="divide-y z-20">
 		<div class="px-4 py-3" role="none">
 			<p class="text-sm font-medium text-primary truncate" role="none">
@@ -47,17 +49,18 @@
 		</div>
 
 		<div class="py-1" role="none">
-			<MenuItem
+			<a
 				href={USER_SETTINGS_HASH}
 				class={twMerge(
 					'flex flex-row gap-2 items-center px-4 py-2 ',
 					'text-secondary text-sm',
-					'hover:bg-surface-hover hover:text-primary cursor-pointer'
+					'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 				)}
+				use:melt={item}
 			>
 				<Settings size={14} />
 				Account settings
-			</MenuItem>
+			</a>
 		</div>
 
 		<div class="py-1" role="none">
@@ -72,11 +75,13 @@
 					}
 				}}
 				class={twMerge(
-					'text-secondary block text-left px-4 py-2 font-normal text-sm hover:bg-surface-hover hover:text-primary w-full',
-					'flex flex-row items-center gap-2'
+					'text-secondary block text-left px-4 py-2 font-normal text-sm w-full',
+					'flex flex-row items-center gap-2',
+					'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 				)}
 				role="menuitem"
 				tabindex="-1"
+				use:melt={item}
 			>
 				{#if darkMode}
 					<Sun size={14} />
@@ -88,18 +93,18 @@
 		</div>
 
 		<div class="py-1" role="none">
-			<MenuItem
-				href="#"
+			<button
 				on:click={() => logout()}
 				class={twMerge(
-					'flex flex-row gap-2 items-center px-4 py-2 ',
+					'flex flex-row gap-2 items-center px-4 py-2 w-full',
 					'text-secondary text-sm',
-					'hover:bg-surface-hover hover:text-primary cursor-pointer'
+					'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 				)}
+				use:melt={item}
 			>
 				<LogOut size={14} />
 				Sign out
-			</MenuItem>
+			</button>
 		</div>
 
 		{#if isCloudHosted()}
