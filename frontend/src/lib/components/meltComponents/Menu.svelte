@@ -31,6 +31,10 @@
 
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
+
+	export function close() {
+		open = false
+	}
 </script>
 
 <div class="w-full h-8">
