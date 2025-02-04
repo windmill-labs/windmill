@@ -44,13 +44,13 @@ ${Object.entries(runnables)
 
 export const runBg = {
 ${Object.keys(runnables)
-			.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<any>`)
+			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
 			.join(',\n')}
 }
 	
 export const runBgAsync = {
 ${Object.keys(runnables)
-			.map((k) => `  ${k}: (data: RunBg${capitalize(k)}) => Promise<string>`)
+			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
 			.join(',\n')}
 }
 	
@@ -70,12 +70,20 @@ export type Job = {
 * Execute a job and wait for it to complete and return the completed job
 * @param id
 */
-export function waitJob(id: string): Promise<Job> {}
+// @ts-ignore
+export function waitJob(id: string): Promise<Job> {
+	// implementation passed when bundling/deploying
+	return null as Promise<Job>
+}
 
 /**
 * Get a job by id and return immediately with the current state of the job
 * @param id
 */
-export function getJob(id: string): Promise<Job> {}
+// @ts-ignore
+export function getJob(id: string): Promise<Job> {
+	// implementation passed when bundling/deploying
+	return null as Promise<Job>
+}
 `
 }

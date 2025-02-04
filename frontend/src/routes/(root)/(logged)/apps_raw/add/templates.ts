@@ -7,23 +7,37 @@ import App from './App'
 const root = createRoot(document.getElementById('root')!);
 root.render(<App/>);
 `
-
-const appTsx = `import React from 'react'
+const appTsx = `import React, { useState } from 'react'
 import { runBg } from './wmill'
+import './index.css'
 
 const App = () => {
+    const [value, setValue] = useState(undefined as string | undefined)
+    const [loading, setLoading] = useState(false)
+
+    async function runA() {
+        setLoading(true)
+        try {
+            setValue(await runBg.a({ x: 42 }))
+        } catch (e) {
+            console.error()
+        }
+        setLoading(false)
+    }
+
     return <div style={{ width: "100%" }}>
-        <h1>Hello, Wooorldd!</h1>
-        <div style={{ width: "100%", height: "100%", background: "red" }}>BAR</div>
+        <h1>hello world</h1>
+
+        <button style={{ marginTop: "2px" }} onClick={runA}>Run 'a'</button>
+
+        <div style={{ marginTop: "20px", width: '250px' }} className='myclass'>
+            {loading ? 'Loading ...' : value ?? 'Click button to see value here'}
+        </div>
     </div>;
 };
 
-async function m() {
-    await runBg.a({ x: 42 })
-}
-
 export default App;
-`
+`;
 
 const appSvelte = `<style>
   h1 {
@@ -64,10 +78,10 @@ import "./index.css";
 
 createApp(App).mount('#root')`
 
-const indexCss = `body {
-    background: blue;
-}`
-
+const indexCss = `.myclass {
+    border: 1px solid gray;
+    padding: 2px;
+}`;
 
 export const react19Template = {
   '/index.tsx': reactIndex,
