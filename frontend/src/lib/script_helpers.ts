@@ -705,11 +705,12 @@ class Nats(TypedDict):
 	length: int
 
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
+	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres"]
 	http: Http | None
 	websocket: Websocket | None
 	kafka: Kafka | None
 	nats: Nats | None
+ 	database: None
 
 def preprocessor(
 	wm_trigger: WmTrigger,
