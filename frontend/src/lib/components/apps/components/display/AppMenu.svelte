@@ -35,7 +35,6 @@
 			latestButtonClicked: undefined as string | undefined
 		}
 	})
-	let menu: Menu | undefined = undefined
 
 	const resolvedConfig = initConfig(
 		components['menucomponent'].initialData.configuration,
@@ -106,7 +105,6 @@
 				on:close
 				on:open
 				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
-				bind:this={menu}
 			>
 				<svelte:fragment slot="trigger" let:trigger>
 					<div use:melt={trigger} class="w-full h-full">

@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { melt } from '@melt-ui/svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let href: string | undefined = undefined
 	export let disabled: boolean = false
 
 	export let item: any
+
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if href}
@@ -12,7 +15,7 @@
 		<slot />
 	</a>
 {:else}
-	<button use:melt={item} on:click {disabled} class={$$props.class}>
+	<button use:melt={item} on:click={(e) => dispatch('click', e)} {disabled} class={$$props.class}>
 		<slot />
 	</button>
 {/if}
