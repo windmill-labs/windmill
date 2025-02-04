@@ -1,6 +1,6 @@
 ALTER TABLE workspace_settings 
     ADD COLUMN ai_models varchar(255)[] DEFAULT '{}' NOT NULL,
-    ADD COLUMN code_completion_model varchar(255) DEFAULT NULL;
+    ADD COLUMN code_completion_model varchar(255);
 
 UPDATE workspace_settings
 SET ai_models = CASE
