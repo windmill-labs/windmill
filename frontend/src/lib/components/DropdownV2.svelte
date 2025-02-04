@@ -2,6 +2,7 @@
 	import { MoreVertical } from 'lucide-svelte'
 	import { Menu, Menubar } from '$lib/components/meltComponents'
 	import { melt } from '@melt-ui/svelte'
+	import type { Placement } from '@floating-ui/core'
 
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 
@@ -18,6 +19,7 @@
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let justifyEnd: boolean = true
 	export let disabled = false
+	export let placement: Placement = 'bottom-end'
 
 	async function computeItems(): Promise<Item[]> {
 		if (typeof items === 'function') {
@@ -29,7 +31,7 @@
 </script>
 
 <Menubar let:createMenu>
-	<Menu {createMenu} placement="bottom-end" {justifyEnd} on:close on:open {disabled} let:item>
+	<Menu {createMenu} {placement} {justifyEnd} on:close on:open {disabled} let:item>
 		<svelte:fragment slot="trigger" let:trigger>
 			<div use:melt={trigger}>
 				{#if $$slots.buttonReplacement}
