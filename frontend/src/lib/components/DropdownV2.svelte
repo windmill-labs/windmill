@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { MoreVertical } from 'lucide-svelte'
-	import Menu from './common/menu/MenuV2.svelte'
+	import { Menu, Menubar } from '$lib/components/meltComponents'
+	import { melt } from '@melt-ui/svelte'
 
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 
@@ -27,17 +28,21 @@
 	}
 </script>
 
-<Menu placement="bottom-end" {justifyEnd} on:close on:open {disabled}>
-	<div slot="trigger">
-		{#if $$slots.buttonReplacement}
-			<slot name="buttonReplacement" />
-		{:else}
-			<MoreVertical
-				size={16}
-				class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-			/>
-		{/if}
-	</div>
+<Menubar let:createMenu>
+	<Menu {createMenu} placement="bottom-end" {justifyEnd} on:close on:open {disabled} let:item>
+		<svelte:fragment slot="trigger" let:trigger>
+			<div use:melt={trigger}>
+				{#if $$slots.buttonReplacement}
+					<slot name="buttonReplacement" />
+				{:else}
+					<MoreVertical
+						size={16}
+						class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+					/>
+				{/if}
+			</div>
+		</svelte:fragment>
 
-	<DropdownV2Inner items={computeItems} />
-</Menu>
+		<DropdownV2Inner items={computeItems} meltItem={item} />
+	</Menu>
+</Menubar>
