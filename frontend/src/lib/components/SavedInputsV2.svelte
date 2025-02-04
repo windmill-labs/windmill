@@ -18,6 +18,11 @@
 	export let isValid: boolean
 	export let args: object
 
+	export function resetSelected() {
+		historicInputs?.resetSelected(true)
+		savedInputsPicker?.resetSelected(true)
+	}
+
 	let savedArgs: any = undefined
 	let runnableType: RunnableType | undefined = undefined
 	let savedInputsPicker: SavedInputsPicker | undefined = undefined
@@ -90,7 +95,7 @@
 					{runnableType}
 					on:select={(e) => {
 						if (e.detail) savedInputsPicker?.resetSelected()
-						selectArgs(e.detail, e.detail ? 'history' : undefined)
+						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
 				/>
 			</Section>

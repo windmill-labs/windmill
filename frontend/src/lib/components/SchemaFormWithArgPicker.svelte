@@ -19,6 +19,16 @@
 
 	const dispatch = createEventDispatcher()
 
+	export function refreshHistory() {
+		historicInputs?.refresh()
+	}
+
+	export function resetSelected() {
+		historicInputs?.resetSelected(true)
+		savedInputsPicker?.resetSelected(true)
+		captureTable?.resetSelected(true)
+	}
+
 	const getDropdownItems = () => {
 		return [
 			{
@@ -71,23 +81,24 @@
 	let dropdownItems: any
 	let rightPanelOpen = false
 
+	let savedInputsPicker: SavedInputsPicker | undefined = undefined
 	let loading = false
+	let captureTable: CaptureTable | undefined = undefined
 	let historicInputs: HistoricInputs | undefined = undefined
 	$: selectedTab, (dropdownItems = getDropdownItems())
+
+	let inputPanelSize = 70
 </script>
 
 <div class="h-fit">
+	<div class="relative z-[100000] w-full">
+		<div class="absolute" style="right: calc({100 - inputPanelSize}%); top: -1px;">
+			<SideBarTab expandRight={rightPanelOpen} {dropdownItems} fullMenu={true} noTrigger={true} />
+		</div>
+	</div>
 	<Splitpanes class={!rightPanelOpen ? 'splitter-hidden' : ''}>
-		<Pane class="!overflow-visible" size={70} minSize={30}>
-			<div class="relative w-full h-fit pr-12 pb-4 overflow-hidden" bind:clientHeight={rightHeight}>
-				<div class="absolute right-[1px] -top-[1px] z-50">
-					<SideBarTab
-						expandRight={rightPanelOpen}
-						{dropdownItems}
-						fullMenu={true}
-						noTrigger={true}
-					/>
-				</div>
+		<Pane bind:size={inputPanelSize} class="!overflow-visible" minSize={30}>
+			<div class="relative w-full h-fit pr-12 pb-4" bind:clientHeight={rightHeight}>
 				<slot />
 			</div>
 		</Pane>
@@ -108,7 +119,7 @@
 								{runnableId}
 								{runnableType}
 								on:select={(e) => {
-									dispatch('select', { payload: e.detail, type: 'history' })
+									dispatch('select', { payload: e.detail?.args, type: 'history' })
 								}}
 							/>
 						</FlowInputEditor>
@@ -119,6 +130,7 @@
 								{runnableId}
 								{runnableType}
 								{previewArgs}
+								bind:this={savedInputsPicker}
 								on:select={(e) => {
 									dispatch('select', { payload: e.detail, type: 'saved' })
 								}}
@@ -138,6 +150,7 @@
 									on:select={(e) => {
 										dispatch('select', { payload: e.detail, type: 'captures' })
 									}}
+									bind:this={captureTable}
 									isFlow={true}
 									headless={true}
 									addButton={false}

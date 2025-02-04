@@ -1445,6 +1445,7 @@
 							showCaptureHint.set(true)
 						}}
 						bind:this={flowPreviewButtons}
+						{loading}
 					/>
 					<Button
 						loading={loadingDraft}

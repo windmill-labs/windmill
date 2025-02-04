@@ -171,6 +171,8 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
 }
 
 pub const TMP_DIR: &str = "/tmp/windmill";
+pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
+
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
 pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
