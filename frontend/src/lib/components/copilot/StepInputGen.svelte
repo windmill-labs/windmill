@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
+	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
 	import ManualPopover from '../ManualPopover.svelte'
@@ -116,7 +116,7 @@ Only return the expression without any wrapper.`
 					}
 				],
 				abortController,
-				aiProvider as AiProviderTypes
+				aiProvider
 			)
 
 			if (

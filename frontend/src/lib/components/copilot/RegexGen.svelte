@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
+	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Popup from '../common/popup/Popup.svelte'
 	import { copilotInfo } from '$lib/stores'
@@ -40,7 +40,7 @@
 					}
 				],
 				abortController,
-				aiProvider as AiProviderTypes
+				aiProvider
 			)
 			dispatch('gen', { res: res, prompt: funcDesc })
 			funcDesc = ''

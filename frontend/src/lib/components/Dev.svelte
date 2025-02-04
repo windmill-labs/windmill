@@ -48,7 +48,7 @@
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import { initAllAiWorkspace } from './copilot/lib'
+	import { workspaceAIClients } from './copilot/lib'
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
@@ -110,14 +110,19 @@
 
 	async function setCopilotInfo() {
 		if (workspace) {
-			initAllAiWorkspace(workspace)
+			workspaceAIClients.init(workspace)
 			try {
-				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
+				const info = await WorkspaceService.getCopilotInfo({ workspace })
+				copilotInfo.set({
+					...info,
+					ai_provider: info.ai_provider ?? 'openai'
+				})
 			} catch (err) {
 				copilotInfo.set({
-					ai_provider: '',
+					ai_provider: 'openai',
 					exists_ai_resource: false,
-					code_completion_enabled: false
+					code_completion_model: undefined,
+					ai_models: []
 				})
 
 				console.error('Could not get copilot info')

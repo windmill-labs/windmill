@@ -7,7 +7,7 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import { getContext } from 'svelte'
-	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
+	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 	import type { FlowCopilotContext } from './flow'
@@ -92,7 +92,7 @@ input_name2: expression2
 					}
 				],
 				abortController,
-				aiProvider as AiProviderTypes
+				aiProvider
 			)
 
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))

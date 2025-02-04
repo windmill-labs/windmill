@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
@@ -20,7 +20,8 @@
 		WorkspaceService,
 		JobService,
 		ResourceService,
-		SettingService
+		SettingService,
+		type AIProvider
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -50,7 +51,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
+	import TestAIKey from '$lib/components/copilot/TestAIKey.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { fade } from 'svelte/transition'
@@ -66,8 +67,11 @@
 	import { hubPaths } from '$lib/hub'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import type { AiProviderTypes } from '$lib/components/copilot/lib'
+	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
 	import Description from '$lib/components/Description.svelte'
+	import MultiSelect from 'svelte-multiselect'
+	import Label from '$lib/components/Label.svelte'
+	import ArgEnum from '$lib/components/ArgEnum.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -113,8 +117,11 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let criticalAlertUIMuted: boolean | undefined = undefined
 	let initialCriticalAlertUIMuted: boolean | undefined = undefined
-	let aiResourceInitialPath: string | undefined = undefined
-	let aiResourceInitialProvider: string | undefined = undefined
+
+	let aiResourcePath: string | undefined = undefined
+	let aiProvider: AIProvider = 'openai'
+	let aiModels: string[] = []
+	let codeCompletionModel: string | undefined = undefined
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -142,8 +149,6 @@
 	let editedWorkspaceEncryptionKey: string | undefined = undefined
 	let workspaceReencryptionInProgress: boolean = false
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let codeCompletionEnabled: boolean = false
-	let selected: AiProviderTypes = 'openai'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -191,10 +196,7 @@
 		}
 	}
 
-	async function editCopilotConfig(aiResourcePath: string, aiProvider: string): Promise<void> {
-		// in JS, an empty string is also falsy
-		aiResourceInitialPath = aiResourcePath
-		aiResourceInitialProvider = aiProvider
+	async function editCopilotConfig(): Promise<void> {
 		if (aiResourcePath) {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
@@ -203,26 +205,30 @@
 						path: aiResourcePath,
 						provider: aiProvider
 					},
-					code_completion_enabled: codeCompletionEnabled
+					code_completion_model: codeCompletionModel,
+					ai_models: aiModels
 				}
 			})
 			copilotInfo.set({
 				ai_provider: aiProvider,
 				exists_ai_resource: true,
-				code_completion_enabled: codeCompletionEnabled
+				code_completion_model: codeCompletionModel,
+				ai_models: aiModels
 			})
 		} else {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
 					ai_resource: undefined,
-					code_completion_enabled: codeCompletionEnabled
+					code_completion_model: codeCompletionModel,
+					ai_models: []
 				}
 			})
 			copilotInfo.set({
-				ai_provider: '',
+				ai_provider: 'openai',
 				exists_ai_resource: false,
-				code_completion_enabled: codeCompletionEnabled
+				code_completion_model: codeCompletionModel,
+				ai_models: []
 			})
 		}
 		sendUserToast(`Copilot settings updated`)
@@ -382,6 +388,7 @@
 		}, 1000 - (timeEnd - timeStart))
 	}
 
+	let loadedSettings = false
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -395,9 +402,12 @@
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
-		aiResourceInitialPath = settings.ai_resource?.path
-		aiResourceInitialProvider = settings.ai_resource?.provider
-		selected = (aiResourceInitialProvider as AiProviderTypes) ?? 'openai'
+
+		aiResourcePath = settings.ai_resource?.path
+		aiProvider = settings.ai_resource?.provider ?? 'openai'
+		codeCompletionModel = settings.code_completion_model
+		aiModels = settings.ai_models
+
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
@@ -415,7 +425,6 @@
 					: 'custom'
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
-		codeCompletionEnabled = settings.code_completion_enabled
 		workspaceDefaultAppPath = settings.default_app
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
@@ -508,6 +517,8 @@
 			workspace: $workspaceStore!,
 			path: 'openai_client_credentials_oauth'
 		})
+
+		loadedSettings = true
 	}
 
 	let deployUiSettings: {
@@ -698,7 +709,9 @@
 				</Tab>
 			</Tabs>
 		</div>
-		{#if tab == 'users'}
+		{#if !loadedSettings}
+			<Skeleton layout={[1, [40]]} />
+		{:else if tab == 'users'}
 			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
@@ -1044,43 +1057,104 @@
 					</Description>
 				</div>
 			</div>
-			<ToggleButtonGroup
-				bind:selected
-				on:selected={() => {
-					aiResourceInitialPath = ''
-					aiResourceInitialProvider = ''
-				}}
-			>
-				<ToggleButton value="openai" label="OpenAI" />
-				<ToggleButton value="anthropic" label="Anthropic" />
-				<ToggleButton value="mistral" label="Mistral" />
-			</ToggleButtonGroup>
-			<div class="mt-5 flex gap-1">
-				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth, selected]}
-					<ResourcePicker
-						resourceType={usingOpenaiClientCredentialsOauth
-							? 'openai_client_credentials_oauth'
-							: selected}
-						initialValue={aiResourceInitialPath}
-						on:change={(ev) => {
-							editCopilotConfig(ev.detail, selected)
-						}}
-					/>
-					<TestAiKey
-						disabled={!aiResourceInitialPath || aiResourceInitialProvider != selected}
-						aiProvider={selected}
-					/>
-				{/key}
-			</div>
-			<div class="mt-3">
-				<Toggle
-					class="mr-2"
-					bind:checked={codeCompletionEnabled}
-					options={{ right: 'Enable code completion' }}
-					on:change={() => {
-						editCopilotConfig(aiResourceInitialPath || '', aiResourceInitialProvider || '')
+
+			<div class="flex flex-col gap-4">
+				<ToggleButtonGroup
+					bind:selected={aiProvider}
+					on:selected={() => {
+						aiResourcePath = ''
+						aiModels = []
+						codeCompletionModel = undefined
 					}}
-				/>
+				>
+					<ToggleButton value="openai" label="OpenAI" />
+					<ToggleButton value="anthropic" label="Anthropic" />
+					<ToggleButton value="mistral" label="Mistral" />
+					<ToggleButton value="deepseek" label="DeepSeek" />
+					<ToggleButton value="groq" label="Groq" />
+					<ToggleButton value="openrouter" label="OpenRouter" />
+					<ToggleButton
+						value="customai"
+						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE)')}
+						disabled={!$enterpriseLicense}
+						tooltip="Configure a custom AI provider that is OpenAI API compatible"
+						showTooltipIcon
+					/>
+				</ToggleButtonGroup>
+				<div class="flex gap-1">
+					{#key aiProvider}
+						<ResourcePicker
+							resourceType={usingOpenaiClientCredentialsOauth
+								? 'openai_client_credentials_oauth'
+								: aiProvider}
+							initialValue={aiResourcePath}
+							bind:value={aiResourcePath}
+							on:change={() => {
+								if (aiResourcePath && aiModels.length === 0) {
+									if (aiProvider !== 'customai') {
+										aiModels = AI_DEFAULT_MODELS[aiProvider].slice(0, 1)
+									}
+								}
+							}}
+						/>
+						<TestAIKey
+							disabled={!aiResourcePath || (aiProvider === 'customai' && aiModels.length === 0)}
+							resourcePath={aiResourcePath}
+							{aiProvider}
+							model={aiProvider === 'customai' ? aiModels[0] : AI_DEFAULT_MODELS[aiProvider][0]}
+						/>
+					{/key}
+				</div>
+
+				{#if aiResourcePath}
+					<Label label="Enabled models">
+						<MultiSelect
+							options={AI_DEFAULT_MODELS[aiProvider]}
+							ulOptionsClass={'!bg-surface-secondary'}
+							allowUserOptions="append"
+							bind:selected={aiModels}
+						/>
+					</Label>
+
+					<div class="flex flex-col gap-2">
+						<Toggle
+							on:change={() => {
+								if (codeCompletionModel != undefined) {
+									codeCompletionModel = undefined
+								} else {
+									codeCompletionModel = AI_DEFAULT_MODELS[aiProvider][0] ?? ''
+								}
+							}}
+							checked={codeCompletionModel != undefined}
+							options={{
+								right: 'Code completion'
+							}}
+						/>
+
+						{#if codeCompletionModel != undefined}
+							<Label label="Code completion model">
+								<ArgEnum
+									enum_={AI_DEFAULT_MODELS[aiProvider]}
+									bind:value={codeCompletionModel}
+									disabled={false}
+									autofocus={false}
+									defaultValue={undefined}
+									valid={true}
+									create={true}
+									required={false}
+								/>
+							</Label>
+						{/if}
+					</div>
+				{/if}
+				<Button
+					disabled={(aiResourcePath && aiModels.length === 0) ||
+						(codeCompletionModel != undefined && codeCompletionModel.length === 0)}
+					size="sm"
+					on:click={editCopilotConfig}
+				>
+					Save
+				</Button>
 			</div>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">

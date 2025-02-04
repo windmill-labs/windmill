@@ -2,7 +2,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { SUPPORTED_LANGUAGES, copilot, type AiProviderTypes } from './lib'
+	import { SUPPORTED_LANGUAGES, copilot } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -40,7 +40,7 @@
 		try {
 			genLoading = true
 			abortController = new AbortController()
-			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
+			const aiProvider = $copilotInfo.ai_provider
 			await copilot(
 				{
 					language: lang,
@@ -53,7 +53,7 @@
 				generatedCode,
 				abortController,
 				aiProvider,
-				generatedExplanation,
+				generatedExplanation
 			)
 			setupDiff()
 			diffEditor?.setModified($generatedCode)

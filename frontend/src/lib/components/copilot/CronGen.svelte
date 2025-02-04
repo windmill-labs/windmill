@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
+	import { getNonStreamingCompletion } from './lib'
 	import Popup from '../common/popup/Popup.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copilotInfo } from '$lib/stores'
 
 	import { base } from '$lib/base'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+	import type { AIProvider } from '$lib/gen'
 
 	export let schedule: string
 	export let cronVersion: string
@@ -56,7 +57,7 @@
 			const response = await getNonStreamingCompletion(
 				messages,
 				abortController,
-				aiProvider as AiProviderTypes
+				aiProvider as AIProvider
 			)
 
 			if (response.startsWith('ERROR:')) {

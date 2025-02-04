@@ -19,7 +19,7 @@
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { isCloudHosted } from '$lib/cloud'
-	import { initAllAiWorkspace } from '../copilot/lib'
+	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 
 	export let isCollapsed: boolean = false
@@ -31,7 +31,7 @@
 		if ($workspaceStore === id) {
 			return
 		}
-		initAllAiWorkspace(id, true)
+		workspaceAIClients.init(id)
 		const editPages = [
 			'/scripts/edit/',
 			'/flows/edit/',
@@ -82,8 +82,11 @@
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
 							<div>
-								<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div>
-								<div class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left">
+								<div class="text-primary pl-4 truncate text-left text-[1.2em]">{workspace.name}</div
+								>
+								<div
+									class="text-tertiary font-mono pl-4 text-2xs whitespace-nowrap truncate text-left"
+								>
 									{workspace.id}
 								</div>
 							</div>
@@ -91,7 +94,7 @@
 								<div
 									class="w-5 h-5 mr-2 rounded border border-gray-300 dark:border-gray-600"
 									style="background-color: {workspace.color}"
-								></div>
+								/>
 							{/if}
 						</div>
 					</button>
