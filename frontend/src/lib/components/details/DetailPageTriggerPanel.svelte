@@ -60,7 +60,7 @@
 					otherValues={tab.otherValues}
 					icon={tab.icon}
 					label={tab.label}
-					selected={triggerSelected === tab.value}
+					selected={triggerSelected === tab.value || tab.otherValues.includes(triggerSelected)}
 				/>
 			{/each}
 
