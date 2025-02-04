@@ -44,7 +44,7 @@
 					? 'text-primary data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
 					: 'data-[highlighted]:bg-[#2A3648] hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
 				color ? 'border-4' : '',
-				'transition-all',
+				'transition-all relative',
 				$$props.class
 			)}
 			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 4px);` : ''}
