@@ -252,6 +252,8 @@
 					<ToggleButton value="anthropic" label="Anthropic" />
 					<ToggleButton value="mistral" label="Mistral" />
 					<ToggleButton value="deepseek" label="DeepSeek" />
+					<ToggleButton value="groq" label="Groq" />
+					<ToggleButton value="openrouter" label="OpenRouter" />
 				</ToggleButtonGroup>
 			</div>
 		</div>

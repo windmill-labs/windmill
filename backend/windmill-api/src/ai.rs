@@ -16,10 +16,9 @@ use std::collections::HashMap;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error, Result};
 
-use customai::CustomAICache;
-use deepseek::DeepSeekCache;
 use mistral::MistralCache;
 use openai::OpenaiCache;
+use openai_api_compatible::OpenaiApiCompatibleCache;
 
 lazy_static::lazy_static! {
     static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -28,16 +27,16 @@ lazy_static::lazy_static! {
         .build().unwrap();
 }
 
-mod customai {
+mod openai_api_compatible {
     use super::*;
 
     #[derive(Deserialize, Clone, Debug)]
-    pub struct CustomAICache {
+    pub struct OpenaiApiCompatibleCache {
         pub base_url: String,
         pub api_key: Option<String>,
     }
 
-    impl CustomAICache {
+    impl OpenaiApiCompatibleCache {
         pub fn prepare_request(self, path: &str, body: Bytes) -> Result<RequestBuilder> {
             let url = format!("{}/{}", self.base_url, path);
 
@@ -54,48 +53,30 @@ mod customai {
         }
     }
 
-    pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
-        let mut resource: CustomAICache =
-            serde_json::from_value(resource).with_context(|| "validating custom AI resource")?;
+    pub async fn get_cached_value(
+        db: &DB,
+        w_id: &str,
+        resource: Value,
+        base_url: Option<String>,
+    ) -> Result<KeyCache> {
+        let mut resource: OpenaiApiCompatibleCache = if let Some(base_url) = base_url {
+            let api_key = match resource {
+                Value::Object(mut obj) => obj
+                    .remove("api_key")
+                    .map(|v| serde_json::from_value::<String>(v.clone()).ok())
+                    .flatten(),
+                _ => None,
+            };
+            OpenaiApiCompatibleCache { base_url, api_key }
+        } else {
+            serde_json::from_value(resource).with_context(|| "validating custom AI resource")?
+        };
 
         if let Some(api_key) = resource.api_key {
             resource.api_key = Some(get_variable_or_self(api_key, db, w_id).await?);
         }
 
-        Ok(KeyCache::CustomAI(resource))
-    }
-}
-
-mod deepseek {
-
-    use super::*;
-
-    #[derive(Deserialize, Clone, Debug)]
-    pub struct DeepSeekCache {
-        api_key: String,
-    }
-
-    impl DeepSeekCache {
-        pub fn prepare_request(self, path: &str, body: Bytes) -> Result<RequestBuilder> {
-            let url = format!("https://api.deepseek.com/v1/{}", path);
-
-            let request = HTTP_CLIENT
-                .post(url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("content-type", "application/json")
-                .body(body);
-
-            Ok(request)
-        }
-    }
-
-    pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
-        let mut resource: DeepSeekCache =
-            serde_json::from_value(resource).with_context(|| "validating DeepSeek resource")?;
-
-        resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
-
-        Ok(KeyCache::DeepSeek(resource))
+        Ok(KeyCache::OpenaiApiCompatible(resource))
     }
 }
 
@@ -365,8 +346,7 @@ pub enum KeyCache {
     Openai(OpenaiCache),
     Anthropic(AnthropicCache),
     Mistral(MistralCache),
-    CustomAI(CustomAICache),
-    DeepSeek(DeepSeekCache),
+    OpenaiApiCompatible(OpenaiApiCompatibleCache),
 }
 
 #[derive(Clone, Debug)]
@@ -400,7 +380,23 @@ pub enum AIProvider {
     Anthropic,
     Mistral,
     DeepSeek,
+    Groq,
+    OpenRouter,
     CustomAI,
+}
+
+impl AIProvider {
+    pub fn get_openai_compatible_base_url(&self) -> Result<Option<String>> {
+        match self {
+            AIProvider::DeepSeek => Ok(Some("https://api.deepseek.com/v1".to_string())),
+            AIProvider::Groq => Ok(Some("https://api.groq.com/openai/v1".to_string())),
+            AIProvider::OpenRouter => Ok(Some("https://openrouter.ai/api/v1".to_string())),
+            AIProvider::CustomAI => Ok(None),
+            _ => Err(Error::BadRequest(
+                "Please use the specific provider instead of the OpenAI compatible one".to_string(),
+            )),
+        }
+    }
 }
 
 impl TryFrom<&str> for AIProvider {
@@ -410,6 +406,8 @@ impl TryFrom<&str> for AIProvider {
             "openai" => Ok(AIProvider::OpenAI),
             "anthropic" => Ok(AIProvider::Anthropic),
             "mistral" => Ok(AIProvider::Mistral),
+            "groq" => Ok(AIProvider::Groq),
+            "openrouter" => Ok(AIProvider::OpenRouter),
             "deepseek" => Ok(AIProvider::DeepSeek),
             "customai" => Ok(AIProvider::CustomAI),
             _ => Err(Error::BadRequest(format!("Invalid AI provider: {}", s))),
@@ -511,20 +509,27 @@ async fn proxy(
                 AIProvider::OpenAI => openai::get_cached_value(&db, &w_id, resource).await,
                 AIProvider::Anthropic => anthropic::get_cached_value(&db, &w_id, resource).await,
                 AIProvider::Mistral => mistral::get_cached_value(&db, &w_id, resource).await,
-                AIProvider::CustomAI => customai::get_cached_value(&db, &w_id, resource).await,
-                AIProvider::DeepSeek => deepseek::get_cached_value(&db, &w_id, resource).await,
+                _ => {
+                    openai_api_compatible::get_cached_value(
+                        &db,
+                        &w_id,
+                        resource,
+                        ai_provider.get_openai_compatible_base_url()?,
+                    )
+                    .await
+                }
             };
             let ai_cache = ai_cache?;
             AI_KEY_CACHE.insert(w_id.clone(), AICache::new(resource_path, ai_cache.clone()));
             ai_cache
         }
     };
-    let (path, request) = match ai_cache {
-        KeyCache::Openai(cached) => ("openai_path", cached.prepare_request(&ai_path, body)),
-        KeyCache::Anthropic(cached) => ("anthropic_path", cached.prepare_request(&ai_path, body)),
-        KeyCache::Mistral(cached) => ("mistral_path", cached.prepare_request(&ai_path, body)),
-        KeyCache::CustomAI(cached) => ("customai_path", cached.prepare_request(&ai_path, body)),
-        KeyCache::DeepSeek(cached) => ("deepseek_path", cached.prepare_request(&ai_path, body)),
+
+    let request = match ai_cache {
+        KeyCache::Openai(cached) => cached.prepare_request(&ai_path, body),
+        KeyCache::Anthropic(cached) => cached.prepare_request(&ai_path, body),
+        KeyCache::Mistral(cached) => cached.prepare_request(&ai_path, body),
+        KeyCache::OpenaiApiCompatible(cached) => cached.prepare_request(&ai_path, body),
     };
 
     let response = request?.send().await.map_err(to_anyhow)?;
@@ -538,7 +543,7 @@ async fn proxy(
         ActionKind::Execute,
         &w_id,
         Some(&authed.email),
-        Some([(path, &format!("{:?}", ai_path)[..])].into()),
+        Some([("ai_resource_path", &format!("{:?}", ai_path)[..])].into()),
     )
     .await?;
     tx.commit().await?;

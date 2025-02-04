@@ -11559,7 +11559,7 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, anthropic, mistral, deepseek, customai]
+      enum: [openai, anthropic, mistral, deepseek, groq, openrouter, customai]
 
     AIResource:
       type: object

@@ -1071,9 +1071,11 @@
 					<ToggleButton value="anthropic" label="Anthropic" />
 					<ToggleButton value="mistral" label="Mistral" />
 					<ToggleButton value="deepseek" label="DeepSeek" />
+					<ToggleButton value="groq" label="Groq" />
+					<ToggleButton value="openrouter" label="OpenRouter" />
 					<ToggleButton
 						value="customai"
-						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE only)')}
+						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE)')}
 						disabled={!$enterpriseLicense}
 						tooltip="Configure a custom AI provider that is OpenAI API compatible"
 						showTooltipIcon

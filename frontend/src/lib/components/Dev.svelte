@@ -48,7 +48,7 @@
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import { initAllAiWorkspace } from './copilot/lib'
+	import { workspaceAIClients } from './copilot/lib'
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
@@ -110,7 +110,7 @@
 
 	async function setCopilotInfo() {
 		if (workspace) {
-			initAllAiWorkspace(workspace)
+			workspaceAIClients.init(workspace)
 			try {
 				const info = await WorkspaceService.getCopilotInfo({ workspace })
 				copilotInfo.set({

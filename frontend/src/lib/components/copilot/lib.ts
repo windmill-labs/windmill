@@ -37,55 +37,94 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	anthropic: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
 	customai: []
 }
 
-interface WorkspacedAIProvider {
-	init: (workspace: string, updateClient: boolean, token?: string) => void
-}
+export const OPENAI_COMPATIBLE_BASE_URLS = {
+	groq: 'https://api.groq.com/openai/v1',
+	openrouter: 'https://openrouter.ai/api/v1',
+	deepseek: 'https://api.deepseek.com/v1'
+} as const
 
-class WorkspacedMistral implements WorkspacedAIProvider {
-	private client: Mistral | undefined
+class WorkspacedAIClients {
+	private openaiClient: OpenAI | undefined
+	private anthropicClient: Anthropic | undefined
+	private mistralClient: Mistral | undefined
 
-	init(workspace: string, updateClient: boolean, token?: string) {
-		if (!this.client || updateClient) {
-			this.client = initWorkspaceAIProvider(workspace, 'mistral', token) as unknown as Mistral
+	init(workspace: string) {
+		this.initOpenai(workspace)
+		this.initAnthropic(workspace)
+		this.initMistral(workspace)
+	}
+
+	private getBaseURL(workspace: string) {
+		return `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
+	}
+
+	private initOpenai(workspace: string) {
+		const baseURL = this.getBaseURL(workspace)
+		this.openaiClient = new OpenAI({
+			baseURL,
+			apiKey: 'fake-key',
+			defaultHeaders: {
+				Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+			},
+			dangerouslyAllowBrowser: true
+		})
+	}
+
+	private initAnthropic(workspace: string) {
+		const baseURL = this.getBaseURL(workspace)
+		this.anthropicClient = new Anthropic({
+			baseURL,
+			apiKey: 'fake-key',
+			dangerouslyAllowBrowser: true
+		})
+	}
+
+	private initMistral(workspace: string) {
+		const baseURL = this.getBaseURL(workspace)
+		this.mistralClient = new Mistral({
+			serverURL: baseURL
+		})
+	}
+
+	getOpenaiClient() {
+		if (!this.openaiClient) {
+			throw new Error('OpenAI not initialized')
 		}
+		return this.openaiClient
 	}
 
-	getClient() {
-		if (!this.client) {
-			throw new Error('AnthropicAI not initialized')
+	getAnthropicClient() {
+		if (!this.anthropicClient) {
+			throw new Error('Anthropic not initialized')
 		}
-		return this.client
+		return this.anthropicClient
+	}
+
+	getMistralClient() {
+		if (!this.mistralClient) {
+			throw new Error('Mistral not initialized')
+		}
+		return this.mistralClient
 	}
 }
 
-namespace CustomAI {
-	export const customAIConfig: ChatCompletionCreateParamsStreaming = {
-		model: '',
-		max_tokens: 8000, //TODO: make this dynamic
-		temperature: 0,
-		seed: 42,
-		stream: true,
-		messages: []
-	}
-}
+export const workspaceAIClients = new WorkspacedAIClients()
 
-namespace DeepSeek {
-	export const deepseekConfig: ChatCompletionCreateParamsStreaming = {
-		model: '',
-		max_tokens: 8000,
-		temperature: 0,
-		seed: 42,
-		stream: true,
-		messages: []
-	}
+const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParamsStreaming = {
+	model: '',
+	max_tokens: 8000, //TODO: make this dynamic
+	temperature: 0,
+	seed: 42,
+	stream: true,
+	messages: []
 }
 
 namespace MistralAI {
-	export let workspace = new WorkspacedMistral()
-
 	export const mistralConfig: ChatCompletionRequest = {
 		temperature: 0,
 		model: null,
@@ -113,26 +152,7 @@ namespace MistralAI {
 	}
 }
 
-class WorkspacedAnthropic implements WorkspacedAIProvider {
-	private client: Anthropic | undefined
-
-	init(workspace: string, updateClient: boolean, token: string | undefined = undefined) {
-		if (!this.client || updateClient) {
-			this.client = initWorkspaceAIProvider(workspace, 'anthropic', token) as unknown as Anthropic
-		}
-	}
-
-	getClient() {
-		if (!this.client) {
-			throw new Error('AnthropicAI not initialized')
-		}
-		return this.client
-	}
-}
-
 export namespace AnthropicAI {
-	export let workspace = new WorkspacedAnthropic()
-
 	export const config: MessageCreateParams = {
 		temperature: 0,
 		max_tokens: 8192,
@@ -170,26 +190,7 @@ export namespace AnthropicAI {
 	}
 }
 
-class WorkspacedOpenai implements WorkspacedAIProvider {
-	private client: OpenAI | undefined
-
-	init(workspace: string, updateClient: boolean, token: string | undefined = undefined) {
-		if (!this.client || updateClient) {
-			this.client = initWorkspaceAIProvider(workspace, 'openai', token) as unknown as OpenAI
-		}
-	}
-
-	getClient() {
-		if (!this.client) {
-			throw new Error('OpenAI not initialized')
-		}
-		return this.client
-	}
-}
-
 namespace OpenAi {
-	export let workspace = new WorkspacedOpenai()
-
 	export const openaiConfig: ChatCompletionCreateParamsStreaming = {
 		temperature: 0,
 		max_tokens: 16384,
@@ -202,53 +203,6 @@ namespace OpenAi {
 	export function retrieveTextValue(part: OpenAI.Chat.Completions.ChatCompletionChunk) {
 		return part.choices[0]?.delta?.content || ''
 	}
-}
-
-export function initAllAiWorkspace(workspace: string, updateClient: boolean = false) {
-	OpenAi.workspace.init(workspace, updateClient)
-	AnthropicAI.workspace.init(workspace, updateClient)
-	MistralAI.workspace.init(workspace, updateClient)
-}
-
-function initWorkspaceAIProvider(
-	workspace: string,
-	aiProvider: AIProvider,
-	token: string | undefined = undefined
-): Anthropic | OpenAI | Mistral {
-	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy`
-	let client
-	switch (aiProvider) {
-		case 'customai':
-		case 'deepseek':
-		case 'openai': {
-			client = new OpenAI({
-				baseURL,
-				apiKey: 'fake-key',
-				defaultHeaders: {
-					Authorization: token ? `Bearer ${token}` : ''
-				},
-				dangerouslyAllowBrowser: true
-			})
-			break
-		}
-		case 'anthropic': {
-			client = new Anthropic({
-				baseURL,
-				apiKey: 'fake-key',
-				defaultHeaders: {
-					Authorization: token ? `Bearer ${token}` : ''
-				},
-				dangerouslyAllowBrowser: true
-			})
-			break
-		}
-		case 'mistral': {
-			client = new Mistral({
-				serverURL: baseURL
-			})
-		}
-	}
-	return client
 }
 
 export async function testKey({
@@ -465,8 +419,8 @@ export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	aiProvider: AIProvider,
-	apiKey?: string,
-	resourcePath?: string,
+	apiKey?: string, // testing API KEY directly from the frontend
+	resourcePath?: string, // testing resource path passed as a header to the backend proxy
 	forceModel?: string
 ) {
 	let response: string | undefined = ''
@@ -499,33 +453,13 @@ export async function getNonStreamingCompletion(
 		}
 	}
 	switch (aiProvider) {
-		case 'customai':
-		case 'openai': {
-			const openaiClient = apiKey
-				? new OpenAI({
-						apiKey,
-						dangerouslyAllowBrowser: true
-				  })
-				: OpenAi.workspace.getClient()
-			const completion = await openaiClient.chat.completions.create(
-				{
-					...(aiProvider === 'customai' ? CustomAI.customAIConfig : OpenAi.openaiConfig),
-					messages,
-					model,
-					stream: false
-				},
-				fetchOptions
-			)
-			response = completion.choices[0]?.message.content || ''
-			break
-		}
 		case 'anthropic': {
 			const anthropicClient = apiKey
 				? new Anthropic({
 						apiKey,
 						dangerouslyAllowBrowser: true
 				  })
-				: AnthropicAI.workspace.getClient()
+				: workspaceAIClients.getAnthropicClient()
 			const [system, anthropicMessages] = AnthropicAI.getSystemPromptAndArrayMessages(messages)
 			const message = await anthropicClient.messages.create(
 				{
@@ -545,7 +479,7 @@ export async function getNonStreamingCompletion(
 				? new Mistral({
 						apiKey
 				  })
-				: MistralAI.workspace.getClient()
+				: workspaceAIClients.getMistralClient()
 			const message = await mistralClient.chat.complete(
 				{
 					...MistralAI.mistralConfig,
@@ -559,6 +493,33 @@ export async function getNonStreamingCompletion(
 			)
 			response = MistralAI.retrieveTextValue(message.choices && message.choices[0].message.content)
 			break
+		}
+		default: {
+			if (aiProvider === 'customai' && apiKey) {
+				throw new Error('Cannot test API key for Custom AI, only resource path is supported')
+			}
+			const baseURL = OPENAI_COMPATIBLE_BASE_URLS[aiProvider]
+
+			if (apiKey && aiProvider !== 'openai' && !baseURL) {
+				throw new Error('No base URL for this provider: ' + aiProvider)
+			}
+			const openaiClient = apiKey
+				? new OpenAI({
+						apiKey,
+						baseURL,
+						dangerouslyAllowBrowser: true
+				  })
+				: workspaceAIClients.getOpenaiClient()
+			const completion = await openaiClient.chat.completions.create(
+				{
+					...(aiProvider === 'openai' ? OpenAi.openaiConfig : DEFAULT_COMPLETION_CONFIG),
+					messages,
+					model,
+					stream: false
+				},
+				fetchOptions
+			)
+			response = completion.choices[0]?.message.content || ''
 		}
 	}
 	return response
@@ -584,7 +545,7 @@ export async function getCompletion(
 
 	switch (aiProvider) {
 		case 'anthropic': {
-			const anthropicClient = AnthropicAI.workspace.getClient()
+			const anthropicClient = workspaceAIClients.getAnthropicClient()
 			const [system, anthropicMessages] = AnthropicAI.getSystemPromptAndArrayMessages(messages)
 
 			const completion = await anthropicClient.messages.create(
@@ -600,7 +561,7 @@ export async function getCompletion(
 			return completion
 		}
 		case 'mistral': {
-			const mistralClient = MistralAI.workspace.getClient()
+			const mistralClient = workspaceAIClients.getMistralClient()
 			const message = await mistralClient.chat.stream(
 				{
 					...MistralAI.mistralConfig,
@@ -616,14 +577,10 @@ export async function getCompletion(
 			return message
 		}
 		default: {
-			const openaiClient = OpenAi.workspace.getClient()
+			const openaiClient = workspaceAIClients.getOpenaiClient()
 			const completion = await openaiClient.chat.completions.create(
 				{
-					...(aiProvider === 'customai'
-						? CustomAI.customAIConfig
-						: aiProvider === 'deepseek'
-						? DeepSeek.deepseekConfig
-						: OpenAi.openaiConfig),
+					...(aiProvider === 'openai' ? OpenAi.openaiConfig : DEFAULT_COMPLETION_CONFIG),
 					model,
 					messages
 				},
