@@ -35,7 +35,6 @@
 		| undefined = undefined
 
 	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let version: number | undefined = undefined
 
 	let runnables = writable(initRunnables)
 

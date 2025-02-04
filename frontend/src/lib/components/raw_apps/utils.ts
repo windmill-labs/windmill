@@ -1,4 +1,5 @@
 import { schemaToTsType } from '$lib/schema'
+import type { UserExt } from '$lib/stores'
 import { capitalize } from '$lib/utils'
 import type { HiddenRunnable } from '../apps/types'
 
@@ -6,7 +7,7 @@ export type RawApp = {
 	files: string[]
 }
 
-export function htmlContent(workspace: string, version: number) {
+export function htmlContent(workspace: string, version: number, ctx: any) {
 	return `
         <!DOCTYPE html>
         <html>
@@ -14,6 +15,9 @@ export function htmlContent(workspace: string, version: number) {
                 <meta charset="UTF-8" />
                 <title>App Preview</title>
                 <link rel="stylesheet" href="/api/w/${workspace}/apps/get_data/v/${version}.css" />
+				<script>
+					window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'}
+				</script>
             </head>
             <body>
                 <div id="root"></div>

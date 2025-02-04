@@ -18,6 +18,6 @@
 <iframe
 	bind:this={iframe}
 	title="raw-app"
-	srcDoc={htmlContent(workspace, version)}
+	srcDoc={htmlContent(workspace, version, { ctx: user, workspace })}
 	class="w-full h-full min-h-screen bg-white border-none"
 />
