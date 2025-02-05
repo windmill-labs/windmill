@@ -1,7 +1,8 @@
 #[cfg(feature = "deno_core")]
 use std::time::Instant;
-use std::{collections::HashMap, fs, io, path::Path, process::Stdio};
+use std::{collections::HashMap, fs, path::Path, process::Stdio};
 
+use anyhow::Context;
 use base64::Engine;
 use itertools::Itertools;
 
@@ -644,7 +645,7 @@ pub fn copy_recursively(
     source: impl AsRef<Path>,
     destination: impl AsRef<Path>,
     skip: Option<&Vec<String>>,
-) -> io::Result<()> {
+) -> Result<()> {
     let mut stack = Vec::new();
     stack.push((
         source.as_ref().to_path_buf(),
@@ -652,7 +653,9 @@ pub fn copy_recursively(
         0,
     ));
     while let Some((current_source, current_destination, level)) = stack.pop() {
-        for entry in fs::read_dir(&current_source)? {
+        for entry in fs::read_dir(&current_source)
+            .context(format!("reading directory {current_source:?}"))?
+        {
             let entry = entry?;
             let filetype = entry.file_type()?;
             let destination = current_destination.join(entry.file_name());
@@ -670,7 +673,11 @@ pub fn copy_recursively(
                 fs::create_dir_all(&destination)?;
                 stack.push((entry.path(), destination, level + 1));
             } else {
-                fs::hard_link(&original, &destination)?
+                fs::hard_link(&original, &destination).map_err(|e| {
+                    error::Error::InternalErr(format!(
+                        "hard linking from {original:?} to {destination:?}: {e:#}"
+                    ))
+                })?;
             }
         }
     }
@@ -984,7 +991,7 @@ pub async fn handle_bun_job(
                             "bunfig.toml".to_string(),
                         ]),
                     ) {
-                        fs::remove_dir_all(&buntar_path)?;
+                        fs::remove_dir_all(&buntar_path).context("deleting buntar directory")?;
                         tracing::error!("Could not create buntar: {e}");
                     }
                 }
