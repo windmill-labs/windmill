@@ -1924,21 +1924,6 @@ pub async fn handle_python_reqs(
             .map(handle_ephemeral_token),
     );
 
-    // Prepare NSJAIL
-    if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "download.config.proto",
-            &(if no_uv_install {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
-            } else {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-            })
-            .replace("{WORKER_DIR}", &worker_dir)
-            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
-    };
 
     // Cached paths
     let mut req_with_penv: Vec<(String, String)> = vec![];
@@ -1970,6 +1955,32 @@ pub async fn handle_python_reqs(
             req_with_penv.push((req.to_string(), venv_p));
         }
     }
+    // Prepare NSJAIL
+    if !*DISABLE_NSJAIL {
+        let _ = write_file(
+            job_dir,
+            "download.config.proto",
+            &(if no_uv_install {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
+            } else {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+            })
+            .replace("{WORKER_DIR}", &worker_dir)
+            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+            .replace("{SPREAD_TARGETS}",
+                &req_with_penv.iter().map(|(.., venv_p)|
+                r#"
+mount {
+    src: "TARGET"
+    dst: "TARGET"
+    is_bind: true
+    rw: true
+}
+                "#.replace("TARGET", venv_p)
+            ).collect_vec().join("\n"))
+            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )?;
+    };
     if in_cache.len() > 0 {
         append_logs(
             &job_id,

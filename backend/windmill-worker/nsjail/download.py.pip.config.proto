@@ -59,6 +59,8 @@ mount {
 	rw: true
 }
 
+{SPREAD_TARGETS}
+
 mount {
 	dst: "/tmp"
 	fstype: "tmpfs"

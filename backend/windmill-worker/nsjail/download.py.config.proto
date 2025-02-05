@@ -67,6 +67,7 @@ mount {
     options: "size=500000000"
 }
 
+{SPREAD_TARGETS}
 
 mount {
     src: "{WORKER_DIR}/download_deps.py.sh"
