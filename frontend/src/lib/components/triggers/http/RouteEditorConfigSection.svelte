@@ -15,7 +15,7 @@
 	import CaptureSection from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
-	import { getHttpRoute } from './helpers'
+	import { isCloudHosted } from '$lib/cloud'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -67,7 +67,13 @@
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path, $workspaceStore!)
+	function getHttpRoute(route_path: string | undefined) {
+		return `${location.origin}${base}/api/r/${isCloudHosted() ? $workspaceStore + '/' : ''}${
+			route_path ?? ''
+		}`
+	}
+
+	$: fullRoute = getHttpRoute(route_path)
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')

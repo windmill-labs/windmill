@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -22,8 +22,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { getHttpRoute } from './helpers'
-
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -169,8 +167,6 @@
 	let drawer: Drawer
 
 	let dirtyPath = false
-
-	$: fullRoute = getHttpRoute(route_path, $workspaceStore!)
 </script>
 
 {#if static_asset_config}
@@ -265,6 +261,13 @@
 					</ToggleButtonGroup>
 
 					{#if static_asset_config}
+						{#if is_static_website}
+							<p class="text-xs my-1 text-tertiary">
+								Upload or specify a <b>folder</b> on S3. All its files will be served under the path
+								above. Use this full path as the base URL in your website to ensure relative imports
+								work correctly.
+							</p>
+						{/if}
 						<div class="flex flex-col gap-4">
 							<div class="flex flex-col w-full gap-1">
 								{#if can_write}
@@ -338,14 +341,8 @@
 								{/if}
 							</div>
 						</div>
-						{#if is_static_website && static_asset_config?.s3}
-							<Alert type="warning" title="Static website additional instructions" class="mt-2">
-								Your static website must use <pre class="inline-block">{fullRoute}</pre> as its base
-								URL.
-							</Alert>
-						{/if}
 					{:else}
-						<p class="text-xs mb-1 text-tertiary">
+						<p class="text-xs mt-0.5 mb-1 text-tertiary">
 							Pick a script or flow to be triggered<Required required={true} /><br />
 							To handle headers, query or path parameters, add a preprocessor to your runnable.
 						</p>
