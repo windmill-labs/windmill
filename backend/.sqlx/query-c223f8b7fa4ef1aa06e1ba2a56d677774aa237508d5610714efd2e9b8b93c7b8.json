@@ -21,8 +21,8 @@
                 "websocket",
                 "kafka",
                 "email",
-                "postgres",
-                "nats"
+                "nats",
+                "postgres"
               ]
             }
           }
