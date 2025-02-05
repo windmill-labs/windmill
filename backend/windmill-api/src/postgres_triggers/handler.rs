@@ -130,7 +130,11 @@ pub async fn test_postgres_connection(
         )
         .await
         .map_err(|e| e.into())
+    };
+
+    connect_f.await
 }
+
 
 #[derive(Deserialize, Debug)]
 pub enum Language {
