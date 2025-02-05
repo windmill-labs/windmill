@@ -426,7 +426,7 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => process_status(status),
+        Ok(Ok(status)) => process_status(&child_name, status),
         Ok(Err(kill_reason)) => match kill_reason {
             KillReason::AlreadyCompleted => {
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
@@ -714,11 +714,11 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
-pub fn process_status(status: ExitStatus) -> error::Result<()> {
+pub fn process_status(program: &str, status: ExitStatus) -> error::Result<()> {
     if status.success() {
         Ok(())
     } else if let Some(code) = status.code() {
-        Err(error::Error::ExitStatus(code))
+        Err(error::Error::ExitStatus(program.to_string(), code))
     } else {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         return Err(error::Error::ExecutionErr(format!(

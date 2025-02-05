@@ -153,7 +153,7 @@ pub async fn get_raw_postgres_connection(db: &Postgres) -> Result<PgConnection, 
 
     PgConnection::connect_with(&options)
         .await
-        .map_err(Error::SqlErr)
+        .map_err(|e| e.into())
 }
 
 #[derive(Deserialize, Debug)]
@@ -651,7 +651,7 @@ pub async fn get_publication_info(
 
     let (all_table, transaction_to_track) = match publication_data {
         Ok(pub_data) => pub_data,
-        Err(Error::SqlErr(sqlx::Error::RowNotFound)) => {
+        Err(Error::SqlErr { error: sqlx::Error::RowNotFound, .. }) => {
             return Err(Error::NotFound(
                 "Publication was not found, please create a new publication".to_string(),
             ))
@@ -1378,7 +1378,7 @@ pub async fn create_template_script(
     let rows: Vec<ColumnInfo> = sqlx::query_as(&query)
         .fetch_all(&mut connection)
         .await
-        .map_err(error::Error::SqlErr)?;
+        .map_err(|e| error::Error::SqlErr { error: e, location: "pg_trigger".to_string() })?;
 
     let mut mapper: HashMap<String, HashMap<String, Vec<MappingInfo>>> = HashMap::new();
 

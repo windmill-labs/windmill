@@ -197,7 +197,7 @@ async fn get_variable(
                     )
                 }
                 #[cfg(not(feature = "oauth2"))]
-                return Err(Error::InternalErr("Require oauth2 feature".to_string()));
+                return Err(Error::internal_err("Require oauth2 feature".to_string()));
             } else if !value.is_empty() && decrypt_secret {
                 let _ = tx.commit().await;
                 let mc = build_crypt(&db, &w_id).await?;
@@ -559,7 +559,7 @@ async fn update_variable(
         }
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
 
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
@@ -663,7 +663,7 @@ pub async fn get_value_internal<'c>(
                 .await?
             }
             #[cfg(not(feature = "oauth2"))]
-            return Err(Error::InternalErr("Require oauth2 feature".to_string()));
+            return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
             tx.commit().await?;
             let mc = build_crypt(&db, &w_id).await?;
