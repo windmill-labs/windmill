@@ -898,7 +898,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
                 .fetch_one(db)
                 .await
-                .map_err(|e| Error::internal_err(format!("fetching if {w_id} is premium: {e:#}")))?;
+                .map_err(|e| {
+                    Error::internal_err(format!("fetching if {w_id} is premium: {e:#}"))
+                })?;
         let _ = sqlx::query!(
                 "INSERT INTO usage (id, is_workspace, month_, usage) 
                 VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
@@ -2333,7 +2335,9 @@ pub async fn get_result_and_success_by_id_from_flow(
                 .fetch_optional(db)
                 .await?
                 .ok_or_else(|| {
-                    error::Error::internal_err(format!("Could not get success from flow job status"))
+                    error::Error::internal_err(format!(
+                        "Could not get success from flow job status"
+                    ))
                 })?
         }
     };
