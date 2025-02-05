@@ -52,7 +52,7 @@ pub async fn get_database_resource(
     .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
 
     let resource = match resource {
-        Some(resource) => serde_json::from_value::<Database>(resource).map_err(Error::SerdeJson)?,
+        Some(resource) => serde_json::from_value::<Database>(resource)?,
         None => {
             return {
                 Err(Error::NotFound(
