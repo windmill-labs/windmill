@@ -328,7 +328,7 @@ pub async fn do_oracledb(
             .await?;
 
         let as_raw = serde_json::from_value(val).map_err(|e| {
-            Error::InternalErr(format!("Error while parsing inline resource: {e:#}"))
+            Error::internal_err(format!("Error while parsing inline resource: {e:#}"))
         })?;
 
         Some(as_raw)

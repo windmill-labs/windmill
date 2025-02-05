@@ -9,7 +9,7 @@ pub async fn edit_auto_invite(
     _w_id: String,
     _ea: EditAutoInvite,
 ) -> windmill_common::error::Result<String> {
-    Err(windmill_common::error::Error::InternalErr(
+    Err(windmill_common::error::Error::internal_err(
         "Not implemented on OSS".to_string(),
     ))
 }
