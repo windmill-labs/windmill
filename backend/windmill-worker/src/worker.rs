@@ -90,12 +90,27 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
+    bash_executor::{handle_bash_job, handle_powershell_job},
+    bun_executor::handle_bun_job,
+    common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    }, csharp_executor::handle_csharp_job, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, pg_executor::do_postgresql, result_processor::{process_result, start_background_processor}, worker_flow::{handle_flow, update_flow_status_in_progress}, worker_lockfiles::{
+    },
+    csharp_executor::handle_csharp_job,
+    deno_executor::handle_deno_job,
+    go_executor::handle_go_job,
+    graphql_executor::do_graphql,
+    handle_child::SLOW_LOGS,
+    handle_job_error,
+    job_logger::NO_LOGS_AT_ALL,
+    js_eval::{eval_fetch_timeout, transpile_ts},
+    nu_executor::{handle_nu_job, JobHandlerInput},
+    pg_executor::do_postgresql,
+    result_processor::{process_result, start_background_processor},
+    worker_flow::{handle_flow, update_flow_status_in_progress},
+    worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    }
+    },
 };
 
 #[cfg(feature = "rust")]
@@ -324,7 +339,6 @@ lazy_static::lazy_static! {
 const DOTNET_DEFAULT_PATH: &str = "C:\\Program Files\\dotnet\\dotnet.exe";
 #[cfg(unix)]
 const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
-
 
 lazy_static::lazy_static! {
 
@@ -2795,6 +2809,30 @@ mount {{
                 envs,
                 occupancy_metrics,
             )
+            .await
+        }
+        Some(ScriptLang::Nu) => {
+            #[cfg(not(feature = "nu"))]
+            return Err(
+                anyhow::anyhow!("Nu is not available because the feature is not enabled").into(),
+            );
+
+            #[cfg(feature = "nu")]
+            handle_nu_job(JobHandlerInput {
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
             .await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),

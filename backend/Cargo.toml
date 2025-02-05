@@ -22,11 +22,12 @@ members = [
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
+    "./parsers/windmill-parser-nu",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros",
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
 ]
 
 [workspace.package]
@@ -76,6 +77,7 @@ websocket = ["windmill-api/websocket"]
 python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 csharp = ["windmill-worker/csharp"]
+nu = ["windmill-worker/nu"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
 http_trigger = ["windmill-api/http_trigger"]
@@ -148,6 +150,7 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
+windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
@@ -201,6 +204,10 @@ json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
 semver = "^1"
+
+nu-parser = { version = "0.101.0", default-features = false }
+nu-protocol = { version = "0.101.0", default-features = false }
+nu-cmd-lang = { version = "0.101.0", default-features = false }
 
 deno_fetch = "0.203.0"
 deno_tls = "0.166.0"

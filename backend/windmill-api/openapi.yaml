@@ -11062,6 +11062,7 @@ components:
               rust,
               ansible,
               csharp,
+              nu,
             ]
         kind:
           type: string
@@ -11168,6 +11169,7 @@ components:
               rust,
               ansible,
               csharp,
+              nu,
             ]
         kind:
           type: string
@@ -11396,6 +11398,7 @@ components:
               rust,
               ansible,
               csharp,
+              nu,
             ]
         email:
           type: string
@@ -11520,6 +11523,7 @@ components:
               rust,
               ansible,
               csharp,
+              nu,
             ]
         is_skipped:
           type: boolean
@@ -12077,6 +12081,7 @@ components:
               rust,
               ansible,
               csharp,
+              nu,
             ]
         tag:
           type: string
@@ -13822,6 +13827,7 @@ components:
               rust,
               ansible,
               csharp,
+              nu,
             ]
       required:
         - raw_code

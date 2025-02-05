@@ -54,7 +54,8 @@
 		php: 'PHP',
 		rust: 'Rust',
 		ansible: 'Ansible Playbook',
-		csharp: 'C#'
+		csharp: 'C#',
+		nu: 'Nu'
 	}
 
 	const langToComponent: Record<

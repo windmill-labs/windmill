@@ -43,6 +43,8 @@ export function scriptLangToEditorLang(
 		return 'yaml'
 	} else if (lang == 'csharp') {
 		return 'csharp'
+	} else if (lang == 'nu') {
+		return 'nu'
 	} else if (lang == undefined) {
 		return 'typescript'
 	} else {
@@ -122,6 +124,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['rust', 'Rust'],
 	['ansible', 'Ansible Playbook'],
 	['csharp', 'C#'],
+	['nu', 'Nu'],
 	['docker', 'Docker']
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -131,7 +134,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu']
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {
 				ls.push(lang)

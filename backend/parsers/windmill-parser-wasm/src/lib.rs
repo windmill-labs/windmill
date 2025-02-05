@@ -147,3 +147,9 @@ pub fn parse_ansible(code: &str) -> String {
 pub fn parse_csharp(code: &str) -> String {
     wrap_sig(windmill_parser_csharp::parse_csharp_signature(code))
 }
+
+#[cfg(feature = "nu-parser")]
+#[wasm_bindgen]
+pub fn parse_nu(code: &str) -> String {
+    wrap_sig(windmill_parser_nu::parse_nu_signature(code))
+}

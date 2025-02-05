@@ -406,6 +406,12 @@ class Script
 }
 `
 
+const NU_INIT_CODE = `
+	def main [] {
+		print "Hello Windmill!"
+	}
+`
+
 const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -861,6 +867,9 @@ export const INITIAL_CODE = {
 	csharp: {
 		script: CSHARP_INIT_CODE
 	},
+	nu: {
+		script: NU_INIT_CODE
+	},
 	docker: {
 		script: DOCKER_INIT_CODE
 	},
@@ -968,6 +977,8 @@ export function initialCode(
 		return INITIAL_CODE.ansible.script
 	} else if (language == 'csharp') {
 		return INITIAL_CODE.csharp.script
+	} else if (language == 'nu') {
+		return INITIAL_CODE.nu.script
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

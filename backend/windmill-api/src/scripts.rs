@@ -599,6 +599,7 @@ async fn create_script_internal<'c>(
         || ns.language == ScriptLang::Rust
         || ns.language == ScriptLang::Ansible
         || ns.language == ScriptLang::CSharp
+        || ns.language == ScriptLang::Nu
         || ns.language == ScriptLang::Php)
     {
         Some(String::new())
