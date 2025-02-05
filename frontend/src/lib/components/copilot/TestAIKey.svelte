@@ -1,10 +1,13 @@
 <script lang="ts">
+	import type { AIProvider } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
-	import { testKey, type AiProviderTypes } from './lib'
+	import { testKey } from './lib'
 	export let disabled = false
 	export let apiKey: string | undefined = undefined
-	export let aiProvider: AiProviderTypes
+	export let resourcePath: string | undefined = undefined
+	export let aiProvider: AIProvider
+	export let model: string
 	let loading = false
 </script>
 
@@ -21,8 +24,10 @@
 			setTimeout(() => {
 				abortController.abort()
 			}, 10000)
+
 			await testKey({
 				apiKey,
+				resourcePath,
 				messages: [
 					{
 						role: 'user',
@@ -30,7 +35,8 @@
 					}
 				],
 				abortController,
-				aiProvider
+				aiProvider,
+				model
 			})
 			sendUserToast('Valid key')
 		} catch (err) {
@@ -42,5 +48,11 @@
 		} finally {
 			loading = false
 		}
-	}}>Test key</Button
+	}}
 >
+	{#if apiKey}
+		Test key
+	{:else}
+		Test
+	{/if}
+</Button>
