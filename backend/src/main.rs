@@ -386,11 +386,17 @@ async fn windmill_main() -> anyhow::Result<()> {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
     }
+    let worker_mode = num_workers > 0;
 
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
-    let server_killpill_rx = killpill_tx.subscribe();
     let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+
+    let server_killpill_rx = if worker_mode {
+        killpill_phase2_tx.subscribe()
+    } else {
+        killpill_tx.subscribe()
+    };
 
     let shutdown_signal =
         windmill_common::shutdown_signal(killpill_tx.clone(), killpill_tx.subscribe());
@@ -449,8 +455,6 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
     }
-
-    let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
