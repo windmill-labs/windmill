@@ -22,8 +22,6 @@ pub type JsonResult<T> = std::result::Result<Json<T>, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Uuid Error {0}")]
-    UuidErr(#[from] uuid::Error),
     #[error("Bad config: {0}")]
     BadConfig(String),
     #[error("Connecting to database: {0}")]
@@ -40,12 +38,16 @@ pub enum Error {
     RequireAdmin(String),
     #[error("{0}")]
     ExecutionErr(String),
-    #[error("IO error: {0}")]
-    IoErr(#[from] io::Error),
-    // #[error("Sql error: {0}")]
-    // SqlErr(#[from] sqlx::Error),
+    #[error("IoErr: {error:#} @{location:#}")]
+    IoErr { error: io::Error, location: String },
+    #[error("Utf8Err: {error:#} @{location:#}")]
+    Utf8Err { error: std::string::FromUtf8Error, location: String },
+    #[error("UuidErr: {error:#} @{location:#}")]
+    UuidErr { error: uuid::Error, location: String },
     #[error("SqlErr: {error:#} @{location:#}")]
     SqlErr { error: sqlx::Error, location: String },
+    #[error("SerdeJson: {error:#} @{location:#}")]
+    SerdeJson { error: serde_json::Error, location: String },
     #[error("Bad request: {0}")]
     BadRequest(String),
     #[error("Quota exceeded: {0}")]
@@ -54,12 +56,12 @@ pub enum Error {
     InternalErr(String),
     #[error("Internal: {0}: {1}")]
     InternalErrAt(&'static Location<'static>, String),
-    #[error("Hexadecimal decoding error: {0}")]
-    HexErr(#[from] hex::FromHexError),
+    #[error("HexErr: {error:#} @{location:#}")]
+    HexErr { error: hex::FromHexError, location: String },
     #[error("Migrating database: {0}")]
     DatabaseMigration(#[from] MigrateError),
-    #[error("Non-zero exit status: {0}")]
-    ExitStatus(i32),
+    #[error("Non-zero exit status for {0}: {1}")]
+    ExitStatus(String, i32),
     #[error("Error: {error:#} @{location:#}")]
     Anyhow { error: anyhow::Error, location: String },
     #[error("Error: {0:#?}")]
@@ -70,10 +72,6 @@ pub enum Error {
     AlreadyCompleted(String),
     #[error("Find python error: {0}")]
     FindPythonError(String),
-    #[error("{0}")]
-    Utf8(#[from] std::string::FromUtf8Error),
-    #[error("Encoding/decoding error: {0}")]
-    SerdeJson(#[from] serde_json::Error),
 }
 
 fn prettify_location(location: &'static Location<'static>) -> String {
@@ -92,8 +90,44 @@ impl From<anyhow::Error> for Error {
 }
 
 impl From<sqlx::Error> for Error {
+    #[track_caller]
     fn from(e: sqlx::Error) -> Self {
         Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<uuid::Error> for Error {
+    #[track_caller]
+    fn from(e: uuid::Error) -> Self {
+        Self::UuidErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for Error {
+    #[track_caller]
+    fn from(e: std::string::FromUtf8Error) -> Self {
+        Self::Utf8Err { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<io::Error> for Error {
+    #[track_caller]
+    fn from(e: io::Error) -> Self {
+        Self::IoErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<hex::FromHexError> for Error {
+    #[track_caller]
+    fn from(e: hex::FromHexError) -> Self {
+        Self::HexErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    #[track_caller]
+    fn from(e: serde_json::Error) -> Self {
+        Self::SerdeJson { error: e, location: prettify_location(std::panic::Location::caller()) }
     }
 }
 

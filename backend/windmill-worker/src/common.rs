@@ -570,7 +570,7 @@ impl OccupancyMetrics {
 pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
     return cmd
         .spawn()
-        .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+        .map_err(|err| tentatively_improve_error(err.into(), executable));
 }
 
 pub async fn resolve_job_timeout(
