@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
@@ -29,14 +29,11 @@
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore,
-		hubBaseUrlStore,
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, tryEvery } from '$lib/utils'
 	import {
-		Code2,
-		Slack,
 		XCircle,
 		RotateCw,
 		CheckCircle2,
@@ -46,7 +43,6 @@
 		Save,
 		ExternalLink
 	} from 'lucide-svelte'
-	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -68,6 +64,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import type { AiProviderTypes } from '$lib/components/copilot/lib'
 	import Description from '$lib/components/Description.svelte'
+	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -97,9 +94,13 @@
 
 	let s3FileViewer: S3FilePicker
 
-	let initialPath: string
-	let scriptPath: string
-	let team_name: string | undefined
+	let slackInitialPath: string
+	let slackScriptPath: string
+	let teamsInitialPath: string
+	let teamsScriptPath: string
+	let slack_team_name: string | undefined
+	let teams_team_id: string | undefined
+	let teams_team_name: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
@@ -144,6 +145,7 @@
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
 	let codeCompletionEnabled: boolean = false
 	let selected: AiProviderTypes = 'openai'
+	let slack_tabs: 'slack_commands' | 'teams_commands' = 'slack_commands'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -157,21 +159,42 @@
 
 	const latestGitSyncHubScript = hubPaths.gitSync
 
-	async function editSlackCommand(): Promise<void> {
-		initialPath = scriptPath
+	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
+		if (platform === 'slack') {
+			if (slackInitialPath === slackScriptPath) return
+			slackInitialPath = slackScriptPath
+		} else {
+			if (teamsInitialPath === teamsScriptPath) return
+			teamsInitialPath = teamsScriptPath
+		}
+
+		let scriptPath = platform === 'slack' ? slackScriptPath : teamsScriptPath
+		let commandScriptKey = platform === 'slack' ? 'slack_command_script' : 'teams_command_script'
+		let updateCommandScript = platform === 'slack' ? WorkspaceService.editSlackCommand : WorkspaceService.editTeamsCommand
+
 		if (scriptPath) {
-			await WorkspaceService.editSlackCommand({
+			console.log('editWorkspaceCommand', scriptPath)
+			console.log('itemKind', itemKind)
+			await updateCommandScript({
 				workspace: $workspaceStore!,
-				requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
-			})
-			sendUserToast(`slack command script set to ${scriptPath}`)
+				requestBody: { [commandScriptKey]: `${itemKind}/${scriptPath}` }
+			});
+			sendUserToast(`${platform} command script set to ${scriptPath}`);
 		} else {
 			await WorkspaceService.editSlackCommand({
 				workspace: $workspaceStore!,
-				requestBody: { slack_command_script: undefined }
-			})
-			sendUserToast(`slack command script removed`)
+				requestBody: { [commandScriptKey]: undefined }
+			});
+			sendUserToast(`${platform} command script removed`);
 		}
+	}
+
+	async function editSlackCommand(): Promise<void> {
+		await editWorkspaceCommand('slack');
+	}
+
+	async function editTeamsCommand(): Promise<void> {
+		await editWorkspaceCommand('teams');
 	}
 
 	async function editWebhook(): Promise<void> {
@@ -384,13 +407,19 @@
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-		team_name = settings.slack_name
-
+		slack_team_name = settings.slack_name
+		teams_team_id = settings.teams_team_id
+		teams_team_name = settings.teams_team_name
 		if (settings.slack_command_script) {
 			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
 		}
-		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
-		initialPath = scriptPath
+		if (settings.teams_command_script) {
+			itemKind = settings.teams_command_script.split('/')[0] as 'flow' | 'script'
+		}
+		slackScriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		teamsScriptPath = (settings.teams_command_script ?? '').split('/').slice(1).join('/')
+		slackInitialPath = slackScriptPath
+		teamsInitialPath = teamsScriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
@@ -665,7 +694,7 @@
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab size="xs" value="slack">
-						<div class="flex gap-2 items-center my-1"> Slack </div>
+						<div class="flex gap-2 items-center my-1"> Slack / Teams</div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
@@ -726,99 +755,62 @@
 		{:else if tab == 'slack'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Connect Workspace to Slack </div>
+					<div class="text-primary text-lg font-semibold">Workspace connections to Slack and Teams</div>
 					<Description link="https://www.windmill.dev/docs/integrations/slack">
-						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
-						with a '/windmill' command or to configure Slack error handlers.
+						With workspace connections, you can trigger scripts or flows with a '/windmill' command with your Slack or Teams bot.
 					</Description>
 				</div>
 
-				{#if team_name}
-					<div class="flex flex-col gap-2 max-w-sm">
-						<Button
-							size="sm"
-							endIcon={{ icon: Slack }}
-							btnClasses="mt-2"
-							variant="border"
-							on:click={async () => {
-								await OauthService.disconnectSlack({
-									workspace: $workspaceStore ?? ''
-								})
-								loadSettings()
-								sendUserToast('Disconnected Slack')
-							}}
-						>
-							Disconnect Slack
-						</Button>
-						<Button
-							size="sm"
-							endIcon={{ icon: Code2 }}
-							href="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-						>
-							Create a script to handle slack commands
-						</Button>
-						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="{base}/flows/add?hub=28">
-							Create a flow to handle slack commands
-						</Button>
-					</div>
-				{:else}
-					<div class="flex flex-row gap-2">
-						<Button
-							size="xs"
-							color="dark"
-							href="{base}/api/oauth/connect_slack"
-							startIcon={{ icon: Slack }}
-						>
-							Connect to Slack
-						</Button>
-						<Badge color="red">Not connnected</Badge>
-					</div>
-				{/if}
-			</div>
-			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
-				<div class="text-primary font-md font-semibold">
-					Script or flow to run on /windmill command
-				</div>
-				<div class="relative">
-					{#if !team_name}
-						<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
-					{/if}
-					<ScriptPicker
-						kinds={['script']}
-						allowFlow
+				<Tabs bind:selected={slack_tabs}>
+					<Tab size="xs" value="slack_commands">
+						<div class="flex gap-2 items-center my-1"> Slack</div>
+					</Tab>
+					<Tab size="xs" value="teams_commands">
+						<div class="flex gap-2 items-center my-1"> Teams</div>
+					</Tab>
+				</Tabs>
+
+				{#if slack_tabs === 'slack_commands'}
+					<ConnectionSection
+						platform="slack"
+						teamName={slack_team_name}
+						bind:scriptPath={slackScriptPath}
+						bind:initialPath={slackInitialPath}
 						bind:itemKind
-						bind:scriptPath
-						{initialPath}
-						on:select={editSlackCommand}
+						onDisconnect={async () => {
+							await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' });
+							loadSettings();
+							sendUserToast('Disconnected Slack');
+						}}
+						onSelect={editSlackCommand}
+						connectHref="{base}/api/oauth/connect_slack"
+						createScriptHref="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+						createFlowHref="{base}/flows/add?hub=28"
+						documentationLink="https://www.windmill.dev/docs/integrations/slack"
+						onLoadSettings={loadSettings}
+						display_name={slack_team_name}
 					/>
-				</div>
-
-				<div class="prose text-2xs text-tertiary">
-					Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
-					connection, templates for a <a href="{$hubBaseUrlStore}/scripts/slack/1405/">script</a>
-					and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.
-
-					<br /><br />
-
-					The script or flow chosen is passed the parameters `response_url: string` and `text:
-					string` respectively the url to reply directly to the trigger and the text of the command.
-
-					<br /><br />
-
-					It can take additionally the following args: channel_id, user_name, user_id, command,
-					trigger_id, api_app_id
-
-					<br /><br />
-
-					<span class="font-bold text-xs">
-						The script or flow is permissioned as group "slack" that will be automatically created
-						after connection to Slack.
-					</span>
-
-					<br /><br />
-
-					See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
-				</div>
+				{:else if slack_tabs === 'teams_commands'}
+					<ConnectionSection
+						platform="teams"
+						teamName={teams_team_id}
+						bind:scriptPath={teamsScriptPath}
+						bind:initialPath={teamsInitialPath}
+						bind:itemKind
+						onDisconnect={async () => {
+							await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' });
+							loadSettings();
+							sendUserToast('Disconnected Teams');
+						}}
+						onSelect={editTeamsCommand}
+						connectHref={undefined}
+						createScriptHref="{base}/scripts/add?hub=hub%2F314%2Fteams%2Fexample_of_responding_to_a_teams_command"
+						createFlowHref="{base}/flows/add?hub=28"
+						documentationLink="https://www.windmill.dev/docs/integrations/teams"
+						onLoadSettings={loadSettings}
+						display_name={teams_team_name}
+					/>
+				{/if}
 			</div>
 		{:else if tab == 'general'}
 			<div class="flex flex-col gap-4 my-8">
