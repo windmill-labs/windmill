@@ -83,7 +83,7 @@ async fn list_files(
     if let Some(true) = lq.with_error {
         sqlb.and_where("err_lines > 0");
     }
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, LogFile>(&sql).fetch_all(&db).await?;
     Ok(Json(rows))
 }
@@ -114,7 +114,7 @@ async fn get_log_file(
                         return Ok(content_plain(Body::from(bytes::Bytes::from(bytes))));
                     }
                     Err(e) => {
-                        return Err(Error::InternalErr(format!(
+                        return Err(Error::internal_err(format!(
                             "Error pulling the bytes: {}",
                             e
                         )));
@@ -122,7 +122,7 @@ async fn get_log_file(
                 }
             }
             Err(e) => {
-                return Err(Error::InternalErr(format!(
+                return Err(Error::internal_err(format!(
                     "Error fetching the file: {}",
                     e
                 )));

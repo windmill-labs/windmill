@@ -428,17 +428,17 @@ pub async fn list_postgres_triggers(
     }
     let sql = sqlb
         .sql()
-        .map_err(|e| error::Error::InternalErr(e.to_string()))?;
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, PostgresTrigger>(&sql)
         .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
             tracing::debug!("Error fetching postgres_trigger: {:#?}", e);
-            windmill_common::error::Error::InternalErr("server error".to_string())
+            windmill_common::error::Error::internal_err("server error".to_string())
         })?;
     tx.commit().await.map_err(|e| {
         tracing::debug!("Error commiting postgres_trigger: {:#?}", e);
-        windmill_common::error::Error::InternalErr("server error".to_string())
+        windmill_common::error::Error::internal_err("server error".to_string())
     })?;
 
     Ok(Json(rows))

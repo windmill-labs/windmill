@@ -16,7 +16,7 @@ use sql_builder::bind::Bind;
 use sql_builder::SqlBuilder;
 use uuid::Uuid;
 use windmill_common::db::UserDB;
-use windmill_common::error::Error::{InternalErr, PermissionDenied};
+use windmill_common::error::Error::PermissionDenied;
 use windmill_common::error::{self, JsonResult};
 use windmill_common::utils::require_admin;
 
@@ -82,7 +82,7 @@ async fn prune_concurrency_group(
 
     if n_job_uuids > 0 {
         tx.commit().await?;
-        return Err(InternalErr(
+        return Err(error::Error::internal_err(
             "Concurrency group is currently in use, unable to remove it. Retry later.".to_string(),
         ));
     }

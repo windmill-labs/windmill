@@ -560,7 +560,7 @@ pub(crate) async fn tarball_workspace(
         for group in groups {
             let extra_perms: HashMap<String, bool> = serde_json::from_value(group.extra_perms)
                 .map_err(|e| {
-                    Error::InternalErr(format!(
+                    Error::internal_err(format!(
                         "Error parsing extra_perms for group {}: {}",
                         group.name, e
                     ))
@@ -638,7 +638,7 @@ pub(crate) async fn tarball_workspace(
             .map(|v| serde_json::to_string_pretty(&v).ok())
             .ok()
             .flatten()
-            .ok_or_else(|| Error::InternalErr("Error serializing settings".to_string()))?;
+            .ok_or_else(|| Error::internal_err("Error serializing settings".to_string()))?;
 
         archive
             .write_to_archive(&settings_str, "settings.json")
@@ -657,7 +657,7 @@ pub(crate) async fn tarball_workspace(
             .map(|v| serde_json::to_string_pretty(&v).ok())
             .ok()
             .flatten()
-            .ok_or_else(|| Error::InternalErr("Error serializing enryption key".to_string()))?;
+            .ok_or_else(|| Error::internal_err("Error serializing enryption key".to_string()))?;
         archive
             .write_to_archive(&key_json, "encryption_key.json")
             .await?;

@@ -265,13 +265,13 @@ pub async fn handle_dependency_job(
         Some(hash) => &cache::script::fetch(db, hash).await?.0,
         _ => match preview_data {
             Some(RawData::Script(data)) => data,
-            _ => return Err(Error::InternalErr("expected script hash".into())),
+            _ => return Err(Error::internal_err("expected script hash")),
         },
     };
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
-            Err(Error::InternalErr(
+            Err(Error::internal_err(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
@@ -551,7 +551,7 @@ pub async fn handle_flow_dependency_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     let job_path = job.script_path.clone().ok_or_else(|| {
-        error::Error::InternalErr(
+        error::Error::internal_err(
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
     })?;
@@ -574,7 +574,7 @@ pub async fn handle_flow_dependency_job(
             job.script_hash
                 .clone()
                 .ok_or_else(|| {
-                    Error::InternalErr(
+                    Error::internal_err(
                         "Flow Dependency requires script hash (flow version)".to_owned(),
                     )
                 })?
@@ -602,7 +602,7 @@ pub async fn handle_flow_dependency_job(
         Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
         _ => match preview_data {
             Some(RawData::Flow(data)) => data.clone(),
-            _ => return Err(Error::InternalErr("expected script hash".into())),
+            _ => return Err(Error::internal_err("expected script hash")),
         },
     }
     .value()
@@ -649,7 +649,7 @@ pub async fn handle_flow_dependency_job(
 
     if !skip_flow_update {
         let version = version.ok_or_else(|| {
-            Error::InternalErr("Flow Dependency requires script hash (flow version)".to_owned())
+            Error::internal_err("Flow Dependency requires script hash (flow version)".to_owned())
         })?;
 
         sqlx::query!(
@@ -1163,7 +1163,7 @@ async fn reduce_flow<'c>(
     for module in &mut *modules {
         let mut val =
             serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
-                Error::InternalErr(format!(
+                Error::internal_err(format!(
                     "reduce_flow: Failed to parse flow module value: {}",
                     err
                 ))
@@ -1274,7 +1274,7 @@ async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64
                 // replace `content` with an empty string:
                 let Some(Value::String(code)) = script.get_mut("content").map(std::mem::take)
                 else {
-                    return Err(error::Error::InternalErr(
+                    return Err(error::Error::internal_err(
                         "Missing `content` in inlineScript".to_string(),
                     ));
                 };
@@ -1477,7 +1477,7 @@ pub async fn handle_app_dependency_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
-        error::Error::InternalErr(
+        error::Error::internal_err(
             "Cannot resolve app dependencies for app without path".to_string(),
         )
     })?;
@@ -1485,7 +1485,7 @@ pub async fn handle_app_dependency_job(
     let id = job
         .script_hash
         .clone()
-        .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
+        .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
         .0;
     let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
@@ -1572,7 +1572,7 @@ pub async fn handle_app_dependency_job(
         // match tx {
         //     PushIsolationLevel::Transaction(tx) => tx.commit().await?,
         //     _ => {
-        //         return Err(Error::InternalErr(
+        //         return Err(Error::internal_err(
         //             "Expected a transaction here".to_string(),
         //         ));
         //     }
@@ -1682,7 +1682,7 @@ async fn capture_dependency_job(
     match job_language {
         ScriptLang::Python3 => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Python requires the python feature to be enabled".to_string(),
             ));
             #[cfg(feature = "python")]
@@ -1749,7 +1749,7 @@ async fn capture_dependency_job(
         }
         ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Ansible requires the python feature to be enabled".to_string(),
             ));
 
@@ -1887,7 +1887,7 @@ async fn capture_dependency_job(
         }
         ScriptLang::Php => {
             #[cfg(not(feature = "php"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "PHP requires the php feature to be enabled".to_string(),
             ));
 
@@ -1929,7 +1929,7 @@ async fn capture_dependency_job(
             }
 
             #[cfg(not(feature = "rust"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
             ));
 

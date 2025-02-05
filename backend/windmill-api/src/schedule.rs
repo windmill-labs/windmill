@@ -196,7 +196,7 @@ async fn create_schedule(
         .bind(&ns.cron_version.unwrap_or("v2".to_string()))
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -282,7 +282,7 @@ async fn edit_schedule(
         .bind(&es.cron_version)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -356,7 +356,7 @@ async fn list_schedule(
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
     }
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, Schedule>(&sql)
         .fetch_all(&mut *tx)
         .await?;

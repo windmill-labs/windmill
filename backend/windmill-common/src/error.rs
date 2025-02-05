@@ -54,6 +54,8 @@ pub enum Error {
     QuotaExceeded(String),
     #[error("Internal: {0}")]
     InternalErr(String),
+    #[error("Internal: {message} @{location}")]
+    InternalErrLoc { message: String, location: String },
     #[error("Internal: {0}: {1}")]
     InternalErrAt(&'static Location<'static>, String),
     #[error("HexErr: {error:#} @{location:#}")]
@@ -143,8 +145,18 @@ impl Error {
 
     pub fn relocate_internal(self, loc: &'static Location<'static>) -> Self {
         match self {
-            Self::InternalErr(s) | Self::InternalErrAt(_, s) => Self::InternalErrAt(loc, s),
+            Self::InternalErrLoc { message, .. }
+            | Self::InternalErrAt(_, message)
+            | Self::InternalErr(message) => Self::InternalErrAt(loc, message),
             _ => self,
+        }
+    }
+
+    #[track_caller]
+    pub fn internal_err<T: AsRef<str>>(msg: T) -> Self {
+        Self::InternalErrLoc {
+            message: msg.as_ref().to_string(),
+            location: prettify_location(std::panic::Location::caller()),
         }
     }
 }

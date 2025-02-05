@@ -105,7 +105,7 @@ pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<Stri
     )
     .fetch_one(db)
     .await
-    .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e:#}")))?;
+    .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
     Ok(key)
 }
 
@@ -150,11 +150,11 @@ pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
 
 pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
     mc.decrypt_base64_to_string(value).map_err(|e| match e {
-        MagicCryptError::DecryptError(_) => error::Error::InternalErr(
+        MagicCryptError::DecryptError(_) => error::Error::internal_err(
             "Could not decrypt value. The value may have been encrypted with a different key."
                 .to_string(),
         ),
-        _ => error::Error::InternalErr(e.to_string()),
+        _ => error::Error::internal_err(e.to_string()),
     })
 }
 

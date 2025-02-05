@@ -142,7 +142,7 @@ mod openai {
                 tracing::debug!("Adding user to request body");
                 let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
                     .map_err(|e| {
-                    Error::InternalErr(format!("Failed to parse request body: {}", e))
+                    Error::internal_err(format!("Failed to parse request body: {}", e))
                 })?;
 
                 let user_json_string = serde_json::Value::String(user.unwrap()).to_string(); // makes sure to escape characters
@@ -150,12 +150,12 @@ mod openai {
                 json_body.insert(
                     "user".to_string(),
                     RawValue::from_string(user_json_string)
-                        .map_err(|e| Error::InternalErr(format!("Failed to parse user: {}", e)))?,
+                        .map_err(|e| Error::internal_err(format!("Failed to parse user: {}", e)))?,
                 );
 
                 body = serde_json::to_vec(&json_body)
                     .map_err(|e| {
-                        Error::InternalErr(format!("Failed to reserialize request body: {}", e))
+                        Error::internal_err(format!("Failed to reserialize request body: {}", e))
                     })?
                     .into();
             }
@@ -204,13 +204,13 @@ mod openai {
             .send()
             .await
             .map_err(|err| {
-                Error::InternalErr(format!(
+                Error::internal_err(format!(
                     "Failed to get OpenAI credentials using credentials flow: {}",
                     err
                 ))
             })?;
         let response = response.json::<OpenaiCredentials>().await.map_err(|err| {
-            Error::InternalErr(format!(
+            Error::internal_err(format!(
                 "Failed to parse OpenAI credentials from credentials flow: {}",
                 err
             ))
@@ -220,7 +220,7 @@ mod openai {
 
     pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
         let config = serde_json::from_value(resource)
-            .map_err(|e| Error::InternalErr(format!("validating openai resource {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("validating openai resource {e:#}")))?;
 
         let mut user = None::<String>;
         let mut resource = match config {
@@ -257,7 +257,7 @@ mod openai {
         let azure_base_path = if let Some(azure_base_path) = azure_base_path {
             Some(
                 serde_json::from_value::<String>(azure_base_path).map_err(|e| {
-                    Error::InternalErr(format!("validating openai azure base path {e:#}"))
+                    Error::internal_err(format!("validating openai azure base path {e:#}"))
                 })?,
             )
         } else {
@@ -303,7 +303,7 @@ mod anthropic {
 
     pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
         let mut resource: AnthropicCache = serde_json::from_value(resource)
-            .map_err(|e| Error::InternalErr(format!("validating anthropic resource {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("validating anthropic resource {e:#}")))?;
         resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
         Ok(KeyCache::Anthropic(resource))
     }
@@ -335,7 +335,7 @@ mod mistral {
 
     pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
         let mut resource: MistralCache = serde_json::from_value(resource)
-            .map_err(|e| Error::InternalErr(format!("validating mistral resource {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("validating mistral resource {e:#}")))?;
         resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
         Ok(KeyCache::Mistral(resource))
     }
@@ -472,7 +472,7 @@ async fn proxy(
                 .await?;
 
                 if ai_resource.is_none() {
-                    return Err(Error::InternalErr("AI resource not configured".to_string()));
+                    return Err(Error::internal_err("AI resource not configured".to_string()));
                 }
 
                 let ai_resource = serde_json::from_value::<AIResource>(ai_resource.unwrap())
@@ -497,7 +497,7 @@ async fn proxy(
             };
 
             if resource.is_none() {
-                return Err(Error::InternalErr(format!(
+                return Err(Error::internal_err(format!(
                     "{:?} resource missing value",
                     ai_provider
                 )));

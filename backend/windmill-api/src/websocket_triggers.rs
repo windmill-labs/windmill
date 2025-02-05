@@ -154,7 +154,7 @@ async fn list_websocket_triggers(
     }
     let sql = sqlb
         .sql()
-        .map_err(|e| error::Error::InternalErr(e.to_string()))?;
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, WebsocketTrigger>(&sql)
         .fetch_all(&mut *tx)
         .await?;

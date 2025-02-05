@@ -1218,13 +1218,13 @@ mount {{
         let args = read_file(&format!("{job_dir}/args.json"))
             .await
             .map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while reading args from preprocessing: {e:#}"
                 ))
             })?;
         let args: HashMap<String, Box<RawValue>> =
             serde_json::from_str(args.get()).map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while deserializing args from preprocessing: {e:#}"
                 ))
             })?;
@@ -1438,7 +1438,7 @@ async fn replace_pip_secret(
                 let capture = PIP_SECRET_VARIABLE.captures(req);
                 let variable = capture.unwrap().get(1).unwrap().as_str();
                 if !variable.contains("/PIP_SECRET_") {
-                    return Err(error::Error::InternalErr(format!(
+                    return Err(error::Error::internal_err(format!(
                         "invalid secret variable in pip requirements, (last part of path ma): {}",
                         req
                     )));

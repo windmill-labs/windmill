@@ -90,7 +90,7 @@ async fn query_hub_scripts(
 
         Ok(Json(results))
     } else {
-        Err(windmill_common::error::Error::InternalErr(
+        Err(windmill_common::error::Error::internal_err(
             "Embeddings db not initialized".to_string(),
         ))
     }
@@ -124,7 +124,7 @@ async fn query_resource_types(
 
         Ok(Json(results))
     } else {
-        Err(windmill_common::error::Error::InternalErr(
+        Err(windmill_common::error::Error::internal_err(
             "Embeddings db not initialized".to_string(),
         ))
     }

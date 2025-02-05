@@ -470,7 +470,7 @@ pub async fn create_dedicated_worker_map(
             if let Ok(v) = value {
                 if let Some(v) = v {
                     let value = serde_json::from_str::<FlowValue>(v.get()).map_err(|err| {
-                        Error::InternalErr(format!(
+                        Error::internal_err(format!(
                             "could not convert json to flow for {flow_path}: {err:?}"
                         ))
                     });
@@ -622,7 +622,7 @@ async fn spawn_dedicated_worker(
                     .bind(&w_id)
                     .fetch_optional(&db)
                     .await
-                    .map_err(|e| Error::InternalErr(format!("expected content and lock: {e:#}")))
+                    .map_err(|e| Error::internal_err(format!("expected content and lock: {e:#}")))
                     .map(|x| x.map(|y| (y.0, y.1, y.2, y.3, if y.4 { y.5.map(|z| z.to_string()) } else { None })))
                 };
                 if let Ok(q) = q {

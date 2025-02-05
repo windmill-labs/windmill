@@ -132,7 +132,7 @@ pub async fn test_s3_bucket(
     if first_file.is_some() {
         if let Err(e) = first_file.as_ref().unwrap() {
             tracing::error!("error listing bucket: {e:#}");
-            error::Error::InternalErr(format!("Failed to list files in blob storage: {e:#}"));
+            error::Error::internal_err(format!("Failed to list files in blob storage: {e:#}"));
         }
         tracing::info!("Listed files: {:?}", first_file.unwrap());
     } else {
@@ -156,7 +156,7 @@ pub async fn test_s3_bucket(
         .await
         .map_err(to_anyhow)?;
     if content != Bytes::from_static(b"hello") {
-        return Err(error::Error::InternalErr(
+        return Err(error::Error::internal_err(
             "Failed to read back from blob storage".to_string(),
         ));
     }
@@ -232,7 +232,7 @@ pub async fn set_global_setting_internal(
                 generate_instance_username_for_all_users(db)
                     .await
                     .map_err(|err| {
-                        error::Error::InternalErr(format!(
+                        error::Error::internal_err(format!(
                             "Failed to generate instance wide usernames: {}",
                             err
                         ))
@@ -349,7 +349,7 @@ pub async fn get_latest_key_renewal_attempt(
         Some(last_attempt) => {
             let last_attempt_result = serde_json::from_value::<String>(last_attempt.value)
                 .map_err(|e| {
-                    error::Error::InternalErr(format!("Failed to parse last attempt: {}", e))
+                    error::Error::internal_err(format!("Failed to parse last attempt: {}", e))
                 })?;
             Ok(Json(Some(KeyRenewalAttempt {
                 result: last_attempt_result,

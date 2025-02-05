@@ -149,7 +149,7 @@ pub async fn push_scheduled_job<'c>(
         if schedule.retry.is_some() {
             let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
                 .map_err(|err| {
-                    error::Error::InternalErr(format!(
+                    error::Error::internal_err(format!(
                         "Unable to parse retry information from schedule: {}",
                         err.to_string(),
                     ))

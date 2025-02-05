@@ -384,7 +384,7 @@ async fn cancel_job_api(
     )
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
         ))
     })??;
@@ -495,7 +495,7 @@ async fn force_cancel(
     )
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
         ))
     })??;
@@ -554,7 +554,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "querying getting path for hash {hash} in {w_id}: {e:#}"
         ))
     })?.ok_or_else(|| Error::NotFound(format!(
@@ -3682,10 +3682,10 @@ pub async fn run_wait_result(
             if let Some(windmill_headers) = windmill_headers {
                 for (k, v) in windmill_headers {
                     let k = HeaderName::from_str(k.as_str()).map_err(|err| {
-                        Error::InternalErr(format!("Invalid header name {k}: {err}"))
+                        Error::internal_err(format!("Invalid header name {k}: {err}"))
                     })?;
                     let v = HeaderValue::from_str(v.as_str()).map_err(|err| {
-                        Error::InternalErr(format!("Invalid header value {v}: {err}"))
+                        Error::internal_err(format!("Invalid header value {v}: {err}"))
                     })?;
                     headers.insert(k, v);
                 }
@@ -3704,7 +3704,7 @@ pub async fn run_wait_result(
                 headers.insert(
                     http::header::CONTENT_TYPE,
                     HeaderValue::from_str(content_type.as_str()).map_err(|err| {
-                        Error::InternalErr(format!("Invalid content type {content_type}: {err}"))
+                        Error::internal_err(format!("Invalid content type {content_type}: {err}"))
                     })?,
                 );
                 return Ok((status_code_or_default, headers, serialized_result).into_response());
@@ -3760,7 +3760,7 @@ pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::R
         .unwrap_or(0);
 
         if count > queue_limit.unwrap() {
-            return Err(Error::InternalErr(format!(
+            return Err(Error::internal_err(format!(
                 "Number of queued job is too high: {count} > {limit}"
             )));
         }
@@ -3872,7 +3872,7 @@ pub async fn run_wait_result_job_by_path_get(
         return Ok(Json(serde_json::json!("")).into_response());
     }
     let payload_r = run_query.payload.map(decode_payload).map(|x| {
-        x.map_err(|e| Error::InternalErr(format!("Impossible to decode query payload: {e:#?}")))
+        x.map_err(|e| Error::internal_err(format!("Impossible to decode query payload: {e:#?}")))
     });
 
     let mut payload_args = if let Some(payload) = payload_r {
@@ -3967,7 +3967,7 @@ pub async fn run_wait_result_flow_by_path_get(
     }
     let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
         x.map_err(|e| {
-            error::Error::InternalErr(format!("Impossible to decode query payload: {e:#?}"))
+            error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
         })
     });
 
@@ -4551,7 +4551,7 @@ async fn run_dependencies_job(
     }
 
     if req.raw_scripts.len() != 1 || req.raw_scripts[0].script_path != req.entrypoint {
-        return Err(error::Error::InternalErr(
+        return Err(error::Error::internal_err(
             "For now only a single raw script can be passed to this endpoint, and the entrypoint should be set to the script path".to_string(),
         ));
     }
@@ -4790,10 +4790,10 @@ async fn add_batch_jobs(
                 )
                 .fetch_optional(&mut *tx)
                 .await?
-                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
+                .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
                 let value =
                     serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
-                        Error::InternalErr(format!(
+                        Error::internal_err(format!(
                             "could not convert json to flow for {path}: {err:?}"
                         ))
                     })?;
@@ -5138,7 +5138,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
                     .unwrap();
                 return Ok(res);
             } else {
-                return Err(error::Error::InternalErr(format!(
+                return Err(error::Error::internal_err(format!(
                     "Error getting bytes from file: {}",
                     file_p
                 )));
@@ -5150,7 +5150,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
             )));
         }
     } else {
-        return Err(error::Error::InternalErr(format!(
+        return Err(error::Error::internal_err(format!(
             "Object store client not present and file not found on server logs volume at {local_file}"
         )));
     }
