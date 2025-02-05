@@ -36,8 +36,8 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
                              -> anyhow::Result<()> {
                                 let or = if has_default { Some(json!(null)) } else { None };
                                 sig.args.push(Arg {
-                                    name,
-                                    typ: glue_types(shape, true)?,
+                                    name: name.clone(),
+                                    typ: glue_types(name, shape, true)?,
                                     otyp: None,
                                     default: default_value
                                         .and_then(|val| parse_default_value(val).ok())
@@ -98,11 +98,12 @@ fn parse_default_value(val: nu_protocol::Value) -> anyhow::Result<serde_json::Va
     }
 }
 
-use nu_protocol::SyntaxShape::*;
 use windmill_parser::Typ;
-fn glue_types(shape: SyntaxShape, is_top_level: bool) -> anyhow::Result<Typ> {
+fn glue_types(var_name: String, shape: SyntaxShape, is_top_level: bool) -> anyhow::Result<Typ> {
+    use nu_protocol::SyntaxShape::*;
     Ok(match shape {
         Any | Nothing => Typ::Unknown,
+        t if !is_top_level => bail!("main.{var_name}: `{t}` cannot be used as a type in nested objects, you can use `any` or leave type empty"),
         Int => Typ::Int,
         Number => Typ::Float,
         Boolean => Typ::Bool,
@@ -114,35 +115,35 @@ fn glue_types(shape: SyntaxShape, is_top_level: bool) -> anyhow::Result<Typ> {
                 fields.push(
                     ObjectProperty {
                         key,
-                        typ: Box::new(glue_types(shape, false)?),
+                        typ: Box::new(glue_types(var_name.clone(), shape, false)?),
                     }
                 );
             }
             fields
         }),
-        Table(vec) => Typ::List(Box::new(
-            Typ::Object({
-                let mut fields = vec![];
-                for (key, shape) in vec.into_iter() {
-                    fields.push(
-                        ObjectProperty {
-                            key,
-                            typ: Box::new(glue_types(shape, false)?),
-                        }
-                    );
-                }
-                fields
-            })
-        )),
+        // Table(vec) => Typ::List(Box::new(
+        //     Typ::Object({
+        //         let mut fields = vec![];
+        //         for (key, shape) in vec.into_iter() {
+        //             fields.push(
+        //                 ObjectProperty {
+        //                     key,
+        //                     typ: Box::new(glue_types(var_name.clone(), shape, false)?),
+        //                 }
+        //             );
+        //         }
+        //         fields
+        //     })
+        // )),
 
-        List(syntax_shape) => Typ::List(Box::new(glue_types(*syntax_shape, false)?)),
+        List(syntax_shape) => Typ::List(Box::new(glue_types(var_name, *syntax_shape, false)?)),
         Binary if is_top_level => Typ::Bytes,
         DateTime if is_top_level => Typ::Datetime,
         Float if is_top_level => Typ::Float,
 
-        Binary => bail!("nu: `binary` is only supported on top level."),
-        DateTime => bail!("nu: `datetime` is only supported on top level. If you wish to use `datetime` in object you can use `string` and then convert to datetime manually `$in | into datetime` "),
-        Float => bail!("nu: `float` is only supported on top level, use `number` or `int` instead."),
-        t => bail!("nu: `{t}` is not handled by Windmill, please open ann issue if this seems to be an error"),
+        Binary => bail!("main.{var_name}: `binary` is only supported on top level."),
+        DateTime => bail!("main.{var_name}: `datetime` is only supported on top level. If you wish to use `datetime` in object you can use `string` and then convert to datetime manually `$in | into datetime` "),
+        Float => bail!("main.{var_name}: `float` is only supported on top level, use `number` or `int` instead."),
+        t => bail!("main.{var_name}: `{t}` is not handled by Windmill, please open ann issue if this seems to be an error"),
     })
 }

@@ -57,45 +57,7 @@ pub async fn handle_nu_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawV
 /// that upon execution reads args.json (which are piped and transformed from previous flow step or top level inputs)
 /// Also wrapper takes output of program and serializes to result.json (Which windmill will know how to use later)
 fn wrap(inner_content: &str) -> Result<String, Error> {
-    // We need it to recursively transform all fields to corresponding nu type
-    // e.g
-    // $input
-    //   | update a { $in | into float }
-    //   | update b { $in | into float }
-    //   | update c.a {$in | into float }
-    //   | update c.b {$in | into float }
-    let transform = "
-$input
-  | update a { $in | into float }
-  | update b { $in | into float }
-  | update c.a {$in | into float }
-  | update c.b {$in | into float }
-    ";
     let sig = parse_nu_signature(inner_content)?;
-    // let transform2 = sig
-    //     .args
-    //     .clone()
-    //     .into_iter()
-    //     .map(|x| {
-    //         let transformation = match x.typ {
-    //             windmill_parser::Typ::Str(vec) => todo!(),
-    //             windmill_parser::Typ::Int => "int",
-    //             windmill_parser::Typ::Float => todo!(),
-    //             windmill_parser::Typ::Bool => todo!(),
-    //             windmill_parser::Typ::List(typ) => todo!(),
-    //             windmill_parser::Typ::Bytes => todo!(),
-    //             windmill_parser::Typ::Datetime => todo!(),
-    //             windmill_parser::Typ::Resource(_) => todo!(),
-    //             windmill_parser::Typ::Email => todo!(),
-    //             windmill_parser::Typ::Sql => todo!(),
-    //             windmill_parser::Typ::DynSelect(_) => todo!(),
-    //             windmill_parser::Typ::Object(vec) => todo!(),
-    //             windmill_parser::Typ::OneOf(vec) => todo!(),
-    //             windmill_parser::Typ::Unknown => todo!(),
-    //         };
-    //         format!("| update {2} {{$in | into {transformation} }}")
-    //     })
-    //     .collect_vec();
     let spread = sig
         .args
         .clone()
@@ -112,9 +74,9 @@ $input
             .to_owned();
 
             if transformation != "" {
-                format!("\n\t\t\t($parsed_args.{} | {transformation}) ", &x.name)
+                format!("\n\t\t\t($parsed_args.{}? | {transformation}) ", &x.name)
             } else {
-                format!("\n\t\t\t($parsed_args.{}) ", &x.name)
+                format!("\n\t\t\t($parsed_args.{}?) ", &x.name)
             }
         })
         .collect_vec()

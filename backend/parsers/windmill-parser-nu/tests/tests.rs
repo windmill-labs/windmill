@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
     use serde_json::json;
-    use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+    use windmill_parser::{Arg, MainArgSignature, Typ};
     use windmill_parser_nu::parse_nu_signature;
 
     #[test]
@@ -235,68 +235,70 @@ mod test {
     //         "#,
     //     );
     // }
-    #[test]
-    fn test_nu_record_sig() {
-        let sig = parse_nu_signature(
-            r#"
-                def main [ foo: record<a: string, b, c: int, d> ] { }
-            "#,
-        )
-        .unwrap();
+    // TODO: Re-enable for V1
+    // #[test]
+    // fn test_nu_record_sig() {
+    //     let sig = parse_nu_signature(
+    //         r#"
+    //             def main [ foo: record<a: string, b, c: int, d> ] { }
+    //         "#,
+    //     )
+    //     .unwrap();
 
-        assert_eq!(
-            MainArgSignature {
-                star_args: false,
-                star_kwargs: false,
-                args: vec![Arg {
-                    name: "foo".into(),
-                    otyp: None,
-                    typ: Typ::Object(vec![
-                        ObjectProperty { key: "a".into(), typ: Box::new(Typ::Str(None)) },
-                        ObjectProperty { key: "b".into(), typ: Box::new(Typ::Unknown) },
-                        ObjectProperty { key: "c".into(), typ: Box::new(Typ::Int) },
-                        ObjectProperty { key: "d".into(), typ: Box::new(Typ::Unknown) },
-                    ]),
-                    default: None,
-                    has_default: false,
-                    oidx: None
-                },],
-                no_main_func: Some(false),
-                has_preprocessor: None,
-            },
-            sig
-        );
-    }
+    //     assert_eq!(
+    //         MainArgSignature {
+    //             star_args: false,
+    //             star_kwargs: false,
+    //             args: vec![Arg {
+    //                 name: "foo".into(),
+    //                 otyp: None,
+    //                 typ: Typ::Object(vec![
+    //                     ObjectProperty { key: "a".into(), typ: Box::new(Typ::Str(None)) },
+    //                     ObjectProperty { key: "b".into(), typ: Box::new(Typ::Unknown) },
+    //                     ObjectProperty { key: "c".into(), typ: Box::new(Typ::Int) },
+    //                     ObjectProperty { key: "d".into(), typ: Box::new(Typ::Unknown) },
+    //                 ]),
+    //                 default: None,
+    //                 has_default: false,
+    //                 oidx: None
+    //             },],
+    //             no_main_func: Some(false),
+    //             has_preprocessor: None,
+    //         },
+    //         sig
+    //     );
+    // }
 
-    #[test]
-    fn test_nu_list_sig() {
-        let sig = parse_nu_signature(
-            r#"
-                def main [ foo: list<int> ] { }
-            "#,
-        )
-        .unwrap();
+    // TODO: Re-enable for V1
+    // #[test]
+    // fn test_nu_list_sig() {
+    //     let sig = parse_nu_signature(
+    //         r#"
+    //             def main [ foo: list<int> ] { }
+    //         "#,
+    //     )
+    //     .unwrap();
 
-        println!("{}", serde_json::to_string_pretty(&sig).unwrap());
+    //     println!("{}", serde_json::to_string_pretty(&sig).unwrap());
 
-        assert_eq!(
-            MainArgSignature {
-                star_args: false,
-                star_kwargs: false,
-                args: vec![Arg {
-                    name: "foo".into(),
-                    otyp: None,
-                    typ: Typ::List(Box::new(Typ::Int)),
-                    default: None,
-                    has_default: false,
-                    oidx: None
-                },],
-                no_main_func: Some(false),
-                has_preprocessor: None,
-            },
-            sig
-        );
-    }
+    //     assert_eq!(
+    //         MainArgSignature {
+    //             star_args: false,
+    //             star_kwargs: false,
+    //             args: vec![Arg {
+    //                 name: "foo".into(),
+    //                 otyp: None,
+    //                 typ: Typ::List(Box::new(Typ::Int)),
+    //                 default: None,
+    //                 has_default: false,
+    //                 oidx: None
+    //             },],
+    //             no_main_func: Some(false),
+    //             has_preprocessor: None,
+    //         },
+    //         sig
+    //     );
+    // }
 
     #[test]
     fn test_nu_datetime_sig() {
@@ -325,37 +327,38 @@ mod test {
             sig
         );
     }
-    #[test]
-    fn test_nu_table_sig() {
-        let sig = parse_nu_signature(
-            r#"
-                def main [ foo: table<a, b: int, c: string>] { }
-            "#,
-        )
-        .unwrap();
+    // TODO: Re-enable for V1
+    // #[test]
+    // fn test_nu_table_sig() {
+    //     let sig = parse_nu_signature(
+    //         r#"
+    //             def main [ foo: table<a, b: int, c: string>] { }
+    //         "#,
+    //     )
+    //     .unwrap();
 
-        assert_eq!(
-            MainArgSignature {
-                star_args: false,
-                star_kwargs: false,
-                args: vec![Arg {
-                    name: "foo".into(),
-                    otyp: None,
-                    typ: Typ::List(Box::new(Typ::Object(vec![
-                        ObjectProperty { key: "a".into(), typ: Box::new(Typ::Unknown) },
-                        ObjectProperty { key: "b".into(), typ: Box::new(Typ::Int) },
-                        ObjectProperty { key: "c".into(), typ: Box::new(Typ::Str(None)) },
-                    ]))),
-                    default: None,
-                    has_default: false,
-                    oidx: None
-                },],
-                no_main_func: Some(false),
-                has_preprocessor: None,
-            },
-            sig
-        );
-    }
+    //     assert_eq!(
+    //         MainArgSignature {
+    //             star_args: false,
+    //             star_kwargs: false,
+    //             args: vec![Arg {
+    //                 name: "foo".into(),
+    //                 otyp: None,
+    //                 typ: Typ::List(Box::new(Typ::Object(vec![
+    //                     ObjectProperty { key: "a".into(), typ: Box::new(Typ::Unknown) },
+    //                     ObjectProperty { key: "b".into(), typ: Box::new(Typ::Int) },
+    //                     ObjectProperty { key: "c".into(), typ: Box::new(Typ::Str(None)) },
+    //                 ]))),
+    //                 default: None,
+    //                 has_default: false,
+    //                 oidx: None
+    //             },],
+    //             no_main_func: Some(false),
+    //             has_preprocessor: None,
+    //         },
+    //         sig
+    //     );
+    // }
 
     #[test]
     fn test_nu_wrapup_sig() {
@@ -410,97 +413,98 @@ mod test {
             sig
         );
     }
-    #[test]
-    fn test_nu_wrapup_nested_sig() {
-        let sig = parse_nu_signature(
-            r#"
-                def main [ 
-                    baz: string,
-                    foo: record<a: string, 
-                                b, 
-                                c: list<int>, 
-                                d: record<a1, b1, c1>> 
-                         = 
-                         { 
-                            a: "a", 
-                            b: 3, 
-                            c: [ 2, 3, 4 ], 
-                            d: { 
-                                a: true, 
-                                b: false, 
-                                c: true 
-                            } 
-                        } 
-                        ] { }
-            "#,
-        )
-        .unwrap();
+    // #[test]
+    // fn test_nu_wrapup_nested_sig() {
+    //     let sig = parse_nu_signature(
+    //         r#"
+    //             def main [
+    //                 baz: string,
+    //                 foo: record<a: string,
+    //                             b,
+    //                             c: list<int>,
+    //                             d: record<a1, b1, c1>>
+    //                      =
+    //                      {
+    //                         a: "a",
+    //                         b: 3,
+    //                         c: [ 2, 3, 4 ],
+    //                         d: {
+    //                             a: true,
+    //                             b: false,
+    //                             c: true
+    //                         }
+    //                     }
+    //                     ] { }
+    //         "#,
+    //     )
+    //     .unwrap();
 
-        println!("{}", serde_json::to_string_pretty(&sig).unwrap());
+    //     println!("{}", serde_json::to_string_pretty(&sig).unwrap());
 
-        assert_eq!(
-            MainArgSignature {
-                star_args: false,
-                star_kwargs: false,
-                args: vec![
-                    Arg {
-                        name: "baz".into(),
-                        otyp: None,
-                        typ: Typ::Str(None),
-                        default: None,
-                        has_default: false,
-                        oidx: None
-                    },
-                    Arg {
-                        name: "foo".into(),
-                        otyp: None,
-                        typ: Typ::Object(vec![
-                            ObjectProperty { key: "a".into(), typ: Box::new(Typ::Str(None)) },
-                            ObjectProperty { key: "b".into(), typ: Box::new(Typ::Unknown) },
-                            ObjectProperty {
-                                key: "c".into(),
-                                typ: Box::new(Typ::List(Box::new(Typ::Int)))
-                            },
-                            ObjectProperty {
-                                key: "d".into(),
-                                typ: Box::new(Typ::Object(vec![
-                                    ObjectProperty {
-                                        key: "a1".into(),
-                                        typ: Box::new(Typ::Unknown)
-                                    },
-                                    ObjectProperty {
-                                        key: "b1".into(),
-                                        typ: Box::new(Typ::Unknown)
-                                    },
-                                    ObjectProperty {
-                                        key: "c1".into(),
-                                        typ: Box::new(Typ::Unknown)
-                                    }
-                                ]))
-                            },
-                        ]),
-                        default: Some(json!({
-                            "a": "a",
-                            "b": 3,
-                            "c": [
-                              2,
-                              3,
-                              4
-                            ],
-                            "d": {
-                              "a": true,
-                              "b": false,
-                              "c": true
-                            }
-                        })),
-                        has_default: true,
-                        oidx: None
-                    },
-                ],
-                no_main_func: Some(false),
-                has_preprocessor: None,
-            },
-            sig
-        );
-    }
+    // TODO: Re-enable for V1
+    //     assert_eq!(
+    //         MainArgSignature {
+    //             star_args: false,
+    //             star_kwargs: false,
+    //             args: vec![
+    //                 Arg {
+    //                     name: "baz".into(),
+    //                     otyp: None,
+    //                     typ: Typ::Str(None),
+    //                     default: None,
+    //                     has_default: false,
+    //                     oidx: None
+    //                 },
+    //                 Arg {
+    //                     name: "foo".into(),
+    //                     otyp: None,
+    //                     typ: Typ::Object(vec![
+    //                         ObjectProperty { key: "a".into(), typ: Box::new(Typ::Str(None)) },
+    //                         ObjectProperty { key: "b".into(), typ: Box::new(Typ::Unknown) },
+    //                         ObjectProperty {
+    //                             key: "c".into(),
+    //                             typ: Box::new(Typ::List(Box::new(Typ::Int)))
+    //                         },
+    //                         ObjectProperty {
+    //                             key: "d".into(),
+    //                             typ: Box::new(Typ::Object(vec![
+    //                                 ObjectProperty {
+    //                                     key: "a1".into(),
+    //                                     typ: Box::new(Typ::Unknown)
+    //                                 },
+    //                                 ObjectProperty {
+    //                                     key: "b1".into(),
+    //                                     typ: Box::new(Typ::Unknown)
+    //                                 },
+    //                                 ObjectProperty {
+    //                                     key: "c1".into(),
+    //                                     typ: Box::new(Typ::Unknown)
+    //                                 }
+    //                             ]))
+    //                         },
+    //                     ]),
+    //                     default: Some(json!({
+    //                         "a": "a",
+    //                         "b": 3,
+    //                         "c": [
+    //                           2,
+    //                           3,
+    //                           4
+    //                         ],
+    //                         "d": {
+    //                           "a": true,
+    //                           "b": false,
+    //                           "c": true
+    //                         }
+    //                     })),
+    //                     has_default: true,
+    //                     oidx: None
+    //                 },
+    //             ],
+    //             no_main_func: Some(false),
+    //             has_preprocessor: None,
+    //         },
+    //         sig
+    //     );
+    // }
 }
