@@ -147,10 +147,13 @@
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
+<<<<<<< HEAD
 	import type { AiProviderTypes } from './copilot/lib'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
+=======
+>>>>>>> main
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -646,7 +649,7 @@
 								textAfterPosition,
 								lang,
 								abortController,
-								aiProvider as AiProviderTypes
+								aiProvider
 							)
 							if (insertText) {
 								items = [
@@ -674,7 +677,7 @@
 	}
 
 	$: $copilotInfo.exists_ai_resource &&
-		$copilotInfo.code_completion_enabled &&
+		$copilotInfo.code_completion_model &&
 		$codeCompletionSessionEnabled &&
 		initialized &&
 		addCopilotSuggestions()
