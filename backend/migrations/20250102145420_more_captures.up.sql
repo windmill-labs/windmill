@@ -1,5 +1,5 @@
 -- Add up migration script here
-CREATE TYPE TRIGGER_KIND AS ENUM ('webhook', 'http', 'websocket', 'kafka', 'email', 'sqs');
+CREATE TYPE TRIGGER_KIND AS ENUM ('webhook', 'http', 'websocket', 'kafka', 'email');
 ALTER TABLE capture ADD COLUMN is_flow BOOLEAN NOT NULL DEFAULT TRUE, ADD COLUMN trigger_kind TRIGGER_KIND NOT NULL DEFAULT 'webhook', ADD COLUMN trigger_extra JSONB;
 ALTER TABLE capture ALTER COLUMN is_flow DROP DEFAULT, ALTER COLUMN trigger_kind DROP DEFAULT;
 ALTER TABLE capture DROP CONSTRAINT capture_pkey;
