@@ -170,7 +170,8 @@
 
 		let scriptPath = platform === 'slack' ? slackScriptPath : teamsScriptPath
 		let commandScriptKey = platform === 'slack' ? 'slack_command_script' : 'teams_command_script'
-		let updateCommandScript = platform === 'slack' ? WorkspaceService.editSlackCommand : WorkspaceService.editTeamsCommand
+		let updateCommandScript =
+			platform === 'slack' ? WorkspaceService.editSlackCommand : WorkspaceService.editTeamsCommand
 
 		if (scriptPath) {
 			console.log('editWorkspaceCommand', scriptPath)
@@ -178,23 +179,23 @@
 			await updateCommandScript({
 				workspace: $workspaceStore!,
 				requestBody: { [commandScriptKey]: `${itemKind}/${scriptPath}` }
-			});
-			sendUserToast(`${platform} command script set to ${scriptPath}`);
+			})
+			sendUserToast(`${platform} command script set to ${scriptPath}`)
 		} else {
 			await WorkspaceService.editSlackCommand({
 				workspace: $workspaceStore!,
 				requestBody: { [commandScriptKey]: undefined }
-			});
-			sendUserToast(`${platform} command script removed`);
+			})
+			sendUserToast(`${platform} command script removed`)
 		}
 	}
 
 	async function editSlackCommand(): Promise<void> {
-		await editWorkspaceCommand('slack');
+		await editWorkspaceCommand('slack')
 	}
 
 	async function editTeamsCommand(): Promise<void> {
-		await editWorkspaceCommand('teams');
+		await editWorkspaceCommand('teams')
 	}
 
 	async function editWebhook(): Promise<void> {
@@ -755,9 +756,12 @@
 		{:else if tab == 'slack'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace connections to Slack and Teams</div>
+					<div class="text-primary text-lg font-semibold"
+						>Workspace connections to Slack and Teams</div
+					>
 					<Description link="https://www.windmill.dev/docs/integrations/slack">
-						With workspace connections, you can trigger scripts or flows with a '/windmill' command with your Slack or Teams bot.
+						With workspace connections, you can trigger scripts or flows with a '/windmill' command
+						with your Slack or Teams bot.
 					</Description>
 				</div>
 
@@ -778,9 +782,9 @@
 						bind:initialPath={slackInitialPath}
 						bind:itemKind
 						onDisconnect={async () => {
-							await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' });
-							loadSettings();
-							sendUserToast('Disconnected Slack');
+							await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
+							loadSettings()
+							sendUserToast('Disconnected Slack')
 						}}
 						onSelect={editSlackCommand}
 						connectHref="{base}/api/oauth/connect_slack"
@@ -791,6 +795,14 @@
 						display_name={slack_team_name}
 					/>
 				{:else if slack_tabs === 'teams_commands'}
+					{#if !$enterpriseLicense}
+						<div class="pt-4" />
+						<Alert type="info" title="Workspace error handler is an EE feature">
+							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack / Teams
+							connection to run a custom script and send notifications.
+						</Alert>
+						<div class="pb-2" />
+					{/if}
 					<ConnectionSection
 						platform="teams"
 						teamName={teams_team_id}
@@ -798,9 +810,9 @@
 						bind:initialPath={teamsInitialPath}
 						bind:itemKind
 						onDisconnect={async () => {
-							await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' });
-							loadSettings();
-							sendUserToast('Disconnected Teams');
+							await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
+							loadSettings()
+							sendUserToast('Disconnected Teams')
 						}}
 						onSelect={editTeamsCommand}
 						connectHref={undefined}

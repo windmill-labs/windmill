@@ -4,7 +4,7 @@
 	import { Slack, Code2, RefreshCcw } from 'lucide-svelte'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, workspaceStore, enterpriseLicense } from '$lib/stores'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import type { ListAvailableTeamsIdsResponse } from '$lib/gen/types.gen'
@@ -22,7 +22,7 @@
 	export let documentationLink: string
 	export let onLoadSettings: () => void
 	export let itemKind: 'flow' | 'script' = 'script'
-	
+
 	let isFetching = false
 
 	let teams: ListAvailableTeamsIdsResponse = []
@@ -31,30 +31,26 @@
 	async function loadTeams() {
 		isFetching = true
 		selected_teams_team = undefined
-		teams = await WorkspaceService.listAvailableTeamsIds({ workspace: $workspaceStore! }) ?? []
+		teams = (await WorkspaceService.listAvailableTeamsIds({ workspace: $workspaceStore! })) ?? []
 		isFetching = false
 	}
 
-	$: workspaceStore && platform === 'teams' && loadTeams()
+	$: workspaceStore && platform && $enterpriseLicense === 'teams' && loadTeams()
 
 	async function connectTeams() {
-		const selectedTeam = teams.find(team => team.team_id === selected_teams_team);
-		const selectedTeamName = selectedTeam ? selectedTeam.team_name : undefined;
-		console.log('teams', teams)
-		console.log('selectedTeam', selectedTeam)
-		console.log('selectedTeamName', selectedTeamName)
-		console.log('selected_teams_team', selected_teams_team)
+		const selectedTeam = teams.find((team) => team.team_id === selected_teams_team)
+		const selectedTeamName = selectedTeam ? selectedTeam.team_name : undefined
 
 		await WorkspaceService.connectTeams({
 			workspace: $workspaceStore!,
 			requestBody: {
 				team_id: selected_teams_team,
-				team_name: selectedTeamName,
-			},
-		});
-		sendUserToast('Connected to Teams to Workspace');
-		onLoadSettings();
-		loadTeams();
+				team_name: selectedTeamName
+			}
+		})
+		sendUserToast('Connected to Teams to Workspace')
+		onLoadSettings()
+		loadTeams()
 	}
 </script>
 
@@ -71,25 +67,29 @@
 {#if teamName}
 	<div class="flex flex-col gap-2 max-w-sm">
 		<div class="flex flex-row gap-2">
-		<Button
-			size="sm"
-			endIcon={{ icon: platform === 'slack' ? Slack : MsTeamsIcon }}
-			btnClasses="mt-2"
-			variant="border"
-			on:click={onDisconnect}
-		>
-			Disconnect {platform.charAt(0).toUpperCase() + platform.slice(1)}
-		</Button>
-		{#if display_name}
-			<Badge class="mt-2" color="green">Connected to Team '{display_name}'</Badge>
-		{/if}
+			<Button
+				size="sm"
+				endIcon={{ icon: platform === 'slack' ? Slack : MsTeamsIcon }}
+				btnClasses="mt-2"
+				variant="border"
+				disabled={!$enterpriseLicense && platform === 'teams'}
+				on:click={onDisconnect}
+			>
+				Disconnect {platform.charAt(0).toUpperCase() + platform.slice(1)}
+				{!$enterpriseLicense && platform === 'teams' ? '(EE only)' : ''}
+			</Button>
+			{#if display_name}
+				<Badge class="mt-2" color="green">Connected to Team '{display_name}'</Badge>
+			{/if}
 		</div>
-		<Button size="sm" endIcon={{ icon: Code2 }} href={createScriptHref}>
-			Create a script to handle {platform} commands
-		</Button>
-		<Button size="sm" endIcon={{ icon: BarsStaggered }} href={createFlowHref}>
-			Create a flow to handle {platform} commands
-		</Button>
+		{#if $enterpriseLicense || platform === 'slack'}
+			<Button size="sm" endIcon={{ icon: Code2 }} href={createScriptHref}>
+				Create a script to handle {platform} commands
+			</Button>
+			<Button size="sm" endIcon={{ icon: BarsStaggered }} href={createFlowHref}>
+				Create a flow to handle {platform} commands
+			</Button>
+		{/if}
 	</div>
 {:else}
 	<div class="flex flex-row gap-2">
@@ -99,41 +99,38 @@
 				color="dark"
 				on:click={connectTeams}
 				startIcon={{ icon: MsTeamsIcon }}
-				disabled={!selected_teams_team}
+				disabled={!selected_teams_team || !enterpriseLicense}
 			>
 				Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
+				{$enterpriseLicense ? '' : '(EE only)'}
 			</Button>
-			<div class="w-64 flex flex-row gap-2">
-				<select bind:value={selected_teams_team}>
-					<!-- <option value="" disabled selected>Select team</option> -->
-					{#if !isFetching}
-						{#if teams.length === 0}
-							<option value="" disabled selected>No unassigned teams found</option>
+			{#if $enterpriseLicense}
+				<div class="w-64 flex flex-row gap-2">
+					<select bind:value={selected_teams_team}>
+						{#if !isFetching}
+							{#if teams.length === 0}
+								<option value="" disabled selected>No unassigned teams found</option>
+							{:else}
+								<option value="" disabled selected>Select team</option>
+								{#each teams as team}
+									<option value={team.team_id}>
+										{team.team_name}
+									</option>
+								{/each}
+							{/if}
 						{:else}
-							<option value="" disabled selected>Select team</option>
-							{#each teams as team}
-								<option value={team.team_id}>
-									{team.team_name}
-								</option>
-							{/each}
+							<option value="" disabled selected>Loading...</option>
 						{/if}
-					{:else}
-						<option value="" disabled selected>Loading...</option>
-					{/if}
-				</select>
-			</div>
-			<div class="pt-1">
-			<button on:click={loadTeams} class="flex items-center gap-1 mt-2">
-				<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-			</button>
-			</div>
+					</select>
+				</div>
+				<div class="pt-1">
+					<button on:click={loadTeams} class="flex items-center gap-1 mt-2">
+						<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
+					</button>
+				</div>
+			{/if}
 		{:else}
-			<Button
-				size="xs"
-				color="dark"
-				href={connectHref}
-				startIcon={{ icon: Slack }}
-			>
+			<Button size="xs" color="dark" href={connectHref} startIcon={{ icon: Slack }}>
 				Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
 			</Button>
 		{/if}
@@ -144,7 +141,7 @@
 <div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
 	<div class="text-primary font-md font-semibold"> Script or flow to run on /windmill command </div>
 	<div class="relative">
-		{#if !teamName}
+		{#if !teamName || (!$enterpriseLicense && platform === 'teams')}
 			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
 		{/if}
 		<ScriptPicker
