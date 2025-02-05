@@ -22,6 +22,7 @@ keep_caps: true
 keep_env: true
 mount_proc: true
 
+
 mount {
     src: "/bin"
     dst: "/bin"
@@ -72,6 +73,13 @@ mount {
     src: "{WORKER_DIR}/download_deps.py.sh"
     dst: "/download_deps.sh"
     is_bind: true
+}
+
+mount {
+    src: "{TARGET_DIR}"
+    dst: "{TARGET_DIR}"
+    is_bind: true
+    rw: true
 }
 
 mount {
