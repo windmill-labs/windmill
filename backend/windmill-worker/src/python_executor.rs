@@ -1936,14 +1936,6 @@ pub async fn handle_python_reqs(
             })
             .replace("{WORKER_DIR}", &worker_dir)
             .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
-            .replace(
-                "{CACHE_DIR}",
-                &(if no_uv_install {
-                    PIP_CACHE_DIR.to_owned()
-                } else {
-                    py_version.to_cache_dir()
-                }),
-            )
             .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
     };
