@@ -1,13 +1,14 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
 
+import type { IntrospectionQuery } from 'graphql'
 import {
-	type WorkspaceDefaultScripts,
+	type AIProvider,
+	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
-  type OperatorSettings
+	type WorkspaceDefaultScripts
 } from './gen'
-import type { IntrospectionQuery } from 'graphql'
 import { getLocalSetting } from './utils'
 
 export interface UserExt {
@@ -82,13 +83,14 @@ export const userWorkspaces: Readable<
 	}
 })
 export const copilotInfo = writable<{
-	ai_provider: string
+	ai_provider: AIProvider
 	exists_ai_resource: boolean
-	code_completion_enabled: boolean
+	code_completion_model?: string
+	ai_models: string[]
 }>({
-	ai_provider: '',
+	ai_provider: 'openai',
 	exists_ai_resource: false,
-	code_completion_enabled: false
+	ai_models: []
 })
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
@@ -102,6 +104,9 @@ export const formatOnSave = writable<boolean>(
 export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
+)
+export const copilotSessionModel = writable<string | undefined>(
+	getLocalSetting(CODE_COMPLETION_SETTING_NAME) ?? undefined
 )
 export const usedTriggerKinds = writable<string[]>([])
 

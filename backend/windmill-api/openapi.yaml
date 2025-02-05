@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.456.0
+  version: 1.457.0
   title: Windmill API
 
   contact:
@@ -1745,9 +1745,13 @@ paths:
                   deploy_to:
                     type: string
                   ai_resource:
-                    $ref: "#/components/schemas/AiResource"
-                  code_completion_enabled:
-                    type: boolean
+                    $ref: "#/components/schemas/AIResource"
+                  code_completion_model:
+                    type: string
+                  ai_models:
+                    type: array
+                    items:
+                      type: string
                   error_handler:
                     type: string
                   error_handler_extra_args:
@@ -1771,7 +1775,7 @@ paths:
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
                 required:
-                  - code_completion_enabled
+                  - ai_models
                   - automatic_billing
                   - error_handler_muted_on_cancel
 
@@ -2084,12 +2088,16 @@ paths:
             schema:
               type: object
               required:
-                - code_completion_enabled
+                - ai_models
               properties:
                 ai_resource:
-                  $ref: "#/components/schemas/AiResource"
-                code_completion_enabled:
-                  type: boolean
+                  $ref: "#/components/schemas/AIResource"
+                code_completion_model:
+                  type: string
+                ai_models:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: status
@@ -2116,15 +2124,18 @@ paths:
                 type: object
                 properties:
                   ai_provider:
-                    type: string
+                    $ref: "#/components/schemas/AIProvider"
                   exists_ai_resource:
                     type: boolean
-                  code_completion_enabled:
-                    type: boolean
+                  code_completion_model:
+                    type: string
+                  ai_models:
+                    type: array
+                    items:
+                      type: string
                 required:
-                  - ai_provider
                   - exists_ai_resource
-                  - code_completion_enabled
+                  - ai_models
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -11574,16 +11585,21 @@ components:
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
 
-    AiResource:
+    AIProvider:
+      type: string
+      enum: [openai, anthropic, mistral, deepseek, groq, openrouter, customai]
+
+    AIResource:
       type: object
       properties:
         path:
           type: string
         provider:
-          type: string
+          $ref: "#/components/schemas/AIProvider"
       required:
         - path
         - provider
+
     Script:
       type: object
       properties:
