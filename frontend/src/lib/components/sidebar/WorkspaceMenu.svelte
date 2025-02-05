@@ -18,7 +18,7 @@
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import { initAllAiWorkspace } from '../copilot/lib'
+	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 
 	export let isCollapsed: boolean = false
@@ -31,7 +31,7 @@
 		if ($workspaceStore === id) {
 			return
 		}
-		initAllAiWorkspace(id, true)
+		workspaceAIClients.init(id)
 		const editPages = [
 			'/scripts/edit/',
 			'/flows/edit/',

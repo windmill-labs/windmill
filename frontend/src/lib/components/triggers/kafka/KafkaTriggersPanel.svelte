@@ -6,7 +6,6 @@
 	import KafkaTriggerEditor from './KafkaTriggerEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Section from '$lib/components/Section.svelte'
-	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Description from '$lib/components/Description.svelte'
 	import { Alert } from '$lib/components/common'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -20,6 +19,8 @@
 	export let hasPreprocessor: boolean = false
 
 	let kafkaTriggerEditor: KafkaTriggerEditor
+	let openForm = true
+	let dontCloseOnLoad = false
 
 	$: path && loadTriggers()
 
@@ -50,6 +51,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			})
 			$triggersCount = { ...($triggersCount ?? {}), kafka_count: kafkaTriggers?.length }
+			openForm = kafkaTriggers?.length === 0 || dontCloseOnLoad
 		} catch (e) {
 			console.error('impossible to load Kafka triggers', e)
 		}
@@ -85,6 +87,32 @@
 		<Description link="https://www.windmill.dev/docs/core_concepts/kafka_triggers">
 			Kafka triggers execute scripts and flows in response to messages published to Kafka topics.
 		</Description>
+		{#if !newItem && kafkaTriggers && kafkaTriggers.length > 0}
+			<Section label="Kafka triggers">
+				<div class="flex flex-col divide-y pt-2">
+					{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
+						<div class="grid grid-cols-5 text-2xs items-center py-2">
+							<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
+							<div class="col-span-2 truncate">
+								{kafkaTrigger.kafka_resource_path}
+							</div>
+							<div class="flex justify-end">
+								<button
+									on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
+									class="px-2"
+								>
+									{#if kafkaTrigger.canWrite}
+										Edit
+									{:else}
+										View
+									{/if}
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</Section>
+		{/if}
 		<TriggersEditorSection
 			on:saveTrigger={(e) => {
 				saveTrigger(path, e.detail.config)
@@ -102,41 +130,8 @@
 			{canHavePreprocessor}
 			{hasPreprocessor}
 			{newItem}
+			{openForm}
+			bind:showCapture={dontCloseOnLoad}
 		/>
-
-		{#if !newItem}
-			{#if kafkaTriggers}
-				<Section label="Kafka triggers">
-					{#if kafkaTriggers.length == 0}
-						<div class="text-xs text-secondary text-center"> No Kafka triggers </div>
-					{:else}
-						<div class="flex flex-col divide-y pt-2">
-							{#each kafkaTriggers as kafkaTrigger (kafkaTrigger.path)}
-								<div class="grid grid-cols-5 text-2xs items-center py-2">
-									<div class="col-span-2 truncate">{kafkaTrigger.path}</div>
-									<div class="col-span-2 truncate">
-										{kafkaTrigger.kafka_resource_path}
-									</div>
-									<div class="flex justify-end">
-										<button
-											on:click={() => kafkaTriggerEditor?.openEdit(kafkaTrigger.path, isFlow)}
-											class="px-2"
-										>
-											{#if kafkaTrigger.canWrite}
-												Edit
-											{:else}
-												View
-											{/if}
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</Section>
-			{:else}
-				<Skeleton layout={[[8]]} />
-			{/if}
-		{/if}
 	</div>
 {/if}

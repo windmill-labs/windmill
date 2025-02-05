@@ -1,15 +1,11 @@
-import { yamlStringify } from "./deps.ts";
-import { Confirm } from "./deps.ts";
-import { colors } from "./deps.ts";
-import { yamlParseFile } from "./deps.ts";
-import { log } from "./deps.ts";
+import process from "node:process";
+import { colors, Confirm, log, yamlParseFile, yamlStringify } from "./deps.ts";
+import * as wmill from "./gen/services.gen.ts";
+import { AiResource, Config, GlobalSetting } from "./gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
-import * as wmill from "./gen/services.gen.ts";
-import { AiResource, Config, GlobalSetting } from "./gen/types.gen.ts";
 import { removeWorkerPrefix } from "./worker_groups.ts";
-import process from "node:process";
 
 export interface SimplifiedSettings {
   // slack_team_id?: string;
@@ -25,7 +21,8 @@ export interface SimplifiedSettings {
   error_handler_extra_args?: any;
   error_handler_muted_on_cancel?: boolean;
   ai_resource?: AiResource;
-  code_completion_enabled: boolean;
+  code_completion_model?: string;
+  ai_models: string[];
   large_file_storage?: any;
   git_sync?: any;
   default_app?: string;
@@ -81,7 +78,8 @@ export async function pushWorkspaceSettings(
       error_handler_muted_on_cancel:
         remoteSettings.error_handler_muted_on_cancel,
       ai_resource: remoteSettings.ai_resource,
-      code_completion_enabled: remoteSettings.code_completion_enabled,
+      code_completion_model: remoteSettings.code_completion_model,
+      ai_models: remoteSettings.ai_models,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
       default_app: remoteSettings.default_app,
@@ -153,15 +151,17 @@ export async function pushWorkspaceSettings(
     }
   }
   if (
-    localSettings.ai_resource !== settings.ai_resource ||
-    localSettings.code_completion_enabled !== settings.code_completion_enabled
+    localSettings.ai_resource != settings.ai_resource ||
+    localSettings.code_completion_model != settings.code_completion_model ||
+    !deepEqual(localSettings.ai_models, settings.ai_models)
   ) {
-    log.debug(`Updating openai settings...`);
+    log.debug(`Updating copilot settings...`);
     await wmill.editCopilotConfig({
       workspace,
       requestBody: {
         ai_resource: localSettings.ai_resource,
-        code_completion_enabled: localSettings.code_completion_enabled,
+        code_completion_model: localSettings.code_completion_model,
+        ai_models: localSettings.ai_models,
       },
     });
   }
@@ -282,7 +282,9 @@ export async function readInstanceSettings(opts: InstanceSyncOptions) {
   await checkInstanceSettingsPath(opts);
 
   try {
-    localSettings = (await yamlParseFile(instanceSettingsPath)) as GlobalSetting[];
+    localSettings = (await yamlParseFile(
+      instanceSettingsPath
+    )) as GlobalSetting[];
   } catch {
     log.warn(`No ${instanceSettingsPath} found`);
   }
@@ -445,9 +447,7 @@ export async function pushInstanceSettings(
   }
 }
 
-export async function readLocalConfigs(
-  opts: InstanceSyncOptions
-) {
+export async function readLocalConfigs(opts: InstanceSyncOptions) {
   let localConfigs: Config[] = [];
 
   await checkInstanceConfigPath(opts);

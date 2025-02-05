@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getCompletion, getResponseFromEvent, type AiProviderTypes } from './lib'
+	import { getCompletion, getResponseFromEvent } from './lib'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
@@ -118,7 +118,7 @@ Generate a description for the flow below:
 					content: config.user.replace(`{${config.placeholderName}}`, placeholderContent)
 				}
 			]
-			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
+			const aiProvider = $copilotInfo.ai_provider
 			const response = await getCompletion(messages, abortController, aiProvider)
 			generatedContent = ''
 			for await (const chunk of response) {
