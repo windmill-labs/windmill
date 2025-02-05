@@ -35,7 +35,7 @@
 				return false
 			}
 
-			if (invalidRelations(args.publication.table_to_track, true).isError === true) {
+			if (invalidRelations(args.publication.table_to_track, true) === true) {
 				return false
 			}
 		}

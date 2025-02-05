@@ -12,10 +12,21 @@
 	export let relations: Relations[] = []
 	export let selectedTable: 'all' | 'specific'
 	export let can_write: boolean = true
+	let cached: Relations[] = relations
 </script>
 
 <div class="flex flex-col gap-4">
-	<ToggleButtonGroup bind:selected={selectedTable}>
+	<ToggleButtonGroup
+		on:selected={() => {
+			if (selectedTable === 'all') {
+				cached = relations
+				relations = []
+			} else {
+				relations = cached
+			}
+		}}
+		bind:selected={selectedTable}
+	>
 		<ToggleButton value="all" label="All Tables" />
 		<ToggleButton value="specific" label="Specific Tables" />
 	</ToggleButtonGroup>
@@ -167,10 +178,15 @@
 					if (relations == undefined || !Array.isArray(relations)) {
 						relations = []
 						relations = relations.concat({
-							schema_name: '',
+							schema_name: 'public',
 							table_to_track: []
 						})
-					} else if (invalidRelations(relations, true).isError === false) {
+					} else if (relations.length === 0) {
+						relations = relations.concat({
+							schema_name: 'public',
+							table_to_track: []
+						})
+					} else if (invalidRelations(relations, true) === false) {
 						relations = relations.concat({
 							schema_name: '',
 							table_to_track: []

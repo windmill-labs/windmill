@@ -29,7 +29,9 @@ use windmill_common::{
 };
 
 use super::{
-    create_logical_replication_slot_query, create_publication_query, drop_logical_replication_slot_query, drop_publication_query, generate_random_string, get_database_connection
+    create_logical_replication_slot_query, create_publication_query,
+    drop_logical_replication_slot_query, drop_publication_query, generate_random_string,
+    get_database_connection, ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 use lazy_static::lazy_static;
 
@@ -82,7 +84,7 @@ impl Relations {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct EditPostgresTrigger {
     replication_slot_name: String,
     publication_name: String,
@@ -161,7 +163,8 @@ where
     D: Deserializer<'de>,
 {
     let relations: Option<Vec<Relations>> = Option::deserialize(relations)?;
-
+    let mut track_all_table_in_schema = false;
+    let mut track_specific_columns_in_table = false;
     match relations {
         Some(relations) => {
             for relation in relations.iter() {
@@ -171,12 +174,25 @@ where
                     ));
                 }
 
+                if !track_all_table_in_schema && relation.table_to_track.is_empty() {
+                    track_all_table_in_schema = true;
+                    continue;
+                }
+
                 for table_to_track in relation.table_to_track.iter() {
                     if table_to_track.table_name.trim().is_empty() {
                         return Err(serde::de::Error::custom(
                             "Table name must not be empty".to_string(),
                         ));
                     }
+
+                    if !track_specific_columns_in_table && !table_to_track.columns_name.is_empty() {
+                        track_specific_columns_in_table = true;
+                    }
+                }
+
+                if track_all_table_in_schema && track_specific_columns_in_table {
+                    return Err(serde::de::Error::custom("Incompatible tracking options. Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations."));
                 }
             }
 
@@ -242,6 +258,41 @@ impl PostgresPublicationReplication {
     ) -> PostgresPublicationReplication {
         PostgresPublicationReplication { publication_name, replication_slot_name }
     }
+}
+
+async fn check_if_publication_exist(
+    connection: &mut PgConnection,
+    publication_name: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "SELECT pubname FROM pg_publication WHERE pubname = $1",
+        publication_name
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|err| match err {
+        sqlx::Error::RowNotFound => {
+            Error::BadRequest(ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string())
+        }
+        err => Error::SqlErr(err),
+    })?;
+    Ok(())
+}
+
+async fn check_if_logical_replication_slot_exist(
+    connection: &mut PgConnection,
+    replication_slot_name: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "SELECT slot_name FROM pg_replication_slots where slot_name = $1",
+        &replication_slot_name
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|err| match err {
+        _ => Error::BadRequest(ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string()),
+    })?;
+    Ok(())
 }
 
 async fn create_custom_slot_and_publication_inner(
@@ -315,7 +366,6 @@ pub async fn create_postgres_trigger(
             "Publication data is missing".to_string(),
         ));
     }
-
     let (pub_name, slot_name) = if publication_name.is_none() && replication_slot_name.is_none() {
         if publication.is_none() {
             return Err(Error::BadRequest("publication must be set".to_string()));
@@ -651,11 +701,11 @@ pub async fn get_publication_info(
     let publication_data =
         get_publication_scope_and_transaction(&mut connection, &publication_name).await;
 
-    let (all_table, transaction_to_track) = match publication_data {
+        let (all_table, transaction_to_track) = match publication_data {
         Ok(pub_data) => pub_data,
         Err(Error::SqlErr(sqlx::Error::RowNotFound)) => {
             return Err(Error::NotFound(
-                "Publication was not found, please create a new publication".to_string(),
+                ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
             ))
         }
         Err(e) => return Err(e),
@@ -838,6 +888,8 @@ pub async fn alter_publication(
     )
     .await?;
 
+    check_if_publication_exist(&mut connection, &publication_name).await?;
+
     let (all_table, _) =
         get_publication_scope_and_transaction(&mut connection, &publication_name).await?;
 
@@ -914,14 +966,18 @@ async fn get_tracked_relations(
         PublicationData,
         r#"
             SELECT
-                schemaname AS schema_name,
-                tablename AS table_name,
-                attnames AS columns,
-                rowfilter AS where_clause
+            schemaname AS schema_name,
+            tablename AS table_name,
+            CASE
+                WHEN array_length(attnames, 1) = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = pg_publication_tables.schemaname AND table_name = pg_publication_tables.tablename)
+                THEN NULL
+                ELSE attnames
+            END AS columns,
+            rowfilter AS where_clause
             FROM
                 pg_publication_tables
             WHERE
-                pubname = $1
+                pubname = $1;
             "#,
         publication_name
     )
@@ -936,7 +992,7 @@ async fn get_tracked_relations(
         let table_to_track = TableToTrack::new(
             publication.table_name.unwrap(),
             publication.where_clause,
-            publication.columns.unwrap(),
+            publication.columns.unwrap_or_default(),
         );
         match entry {
             Occupied(mut occuped) => {
@@ -1002,6 +1058,7 @@ pub async fn update_postgres_trigger(
     Json(postgres_trigger): Json<EditPostgresTrigger>,
 ) -> Result<String> {
     let workspace_path = path.to_path();
+
     let EditPostgresTrigger {
         replication_slot_name,
         publication_name,
@@ -1012,20 +1069,23 @@ pub async fn update_postgres_trigger(
         publication,
     } = postgres_trigger;
 
+    let mut connection = get_database_connection(
+        authed.clone(),
+        Some(user_db.clone()),
+        &db,
+        &postgres_resource_path,
+        &w_id,
+    )
+    .await?;
+
+    check_if_logical_replication_slot_exist(&mut connection, &replication_slot_name).await?;
+
     if let Some(publication) = publication {
-        let mut connection = get_database_connection(
-            authed.clone(),
-            Some(user_db.clone()),
-            &db,
-            &postgres_resource_path,
-            &w_id,
-        )
-        .await?;
+        check_if_publication_exist(&mut connection, &publication_name).await?;
         let (all_table, _) =
             get_publication_scope_and_transaction(&mut connection, &publication_name).await?;
 
         let queries = get_update_publication_query(&publication_name, publication, all_table);
-
         for query in queries {
             sqlx::query(&query).execute(&mut connection).await?;
         }

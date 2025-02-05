@@ -40,15 +40,25 @@
 					]
 			  }
 			: publication
-	let notEmpty = publication.table_to_track && publication.table_to_track.length > 0
-
 	$: notEmpty = publication.table_to_track && publication.table_to_track.length > 0
 	let selectedTable: 'all' | 'specific' = notEmpty ? 'specific' : 'all'
 	$: isValid =
 		!emptyString(postgres_resource_path) &&
 		publication.transaction_to_track.length > 0 &&
 		(selectedTable === 'all' || (notEmpty ?? false))
-	$: selectedTable === 'all' && (publication.table_to_track = [])
+
+	$: if (emptyString(postgres_resource_path)) {
+		selectedTable = 'specific'
+		publication = {
+			transaction_to_track: ['Insert', 'Update', 'Delete'],
+			table_to_track: [
+				{
+					schema_name: 'public',
+					table_to_track: []
+				}
+			]
+		}
+	}
 </script>
 
 <div>

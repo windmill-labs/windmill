@@ -55,8 +55,7 @@
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let selectedTable: 'all' | 'specific' = 'specific'
-	let tab: 'advanced' | 'basic'
-	$: table_to_track = selectedTable === 'all' ? [] : relations
+	let tab: 'advanced' | 'basic' = 'basic'
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -65,7 +64,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					transaction_to_track: transaction_to_track,
-					table_to_track
+					table_to_track: relations
 				}
 			})
 
@@ -185,7 +184,7 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (selectedTable === 'specific' && invalidRelations(table_to_track, true).isError === true) {
+		if (selectedTable === 'specific' && invalidRelations(relations, true) === true) {
 			return
 		}
 		if (edit) {
@@ -204,7 +203,7 @@
 						tab === 'basic'
 							? {
 									transaction_to_track,
-									table_to_track
+									table_to_track: relations
 							  }
 							: undefined
 				}
@@ -223,7 +222,7 @@
 					publication_name: tab === 'basic' ? undefined : publication_name,
 					publication: {
 						transaction_to_track,
-						table_to_track
+						table_to_track: relations
 					}
 				}
 			})
@@ -297,9 +296,9 @@
 					disabled={pathError != '' ||
 						emptyString(postgres_resource_path) ||
 						emptyString(script_path) ||
-						((emptyString(replication_slot_name) || emptyString(publication_name)) &&
-							tab === 'advanced') ||
-						(relations.length === 0 && tab === 'basic') ||
+						(tab === 'advanced' && emptyString(replication_slot_name)) ||
+						emptyString(publication_name) ||
+						(selectedTable !== 'all' && tab === 'basic' && relations.length === 0) ||
 						transaction_to_track.length === 0 ||
 						!can_write}
 					on:click={updateTrigger}
@@ -464,7 +463,7 @@
 											<TabContent value="advanced">
 												<div class="flex flex-col gap-6"
 													><Section
-														label="Replication slot management"
+														label="Replication slot"
 														tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
 														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
 													>
@@ -505,7 +504,7 @@
 													</Section>
 
 													<Section
-														label="Publication management"
+														label="Publication"
 														tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
 														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
 													>
@@ -552,7 +551,6 @@
 																	{can_write}
 																	{postgres_resource_path}
 																	bind:transaction_to_track
-																	bind:table_to_track
 																	bind:relations
 																	bind:items={publicationItems}
 																	bind:publication_name

@@ -43,6 +43,10 @@ mod trigger;
 pub use handler::PublicationData;
 pub use trigger::start_database;
 
+const ERROR_REPLICATION_SLOT_NOT_EXISTS: &str = r#"The replication slot associated with this trigger no longer exists. Recreate a new replication slot or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
+
+const ERROR_PUBLICATION_NAME_NOT_EXISTS: &str = r#"The publication associated with this trigger no longer exists. Recreate a new publication or select an existing one in the advanced tab, or delete and reacreate a new trigger"#;
+
 pub async fn get_database_connection(
     authed: ApiAuthed,
     user_db: Option<UserDB>,
@@ -174,7 +178,10 @@ pub fn drop_publication_query(publication_name: &str) -> String {
 }
 
 pub fn drop_logical_replication_slot_query(replication_slot_name: &str) -> String {
-    format!("SELECT pg_drop_replication_slot({});", quote_literal(&replication_slot_name))
+    format!(
+        "SELECT pg_drop_replication_slot({});",
+        quote_literal(&replication_slot_name)
+    )
 }
 
 pub fn generate_random_string() -> String {

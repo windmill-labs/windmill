@@ -14,7 +14,6 @@
 	export let can_write: boolean = true
 	export let publication_name: string = ''
 	export let postgres_resource_path: string = ''
-	export let table_to_track: Relations[] = []
 	export let relations: Relations[] = []
 	export let transaction_to_track: string[] = []
 	export let selectedTable: 'all' | 'specific' = 'specific'
@@ -39,7 +38,7 @@
 				workspace: $workspaceStore!,
 				publication: publication_name,
 				requestBody: {
-					table_to_track,
+					table_to_track: relations,
 					transaction_to_track: transaction_to_track
 				}
 			})

@@ -35,6 +35,7 @@ use super::{
     drop_logical_replication_slot_query, drop_publication_query, get_database_connection,
     handler::{Database, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 
 pub struct LogicalReplicationSettings {
@@ -113,6 +114,7 @@ impl PostgresSimpleClient {
         let connector = MakeTlsConnector::new(TlsConnector::new()?);
 
         let (client, connection) = config.connect(connector).await?;
+
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 tracing::debug!("{:#?}", e);
@@ -121,6 +123,13 @@ impl PostgresSimpleClient {
         });
 
         Ok(PostgresSimpleClient(client))
+    }
+
+    async fn execute_query(
+        &self,
+        query: &str,
+    ) -> Result<Vec<SimpleQueryMessage>, rust_postgres::Error> {
+        self.0.simple_query(query).await
     }
 
     async fn get_logical_replication_stream(
@@ -453,6 +462,32 @@ impl PostgresConfig {
 
         let client = PostgresSimpleClient::new(&database).await?;
 
+        let publication = client
+            .execute_query(&format!(
+                "SELECT pubname FROM pg_publication WHERE pubname = {}",
+                quote_literal(&publication_name)
+            ))
+            .await?;
+
+        if !publication.row_exist() {
+            return Err(Error::Common(error::Error::BadConfig(
+                ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
+            )));
+        }
+
+        let replication_slot = client
+            .execute_query(&format!(
+                "SELECT slot_name FROM pg_replication_slots WHERE slot_name = {}",
+                quote_literal(&replication_slot_name)
+            ))
+            .await?;
+
+        if !replication_slot.row_exist() {
+            return Err(Error::Common(error::Error::BadConfig(
+                ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string(),
+            )));
+        }
+
         let (logical_replication_stream, logical_replication_settings) = client
             .get_logical_replication_stream(&publication_name, &replication_slot_name)
             .await?;
@@ -511,7 +546,7 @@ impl PostgresConfig {
                 let query = drop_publication_query(publication_name);
 
                 let _ = sqlx::query(&query).execute(&mut connection).await;
-                
+
                 Ok(())
             }
         }
