@@ -120,9 +120,11 @@ pub async fn do_mssql(
             let tcp = TcpStream::connect(config.get_addr()).await?;
             tcp.set_nodelay(true)?;
 
-            Client::connect(config, tcp.compat_write()).await.map_err(to_anyhow)?
+            Client::connect(config, tcp.compat_write())
+                .await
+                .map_err(to_anyhow)?
         }
-        Err(e) => return Err(Error::Anyhow(to_anyhow(e))),
+        Err(e) => return Err(to_anyhow(e).into()),
     };
 
     let sig = parse_mssql_sig(&query)
