@@ -113,6 +113,7 @@ pub struct TestPostgres {
     pub postgres_resource_path: String,
 }
 
+
 pub async fn test_postgres_connection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -129,12 +130,18 @@ pub async fn test_postgres_connection(
             &workspace_id,
         )
         .await
-        .map_err(|e| e.into())
+        .map_err(|err| {
+            error::Error::BadConfig(format!("Error connecting to postgres: {}", err.to_string()))
+        })
     };
+    tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
+        .await
+        .map_err(|_| {
+            error::Error::BadConfig(format!("Timeout connecting to postgres after 30 seconds"))
+        })??;
 
-    connect_f.await
+    Ok(())
 }
-
 
 #[derive(Deserialize, Debug)]
 pub enum Language {
@@ -268,7 +275,7 @@ async fn check_if_publication_exist(
         sqlx::Error::RowNotFound => {
             Error::BadRequest(ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string())
         }
-        err => Error::SqlErr(err),
+        err => Error::SqlErr { error: err, location: "pg_trigger".to_string() },
     })?;
     Ok(())
 }
