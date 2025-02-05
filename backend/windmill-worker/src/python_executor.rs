@@ -2333,6 +2333,10 @@ pub async fn handle_python_reqs(
             #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
             let s3_push = false;
 
+            if !*DISABLE_NSJAIL {
+                let _ = std::fs::remove_file(format!("{job_dir}/{req}.config.proto"));
+            }
+
             print_success(
                 false,
                 s3_push,
