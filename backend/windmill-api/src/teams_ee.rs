@@ -1,23 +1,19 @@
-use axum::Router;
-use windmill_common::error::{Error, Result};
+use http::status::StatusCode;
+use windmill_common::error::Error;
 
-pub fn teams_service() -> Router {
-    Router::new()
-}
-
-pub fn edit_teams_command() -> Result<String> {
+pub async fn edit_teams_command() -> Result<StatusCode, Error> {
     return Err(Error::BadRequest(
         "Deploy to is only available on enterprise".to_string(),
     ));
 }
 
-pub fn workspaces_list_available_teams_ids() -> Result<String> {
+pub async fn workspaces_list_available_teams_ids() -> Result<StatusCode, Error> {
     return Err(Error::BadRequest(
         "Deploy to is only available on enterprise".to_string(),
     ));
 }
 
-pub fn connect_teams() -> Result<String> {
+pub async fn connect_teams() -> Result<StatusCode, Error> {
     return Err(Error::BadRequest(
         "Deploy to is only available on enterprise".to_string(),
     ));
