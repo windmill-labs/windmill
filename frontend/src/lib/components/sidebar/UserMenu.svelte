@@ -16,7 +16,7 @@
 	import MenuButtonMelt from './MenuButtonMelt.svelte'
 
 	import { melt } from '@melt-ui/svelte'
-	import Menu from '$lib/components/meltComponents/Menu.svelte'
+	import { Menu } from '$lib/components/meltComponents'
 	let darkMode: boolean = false
 	export let isCollapsed: boolean = false
 	export let lightMode: boolean = false

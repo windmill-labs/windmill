@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Menu, Menubar } from '$lib/components/meltComponents/index'
+	import { Menu, Menubar } from '$lib/components/meltComponents'
 	import { melt } from '@melt-ui/svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'

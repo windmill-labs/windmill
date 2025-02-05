@@ -2,7 +2,7 @@
 	import { Code2, LayoutDashboard, Star } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { melt } from '@melt-ui/svelte'
-	import Menu from '$lib/components/meltComponents/Menu.svelte'
+	import { Menu } from '$lib/components/meltComponents'
 	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
 	export let lightMode: boolean = false
 

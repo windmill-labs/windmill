@@ -50,11 +50,9 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
-	import Menubar from '../meltComponents/Menubar.svelte'
-	import Menu from '../meltComponents/Menu.svelte'
+	import { Menubar, Menu, MenuSingleItem } from '$lib/components/meltComponents'
 	import { melt } from '@melt-ui/svelte'
 	import MenuButtonMelt from './MenuButtonMelt.svelte'
-	import MenuSingleItem from '../meltComponents/MenuSingleItem.svelte'
 	import MenuLinkMelt from './MenuLinkMelt.svelte'
 	export let numUnacknowledgedCriticalAlerts = 0
 

@@ -51,7 +51,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
-	import Menubar from '$lib/components/meltComponents/Menubar.svelte'
+	import { Menubar } from '$lib/components/meltComponents'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false

@@ -9,7 +9,7 @@
 	} from '$lib/stores'
 	import { Building, Plus, Settings } from 'lucide-svelte'
 	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
-	import Menu from '$lib/components/meltComponents/Menu.svelte'
+	import { Menu } from '$lib/components/meltComponents'
 	import { melt } from '@melt-ui/svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
