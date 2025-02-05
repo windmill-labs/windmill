@@ -797,7 +797,7 @@
 				{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
 						<div class="pt-4" />
-						<Alert type="info" title="Workspace error handler is an EE feature">
+						<Alert type="info" title="Workspace Teams commands is an EE feature">
 							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack / Teams
 							connection to run a custom script and send notifications.
 						</Alert>
