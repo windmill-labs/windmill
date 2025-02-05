@@ -42,6 +42,8 @@ use uuid::Uuid;
 
 #[cfg(feature = "deno_core")]
 use windmill_common::error::Error;
+#[cfg(feature = "deno_core")]
+use windmill_common::worker::{write_file, TMP_DIR};
 
 use windmill_common::{flow_status::JobResult, DB};
 use windmill_queue::CanceledBy;
@@ -885,7 +887,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             let r = tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client, &job_id) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             };
 
@@ -935,11 +937,43 @@ pub async fn eval_fetch_timeout(
 const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
 
 #[cfg(feature = "deno_core")]
+const ERROR_DIR: &str = const_format::concatcp!(TMP_DIR, "/native_errors");
+
+#[cfg(feature = "deno_core")]
+fn write_error_expr(expr: &str, uuid: &Uuid) {
+    if let Err(e) = std::fs::create_dir_all(ERROR_DIR) {
+        tracing::error!("failed to create error dir {ERROR_DIR}: {e}");
+        return;
+    }
+    let dir_entries = match std::fs::read_dir(ERROR_DIR) {
+        Ok(entries) => entries.count(),
+        Err(_) => {
+            tracing::error!("failed to read error dir {ERROR_DIR}");
+            return;
+        }
+    };
+
+    if dir_entries >= 100 {
+        tracing::info!("Too many error files in {ERROR_DIR}, skipping write");
+        return;
+    }
+
+    let path = format!("/{uuid}.js");
+    tracing::info!(
+        "nativets job {uuid} failed, writing error expr to {ERROR_DIR}/{path} for debugging: {path}"
+    );
+    if let Err(e) = write_file(ERROR_DIR, &path, expr) {
+        tracing::error!("failed to write error expr to file {path}: {e}");
+    }
+}
+
+#[cfg(feature = "deno_core")]
 async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
     env_code: Option<String>,
     load_client: bool,
+    job_id: &Uuid,
 ) -> anyhow::Result<Box<RawValue>> {
     if load_client {
         if let Some(env_code) = env_code.as_ref() {
@@ -951,26 +985,42 @@ async fn eval_fetch(
                 .await?;
         }
     }
-
+    use anyhow::Context;
     let _ = js_runtime
         .load_side_es_module_from_code(
             &deno_core::resolve_url("file:///eval.ts")?,
             format!("{}\n{expr}", env_code.unwrap_or_default()),
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            write_error_expr(expr, &job_id);
+            e
+        })
+        .context("failed to load module")?;
 
-    let script = js_runtime.execute_script(
-        "<anon>",
-        r#"
+    let script = js_runtime
+        .execute_script(
+            "<anon>",
+            r#"
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
 import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.stringify)
 "#,
-    )?;
+        )
+        .map_err(|e| {
+            write_error_expr(expr, &job_id);
+            e
+        })
+        .context("native script initialization")?;
 
     let fut = js_runtime.resolve(script);
     let global = js_runtime
         .with_event_loop_promise(fut, PollEventLoopOptions::default())
-        .await?;
+        .await
+        .map_err(|e| {
+            write_error_expr(expr, &job_id);
+            e
+        })
+        .context("native script event loop")?;
 
     let scope = &mut js_runtime.handle_scope();
     let local = v8::Local::new(scope, global);

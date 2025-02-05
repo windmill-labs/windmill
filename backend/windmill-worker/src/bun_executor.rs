@@ -6,8 +6,6 @@ use anyhow::Context;
 use base64::Engine;
 use itertools::Itertools;
 
-#[cfg(not(feature = "deno_core"))]
-use serde_json::value::to_raw_value;
 use serde_json::value::RawValue;
 
 use sha2::Digest;
@@ -1304,7 +1302,7 @@ try {{
             tracing::error!(
                 r#""deno_core" feature is not activated, but "//native" annotation used. Returning empty value..."#
             );
-            return Ok(to_raw_value("").unwrap());
+            return Err(error::Error::internal_err("deno_core feature is not activated, but //native annotation used. Returning empty value...".to_string()));
         }
 
         #[cfg(feature = "deno_core")]
