@@ -1728,6 +1728,12 @@ paths:
                     type: string
                   slack_command_script:
                     type: string
+                  teams_team_id:
+                    type: string
+                  teams_command_script:
+                    type: string
+                  teams_team_name:
+                    type: string
                   auto_invite_domain:
                     type: string
                   auto_invite_operator:
@@ -1942,6 +1948,83 @@ paths:
                 slack_command_script:
                   type: string
 
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_teams_command:
+    post:
+      summary: edit teams command
+      operationId: editTeamsCommand
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceInvite
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slack_command_script:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/available_teams_ids:
+    get:
+      summary: list available teams ids
+      operationId: listAvailableTeamsIds
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    team_name:
+                      type: string
+                    team_id:
+                      type: string
+
+  /w/{workspace}/workspaces/connect_teams:
+    post:
+      summary: connect teams
+      operationId: connectTeams
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: connect teams
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                team_id:
+                  type: string
+                team_name:
+                  type: string
       responses:
         "200":
           description: status
@@ -3183,6 +3266,22 @@ paths:
       responses:
         "200":
           description: disconnected slack
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/oauth/disconnect_teams:
+    post:
+      summary: disconnect teams
+      operationId: disconnectTeams
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: disconnected teams
           content:
             text/plain:
               schema:
