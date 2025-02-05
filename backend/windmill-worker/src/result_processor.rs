@@ -352,7 +352,7 @@ pub async fn process_result(
                     }
                 }
                 err @ _ => to_raw_value(&SerializedError {
-                    message: format!("error during execution of the script:\n{}", err),
+                    message: format!("error during execution of the script:\n{err:#}",),
                     name: "ExecutionErr".to_string(),
                     step_id: job.flow_step_id.clone(),
                     exit_code: None,

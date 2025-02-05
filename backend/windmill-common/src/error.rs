@@ -42,8 +42,10 @@ pub enum Error {
     ExecutionErr(String),
     #[error("IO error: {0}")]
     IoErr(#[from] io::Error),
-    #[error("Sql error: {0}")]
-    SqlErr(#[from] sqlx::Error),
+    // #[error("Sql error: {0}")]
+    // SqlErr(#[from] sqlx::Error),
+    #[error("SqlErr: {error:#} @{location:#}")]
+    SqlErr { error: sqlx::Error, location: String },
     #[error("Bad request: {0}")]
     BadRequest(String),
     #[error("Quota exceeded: {0}")]
@@ -58,8 +60,8 @@ pub enum Error {
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status: {0}")]
     ExitStatus(i32),
-    #[error("Err: {0:#}")]
-    Anyhow(#[from] anyhow::Error),
+    #[error("Error: {error:#} @{location:#}")]
+    Anyhow { error: anyhow::Error, location: String },
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
     #[error("{0}")]
@@ -72,6 +74,27 @@ pub enum Error {
     Utf8(#[from] std::string::FromUtf8Error),
     #[error("Encoding/decoding error: {0}")]
     SerdeJson(#[from] serde_json::Error),
+}
+
+fn prettify_location(location: &'static Location<'static>) -> String {
+    location
+        .to_string()
+        .split("/")
+        .last()
+        .unwrap_or("unknown")
+        .to_string()
+}
+impl From<anyhow::Error> for Error {
+    #[track_caller]
+    fn from(e: anyhow::Error) -> Self {
+        Self::Anyhow { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(e: sqlx::Error) -> Self {
+        Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
 }
 
 impl Error {
@@ -109,9 +132,10 @@ impl IntoResponse for Error {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
-            Self::SqlErr(_) | Self::BadRequest(_) | Self::AiError(_) | Self::QuotaExceeded(_) => {
-                axum::http::StatusCode::BAD_REQUEST
-            }
+            Self::SqlErr { .. }
+            | Self::BadRequest(_)
+            | Self::AiError(_)
+            | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 
