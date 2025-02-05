@@ -340,7 +340,8 @@
 						</div>
 						{#if is_static_website && static_asset_config?.s3}
 							<Alert type="warning" title="Static website additional instructions" class="mt-2">
-								Your static website must have <pre class="inline-block">{fullRoute}</pre> as a base URL.
+								Your static website must use <pre class="inline-block">{fullRoute}</pre> as its base
+								URL.
 							</Alert>
 						{/if}
 					{:else}
