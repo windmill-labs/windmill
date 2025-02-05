@@ -331,7 +331,7 @@ pub async fn process_result(
         }
         Err(e) => {
             let error_value = match e {
-                Error::ExitStatus(i) => {
+                Error::ExitStatus(program, i) => {
                     let res = read_result(job_dir).await.ok();
 
                     if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
@@ -348,11 +348,11 @@ pub async fn process_result(
                             .last()
                             .unwrap_or(&last_10_log_lines);
 
-                        extract_error_value(log_lines, i, job.flow_step_id.clone())
+                        extract_error_value(&program, log_lines, i, job.flow_step_id.clone())
                     }
                 }
                 err @ _ => to_raw_value(&SerializedError {
-                    message: format!("error during execution of the script:\n{}", err),
+                    message: format!("error during execution of the script:\n{err:#}",),
                     name: "ExecutionErr".to_string(),
                     step_id: job.flow_step_id.clone(),
                     exit_code: None,
@@ -662,10 +662,15 @@ pub struct SerializedError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
 }
-pub fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> Box<RawValue> {
+pub fn extract_error_value(
+    program: &str,
+    log_lines: &str,
+    i: i32,
+    step_id: Option<String>,
+) -> Box<RawValue> {
     return to_raw_value(&SerializedError {
         message: format!(
-            "ExitCode: {i}, last log lines:\n{}",
+            "exit code for \"{program}\": {i}, last log lines:\n{}",
             ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()
         ),
         name: "ExecutionErr".to_string(),

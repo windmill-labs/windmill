@@ -487,7 +487,7 @@ async fn list_user_usage(
         .fetch_all(&mut *tx),
     )
     .await
-    .map_err(|e| Error::InternalErr(format!("Timed out while fetching user usage: {e:#}")))??;
+    .map_err(|e| Error::internal_err(format!("Timed out while fetching user usage: {e:#}")))??;
     tx.commit().await?;
     Ok(Json(rows))
 }
@@ -695,7 +695,7 @@ async fn global_whoami(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e:#}")));
+    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")));
 
     if let Ok(user) = user {
         Ok(Json(user))
@@ -1591,7 +1591,7 @@ async fn login(
 
     if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
         let parsed_hash =
-            PasswordHash::new(&hash).map_err(|e| Error::InternalErr(e.to_string()))?;
+            PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_err()

@@ -311,7 +311,7 @@ async fn list_scripts(
             .fields(&["dm.deployment_msg"]);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
@@ -1337,7 +1337,7 @@ async fn archive_script_by_path(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
     audit_log(
         &mut *tx,
         &authed,
@@ -1387,7 +1387,7 @@ async fn archive_script_by_hash(
     .bind(&hash.0)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1427,7 +1427,7 @@ async fn delete_script_by_hash(
     .bind(&w_id)
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1487,7 +1487,7 @@ async fn delete_script_by_path(
         )
         .fetch_one(&db)
         .await
-        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     } else {
         // If the script is draft only, we can delete it without admin permissions but we still need write permissions
         sqlx::query_scalar!(
@@ -1497,7 +1497,7 @@ async fn delete_script_by_path(
         )
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     };
 
     sqlx::query!(
@@ -1559,7 +1559,7 @@ async fn delete_script_by_path(
     .execute(&db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;

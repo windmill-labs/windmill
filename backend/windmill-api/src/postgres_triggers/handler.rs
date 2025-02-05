@@ -129,17 +129,7 @@ pub async fn test_postgres_connection(
             &workspace_id,
         )
         .await
-        .map_err(|err| {
-            error::Error::BadConfig(format!("Error connecting to postgres: {}", err.to_string()))
-        })
-    };
-    tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
-        .await
-        .map_err(|_| {
-            error::Error::BadConfig(format!("Timeout connecting to postgres after 30 seconds"))
-        })??;
-
-    Ok(())
+        .map_err(|e| e.into())
 }
 
 #[derive(Deserialize, Debug)]
@@ -703,7 +693,7 @@ pub async fn get_publication_info(
 
         let (all_table, transaction_to_track) = match publication_data {
         Ok(pub_data) => pub_data,
-        Err(Error::SqlErr(sqlx::Error::RowNotFound)) => {
+        Err(Error::SqlErr { error: sqlx::Error::RowNotFound, .. }) => {
             return Err(Error::NotFound(
                 ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
             ))
@@ -1371,7 +1361,10 @@ pub async fn create_template_script(
         tables_name, columns_list
     );
 
-    let rows: Vec<ColumnInfo> = sqlx::query_as(&query).fetch_all(&mut connection).await?;
+    let rows: Vec<ColumnInfo> = sqlx::query_as(&query)
+        .fetch_all(&mut connection)
+        .await
+        .map_err(|e| error::Error::SqlErr { error: e, location: "pg_trigger".to_string() })?;
 
     let mut mapper: HashMap<String, HashMap<String, Vec<MappingInfo>>> = HashMap::new();
 

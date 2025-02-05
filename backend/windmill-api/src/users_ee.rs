@@ -17,7 +17,7 @@ pub async fn create_user(
     _argon2: Arc<Argon2<'_>>,
     mut _nu: NewUser,
 ) -> Result<(StatusCode, String)> {
-    Err(Error::InternalErr(
+    Err(Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
@@ -29,7 +29,7 @@ pub async fn set_password(
     _user_email: &str,
     _ep: EditPassword,
 ) -> Result<String> {
-    Err(Error::InternalErr(
+    Err(Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }

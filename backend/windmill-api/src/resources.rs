@@ -262,7 +262,7 @@ async fn list_resources(
         sqlb.and_where_like_left("resource.path", path_start);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableResource>(&sql)
         .fetch_all(&mut *tx)
@@ -516,7 +516,7 @@ pub async fn transform_json_value<'c>(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(format!("Invalid resource path: {path}")));
+                return Err(Error::internal_err(format!("Invalid resource path: {path}")));
             }
             let mut tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;
@@ -815,7 +815,7 @@ async fn update_resource(
         }
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
@@ -1165,7 +1165,7 @@ async fn update_resource_type(
         sqlb.set_str("description", ndesc);
     }
     sqlb.set_str("edited_at", "now()");
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query(&sql).execute(&mut *tx).await?;

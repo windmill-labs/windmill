@@ -412,7 +412,7 @@ async fn get_settings(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting settings: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -435,7 +435,7 @@ async fn get_deploy_to(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("getting deploy_to: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -744,7 +744,7 @@ async fn get_copilot_info(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_model: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("getting ai_resource and code_completion_model: {e:#}")))?;
     tx.commit().await?;
 
     let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
@@ -788,7 +788,7 @@ async fn edit_large_file_storage_config(
     if let Some(lfs_config) = new_config.large_file_storage {
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
-                .map_err(|err| Error::InternalErr(err.to_string()))?;
+                .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
@@ -857,7 +857,7 @@ async fn edit_git_sync_config(
 
     if let Some(git_sync_settings) = new_config.git_sync_settings {
         let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
-            .map_err(|err| Error::InternalErr(err.to_string()))?;
+            .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
@@ -923,7 +923,7 @@ async fn edit_deploy_ui_config(
     if let Some(deploy_ui_settings) = new_config.deploy_ui_settings {
         let serialized_config =
             serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
-                .map_err(|err| Error::InternalErr(err.to_string()))?;
+                .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
@@ -1018,7 +1018,7 @@ async fn get_default_scripts(
     )
     .fetch_optional(&mut *tx)
     .await
-    .map_err(|err| Error::InternalErr(format!("getting default_app: {err}")))?;
+    .map_err(|err| Error::internal_err(format!("getting default_app: {err}")))?;
     tx.commit().await?;
 
     Ok(Json(default_scripts.flatten()))
@@ -1092,7 +1092,7 @@ async fn get_default_app(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|err| Error::InternalErr(format!("getting default_app: {err}")))?;
+    .map_err(|err| Error::internal_err(format!("getting default_app: {err}")))?;
     tx.commit().await?;
 
     Ok(Json(WorkspaceDefaultApp { default_app_path }))

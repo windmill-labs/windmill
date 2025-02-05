@@ -480,7 +480,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     .fetch_one(&mut **db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "querying getting tag for hash {script_hash}: {e:#}"
         ))
     })?;
