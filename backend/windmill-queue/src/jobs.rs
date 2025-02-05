@@ -528,7 +528,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     // add_time!(bench, "add_completed_job start");
     if !result.is_valid_json() {
-        return Err(Error::internal_err(
+        return Err(Error::InternalErr(
             "Result of job is invalid json (empty)".to_string(),
         ));
     }
@@ -643,7 +643,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         )
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
+        .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
 
 
         if !queued_job.is_flow_step {
@@ -835,7 +835,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .execute(&mut *tx)
             .await
             .map_err(|e| {
-                Error::internal_err(format!(
+                Error::InternalErr(format!(
                 "Error updating to add ended_at timestamp concurrency_key={concurrency_key}: {e:#}"
             ))
             }) {
@@ -898,7 +898,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
                 .fetch_one(db)
                 .await
-                .map_err(|e| Error::internal_err(format!("fetching if {w_id} is premium: {e:#}")))?;
+                .map_err(|e| Error::InternalErr(format!("fetching if {w_id} is premium: {e:#}")))?;
         let _ = sqlx::query!(
                 "INSERT INTO usage (id, is_workspace, month_, usage) 
                 VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
@@ -907,7 +907,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 additional_usage as i32)
                 .execute(db)
                 .await
-                .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e:#}")));
 
         if !premium_workspace {
             let _ = sqlx::query!(
@@ -918,7 +918,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 additional_usage as i32)
                 .execute(db)
                 .await
-                .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e:#}")));
         }
     }
 
@@ -1213,7 +1213,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     .fetch_optional(db)
     .await
     .context("fetching error handler info from workspace_settings")?
-    .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+    .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -1291,7 +1291,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
                 tx.commit().await?;
                 Ok::<(), Error>(())
             })
-            .map_err(|e| Error::internal_err(format!("Pushing next scheduled job timedout: {e:#}")))
+            .map_err(|e| Error::InternalErr(format!("Pushing next scheduled job timedout: {e:#}")))
             .unwrap_or_else(|e| Err(e))
         })
         .retry(
@@ -1901,7 +1901,7 @@ pub async fn pull(
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
-            Error::internal_err(format!(
+            Error::InternalErr(format!(
                 "Error getting concurrency count for script path {job_script_path}: {e:#}"
             ))
         })?;
@@ -1912,7 +1912,7 @@ pub async fn pull(
             job_concurrency_key,
             f64::from(job_custom_concurrency_time_window_s),
         ).fetch_one(&mut *tx).await.map_err(|e| {
-            Error::internal_err(format!(
+            Error::InternalErr(format!(
                 "Error getting completed count for key {job_concurrency_key}: {e:#}"
             ))
         })?;
@@ -1928,7 +1928,7 @@ pub async fn pull(
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
-            Error::internal_err(format!(
+            Error::InternalErr(format!(
                 "Error getting concurrency count for script path {job_script_path}: {e:#}"
             ))
         })?;
@@ -1956,7 +1956,7 @@ pub async fn pull(
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
-            Error::internal_err(format!(
+            Error::InternalErr(format!(
                 "Error decreasing concurrency count for script path {job_script_path}: {e:#}"
             ))
         })?;
@@ -2033,7 +2033,7 @@ pub async fn pull(
             )
             .fetch_all(&mut *tx)
             .await
-            .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
+            .map_err(|e| Error::InternalErr(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
         tx.commit().await?
     }
 }
@@ -2333,7 +2333,7 @@ pub async fn get_result_and_success_by_id_from_flow(
                 .fetch_optional(db)
                 .await?
                 .ok_or_else(|| {
-                    error::Error::internal_err(format!("Could not get success from flow job status"))
+                    error::Error::InternalErr(format!("Could not get success from flow job status"))
                 })?
         }
     };
@@ -2410,7 +2410,7 @@ async fn get_completed_flow_node_result_rec(
 ) -> error::Result<Option<JobResult>> {
     for subflow in subflows {
         let flow_status = subflow.parse_flow_status().ok_or_else(|| {
-            error::Error::internal_err(format!("Could not parse flow status of {}", subflow.id))
+            error::Error::InternalErr(format!("Could not parse flow status of {}", subflow.id))
         })?;
 
         if let Some(node_status) = flow_status
@@ -2761,7 +2761,7 @@ pub async fn push<'c, 'd>(
                 .fetch_one(_db)
                 .await
                 .map_err(|e| {
-                    Error::internal_err(format!(
+                    Error::InternalErr(format!(
                         "fetching if {workspace_id} is premium and overquota: {e:#}"
                     ))
                 })?;
@@ -2780,7 +2780,7 @@ pub async fn push<'c, 'd>(
                 )
                 .fetch_one(_db)
                 .await
-                .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?;
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e:#}")))?;
 
             let user_usage = if !premium_workspace {
                 Some(sqlx::query_scalar!(
@@ -2792,7 +2792,7 @@ pub async fn push<'c, 'd>(
                 )
                 .fetch_one(_db)
                 .await
-                .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?)
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e:#}")))?)
             } else {
                 None
             };
@@ -3344,7 +3344,7 @@ pub async fn push<'c, 'd>(
             )
             .fetch_optional(&mut *ntx)
             .await?
-            .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
+            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
 
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
@@ -3683,12 +3683,12 @@ pub async fn push<'c, 'd>(
         )
         .execute(&mut *tx)
         .await
-        .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+        .map_err(|e| Error::InternalErr(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
     }
 
     let stringified_args = if *JOB_ARGS_AUDIT_LOGS {
         Some(serde_json::to_string(&args).map_err(|e| {
-            Error::internal_err(format!(
+            Error::InternalErr(format!(
                 "Could not serialize args for audit log of job {job_id}: {e:#}"
             ))
         })?)
@@ -3762,7 +3762,7 @@ pub async fn push<'c, 'd>(
     .fetch_one(&mut *tx)
     .warn_after_seconds(1)
     .await
-    .map_err(|e| Error::internal_err(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
+    .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
 
     tracing::debug!("Pushed {job_id}");
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
@@ -3791,7 +3791,7 @@ pub async fn push<'c, 'd>(
                 )
                 .await
                 .map_err(|e| {
-                    Error::internal_err(format!(
+                    Error::InternalErr(format!(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
                 })?
@@ -3922,7 +3922,7 @@ async fn restarted_flows_resolution(
     .fetch_one(db) // TODO: should we try to use the passed-in `tx` here?
     .await
     .map_err(|err| {
-        Error::internal_err(format!(
+        Error::InternalErr(format!(
             "completed job not found for UUID {} in workspace {}: {}",
             completed_flow_id, workspace_id, err
         ))
@@ -3936,7 +3936,7 @@ async fn restarted_flows_resolution(
         .flow_status
         .as_ref()
         .and_then(|v| serde_json::from_str::<FlowStatus>(v.get()).ok())
-        .ok_or(Error::internal_err(format!(
+        .ok_or(Error::InternalErr(format!(
             "Unable to parse flow status for job {} in workspace {}",
             completed_flow_id, workspace_id,
         )))?;
@@ -3966,14 +3966,14 @@ async fn restarted_flows_resolution(
                 match module_definition.get_value() {
                     Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
                         if parallel {
-                            return Err(Error::internal_err(format!(
+                            return Err(Error::InternalErr(format!(
                                 "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
                                 restart_step_id,
                             )));
                         }
                         let total_branch_number = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
                         if total_branch_number <= branch_or_iteration_n {
-                            return Err(Error::internal_err(format!(
+                            return Err(Error::InternalErr(format!(
                                 "Branch-all module {} has only {} branches. It can't be restarted on branch {}",
                                 restart_step_id,
                                 total_branch_number,
@@ -4004,14 +4004,14 @@ async fn restarted_flows_resolution(
                     }
                     Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
                         if parallel {
-                            return Err(Error::internal_err(format!(
+                            return Err(Error::InternalErr(format!(
                                 "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",
                                 restart_step_id,
                             )));
                         }
                         let total_iterations = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
                         if total_iterations <= branch_or_iteration_n {
-                            return Err(Error::internal_err(format!(
+                            return Err(Error::InternalErr(format!(
                                 "For-loop module {} doesn't cannot be restarted on iteration number {} as it has only {} iterations",
                                 restart_step_id,
                                 branch_or_iteration_n,
@@ -4041,7 +4041,7 @@ async fn restarted_flows_resolution(
                         });
                     }
                     _ => {
-                        return Err(Error::internal_err(format!(
+                        return Err(Error::InternalErr(format!(
                             "Module {} is not a branchall or forloop, unable to restart it at step {:?}",
                             restart_step_id,
                             branch_or_iteration_n
@@ -4057,7 +4057,7 @@ async fn restarted_flows_resolution(
             step_n = step_n + 1;
             match module.clone() {
                 FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
-                _ => Err(Error::internal_err(format!(
+                _ => Err(Error::InternalErr(format!(
                     "Flow cannot be restarted from a non successful module",
                 ))),
             }?;
@@ -4066,7 +4066,7 @@ async fn restarted_flows_resolution(
 
     if !dependent_module {
         // step not found in flow.
-        return Err(Error::internal_err(format!(
+        return Err(Error::InternalErr(format!(
             "Flow cannot be restarted from step {} as it could not be found.",
             restart_step_id
         )));
