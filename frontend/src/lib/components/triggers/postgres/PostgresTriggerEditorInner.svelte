@@ -26,6 +26,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import RelationPicker from './RelationPicker.svelte'
 	import { invalidRelations } from './utils'
+	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -55,12 +56,7 @@
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let selectedTable: 'all' | 'specific' = 'specific'
 	let tab: 'advanced' | 'basic'
-	let config: { isLogical: boolean; show: boolean } = { isLogical: false, show: false }
-	let loadingConfiguration = false
 	$: table_to_track = selectedTable === 'all' ? [] : relations
-	$: if (postgres_resource_path === undefined) {
-		config.show = false
-	}
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -108,7 +104,6 @@
 			dirtyPath = false
 			selectedPublicationAction = 'get'
 			selectedSlotAction = 'get'
-			config.show = false
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
 			relations = []
@@ -145,7 +140,6 @@
 			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
 			dirtyPath = false
-			config.show = false
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
 			transaction_to_track = defaultValues?.publication.transaction_to_track || [
@@ -266,24 +260,6 @@
 			sendUserToast(error.body, true)
 		}
 	}
-
-	const checkDatabaseConfiguration = async () => {
-		if (emptyString(postgres_resource_path)) {
-			sendUserToast('You must first pick a database resource', true)
-			return
-		}
-		try {
-			loadingConfiguration = true
-			config.isLogical = await PostgresTriggerService.isValidPostgresConfiguration({
-				workspace: $workspaceStore!,
-				path: postgres_resource_path
-			})
-			config.show = true
-		} catch (error) {
-			sendUserToast(error.body, true)
-		}
-		loadingConfiguration = false
-	}
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -373,40 +349,7 @@
 							bind:value={postgres_resource_path}
 							resourceType={'postgresql'}
 						/>
-						{#if postgres_resource_path}
-							<Button
-								disabled={!can_write}
-								loading={loadingConfiguration}
-								on:click={checkDatabaseConfiguration}
-								color="gray"
-								size="xs"
-								>Check database configuration
-								<Tooltip
-									documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#requirements"
-								>
-									<p class="text-sm">
-										Verifies whether the database is configured with the required <strong
-											>settings</strong
-										>.
-									</p>
-								</Tooltip>
-							</Button>
-							{#if config.show}
-								<Alert
-									title="Postgres configuration"
-									type={config.isLogical === true ? 'success' : 'error'}
-								>
-									{#if config.isLogical}
-										Your database is correctly configured with logical replication enabled. You can
-										proceed with using the streaming feature
-									{:else}
-										Logical replication is not enabled on your database. To use this feature, your
-										Postgres database must have <code>wal_level</code> configured as 'logical' in your
-										database configuration.
-									{/if}
-								</Alert>
-							{/if}
-						{/if}
+						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
 					</div>
 				</Section>
 				<Section label="Runnable">

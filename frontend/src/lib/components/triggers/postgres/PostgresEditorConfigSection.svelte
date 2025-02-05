@@ -9,6 +9,7 @@
 	import RelationPicker from './RelationPicker.svelte'
 	import type { PublicationData } from '$lib/gen'
 	import { emptyString } from '$lib/utils'
+	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	export let headless: boolean = false
@@ -77,36 +78,39 @@
 				/>
 				{#if postgres_resource_path}
 					<TestTriggerConnection kind="postgres" args={{ postgres_resource_path }} />
+					<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
 				{/if}
 			</div>
-			<Section label="Transactions">
-				<p class="text-xs mb-3 text-tertiary">
-					Choose the types of database transactions that should trigger a script or flow. You can
-					select from <strong>Insert</strong>, <strong>Update</strong>,
-					<strong>Delete</strong>, or any combination of these operations to define when the trigger
-					should activate.
-				</p>
-				<MultiSelect
-					ulOptionsClass={'!bg-surface-secondary'}
-					noMatchingOptionsMsg=""
-					createOptionMsg={null}
-					duplicates={false}
-					options={transactionType}
-					allowUserOptions="append"
-					bind:selected={publication.transaction_to_track}
-				/>
-			</Section>
-			<Section label="Table tracking">
-				<p class="text-xs mb-3 text-tertiary">
-					Select the tables to track. You can choose to track
-					<strong>all tables in your database</strong>,
-					<strong>all tables within a specific schema</strong>,
-					<strong>specific tables in a schema</strong>, or even
-					<strong>specific columns of a table</strong>. Additionally, you can apply a
-					<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
-				</p>
-				<RelationPicker bind:selectedTable bind:relations={publication.table_to_track} />
-			</Section>
+			{#if postgres_resource_path}
+				<Section label="Transactions">
+					<p class="text-xs mb-3 text-tertiary">
+						Choose the types of database transactions that should trigger a script or flow. You can
+						select from <strong>Insert</strong>, <strong>Update</strong>,
+						<strong>Delete</strong>, or any combination of these operations to define when the
+						trigger should activate.
+					</p>
+					<MultiSelect
+						ulOptionsClass={'!bg-surface-secondary'}
+						noMatchingOptionsMsg=""
+						createOptionMsg={null}
+						duplicates={false}
+						options={transactionType}
+						allowUserOptions="append"
+						bind:selected={publication.transaction_to_track}
+					/>
+				</Section>
+				<Section label="Table tracking">
+					<p class="text-xs mb-3 text-tertiary">
+						Select the tables to track. You can choose to track
+						<strong>all tables in your database</strong>,
+						<strong>all tables within a specific schema</strong>,
+						<strong>specific tables in a schema</strong>, or even
+						<strong>specific columns of a table</strong>. Additionally, you can apply a
+						<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
+					</p>
+					<RelationPicker bind:selectedTable bind:relations={publication.table_to_track} />
+				</Section>
+			{/if}
 		</div>
 	</Section>
 </div>

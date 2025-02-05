@@ -29,8 +29,15 @@
 	export let captureTable: CaptureTable | undefined = undefined
 
 	export async function setConfig(): Promise<boolean> {
-		if (captureType === 'postgres' && invalidRelations(args.publication.table_to_track, true).isError) {
-			return false
+		if (captureType === 'postgres') {
+			if (!args?.publication?.table_to_track) {
+				sendUserToast('Table to track must be set', true)
+				return false
+			}
+
+			if (invalidRelations(args.publication.table_to_track, true).isError === true) {
+				return false
+			}
 		}
 		try {
 			await CaptureService.setCaptureConfig({
