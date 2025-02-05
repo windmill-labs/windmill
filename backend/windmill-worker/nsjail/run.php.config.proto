@@ -124,14 +124,6 @@ mount {
 
 iface_no_lo: true
 
-mount {
-    src: "{CACHE_DIR}"
-    dst: "/tmp/windmill/cache/php"
-    is_bind: true
-    rw: true
-    mandatory: false
-}
-
 {SHARED_MOUNT}
 
 envar: "HOME=/tmp"
