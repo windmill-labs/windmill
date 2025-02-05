@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, getContext, onDestroy, onMount, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, setContext, tick } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
@@ -273,7 +273,7 @@
 		return false
 	}
 
-	function updateStores() {
+	async function updateStores() {
 		if (graph.error) {
 			return
 		}
@@ -281,6 +281,7 @@
 
 		$nodes = layoutNodes(newGraph.nodes)
 		$edges = newGraph.edges
+		await tick()
 		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
 
