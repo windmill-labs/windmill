@@ -1,11 +1,12 @@
 <script lang="ts">
 	import Portal from '$lib/components/Portal.svelte'
 	import { melt, createSync } from '@melt-ui/svelte'
+	import type { Placement } from '@floating-ui/core'
 
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 
-	export let placement: any = 'right-start'
+	export let placement: Placement = 'right-start'
 	export let justifyEnd: boolean = false
 	export let lightMode: boolean = false
 	export let maxHeight: number = 900

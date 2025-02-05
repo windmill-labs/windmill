@@ -62,7 +62,7 @@
 {/if}
 
 <Menubar let:createMenu>
-	<Menu {createMenu} let:item placement="bottom-center" bind:this={menu}>
+	<Menu {createMenu} let:item placement="bottom" bind:this={menu}>
 		<svelte:fragment slot="trigger" let:trigger>
 			<button
 				title="Pick an iteration"
