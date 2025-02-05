@@ -78,7 +78,7 @@ pub async fn handle_dedicated_process(
     //do not cache local dependencies
 
     use crate::{handle_child::process_status, PROXY_ENVS};
-
+    let cmd_name = format!("dedicated {command_path}");
     let mut child = {
         let mut cmd = Command::new(command_path);
         cmd.current_dir(job_dir)
@@ -126,7 +126,7 @@ pub async fn handle_dedicated_process(
             .wait()
             .await
             .expect("child process encountered an error");
-        if let Err(e) = process_status(status) {
+        if let Err(e) = process_status(&cmd_name, status) {
             tracing::error!("child exit status was not success: {e:#}");
         } else {
             tracing::info!("child exit status was success");
