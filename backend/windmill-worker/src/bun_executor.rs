@@ -1360,7 +1360,6 @@ try {{
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
                     "{SHARED_MOUNT}",
