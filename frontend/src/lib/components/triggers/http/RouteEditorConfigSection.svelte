@@ -10,15 +10,14 @@
 	import { bash } from 'svelte-highlight/languages'
 	import { HttpTriggerService } from '$lib/gen'
 	// import { page } from '$app/stores'
-	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
+	import { getHttpRoute } from './helpers'
 
-	export let isFlow: boolean
-	export let path: string
+	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
 	export let route_path: string | undefined
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
@@ -26,7 +25,6 @@
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
 	export let showCapture = false
-	export let initialRoutePath: string = ''
 	export let headless: boolean = false
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
@@ -36,16 +34,16 @@
 
 	let routeError: string = ''
 	async function validateRoute(
-		path: string | undefined,
+		routePath: string | undefined,
 		method: typeof http_method
 	): Promise<void> {
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
 		}
 		validateTimeout = setTimeout(async () => {
-			if (!path || !method || !/^[\w-:]+(\/[\w-:]+)*$/.test(path)) {
+			if (!routePath || !method || !/^:?[-\w]+(\/:?[-\w]+)*$/.test(routePath)) {
 				routeError = 'Endpoint not valid'
-			} else if (initialRoutePath !== path && (await routeExists(path, method))) {
+			} else if (await routeExists(routePath, method)) {
 				routeError = 'Endpoint already taken'
 			} else {
 				routeError = ''
@@ -59,26 +57,17 @@
 			workspace: $workspaceStore!,
 			requestBody: {
 				route_path,
-				http_method: method
+				http_method: method,
+				trigger_path: initialTriggerPath
 			}
 		})
-	}
-
-	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
-		isFlow ? 'flow' : 'script'
-	}/${path.replaceAll('/', '.')}/${route_path}`
-
-	function getHttpRoute(route_path: string | undefined) {
-		return `${location.origin}${base}/api/r/${isCloudHosted() ? $workspaceStore + '/' : ''}${
-			route_path ?? ''
-		}`
 	}
 
 	$: validateRoute(route_path, http_method)
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path)
+	$: fullRoute = getHttpRoute(route_path, $workspaceStore!)
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')
@@ -86,6 +75,9 @@
 
 <div>
 	{#if showCapture && captureInfo}
+		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
+			captureInfo.isFlow ? 'flow' : 'script'
+		}/${captureInfo.path.replaceAll('/', '.')}/${route_path}`}
 		<CaptureSection
 			captureType="http"
 			disabled={!isValid}

@@ -43,6 +43,7 @@
 	export let initialFileKey: { s3: string } | undefined = undefined
 	let initialFileKeyInternalCopy: { s3: string }
 	export let selectedFileKey: { s3: string } | undefined = undefined
+	export let folderOnly = false
 
 	let csvSeparatorChar: string = ','
 	let csvHasHeader: boolean = true
@@ -369,6 +370,11 @@
 		let item_key = displayedFileKeys[index]
 		let item = allFilesByKey[item_key]
 		if (item.type === 'folder') {
+			if (folderOnly) {
+				selectedFileKey = {
+					s3: item_key
+				}
+			}
 			if (toggleCollapsed) {
 				item.collapsed = !item.collapsed
 			}
@@ -424,6 +430,7 @@
 		tooltip="Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
+		{selectedFileKey?.s3 && allFilesByKey[selectedFileKey.s3]?.type}
 		{#if workspaceSettingsInitialized === false}
 			{#if fromWorkspaceSettings}
 				<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
@@ -709,7 +716,9 @@
 				>
 				{#if !fromWorkspaceSettings}
 					<Button
-						disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
+						disabled={selectedFileKey === undefined ||
+							emptyString(selectedFileKey.s3) ||
+							(folderOnly && allFilesByKey[selectedFileKey.s3]?.type !== 'folder')}
 						on:click={selectAndClose}>Select</Button
 					>
 				{/if}

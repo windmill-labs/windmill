@@ -20,30 +20,24 @@
 	export let submittedText: string | undefined = undefined
 	export let defaultFile: string | undefined = undefined
 	export let disabled: boolean | undefined = undefined
+	export let folderOnly = false
 
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
-	export let files: File[] | undefined = undefined
+	type FileWithPath = File & { path?: string }
+	export let files: FileWithPath[] | undefined = undefined
 
-	async function onChange(fileList: FileList | null) {
+	async function onChange(fileList: FileWithPath[] | null) {
 		if (!fileList || !fileList.length) {
 			files = undefined
 			dispatch('change', files)
 			return
 		}
 
-		if (!multiple || !files) {
-			files = []
-		}
-		for (let i = 0; i < fileList.length; i++) {
-			const file = fileList.item(i)
-			if (file) {
-				files.push(file)
-			}
-		}
-
-		if (!files.length) {
-			files = undefined
+		if (multiple && files) {
+			files = [...files, ...fileList]
+		} else {
+			files = fileList
 		}
 
 		// Needs to be reset so the same file can be selected
@@ -86,15 +80,70 @@
 		}
 	}
 
-	function handleDrop(event: DragEvent) {
+	async function handleFile(fileEntry: FileSystemFileEntry): Promise<FileWithPath> {
+		return new Promise((resolve, reject) => {
+			fileEntry.file(resolve, reject)
+		})
+	}
+
+	async function handleDirectory(
+		dirEntry: FileSystemDirectoryEntry,
+		path: string
+	): Promise<FileWithPath[]> {
+		const files: FileWithPath[] = []
+		const dirReader = dirEntry.createReader()
+
+		async function readEntries() {
+			return new Promise<FileWithPath[]>((resolve) => {
+				dirReader.readEntries(async (entries) => {
+					if (entries.length === 0) {
+						resolve(files)
+						return
+					}
+
+					const filePromises = entries.map(async (entry) => {
+						return traverseFileTree(entry, path + dirEntry.name + '/')
+					})
+					const nestedFiles = await Promise.all(filePromises)
+					files.push(...nestedFiles.flat())
+					// readEntries only return up to 100 files
+					// continue reading if more files exist
+					resolve(await readEntries())
+				})
+			})
+		}
+
+		return readEntries()
+	}
+
+	async function traverseFileTree(entry: FileSystemEntry, path = ''): Promise<FileWithPath[]> {
+		if (entry.isFile) {
+			const file = await handleFile(entry as FileSystemFileEntry)
+			file.path = path + file.name
+			return [file]
+		} else if (entry.isDirectory) {
+			return handleDirectory(entry as FileSystemDirectoryEntry, path)
+		}
+		return []
+	}
+
+	async function handleDrop(event: DragEvent) {
 		event.preventDefault()
 		if (event.dataTransfer) {
-			if (event.dataTransfer.files && event.dataTransfer.files.length) {
-				if (!multiple && event.dataTransfer.files.length > 1) {
-					sendUserToast('Only one file can be uploaded at a time')
-					return
-				} else {
-					onChange(event.dataTransfer.files)
+			if (folderOnly) {
+				const item = event.dataTransfer.items[0]?.webkitGetAsEntry()
+				if (item) {
+					const files = await traverseFileTree(item, '')
+					onChange(files)
+				}
+			} else {
+				if (event.dataTransfer.files && event.dataTransfer.files.length) {
+					if (!multiple && event.dataTransfer.files.length > 1) {
+						sendUserToast('Only one file can be uploaded at a time')
+						return
+					} else {
+						onChange(Array.from(event.dataTransfer.files))
+					}
 				}
 			}
 		}
@@ -114,6 +163,7 @@
 			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] = await Promise.all(
 				promises
 			)
+			console.log('converted', converted)
 			if (returnFileNames) {
 				converted = converted.map((c, i) => ({ name: files![i].name, data: c }))
 			}
@@ -174,22 +224,22 @@
 		</div>
 	{:else}
 		<slot>
-			<span>Drag and drop {multiple ? 'files' : 'a file'}</span>
+			<span>Drag and drop {folderOnly ? 'a folder' : multiple ? 'files' : 'a file'}</span>
 		</slot>
 	{/if}
 	<input
 		class="!absolute !inset-0 !z-10 !opacity-0 !cursor-pointer"
 		type="file"
+		{...{ webkitdirectory: folderOnly }}
 		title={files ? `${files.length} file${files.length > 1 ? 's' : ''} chosen` : 'No file chosen'}
 		bind:this={input}
 		on:change={({ currentTarget }) => {
-			onChange(currentTarget.files)
+			onChange(currentTarget.files ? Array.from(currentTarget.files) : null)
 		}}
 		{accept}
-		{multiple}
+		multiple={true}
 		{...$$restProps}
 	/>
-
 	{#if defaultFile}
 		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
 			Default file: <span class="text-blue-500">{defaultFile}</span>
