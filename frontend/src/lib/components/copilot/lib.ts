@@ -597,7 +597,7 @@ export async function getCompletion(
 		}
 		default: {
 			const openaiClient = workspaceAIClients.getOpenaiClient()
-			const config =
+			const config: ChatCompletionCreateParamsStreaming =
 				aiProvider === 'openai'
 					? OpenAi.openaiConfig
 					: OPENAI_COMPATIBLE_COMPLETION_CONFIG[aiProvider]
