@@ -121,7 +121,7 @@ mount {
     src: "{CACHE_DIR}"
     dst: "/tmp/windmill/cache/powershell"
     is_bind: true
-    rw: true
+    rw: false
     mandatory: false
 }
 
