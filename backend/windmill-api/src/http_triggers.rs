@@ -238,12 +238,10 @@ async fn create_trigger(
         ));
     }
 
-    if *CLOUD_HOSTED {
-        if ct.is_static_website || ct.static_asset_config.is_some() {
-            return Err(error::Error::BadRequest(
-                "Static website and static asset are not supported on cloud".to_string(),
-            ));
-        }
+    if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
+        return Err(error::Error::BadRequest(
+            "Static website and static asset are not supported on cloud".to_string(),
+        ));
     }
 
     let mut tx = user_db.begin(&authed).await?;
@@ -290,12 +288,10 @@ async fn update_trigger(
 ) -> error::Result<String> {
     let path = path.to_path();
 
-    if *CLOUD_HOSTED {
-        if ct.is_static_website || ct.static_asset_config.is_some() {
-            return Err(error::Error::BadRequest(
-                "Static website and static assets are not supported on cloud".to_string(),
-            ));
-        }
+    if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
+        return Err(error::Error::BadRequest(
+            "Static website and static asset are not supported on cloud".to_string(),
+        ));
     }
 
     let mut tx;
