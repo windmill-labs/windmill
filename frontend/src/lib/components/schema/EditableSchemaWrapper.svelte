@@ -104,6 +104,7 @@
 			</AddPropertyV2>
 		{/if}
 		<EditableSchemaForm
+			onlyMaskPassword
 			bind:this={editableSchemaForm}
 			bind:schema
 			on:change={() => dispatch('change', schema)}
