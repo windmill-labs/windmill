@@ -29,9 +29,13 @@
 
 	export let can_write: boolean
 	export let postgres_resource_path: string
+	export let checkConnection: any | undefined = undefined
+
 	$: if (postgres_resource_path === undefined) {
 		config.show = false
 	}
+
+	console.log('dbg check connection', checkConnection)
 </script>
 
 {#if postgres_resource_path}
@@ -39,17 +43,20 @@
 		<Button
 			disabled={!can_write}
 			loading={loadingConfiguration}
-			on:click={checkDatabaseConfiguration}
+			on:click={() =>
+				checkDatabaseConfiguration().then(checkConnection ? checkConnection() : () => {})}
 			size="xs"
 			color="light"
 			spacingSize="sm"
 			variant="border"
-			>Check database configuration
+		>
+			{`Check database configuration ${checkConnection ? 'and connection' : ''}`}
 			<Tooltip
 				documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#requirements"
 			>
 				<p class="text-sm">
 					Verifies whether the database is configured with the required <strong>settings</strong>.
+					{checkConnection && 'Also checks whether the connection to the database is working.'}
 				</p>
 			</Tooltip>
 		</Button>

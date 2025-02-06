@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, Save, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -313,116 +313,88 @@
 				<p>Loading...</p>
 			</div>
 		{:else}
-			<div class="flex flex-col gap-5">
-				<Alert title="Info" type="info">
-					{#if edit}
-						Changes can take up to 30 seconds to take effect.
-					{:else}
-						New postgres triggers can take up to 30 seconds to start listening.
-					{/if}
-				</Alert>
-			</div>
+			<Alert title="Info" type="info">
+				{#if edit}
+					Changes can take up to 30 seconds to take effect.
+				{:else}
+					New postgres triggers can take up to 30 seconds to start listening.
+				{/if}
+			</Alert>
 			<div class="flex flex-col gap-12 mt-6">
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="postgres_trigger"
-							kind="postgres_trigger"
-							disabled={!can_write}
-						/>
-					</Label>
-				</div>
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="postgres_trigger"
+						kind="postgres_trigger"
+						disabled={!can_write}
+					/>
+				</Label>
 
 				<Section label="Database">
-					<p class="text-xs mb-1 text-tertiary">
+					<p class="text-xs text-tertiary">
 						Pick a database to connect to <Required required={true} />
 					</p>
-					<div class="flex flex-col mb-2 gap-3">
-						<ResourcePicker
-							disabled={!can_write}
-							bind:value={postgres_resource_path}
-							resourceType={'postgresql'}
-						/>
-						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
-					</div>
-				</Section>
-				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh
-						/>
 
-						{#if script_path === undefined && is_flow === false}
-							<div class="flex">
-								<Button
-									disabled={!can_write}
-									btnClasses="ml-4 mt-2"
-									color="dark"
-									size="xs"
-									on:click={getTemplateScript}
-									target="_blank"
-									{loading}
-									>Create from template
-									<Tooltip light>
-										The conversion requires a <strong>database resource</strong> and at least one
-										<strong>schema</strong>
-										to be set.<br />
-										Please ensure these conditions are met before proceeding.
+					<div class="flex flex-col gap-8">
+						<div class="flex flex-col gap-2">
+							<ResourcePicker
+								disabled={!can_write}
+								bind:value={postgres_resource_path}
+								resourceType={'postgresql'}
+							/>
+							<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
+						</div>
+
+						{#if postgres_resource_path}
+							<Label label="Transactions">
+								<svelte:fragment slot="header">
+									<Tooltip>
+										<p>
+											Choose the types of database transactions that should trigger a script or
+											flow. You can select from <strong>Insert</strong>, <strong>Update</strong>,
+											<strong>Delete</strong>, or any combination of these operations to define when
+											the trigger should activate.
+										</p>
 									</Tooltip>
-								</Button>
-							</div>
-						{/if}
-					</div>
-				</Section>
-				{#if postgres_resource_path}
-					<Section label="Configuration">
-						<div class="flex flex-col gap-5">
-							<p class="text-xs mb-3 text-tertiary">
-								Choose which table of your database to track as well as what kind of transaction
-								should fire the script.<br />
-								You must pick a database resource first to make the configuration of your trigger
-								<Required required={true} />
-							</p>
-							<Section label="Transactions">
-								<p class="text-xs mb-3 text-tertiary">
-									Choose the types of database transactions that should trigger a script or flow.
-									You can select from <strong>Insert</strong>, <strong>Update</strong>,
-									<strong>Delete</strong>, or any combination of these operations to define when the
-									trigger should activate.
-								</p>
+								</svelte:fragment>
 								<MultiSelect
-									ulOptionsClass={'!bg-surface-secondary'}
 									noMatchingOptionsMsg=""
 									createOptionMsg={null}
 									duplicates={false}
 									options={transactionType}
 									allowUserOptions="append"
 									bind:selected={transaction_to_track}
-								/>
-							</Section>
-							<Section label="Table Tracking">
-								<p class="text-xs mb-3 text-tertiary">
-									Select the tables to track. You can choose to track
-									<strong>all tables in your database</strong>,
-									<strong>all tables within a specific schema</strong>,
-									<strong>specific tables in a schema</strong>, or even
-									<strong>specific columns of a table</strong>. Additionally, you can apply a
-									<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
-								</p>
+									ulOptionsClass={'!bg-surface !text-sm'}
+									ulSelectedClass="!text-sm"
+									outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+									placeholder="Select transactions"
+									--sms-options-margin="4px"
+									--sms-open-z-index="100"
+								>
+									<svelte:fragment slot="remove-icon">
+										<div class="hover:text-primary p-0.5">
+											<X size={12} />
+										</div>
+									</svelte:fragment>
+								</MultiSelect>
+							</Label>
+							<Label label="Table Tracking">
+								<svelte:fragment slot="header">
+									<Tooltip>
+										<p>
+											Select the tables to track. You can choose to track
+											<strong>all tables in your database</strong>,
+											<strong>all tables within a specific schema</strong>,
+											<strong>specific tables in a schema</strong>, or even
+											<strong>specific columns of a table</strong>. Additionally, you can apply a
+											<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
+										</p>
+									</Tooltip>
+								</svelte:fragment>
 								<Tabs bind:selected={tab}>
 									<Tab value="basic"
 										><div class="flex flex-row gap-1"
@@ -463,6 +435,7 @@
 											<TabContent value="advanced">
 												<div class="flex flex-col gap-6"
 													><Section
+														small
 														label="Replication slot"
 														tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
 														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
@@ -504,6 +477,7 @@
 													</Section>
 
 													<Section
+														small
 														label="Publication"
 														tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
 														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
@@ -565,10 +539,47 @@
 										</div>
 									</svelte:fragment>
 								</Tabs>
-							</Section>
-						</div>
-					</Section>
-				{/if}
+							</Label>
+						{/if}
+					</div>
+				</Section>
+				<Section label="Runnable">
+					<p class="text-xs text-tertiary">
+						Pick a script or flow to be triggered <Required required={true} />
+					</p>
+					<div class="flex flex-row mb-2">
+						<ScriptPicker
+							disabled={fixedScriptPath != '' || !can_write}
+							initialPath={fixedScriptPath || initialScriptPath}
+							kinds={['script']}
+							allowFlow={true}
+							bind:itemKind
+							bind:scriptPath={script_path}
+							allowRefresh
+						/>
+
+						{#if script_path === undefined && is_flow === false}
+							<div class="flex">
+								<Button
+									disabled={!can_write}
+									btnClasses="ml-4 mt-2"
+									color="dark"
+									size="xs"
+									on:click={getTemplateScript}
+									target="_blank"
+									{loading}
+									>Create from template
+									<Tooltip light>
+										The conversion requires a <strong>database resource</strong> and at least one
+										<strong>schema</strong>
+										to be set.<br />
+										Please ensure these conditions are met before proceeding.
+									</Tooltip>
+								</Button>
+							</div>
+						{/if}
+					</div>
+				</Section>
 			</div>
 		{/if}
 	</DrawerContent>

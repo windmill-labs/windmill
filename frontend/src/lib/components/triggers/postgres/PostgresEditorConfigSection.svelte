@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import Section from '$lib/components/Section.svelte'
+	import Label from '$lib/components/Label.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
@@ -10,6 +11,17 @@
 	import type { PublicationData } from '$lib/gen'
 	import { emptyString } from '$lib/utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { X } from 'lucide-svelte'
+	const DEFAULT_PUBLICATION: PublicationData = {
+		transaction_to_track: ['Insert', 'Update', 'Delete'],
+		table_to_track: [
+			{
+				schema_name: 'public',
+				table_to_track: []
+			}
+		]
+	}
 
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	export let headless: boolean = false
@@ -28,40 +40,36 @@
 			}
 		]
 	}
-	$: publication =
-		publication === undefined
-			? {
-					transaction_to_track: ['Insert', 'Update', 'Delete'],
-					table_to_track: [
-						{
-							schema_name: 'public',
-							table_to_track: []
-						}
-					]
-			  }
-			: publication
-	$: notEmpty = publication.table_to_track && publication.table_to_track.length > 0
-	let selectedTable: 'all' | 'specific' = notEmpty ? 'specific' : 'all'
-	$: isValid =
-		!emptyString(postgres_resource_path) &&
-		publication.transaction_to_track.length > 0 &&
-		(selectedTable === 'all' || (notEmpty ?? false))
+
+	let selectedTable: 'all' | 'specific' = 'all'
+
+	function updateConfig(publication: PublicationData) {
+		if (publication === undefined) {
+			publication = { ...DEFAULT_PUBLICATION }
+			selectedTable = 'specific'
+		} else {
+			selectedTable =
+				publication.table_to_track && publication.table_to_track.length > 0 ? 'specific' : 'all'
+		}
+		const notEmpty = publication.table_to_track && publication.table_to_track.length > 0
+		selectedTable = notEmpty ? 'specific' : 'all'
+		isValid =
+			!emptyString(postgres_resource_path) &&
+			publication.transaction_to_track.length > 0 &&
+			(selectedTable === 'all' || (notEmpty ?? false))
+	}
 
 	$: if (emptyString(postgres_resource_path)) {
 		selectedTable = 'specific'
-		publication = {
-			transaction_to_track: ['Insert', 'Update', 'Delete'],
-			table_to_track: [
-				{
-					schema_name: 'public',
-					table_to_track: []
-				}
-			]
-		}
+		publication = { ...DEFAULT_PUBLICATION }
 	}
+
+	$: updateConfig(publication)
+
+	let testTriggerConnection: TestTriggerConnection | undefined = undefined
 </script>
 
-<div>
+<div class="h-full">
 	{#if showCapture && captureInfo}
 		<CaptureSection
 			disabled={!isValid}
@@ -76,7 +84,7 @@
 		/>
 	{/if}
 	<Section label="Postgres config" {headless}>
-		<div class="flex flex-col gap-3">
+		<div class="flex flex-col gap-4">
 			<div class="mb-2">
 				<p class="text-xs mb-1 text-tertiary">
 					Pick a database to connect to <Required required={true} />
@@ -87,39 +95,62 @@
 					resourceType={'postgresql'}
 				/>
 				{#if postgres_resource_path}
-					<TestTriggerConnection kind="postgres" args={{ postgres_resource_path }} />
-					<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
+					<TestTriggerConnection
+						kind="postgres"
+						args={{ postgres_resource_path }}
+						noButton
+						bind:this={testTriggerConnection}
+					/>
+					<CheckPostgresRequirement
+						bind:postgres_resource_path
+						bind:can_write
+						checkConnection={testTriggerConnection?.testTriggerConnection}
+					/>
 				{/if}
 			</div>
 			{#if postgres_resource_path}
-				<Section label="Transactions">
-					<p class="text-xs mb-3 text-tertiary">
-						Choose the types of database transactions that should trigger a script or flow. You can
-						select from <strong>Insert</strong>, <strong>Update</strong>,
-						<strong>Delete</strong>, or any combination of these operations to define when the
-						trigger should activate.
-					</p>
+				<Label label="Transactions">
+					<svelte:fragment slot="header">
+						<Tooltip small>
+							Choose the types of database transactions that should trigger a script or flow. You
+							can select from <strong>Insert</strong>, <strong>Update</strong>,
+							<strong>Delete</strong>, or any combination of these operations to define when the
+							trigger should activate.
+						</Tooltip>
+					</svelte:fragment>
 					<MultiSelect
-						ulOptionsClass={'!bg-surface-secondary'}
 						noMatchingOptionsMsg=""
 						createOptionMsg={null}
 						duplicates={false}
 						options={transactionType}
 						allowUserOptions="append"
 						bind:selected={publication.transaction_to_track}
-					/>
-				</Section>
-				<Section label="Table tracking">
-					<p class="text-xs mb-3 text-tertiary">
-						Select the tables to track. You can choose to track
-						<strong>all tables in your database</strong>,
-						<strong>all tables within a specific schema</strong>,
-						<strong>specific tables in a schema</strong>, or even
-						<strong>specific columns of a table</strong>. Additionally, you can apply a
-						<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
-					</p>
+						ulOptionsClass={'!bg-surface !text-sm'}
+						ulSelectedClass="!text-sm"
+						outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+						placeholder="Select transactions"
+						--sms-options-margin="4px"
+					>
+						<svelte:fragment slot="remove-icon">
+							<div class="hover:text-primary p-0.5">
+								<X size={12} />
+							</div>
+						</svelte:fragment>
+					</MultiSelect>
+				</Label>
+				<Label label="Table tracking">
+					<svelte:fragment slot="header">
+						<Tooltip small>
+							Select the tables to track. You can choose to track
+							<strong>all tables in your database</strong>,
+							<strong>all tables within a specific schema</strong>,
+							<strong>specific tables in a schema</strong>, or even
+							<strong>specific columns of a table</strong>. Additionally, you can apply a
+							<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
+						</Tooltip>
+					</svelte:fragment>
 					<RelationPicker bind:selectedTable bind:relations={publication.table_to_track} />
-				</Section>
+				</Label>
 			{/if}
 		</div>
 	</Section>

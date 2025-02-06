@@ -46,6 +46,8 @@
 				<slot name="header" />
 				{#if tooltip}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
+				{:else if $$slots.tooltip}
+					<slot name="tooltip" />
 				{/if}
 				{#if eeOnly}
 					{#if !$enterpriseLicense}
