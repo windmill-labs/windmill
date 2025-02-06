@@ -227,7 +227,12 @@
 							schema_name: detail.name,
 							table_to_track: []
 						})
-						if (invalidRelations(appendedRelations, false, true) === false) {
+						if (
+							invalidRelations(appendedRelations, {
+								showError: true,
+								trackSchemaTableError: false
+							}) === false
+						) {
 							relations = appendedRelations
 						}
 					}

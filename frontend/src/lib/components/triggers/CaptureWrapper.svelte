@@ -35,7 +35,12 @@
 				return false
 			}
 
-			if (invalidRelations(args.publication.table_to_track, true, true) === true) {
+			if (
+				invalidRelations(args.publication.table_to_track, {
+					showError: true,
+					trackSchemaTableError: true
+				}) === true
+			) {
 				return false
 			}
 		}

@@ -184,7 +184,13 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (selectedTable === 'specific' && invalidRelations(relations, true, true) === true) {
+		if (
+			selectedTable === 'specific' &&
+			invalidRelations(relations, {
+				showError: true,
+				trackSchemaTableError: true
+			}) === true
+		) {
 			return
 		}
 		if (edit) {

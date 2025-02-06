@@ -14,8 +14,10 @@ type RelationError = {
 }
 export function invalidRelations(
 	relations: Relations[],
-	trackSchemaTableError: boolean,
-	showError?: boolean
+	options?: {
+		trackSchemaTableError?: boolean
+		showError?: boolean
+	}
 ): boolean {
 	let error: RelationError = {
 		schemaIndex: -1,
@@ -28,7 +30,6 @@ export function invalidRelations(
 	}
 
 	const duplicateName: Set<string> = new Set()
-	console.log(relations.length)
 	for (const [schemaIndex, relation] of relations.entries()) {
 		error.schemaIndex = schemaIndex + 1
 		error.schemaName = relation.schema_name
@@ -65,7 +66,7 @@ export function invalidRelations(
 			}
 
 			if (
-				trackSchemaTableError &&
+				options?.trackSchemaTableError &&
 				error.trackAllTablesInSchema &&
 				error.trackSpecificColumnsInTable
 			) {
@@ -77,8 +78,10 @@ export function invalidRelations(
 		error.tableError ||
 		error.schemaError ||
 		error.duplicateSchemaName ||
-		(trackSchemaTableError && error.trackAllTablesInSchema && error.trackSpecificColumnsInTable)
-	if (showError && errorFound) {
+		((options?.trackSchemaTableError ?? false) &&
+			error.trackAllTablesInSchema &&
+			error.trackSpecificColumnsInTable)
+	if ((options?.showError ?? false) && errorFound) {
 		let errorMessage: string = ''
 
 		if (error.schemaError) {
