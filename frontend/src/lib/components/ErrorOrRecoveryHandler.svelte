@@ -217,8 +217,6 @@
 			handlerExtraArgs['channel'] = initialSlackChannel;
 		} else if (handlerSelected === 'teams' && initialTeamsChannel) {
 			handlerExtraArgs['channel'] = initialTeamsChannel;
-		} else {
-			handlerExtraArgs['channel'] = undefined;
 		}
 		connectionTestJob = undefined;
 	}

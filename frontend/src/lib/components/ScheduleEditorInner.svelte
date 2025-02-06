@@ -49,16 +49,16 @@
 	let wsErrorHandlerMuted: boolean = false
 	let errorHandlerPath: string | undefined = undefined
 	let errorHandlerCustomInitialPath: string | undefined = undefined
-	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let recoveryHandlerPath: string | undefined = undefined
 	let recoveryHandlerCustomInitialPath: string | undefined = undefined
-	let recoveryHandlerSelected: 'custom' | 'slack' = 'slack'
+	let recoveryHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
 	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
 	let recoveryHandlerExtraArgs: Record<string, any> = {}
 	let successHandlerPath: string | undefined = undefined
 	let successHandlerCustomInitialPath: string | undefined = undefined
-	let successHandlerSelected: 'custom' | 'slack' = 'slack'
+	let successHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
 	let successHandlerItemKind: 'flow' | 'script' = 'script'
 	let successHandlerExtraArgs: Record<string, any> = {}
 	let failedTimes = 1
@@ -135,7 +135,7 @@
 				errorHandlerPath = splitted.slice(1)?.join('/')
 				errorHandlerExtraArgs = defaultErrorHandlerMaybe['errorHandlerExtraArgs']
 				errorHandlerCustomInitialPath = errorHandlerPath
-				errorHandlerSelected = isSlackHandler('error', errorHandlerPath) ? 'slack' : 'custom'
+				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
 				failedTimes = defaultErrorHandlerMaybe['failedTimes']
 				failedExact = defaultErrorHandlerMaybe['failedExact']
 			} else {
@@ -154,9 +154,7 @@
 				recoveryHandlerPath = splitted.slice(1)?.join('/')
 				recoveryHandlerExtraArgs = defaultRecoveryHandlerMaybe['recoveryHandlerExtraArgs']
 				recoveryHandlerCustomInitialPath = recoveryHandlerPath
-				recoveryHandlerSelected = isSlackHandler('recovery', recoveryHandlerPath)
-					? 'slack'
-					: 'custom'
+				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
 				recoveredTimes = defaultRecoveryHandlerMaybe['recoveredTimes']
 			} else {
 				recoveryHandlerPath = undefined
@@ -172,7 +170,7 @@
 				successHandlerPath = splitted.slice(1)?.join('/')
 				successHandlerExtraArgs = defaultSuccessHandlerMaybe['successHandlerExtraArgs']
 				successHandlerCustomInitialPath = successHandlerPath
-				successHandlerSelected = isSlackHandler('success', successHandlerPath) ? 'slack' : 'custom'
+				successHandlerSelected = getHandlerType('success', successHandlerPath)
 				recoveredTimes = defaultSuccessHandlerMaybe['recoveredTimes']
 			} else {
 				successHandlerPath = undefined
@@ -346,7 +344,7 @@
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				errorHandlerSelected = isSlackHandler('error', errorHandlerPath) ? 'slack' : 'custom'
+				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
 			} else {
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
@@ -363,9 +361,7 @@
 				recoveryHandlerCustomInitialPath = recoveryHandlerPath
 				recoveredTimes = s.on_recovery_times ?? 1
 				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				recoveryHandlerSelected = isSlackHandler('recovery', recoveryHandlerPath)
-					? 'slack'
-					: 'custom'
+				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
@@ -380,7 +376,7 @@
 				successHandlerPath = splitted.slice(1)?.join('/')
 				successHandlerCustomInitialPath = successHandlerPath
 				successHandlerExtraArgs = s.on_success_extra_args ?? {}
-				successHandlerSelected = isSlackHandler('success', successHandlerPath) ? 'slack' : 'custom'
+				successHandlerSelected = getHandlerType('success', successHandlerPath)
 			} else {
 				successHandlerPath = undefined
 				successHandlerItemKind = 'script'
@@ -400,12 +396,18 @@
 	async function scheduleScript(): Promise<void> {
 		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
 			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		} else {
+			errorHandlerExtraArgs['slack'] = undefined
 		}
 		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
 			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		} else {
+			recoveryHandlerExtraArgs['slack'] = undefined
 		}
 		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
 			successHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		} else {
+			successHandlerExtraArgs['slack'] = undefined
 		}
 		if (edit) {
 			await ScheduleService.updateSchedule({
@@ -475,6 +477,30 @@
 		}
 		dispatch('update')
 		drawer.closeDrawer()
+	}
+
+	function getHandlerType(isHandler: 'error' | 'recovery' | 'success', scriptPath: string): 'custom' | 'slack' | 'teams' {
+		const handlerMap = {
+			error: {
+				teams: '/workspace-or-schedule-error-handler-teams',
+				slack: '/workspace-or-schedule-error-handler-slack'
+			},
+			recovery: {
+				teams: '/schedule-recovery-handler-teams',
+				slack: '/schedule-recovery-handler-slack'
+			},
+			success: {
+				teams: '/schedule-success-handler-teams',
+				slack: '/schedule-success-handler-slack'
+			}
+		};
+
+		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
+			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
+				return type as 'custom' | 'slack' | 'teams';
+			}
+		}
+		return 'custom';
 	}
 
 	function isSlackHandler(isSlackHandler: 'error' | 'recovery' | 'success', scriptPath: string) {
