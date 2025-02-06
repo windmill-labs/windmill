@@ -163,7 +163,6 @@
 			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] = await Promise.all(
 				promises
 			)
-			console.log('converted', converted)
 			if (returnFileNames) {
 				converted = converted.map((c, i) => ({ name: files![i].name, data: c }))
 			}
@@ -237,7 +236,7 @@
 			onChange(currentTarget.files ? Array.from(currentTarget.files) : null)
 		}}
 		{accept}
-		multiple={true}
+		{multiple}
 		{...$$restProps}
 	/>
 	{#if defaultFile}

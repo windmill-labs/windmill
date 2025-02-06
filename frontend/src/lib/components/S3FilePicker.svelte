@@ -430,7 +430,6 @@
 		tooltip="Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
-		{selectedFileKey?.s3 && allFilesByKey[selectedFileKey.s3]?.type}
 		{#if workspaceSettingsInitialized === false}
 			{#if fromWorkspaceSettings}
 				<Alert type="error" title="Connection to remote S3 bucket unsuccessful">

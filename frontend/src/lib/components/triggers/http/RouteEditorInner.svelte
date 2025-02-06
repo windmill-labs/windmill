@@ -22,6 +22,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -115,9 +116,11 @@
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
-		static_asset_config = s.static_asset_config
-		s3FileUploadRawMode = !!static_asset_config
-		is_static_website = s.is_static_website
+		if (!isCloudHosted()) {
+			static_asset_config = s.static_asset_config
+			s3FileUploadRawMode = !!static_asset_config
+			is_static_website = s.is_static_website
+		}
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
@@ -232,33 +235,35 @@
 				/>
 
 				<Section label="Target">
-					<ToggleButtonGroup
-						disabled={fixedScriptPath != '' || !can_write}
-						selected={static_asset_config
-							? is_static_website
-								? 'static_website'
-								: 'static_asset'
-							: 'runnable'}
-						on:selected={(ev) => {
-							if (ev.detail === 'static_asset' || ev.detail === 'static_website') {
-								static_asset_config = { s3: '' }
-								s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
-								script_path = ''
-								initialScriptPath = ''
-								is_flow = false
-								http_method = 'get'
-								is_async = false
-								is_static_website = ev.detail === 'static_website'
-							} else if (ev.detail === 'runnable') {
-								static_asset_config = undefined
-								is_static_website = false
-							}
-						}}
-					>
-						<ToggleButton label="Runnable" value="runnable" />
-						<ToggleButton label="Static asset" value="static_asset" />
-						<ToggleButton label="Static website" value="static_website" />
-					</ToggleButtonGroup>
+					{#if !isCloudHosted()}
+						<ToggleButtonGroup
+							disabled={fixedScriptPath != '' || !can_write}
+							selected={static_asset_config
+								? is_static_website
+									? 'static_website'
+									: 'static_asset'
+								: 'runnable'}
+							on:selected={(ev) => {
+								if (ev.detail === 'static_asset' || ev.detail === 'static_website') {
+									static_asset_config = { s3: '' }
+									s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
+									script_path = ''
+									initialScriptPath = ''
+									is_flow = false
+									http_method = 'get'
+									is_async = false
+									is_static_website = ev.detail === 'static_website'
+								} else if (ev.detail === 'runnable') {
+									static_asset_config = undefined
+									is_static_website = false
+								}
+							}}
+						>
+							<ToggleButton label="Runnable" value="runnable" />
+							<ToggleButton label="Static asset" value="static_asset" />
+							<ToggleButton label="Static website" value="static_website" />
+						</ToggleButtonGroup>
+					{/if}
 
 					{#if static_asset_config}
 						{#if is_static_website}
@@ -305,13 +310,7 @@
 											size="xs"
 											btnClasses="mt-1"
 											on:click={() => {
-												s3FilePicker?.open?.(
-													is_static_website
-														? {
-																s3: ''
-														  }
-														: static_asset_config
-												)
+												s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
 											}}
 											startIcon={{ icon: Pipette }}
 										>

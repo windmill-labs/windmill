@@ -226,6 +226,9 @@ async fn create_trigger(
         return Err(error::Error::BadRequest("Invalid route path".to_string()));
     }
 
+    // route path key is extracted from the route path to check for uniqueness
+    // it replaces /?:{key} with :key
+    // it will also remove the leading / if present, not an issue as we only allow : after slashes
     let route_path_key = ROUTE_PATH_KEY_RE.replace_all(ct.route_path.as_str(), ":key");
 
     let exists = route_path_key_exists(&route_path_key, &ct.http_method, &w_id, None, &db).await?;
@@ -233,6 +236,14 @@ async fn create_trigger(
         return Err(error::Error::BadRequest(
             "A route already exists with this path".to_string(),
         ));
+    }
+
+    if *CLOUD_HOSTED {
+        if ct.is_static_website || ct.static_asset_config.is_some() {
+            return Err(error::Error::BadRequest(
+                "Static website and static asset are not supported on cloud".to_string(),
+            ));
+        }
     }
 
     let mut tx = user_db.begin(&authed).await?;
@@ -278,6 +289,14 @@ async fn update_trigger(
     Json(ct): Json<EditTrigger>,
 ) -> error::Result<String> {
     let path = path.to_path();
+
+    if *CLOUD_HOSTED {
+        if ct.is_static_website || ct.static_asset_config.is_some() {
+            return Err(error::Error::BadRequest(
+                "Static website and static assets are not supported on cloud".to_string(),
+            ));
+        }
+    }
 
     let mut tx;
     if authed.is_admin {
