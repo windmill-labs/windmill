@@ -104,7 +104,6 @@ use crate::{
     handle_job_error,
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
-    nu_executor::{handle_nu_job, JobHandlerInput},
     pg_executor::do_postgresql,
     result_processor::{process_result, start_background_processor},
     worker_flow::{handle_flow, update_flow_status_in_progress},
@@ -115,6 +114,9 @@ use crate::{
 
 #[cfg(feature = "rust")]
 use crate::rust_executor::handle_rust_job;
+
+#[cfg(feature = "nu")]
+use crate::nu_executor::{handle_nu_job, JobHandlerInput};
 
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
