@@ -12,7 +12,6 @@ use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
 
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
@@ -263,7 +262,7 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {
-                sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_optional(db)
                     .await?
                     .flatten()
@@ -397,7 +396,7 @@ pub async fn get_reserved_variables(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if let Some(uuid) = job.parent_job {
-        sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+        sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
             .fetch_optional(db)
             .await?
             .flatten()
@@ -438,15 +437,6 @@ pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String,
     }
 
     r
-}
-
-pub fn get_main_override(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> Option<String> {
-    return args
-        .map(|x| {
-            x.0.get(ENTRYPOINT_OVERRIDE)
-                .map(|x| x.get().to_string().replace("\"", ""))
-        })
-        .flatten();
 }
 
 pub fn sizeof_val(v: &serde_json::Value) -> usize {

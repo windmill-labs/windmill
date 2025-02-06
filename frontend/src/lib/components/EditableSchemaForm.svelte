@@ -36,6 +36,7 @@
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
 	export let displayWebhookWarning: boolean = false
+	export let onlyMaskPassword: boolean = false
 	export let dndType: string | undefined = undefined
 	export let editTab:
 		| 'inputEditor'
@@ -282,6 +283,7 @@
 							schema={previewSchema ? previewSchema : schema}
 							{dndType}
 							{disableDnd}
+							{onlyMaskPassword}
 							bind:args
 							on:click={(e) => {
 								opened = e.detail

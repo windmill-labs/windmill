@@ -7781,8 +7781,9 @@ paths:
                 http_method:
                   type: string
                   enum: ["get", "post", "put", "delete", "patch"]
+                trigger_path:
+                  type: string
               required:
-                - kind
                 - route_path
                 - http_method
       responses:
@@ -11952,6 +11953,8 @@ components:
           type: number
         suspend:
           type: number
+        preprocessed:
+          type: boolean
       required:
         - id
         - running
@@ -12059,6 +12062,8 @@ components:
           type: number
         aggregate_wait_time_ms:
           type: number
+        preprocessed:
+          type: boolean
       required:
         - id
         - created_by
@@ -13022,6 +13027,8 @@ components:
           type: boolean
         requires_auth:
           type: boolean
+        is_static_website:
+          type: boolean
 
       required:
         - path
@@ -13036,6 +13043,7 @@ components:
         - is_async
         - requires_auth
         - http_method
+        - is_static_website
 
     NewHttpTrigger:
       type: object
@@ -13071,6 +13079,8 @@ components:
           type: boolean
         requires_auth:
           type: boolean
+        is_static_website:
+          type: boolean
 
       required:
         - path
@@ -13080,6 +13090,7 @@ components:
         - is_async
         - requires_auth
         - http_method
+        - is_static_website
 
     EditHttpTrigger:
       type: object
@@ -13115,6 +13126,8 @@ components:
           type: boolean
         requires_auth:
           type: boolean
+        is_static_website:
+          type: boolean
       required:
         - path
         - script_path
@@ -13123,6 +13136,7 @@ components:
         - is_async
         - requires_auth
         - http_method
+        - is_static_website
 
     TriggersCount:
       type: object

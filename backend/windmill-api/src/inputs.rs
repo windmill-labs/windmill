@@ -133,7 +133,7 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = &format!(
-        "select id, created_at, created_by, 'null'::jsonb as args, success from completed_job \
+        "select id, created_at, created_by, 'null'::jsonb as args, success from v2_as_completed_job \
         where {} = $1 and job_kind = any($2) and workspace_id = $3 \
         order by created_at desc limit $4 offset $5",
         r.runnable_type.column_name()
@@ -204,16 +204,16 @@ async fn get_args_from_history_or_saved_input(
     let result_o = if let Some(input) = g.input {
         if input {
             sqlx::query_scalar!(
-                    "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2",
-                    job_or_input_id,
-                    w_id,
-                    g.allow_large.unwrap_or(true)
-                )
-                .fetch_optional(&mut *tx)
-                .await?
+                "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2",
+                job_or_input_id,
+                w_id,
+                g.allow_large.unwrap_or(true)
+            )
+            .fetch_optional(&mut *tx)
+            .await?
         } else {
             sqlx::query_scalar!(
-                "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM v2_job WHERE id = $1 AND workspace_id = $2",
                 job_or_input_id,
                 w_id,
                 g.allow_large.unwrap_or(true)
@@ -223,13 +223,15 @@ async fn get_args_from_history_or_saved_input(
         }
     } else {
         sqlx::query_scalar!(
-        "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2",
-        job_or_input_id,
-        w_id,
-        g.allow_large.unwrap_or(true)
-    )
-    .fetch_optional(&mut *tx)
-    .await?
+            "SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM v2_job WHERE id = $1 AND workspace_id = $2
+            UNION ALL
+            SELECT CASE WHEN pg_column_size(args) < 40000 OR $3 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args FROM input WHERE id = $1 AND workspace_id = $2",
+            job_or_input_id,
+            w_id,
+            g.allow_large.unwrap_or(true)
+        )
+        .fetch_optional(&mut *tx)
+        .await?
     };
 
     tx.commit().await?;
