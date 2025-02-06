@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue q SET\n            canceled_by = $1,\n            canceled_reason = $2,\n            scheduled_for = NOW(),\n            suspend = 0\n        FROM v2_job j\n        WHERE q.id = ANY($3) AND j.id = q.id AND q.workspace_id = $4\n            AND canceled_by IS NULL\n            AND (j.trigger IS DISTINCT FROM 'schedule' OR running = true)\n        RETURNING q.id, (q.running = false AND parent_job IS NULL AND trigger IS NULL) AS trivial",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "trivial",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "cca9425bfac22749f7ca4904227de7fc3c416120d33df76fbb16f1252e81a65c"
+}

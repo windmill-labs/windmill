@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH queued AS (\n            DELETE FROM v2_job_queue\n            WHERE id = ANY($1::UUID[])\n            RETURNING\n                id, workspace_id, started_at, worker, canceled_by, canceled_reason, extras\n        ), queued_and_runtime AS (\n            SELECT queued.*, GREATEST($7, memory_peak) AS memory_peak, flow_status,\n                workflow_as_code_status\n            FROM queued\n                LEFT JOIN v2_job_runtime USING (id)\n                LEFT JOIN v2_job_status USING (id)\n        ) INSERT INTO v2_job_completed (\n            id, workspace_id, started_at, worker, memory_peak, flow_status, workflow_as_code_status,\n            result, result_columns, canceled_by, canceled_reason, extras,\n            duration_ms,\n            status\n        ) SELECT\n            id, workspace_id, started_at, worker, memory_peak, flow_status, workflow_as_code_status,\n            $5, $6, canceled_by, canceled_reason, extras,\n            COALESCE($2::BIGINT, CASE\n                WHEN started_at IS NULL THEN 0\n                ELSE (EXTRACT('epoch' FROM NOW()) - EXTRACT('epoch' FROM started_at)) * 1000\n            END) AS duration_ms,\n            CASE\n                WHEN canceled_by IS NOT NULL THEN 'canceled'::job_status\n                WHEN $3::BOOLEAN THEN 'skipped'::job_status\n                WHEN $4::BOOLEAN THEN 'success'::job_status\n                ELSE 'failure'::job_status\n            END AS status\n        FROM queued_and_runtime\n        RETURNING id, status = 'canceled' AS \"canceled!\", duration_ms",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "canceled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "duration_ms",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int8",
+        "Bool",
+        "Bool",
+        "Jsonb",
+        "TextArray",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "db2c20865d6fe6bd6752ec62a03267aa23c4e035cb0de8b25bada7ebf1c565fe"
+}

@@ -63,7 +63,7 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, pull, push, CanceledBy, PulledJob, PushArgs,
+    append_logs, canceled_job_to_result, empty_result, pull, push, PulledJob, PushArgs,
     PushIsolationLevel, HTTP_CLIENT,
 };
 
@@ -1504,7 +1504,6 @@ pub async fn run_worker(
                             mem_peak: 0,
                             cached_res_path: None,
                             token: "".to_string(),
-                            canceled_by: None,
                             duration: None,
                         })
                         .await
@@ -1686,7 +1685,6 @@ pub async fn run_worker(
                                 &authed_client.get_authed().await,
                                 arc_job.as_ref(),
                                 0,
-                                None,
                                 err,
                                 false,
                                 same_worker_tx.clone(),
@@ -1902,7 +1900,6 @@ pub struct JobCompleted {
     pub success: bool,
     pub cached_res_path: Option<String>,
     pub token: String,
-    pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
 }
 
@@ -1913,7 +1910,6 @@ async fn do_nativets(
     code: String,
     db: &Pool<Postgres>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
@@ -1933,7 +1929,6 @@ async fn do_nativets(
         job.timeout,
         db,
         mem_peak,
-        canceled_by,
         worker_name,
         &job.workspace_id,
         true,
@@ -2089,7 +2084,6 @@ async fn handle_queued_job(
                     result,
                     result_columns: None,
                     mem_peak: 0,
-                    canceled_by: None,
                     success: true,
                     cached_res_path: None,
                     token: authed_client.token,
@@ -2124,7 +2118,6 @@ async fn handle_queued_job(
     } else {
         let mut logs = "".to_string();
         let mut mem_peak: i32 = 0;
-        let mut canceled_by: Option<CanceledBy> = None;
         // println!("handle queue {:?}",  SystemTime::now());
 
         logs.push_str(&format!(
@@ -2166,7 +2159,6 @@ async fn handle_queued_job(
                     &job,
                     preview_data.as_ref(),
                     &mut mem_peak,
-                    &mut canceled_by,
                     job_dir,
                     db,
                     worker_name,
@@ -2182,7 +2174,6 @@ async fn handle_queued_job(
                     &job,
                     preview_data.as_ref(),
                     &mut mem_peak,
-                    &mut canceled_by,
                     job_dir,
                     db,
                     worker_name,
@@ -2196,7 +2187,6 @@ async fn handle_queued_job(
             JobKind::AppDependencies => handle_app_dependency_job(
                 &job,
                 &mut mem_peak,
-                &mut canceled_by,
                 job_dir,
                 db,
                 worker_name,
@@ -2228,7 +2218,6 @@ async fn handle_queued_job(
                     job_dir,
                     worker_dir,
                     &mut mem_peak,
-                    &mut canceled_by,
                     base_internal_url,
                     worker_name,
                     &mut column_order,
@@ -2261,7 +2250,6 @@ async fn handle_queued_job(
             job_dir,
             job_completed_tx,
             mem_peak,
-            canceled_by,
             cached_res_path,
             client.get_token().await,
             column_order,
@@ -2354,7 +2342,6 @@ async fn handle_code_execution_job(
     job_dir: &str,
     #[allow(unused_variables)] worker_dir: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     base_internal_url: &str,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
@@ -2447,7 +2434,6 @@ async fn handle_code_execution_job(
             &code,
             db,
             mem_peak,
-            canceled_by,
             worker_name,
             column_order,
             occupancy_metrics,
@@ -2466,7 +2452,6 @@ async fn handle_code_execution_job(
             &code,
             db,
             mem_peak,
-            canceled_by,
             worker_name,
             column_order,
             occupancy_metrics,
@@ -2496,7 +2481,6 @@ async fn handle_code_execution_job(
                 &code,
                 db,
                 mem_peak,
-                canceled_by,
                 worker_name,
                 column_order,
                 occupancy_metrics,
@@ -2519,7 +2503,6 @@ async fn handle_code_execution_job(
                 &code,
                 db,
                 mem_peak,
-                canceled_by,
                 worker_name,
                 column_order,
                 occupancy_metrics,
@@ -2550,7 +2533,6 @@ async fn handle_code_execution_job(
                 &code,
                 db,
                 mem_peak,
-                canceled_by,
                 worker_name,
                 occupancy_metrics,
             )
@@ -2580,7 +2562,6 @@ async fn handle_code_execution_job(
                 &code,
                 db,
                 mem_peak,
-                canceled_by,
                 worker_name,
                 column_order,
                 occupancy_metrics,
@@ -2594,7 +2575,6 @@ async fn handle_code_execution_job(
             &code,
             db,
             mem_peak,
-            canceled_by,
             worker_name,
             occupancy_metrics,
         )
@@ -2625,7 +2605,6 @@ async fn handle_code_execution_job(
             code.clone(),
             db,
             mem_peak,
-            canceled_by,
             worker_name,
             occupancy_metrics,
         )
@@ -2690,7 +2669,6 @@ mount {{
                 worker_name,
                 job,
                 mem_peak,
-                canceled_by,
                 db,
                 client,
                 &code,
@@ -2706,7 +2684,6 @@ mount {{
             handle_deno_job(
                 lock.as_ref(),
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
@@ -2725,7 +2702,6 @@ mount {{
                 lock.as_ref(),
                 codebase.as_ref(),
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
@@ -2743,7 +2719,6 @@ mount {{
         Some(ScriptLang::Go) => {
             handle_go_job(
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
@@ -2761,7 +2736,6 @@ mount {{
         Some(ScriptLang::Bash) => {
             handle_bash_job(
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
@@ -2779,7 +2753,6 @@ mount {{
         Some(ScriptLang::Powershell) => {
             handle_powershell_job(
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
@@ -2803,7 +2776,6 @@ mount {{
             handle_php_job(
                 lock.as_ref(),
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
@@ -2826,7 +2798,6 @@ mount {{
             #[cfg(feature = "rust")]
             handle_rust_job(
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
@@ -2855,7 +2826,6 @@ mount {{
                 worker_name,
                 job,
                 mem_peak,
-                canceled_by,
                 db,
                 client,
                 &code,
@@ -2869,7 +2839,6 @@ mount {{
         Some(ScriptLang::CSharp) => {
             handle_csharp_job(
                 mem_peak,
-                canceled_by,
                 job,
                 db,
                 client,
