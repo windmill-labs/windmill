@@ -87,8 +87,8 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    cancel_job, get_queued_job, get_result_and_success_by_id_from_flow, job_is_complete, push,
-    PushArgs, PushArgsOwned, PushIsolationLevel,
+    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
+    PushArgsOwned, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -336,16 +336,21 @@ async fn get_root_job(
     Ok(Json(res))
 }
 
-async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
-    let mut job = get_queued_job(&job_id, w_id, db).await?;
-    while let Some(j) = job {
-        if let Some(uuid) = j.parent_job {
-            job = get_queued_job(&uuid, w_id, db).await?;
-        } else {
-            return Ok(j.id.to_string());
+async fn compute_root_job_for_flow(db: &DB, w_id: &str, mut job_id: Uuid) -> error::Result<String> {
+    // TODO: use `root_job` ?
+    loop {
+        job_id = match sqlx::query_scalar!(
+            "SELECT parent_job FROM queue WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            w_id
+        )
+        .fetch_one(db)
+        .await
+        {
+            Ok(Some(job_id)) => job_id,
+            _ => return Ok(job_id.to_string()),
         }
     }
-    Ok(job_id.to_string())
 }
 
 async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {
@@ -1087,29 +1092,23 @@ async fn get_job_logs(
     }
 }
 
-#[derive(FromRow)]
-pub struct RawArgs {
-    pub args: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub created_by: String,
-}
-
 async fn get_args(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<Box<serde_json::value::RawValue>> {
+) -> JsonResult<Box<RawValue>> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed))
         .flatten();
-    let record = sqlx::query_as::<_, RawArgs>(
-        "SELECT created_by, args
+    let record = sqlx::query!(
+        "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
         FROM completed_job 
-        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR completed_job.tag = ANY($3))",
+        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
     )
-    .bind(&id)
-    .bind(&w_id)
-    .bind(tags.as_ref().map(|v| v.as_slice()))
     .fetch_optional(&db)
     .await?;
 
@@ -1124,14 +1123,14 @@ async fn get_args(
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     } else {
-        let record = sqlx::query_as::<_, RawArgs>(
-            "SELECT created_by, args
+        let record = sqlx::query!(
+            "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
             FROM queue
-            WHERE queue.id = $1 AND queue.workspace_id = $2 AND ($3::text[] IS NULL OR queue.tag = ANY($3))",
+            WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+            id,
+            &w_id,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
         )
-        .bind(&id)
-        .bind(&w_id)
-        .bind(tags.as_ref().map(|v| v.as_slice()))
         .fetch_optional(&db)
         .await?;
         let record = not_found_if_none(record, "Job Args", id.to_string())?;
@@ -3150,11 +3149,15 @@ pub async fn restart_flow(
     check_license_key_valid().await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let completed_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, result->'wm_labels' as labels from completed_job WHERE id = $1 and workspace_id = $2",
+    let completed_job = sqlx::query!(
+        "SELECT
+            script_path, args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
+            tag AS \"tag!\", priority
+        FROM completed_job
+        WHERE id = $1 and workspace_id = $2",
+        job_id,
+        &w_id,
     )
-    .bind(job_id)
-    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?
     .with_context(|| "Unable to find completed job with the given job UUID")?;
@@ -3180,11 +3183,7 @@ pub async fn restart_flow(
         &db,
         tx,
         &w_id,
-        JobPayload::RestartedFlow {
-            completed_job_id: job_id,
-            step_id: step_id,
-            branch_or_iteration_n: branch_or_iteration_n,
-        },
+        JobPayload::RestartedFlow { completed_job_id: job_id, step_id, branch_or_iteration_n },
         push_args,
         &authed.username,
         &authed.email,
@@ -3587,11 +3586,17 @@ pub async fn run_wait_result_internal(
         }
 
         if result.is_none() {
-            let row = sqlx::query_as::<_, RawResultWithSuccess>(
-                "SELECT '' as created_by, result, language, flow_status, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            let row = sqlx::query!(
+                "SELECT
+                    result AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                    language AS \"language: ScriptLang\",
+                    flow_status AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                    success AS \"success!\"
+                FROM completed_job
+                WHERE id = $1 AND workspace_id = $2",
+                uuid,
+                &w_id
             )
-            .bind(uuid)
-            .bind(&w_id)
             .fetch_optional(db)
             .await?;
             if let Some(mut raw_result) = row {
@@ -5178,29 +5183,33 @@ async fn get_job_update(
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery { running, log_offset, get_progress }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
-    let record = sqlx::query_as::<_, JobUpdateRow>(
-        "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) as logs, mem_peak, 
-        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
-        job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset, created_by
+    let record = sqlx::query!(
+        "SELECT
+            running AS \"running!\",
+            substr(concat(coalesce(queue.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) AS logs,
+            mem_peak,
+            CASE WHEN is_flow_step is true then NULL else flow_status END AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+            job_logs.log_offset + char_length(job_logs.logs) + 1 AS log_offset,
+            created_by AS \"created_by!\"
         FROM queue
         LEFT JOIN job_logs ON job_logs.job_id =  queue.id 
         WHERE queue.workspace_id = $2 AND queue.id = $3",
+        log_offset,
+        &w_id,
+        job_id
     )
-    .bind(log_offset)
-    .bind(&w_id)
-    .bind(&job_id)
     .fetch_optional(&db)
     .await?;
 
     let progress: Option<i32> = if get_progress == Some(true) {
         sqlx::query_scalar!(
-                "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
-                &w_id,
-                 job_id,
-                "progress_perc"
-            )
-            .fetch_optional(&db)
-            .await?.and_then(|inner| inner)
+            "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+            &w_id,
+             job_id,
+            "progress_perc"
+        )
+        .fetch_optional(&db)
+        .await?.and_then(|inner| inner)
     } else {
         None
     };
@@ -5228,17 +5237,20 @@ async fn get_job_update(
                 .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
         }))
     } else {
-        let record = sqlx::query_as::<_, JobUpdateRow>(
-            "SELECT false as running, substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0))  as logs, mem_peak, 
-            CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
-            job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset, created_by
-            FROM completed_job 
-            LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
-            WHERE completed_job.workspace_id = $2 AND id = $3",
+        let record = sqlx::query!(
+            "SELECT
+                substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) AS logs,
+                mem_peak,
+                CASE WHEN is_flow_step is true then NULL else flow_status END AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                job_logs.log_offset + char_length(job_logs.logs) + 1 AS log_offset,
+                created_by AS \"created_by!\"
+            FROM completed_job
+            LEFT JOIN job_logs ON job_logs.job_id =  completed_job.id 
+            WHERE completed_job.workspace_id = $2 AND completed_job.id = $3",
+            log_offset,
+            &w_id,
+            job_id
         )
-        .bind(log_offset)
-        .bind(&w_id)
-        .bind(&job_id)
         .fetch_optional(&db)
         .await?;
         if let Some(record) = record {
@@ -5529,15 +5541,6 @@ pub struct RawResult {
     pub created_by: Option<String>,
 }
 
-#[derive(FromRow)]
-pub struct RawResultWithSuccess {
-    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub language: Option<ScriptLang>,
-    pub success: bool,
-    pub created_by: String,
-}
-
 async fn get_completed_job_result(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -5549,27 +5552,38 @@ async fn get_completed_job_result(
         .map(|authed| get_scope_tags(authed))
         .flatten();
     let result_o = if let Some(json_path) = json_path {
-        sqlx::query_as::<_, RawResult>(
-            "SELECT result #> $3 as result, flow_status, language, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2 AND ($4::text[] IS NULL OR tag = ANY($4))",
+        sqlx::query_as!(
+            RawResult,
+            "SELECT
+                result #> $3 AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                flow_status AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                language AS \"language: ScriptLang\",
+                created_by AS \"created_by!\"
+            FROM completed_job
+            WHERE id = $1 AND workspace_id = $2 AND ($4::text[] IS NULL OR tag = ANY($4))",
+            id,
+            &w_id,
+            json_path.split(".").collect::<Vec<_>>() as Vec<&str>,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
         )
-        .bind(id)
-        .bind(&w_id)
-        .bind(
-            json_path
-                .split(".")
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>(),
-        )
-        .bind(tags.as_ref().map(|v| v.as_slice()))
         .fetch_optional(&db)
         .await?
     } else {
-        sqlx::query_as::<_, RawResult>("SELECT result, flow_status, language, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))")
-            .bind(id)
-            .bind(&w_id)
-            .bind(tags.as_ref().map(|v| v.as_slice()))
-            .fetch_optional(&db)
-            .await?
+        sqlx::query_as!(
+            RawResult,
+            "SELECT
+                result AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                flow_status AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+                language AS \"language: ScriptLang\",
+                created_by AS \"created_by!\"
+            FROM completed_job
+            WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+            id,
+            &w_id,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+        )
+        .fetch_optional(&db)
+        .await?
     };
 
     let mut raw_result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
@@ -5684,12 +5698,18 @@ async fn get_completed_job_result_maybe(
         .as_ref()
         .map(|authed| get_scope_tags(authed))
         .flatten();
-    let result_o = sqlx::query_as::<_, RawResultWithSuccess>(
-        "SELECT result, success, language, flow_status, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+    let result_o = sqlx::query!(
+        "SELECT
+            result AS \"result: sqlx::types::Json<Box<RawValue>>\", success AS \"success!\",
+            language AS \"language: ScriptLang\",
+            flow_status AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+            created_by AS \"created_by!\"
+        FROM completed_job
+        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
     )
-    .bind(id)
-    .bind(&w_id)
-    .bind(tags.as_ref().map(|v| v.as_slice()))
     .fetch_optional(&db)
     .await?;
 

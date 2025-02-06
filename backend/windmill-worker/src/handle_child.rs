@@ -206,7 +206,7 @@ pub async fn handle_child(
 
         let set_reason = async {
             if matches!(kill_reason, KillReason::Timeout { .. }) {
-                if let Err(err) = sqlx::query(
+                if let Err(err) = sqlx::query!(
                     r#"
                        UPDATE queue
                           SET canceled = true
@@ -214,9 +214,9 @@ pub async fn handle_child(
                             , canceled_reason = $1
                         WHERE id = $2
                     "#,
+                    format!("duration > {}", timeout_duration.as_secs()),
+                    job_id
                 )
-                .bind(format!("duration > {}", timeout_duration.as_secs()))
-                .bind(job_id)
                 .execute(&db)
                 .await
                 {
@@ -644,9 +644,14 @@ where
                     }
                 }
                 if job_id != Uuid::nil() {
-                    let (canceled, canceled_by, canceled_reason, already_completed) = sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason, false")
-                        .bind(*mem_peak)
-                        .bind(job_id)
+                    let (canceled, canceled_by, canceled_reason, already_completed) = sqlx::query!(
+                            "UPDATE queue SET mem_peak = $1, last_ping = now()
+                            WHERE id = $2
+                            RETURNING canceled AS \"canceled!\", canceled_by, canceled_reason",
+                            *mem_peak,
+                            job_id
+                        )
+                        .map(|x| (x.canceled, x.canceled_by, x.canceled_reason, false))
                         .fetch_optional(&db)
                         .await
                         .unwrap_or_else(|e| {

@@ -40,7 +40,7 @@ use windmill_common::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
     },
     jobs::{
-        get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
+        get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode,
         ENTRYPOINT_OVERRIDE, PREPROCESSOR_FAKE_ENTRYPOINT,
     },
     schedule::Schedule,
@@ -1383,15 +1383,23 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
             let times = schedule.on_failure_times.unwrap_or(1).max(1);
             let exact = schedule.on_failure_exact.unwrap_or(false);
             if times > 1 || exact {
-                let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
-                    "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT $5",
+                let past_jobs = sqlx::query!(
+                    "SELECT
+                        success AS \"success!\",
+                        result AS \"result: Json<Box<RawValue>>\",
+                        started_at AS \"started_at!\"
+                    FROM completed_job
+                    WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                    ORDER BY created_at DESC
+                    LIMIT $5",
+                    &schedule.workspace_id,
+                    &schedule.path,
+                    script_path,
+                    job_id,
+                    if exact { times } else { times - 1 } as i64
                 )
-                .bind(&schedule.workspace_id)
-                .bind(&schedule.path)
-                .bind(script_path)
-                .bind(job_id)
-                .bind(if exact { times } else { times - 1 } as i64,)
-                .fetch_all(db).await?;
+                .fetch_all(db)
+                .await?;
 
                 let match_times = if exact {
                     past_jobs.len() == times as usize
@@ -1446,15 +1454,22 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
         if let Some(ref on_recovery_path) = schedule.on_recovery.clone() {
             let tx = db.begin().await?;
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
-            let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
-                "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT $5",
+            let past_jobs = sqlx::query!(
+                "SELECT
+                    success AS \"success!\",
+                    result AS \"result: Json<Box<RawValue>>\",
+                    started_at AS \"started_at!\"\
+                FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                ORDER BY created_at DESC
+                LIMIT $5",
+                &schedule.workspace_id,
+                &schedule.path,
+                script_path,
+                job_id,
+                times as i64
             )
-            .bind(&schedule.workspace_id)
-            .bind(&schedule.path)
-            .bind(script_path)
-            .bind(job_id)
-            .bind(times as i64)
-            .fetch_all(db).await?;
+            .fetch_all(db)
+            .await?;
 
             if past_jobs.len() < times as usize {
                 return Ok(());
@@ -1466,7 +1481,7 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
                 return Ok(());
             }
 
-            let failed_job = past_jobs[past_jobs.len() - 1].clone();
+            let failed_job = &past_jobs[past_jobs.len() - 1];
 
             if !failed_job.success {
                 handle_recovered_schedule(
@@ -1478,7 +1493,8 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
                     schedule.is_flow,
                     w_id,
                     &on_recovery_path,
-                    failed_job,
+                    failed_job.result.as_ref().map(AsRef::as_ref),
+                    failed_job.started_at,
                     result,
                     times,
                     started_at,
@@ -1624,7 +1640,8 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
     is_flow: bool,
     w_id: &str,
     on_recovery_path: &str,
-    error_job: CompletedJobSubset,
+    result: Option<&Box<RawValue>>,
+    started_at: DateTime<Utc>,
     successful_job_result: Json<&'a T>,
     successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
@@ -1634,10 +1651,7 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
     let mut extra = HashMap::new();
-    extra.insert(
-        "error_started_at".to_string(),
-        to_raw_value(&error_job.started_at),
-    );
+    extra.insert("error_started_at".to_string(), to_raw_value(&started_at));
     extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
     extra.insert("path".to_string(), to_raw_value(&script_path));
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
@@ -1663,9 +1677,8 @@ async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
         }
     }
 
-    let args = error_job
-        .result
-        .and_then(|x| serde_json::from_str::<HashMap<String, Box<RawValue>>>(x.0.get()).ok())
+    let args = result
+        .and_then(|x| serde_json::from_str::<HashMap<String, Box<RawValue>>>(x.get()).ok())
         .unwrap_or_else(HashMap::new);
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -2195,17 +2208,6 @@ fn fullpath_with_workspace(
     )
 }
 
-#[derive(FromRow)]
-pub struct ResultR {
-    result: Option<Json<Box<RawValue>>>,
-}
-
-#[derive(FromRow)]
-pub struct ResultWithId {
-    result: Option<Json<Box<RawValue>>>,
-    id: Uuid,
-}
-
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     w_id: String,
@@ -2224,25 +2226,29 @@ pub async fn get_result_by_id(
     {
         Ok(res) => Ok(res),
         Err(_) => {
-            let running_flow_job =sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
-            ).bind(flow_id)
-            .bind(&w_id)
-            .fetch_optional(&db).await?;
-            match running_flow_job {
-                Some(job) => {
-                    let restarted_from = windmill_common::utils::not_found_if_none(
-                        job.parse_flow_status()
-                            .map(|status| status.restarted_from)
-                            .flatten(),
+            let root = sqlx::query!(
+                "SELECT
+                    id As \"id!\",
+                    flow_status->'restarted_from'->'flow_job_id' AS \"restarted_from: Json<Uuid>\"
+                FROM queue
+                WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2",
+                flow_id,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+            match root {
+                Some(root) => {
+                    let restarted_from_id = not_found_if_none(
+                        root.restarted_from,
                         "Id not found in the result's mapping of the root job and root job had no restarted from information",
-                        format!("parent: {}, root: {}, id: {}", flow_id, job.id, node_id),
+                        format!("parent: {}, root: {}, id: {}", flow_id, root.id, node_id),
                     )?;
 
                     get_result_by_id_from_original_flow(
                         &db,
                         w_id.as_str(),
-                        &restarted_from.flow_job_id,
+                        &restarted_from_id,
                         node_id.as_str(),
                         json_path.clone(),
                     )
@@ -2261,12 +2267,6 @@ pub async fn get_result_by_id(
             }
         }
     }
-}
-
-#[derive(FromRow)]
-struct FlowJobResult {
-    leaf_jobs: Option<Json<Box<RawValue>>>,
-    parent_job: Option<Uuid>,
 }
 
 pub async fn get_result_and_success_by_id_from_flow(
@@ -2368,11 +2368,14 @@ pub async fn get_result_by_id_from_running_flow_inner(
     flow_id: &Uuid,
     node_id: &str,
 ) -> error::Result<JobResult> {
-    let flow_job_result = sqlx::query_as::<_, FlowJobResult>(
-        "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3")
-    .bind(node_id)
-    .bind(flow_id)
-    .bind(w_id)
+    let flow_job_result = sqlx::query!(
+        "SELECT leaf_jobs->$1::text AS \"leaf_jobs: Json<Box<RawValue>>\", parent_job
+        FROM queue
+        WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
+        node_id,
+        flow_id,
+        w_id,
+    )
     .fetch_optional(db)
     .await?;
 
@@ -2406,18 +2409,13 @@ pub async fn get_result_by_id_from_running_flow_inner(
     Ok(result_id)
 }
 
-#[async_recursion]
 async fn get_completed_flow_node_result_rec(
     db: &Pool<Postgres>,
     w_id: &str,
-    subflows: Vec<CompletedJob>,
+    subflows: impl std::iter::Iterator<Item = (Uuid, FlowStatus)>,
     node_id: &str,
 ) -> error::Result<Option<JobResult>> {
-    for subflow in subflows {
-        let flow_status = subflow.parse_flow_status().ok_or_else(|| {
-            error::Error::internal_err(format!("Could not parse flow status of {}", subflow.id))
-        })?;
-
+    for (id, flow_status) in subflows {
         if let Some(node_status) = flow_status
             .modules
             .iter()
@@ -2428,15 +2426,27 @@ async fn get_completed_flow_node_result_rec(
                 (Some(_), Some(jobs)) => Ok(Some(JobResult::ListJob(jobs))),
                 _ => Err(error::Error::NotFound(format!(
                     "Flow result by id not found going top-down in subflows (currently: {}), (id: {})",
-                    subflow.id,
+                    id,
                     node_id,
                 ))),
             };
         } else {
-            let subflows = sqlx::query_as::<_, CompletedJob>(
-                "SELECT *, null as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
-            ).bind(subflow.id).bind(w_id).fetch_all(db).await?;
-            match get_completed_flow_node_result_rec(db, w_id, subflows, node_id).await? {
+            let subflows = sqlx::query!(
+                "SELECT id AS \"id!\", flow_status AS \"flow_status!: Json<FlowStatus>\"
+                FROM completed_job
+                WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
+                id,
+                w_id
+            )
+            .map(|record| (record.id, record.flow_status.0))
+            .fetch_all(db)
+            .await?
+            .into_iter();
+            match Box::pin(get_completed_flow_node_result_rec(
+                db, w_id, subflows, node_id,
+            ))
+            .await?
+            {
                 Some(res) => return Ok(Some(res)),
                 None => continue,
             };
@@ -2452,23 +2462,25 @@ async fn get_result_by_id_from_original_flow_inner(
     completed_flow_id: &Uuid,
     node_id: &str,
 ) -> error::Result<JobResult> {
-    let flow_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, null as labels FROM completed_job WHERE id = $1 AND workspace_id = $2",
+    let flow_job = sqlx::query!(
+        "SELECT id AS \"id!\", flow_status AS \"flow_status!: Json<FlowStatus>\"
+        FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        completed_flow_id,
+        w_id
     )
-    .bind(completed_flow_id)
-    .bind(w_id)
+    .map(|record| (record.id, record.flow_status.0))
     .fetch_optional(db)
     .await?;
 
-    let flow_job = windmill_common::utils::not_found_if_none(
+    let flow_job = not_found_if_none(
         flow_job,
         "Root completed job",
         format!("root: {}, id: {}", completed_flow_id, node_id),
     )?;
 
-    match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id).await? {
+    match get_completed_flow_node_result_rec(db, w_id, [flow_job].into_iter(), node_id).await? {
         Some(res) => Ok(res),
-        None => Err(error::Error::NotFound(format!(
+        None => Err(Error::NotFound(format!(
             "Flow result by id not found going top-down from {}, (id: {})",
             completed_flow_id, node_id
         ))),
@@ -2504,26 +2516,26 @@ async fn extract_result_from_job_result(
                 let Some(job_id) = job_ids.get(idx).cloned() else {
                     return Ok(to_raw_value(&serde_json::Value::Null));
                 };
-                Ok(sqlx::query_as::<_, ResultR>(
-                    "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-                )
-                .bind(job_id)
-                .bind(w_id)
-                .bind(
-                    parts.map(|x| x.to_string()).collect::<Vec<_>>()
+                Ok(sqlx::query_scalar!(
+                    "SELECT result #> $3 AS \"result: Json<Box<RawValue>>\"
+                    FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                    job_id,
+                    w_id,
+                    parts.collect::<Vec<_>>() as Vec<&str>
                 )
                 .fetch_optional(db)
                 .await?
-                .map(|r| r.result.map(|x| x.0))
                 .flatten()
+                .map(|x| x.0)
                 .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)))
             }
             None => {
-                let rows = sqlx::query_as::<_, ResultWithId>(
-                    "SELECT id, result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
+                let rows = sqlx::query!(
+                    "SELECT id AS \"id!\", result  AS \"result: Json<Box<RawValue>>\"
+                    FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
+                    job_ids.as_slice(),
+                    w_id
                 )
-                .bind(job_ids.as_slice())
-                .bind(w_id)
                 .fetch_all(db)
                 .await?
                 .into_iter()
@@ -2540,15 +2552,15 @@ async fn extract_result_from_job_result(
                 Ok(to_raw_value(&result))
             }
         },
-        JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
-            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(x)
-        .bind(w_id)
-        .bind(
+        JobResult::SingleJob(x) => Ok(sqlx::query!(
+            "SELECT result #> $3 AS \"result: Json<Box<RawValue>>\"
+            FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            x,
+            w_id,
             json_path
-                .map(|x| x.split(".").map(|x| x.to_string()).collect::<Vec<_>>())
-                .unwrap_or_default(),
+                .as_ref()
+                .map(|x| x.split(".").collect::<Vec<_>>())
+                .unwrap_or_default() as Vec<&str>,
         )
         .fetch_optional(db)
         .await?
