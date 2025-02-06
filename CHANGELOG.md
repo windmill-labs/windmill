@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.457.1](https://github.com/windmill-labs/windmill/compare/v1.457.0...v1.457.1) (2025-02-05)
+
+
+### Bug Fixes
+
+* fix autoscaling inc increase by customized parameter ([a457c01](https://github.com/windmill-labs/windmill/commit/a457c0137cd60901619817cc2a3906def64667ac))
+* preprocessor args python ([#5210](https://github.com/windmill-labs/windmill/issues/5210)) ([8a446a6](https://github.com/windmill-labs/windmill/commit/8a446a658a1b8e82fd8c3a051dd7274df8c54c71))
+
 ## [1.457.0](https://github.com/windmill-labs/windmill/compare/v1.456.0...v1.457.0) (2025-02-04)
 
 
