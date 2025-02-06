@@ -10,7 +10,7 @@ use anyhow::anyhow;
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Pool, Postgres};
+use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
@@ -26,7 +26,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
-    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
+    jobs::QueuedJob,
     utils::calculate_hash,
     worker::{write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
@@ -35,8 +35,8 @@ use windmill_common::{
 #[cfg(feature = "enterprise")]
 use windmill_common::variables::get_secret_value_as_admin;
 
-use windmill_queue::{append_logs, CanceledBy};
 use std::env::var;
+use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
@@ -84,8 +84,8 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, read_file,
-        read_result, start_child_process, OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, read_file, read_result,
+        start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION,
@@ -308,11 +308,25 @@ impl PyVersion {
 
         let mut child_cmd = Command::new(uv_cmd);
         child_cmd
+            .env_clear()
+            .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
             .args(["python", "install", v, "--python-preference=only-managed"])
             // TODO: Do we need these?
             .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            child_cmd
+                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
 
         let child_process = start_child_process(child_cmd, "uv").await?;
 
@@ -341,8 +355,23 @@ impl PyVersion {
         let uv_cmd = UV_PATH.as_str();
 
         let mut child_cmd = Command::new(uv_cmd);
+
+        #[cfg(windows)]
+        {
+            child_cmd
+                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+
         let output = child_cmd
             // .current_dir(job_dir)
+            .env_clear()
+            .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
             .args([
                 "python",
                 "find",
@@ -902,8 +931,6 @@ pub async fn handle_python_job(
         tracing::debug!("Finished deps postinstall stage");
     }
 
-
-
     if no_uv {
         append_logs(
             &job.id,
@@ -937,10 +964,11 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
+        job.is_flow_step,
+        job.preprocessed,
+        job.script_entrypoint_override.as_deref(),
         inner_content,
         &script_path,
-        job.args.as_ref(),
-        false,
     )
     .await?;
 
@@ -1057,7 +1085,7 @@ except BaseException as e:
     // Usefull if certain wheels needs to be preinstalled before execution.
     let global_site_packages_path = py_version.to_cache_dir() + "/global-site-packages";
     let additional_python_paths_folders = {
-        let mut paths= additional_python_paths.clone();
+        let mut paths = additional_python_paths.clone();
         if std::fs::metadata(&global_site_packages_path).is_ok() {
             // We want global_site_packages_path to be included in additonal_python_paths_folders, but
             // we don't want it to be included in global_site_packages_path.
@@ -1189,13 +1217,13 @@ mount {{
         let args = read_file(&format!("{job_dir}/args.json"))
             .await
             .map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while reading args from preprocessing: {e:#}"
                 ))
             })?;
         let args: HashMap<String, Box<RawValue>> =
             serde_json::from_str(args.get()).map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while deserializing args from preprocessing: {e:#}"
                 ))
             })?;
@@ -1207,10 +1235,11 @@ mount {{
 
 async fn prepare_wrapper(
     job_dir: &str,
+    job_is_flow_step: bool,
+    job_preprocessed: Option<bool>,
+    job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
     script_path: &str,
-    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
-    skip_preprocessor: bool,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -1223,16 +1252,8 @@ async fn prepare_wrapper(
     Option<String>,
     Option<String>,
 )> {
-    let (main_override, apply_preprocessor) = match get_main_override(args) {
-        Some(main_override) => {
-            if !skip_preprocessor && main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
-                (None, true)
-            } else {
-                (Some(main_override), false)
-            }
-        }
-        None => (None, false),
-    };
+    let main_override = job_script_entrypoint_override.as_deref();
+    let apply_preprocessor = !job_is_flow_step && job_preprocessed == Some(false);
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
@@ -1272,7 +1293,10 @@ async fn prepare_wrapper(
         let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
     }
 
-    let sig = windmill_parser_py::parse_python_signature(inner_content, main_override.clone())?;
+    let sig = windmill_parser_py::parse_python_signature(
+        inner_content,
+        main_override.map(ToString::to_string),
+    )?;
 
     let pre_sig = if apply_preprocessor {
         Some(windmill_parser_py::parse_python_signature(
@@ -1366,12 +1390,12 @@ async fn prepare_wrapper(
                     } else {
                         format!(
                             r#"pre_args["{name}"] = kwargs.get("{name}")
-    if pre_args["{name}"] is None:
-        del pre_args["{name}"]"#
+        if pre_args["{name}"] is None:
+            del pre_args["{name}"]"#
                         )
                     }
                 })
-                .join("\n    ")
+                .join("\n        ")
         };
         Some(spread)
     } else {
@@ -1389,7 +1413,7 @@ async fn prepare_wrapper(
         last,
         transforms,
         spread,
-        main_override,
+        main_override.map(ToString::to_string),
         pre_spread,
     ))
 }
@@ -1409,7 +1433,7 @@ async fn replace_pip_secret(
                 let capture = PIP_SECRET_VARIABLE.captures(req);
                 let variable = capture.unwrap().get(1).unwrap().as_str();
                 if !variable.contains("/PIP_SECRET_") {
-                    return Err(error::Error::InternalErr(format!(
+                    return Err(error::Error::internal_err(format!(
                         "invalid secret variable in pip requirements, (last part of path ma): {}",
                         req
                     )));
@@ -1586,6 +1610,7 @@ async fn spawn_uv_install(
     // If none, it is system python
     py_path: Option<String>,
     no_uv_install: bool,
+    worker_dir: &str,
 ) -> Result<tokio::process::Child, Error> {
     if !*DISABLE_NSJAIL {
         tracing::info!(
@@ -1620,13 +1645,30 @@ async fn spawn_uv_install(
         vars.push(("REQ", &req));
         vars.push(("TARGET", venv_p));
 
+        std::fs::create_dir_all(venv_p)?;
+        let nsjail_proto = format!("{req}.config.proto");
+        // Prepare NSJAIL
+        let _ = write_file(
+            job_dir,
+            &nsjail_proto,
+            &(if no_uv_install {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
+            } else {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+            })
+            .replace("{WORKER_DIR}", worker_dir)
+            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+            .replace("{TARGET_DIR}", &venv_p)
+            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )?;
+    
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(vars)
             .envs(PROXY_ENVS.clone())
-            .args(vec!["--config", "download.config.proto"])
+            .args(vec!["--config", &nsjail_proto])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await
@@ -1721,7 +1763,7 @@ async fn spawn_uv_install(
         // Track https://github.com/astral-sh/uv/issues/6715
         if let Some(cert_path) = INDEX_CERT.as_ref() {
             // Once merged --cert can be used instead
-            // 
+            //
             // command_args.extend(["--cert", cert_path]);
             envs.push(("SSL_CERT_FILE", cert_path));
         }
@@ -1812,6 +1854,8 @@ pub async fn handle_python_reqs(
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
 ) -> error::Result<Vec<String>> {
+    let worker_dir = worker_dir.to_string();
+
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1894,30 +1938,6 @@ pub async fn handle_python_reqs(
             .clone()
             .map(handle_ephemeral_token),
     );
-
-    // Prepare NSJAIL
-    if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "download.config.proto",
-            &(if no_uv_install {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
-            } else {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-            })
-            .replace("{WORKER_DIR}", &worker_dir)
-            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
-            .replace(
-                "{CACHE_DIR}",
-                &(if no_uv_install {
-                    PIP_CACHE_DIR.to_owned()
-                } else {
-                    py_version.to_cache_dir()
-                }),
-            )
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
-    };
 
     // Cached paths
     let mut req_with_penv: Vec<(String, String)> = vec![];
@@ -2020,29 +2040,26 @@ pub async fn handle_python_reqs(
 
                         // Notify server that we are still alive
                         // Detect if job has been canceled
-                        let canceled =
-                            sqlx::query_scalar::<_, bool>
-                            (r#"
-
-                                   UPDATE queue 
-                                      SET last_ping = now()
-                                        , mem_peak = $1
-                                    WHERE id = $2
-                                RETURNING canceled
-
-                                "#)
-                            .bind(mem_peak_actual)
-                            .bind(job_id_2)
-                            .fetch_optional(&db_2)
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                                Some(false)
-                            })
-                            .unwrap_or_else(|| {
-                                // if the job is not in queue, it can only be in the completed_job so it is already complete
-                                false
-                            });
+                        let canceled = sqlx::query_scalar!(
+                            "UPDATE v2_job_runtime r SET
+                                memory_peak = $1,
+                                ping = now()
+                            FROM v2_job_queue q
+                            WHERE r.id = $2 AND q.id = r.id
+                            RETURNING canceled_by IS NOT NULL AS \"canceled!\"",
+                            mem_peak_actual,
+                            job_id_2
+                        )
+                        .fetch_optional(&db_2)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
+                            Some(false)
+                        })
+                        .unwrap_or_else(|| {
+                            // if the job is not in queue, it can only be in the completed_job so it is already complete
+                            false
+                        });
 
                         if canceled {
 
@@ -2155,7 +2172,7 @@ pub async fn handle_python_reqs(
         let pip_indexes = pip_indexes.clone();
         let py_path = py_path.clone();
         let pids = pids.clone();
-
+        let worker_dir = worker_dir.clone();
         handles.push(task::spawn(async move {
             // permit will be dropped anyway if this thread exits at any point
             // so we dont have to drop it manually
@@ -2223,7 +2240,8 @@ pub async fn handle_python_reqs(
                 &job_dir,
                 pip_indexes,
                 py_path,
-                no_uv_install
+                no_uv_install,
+                &worker_dir
             ).await {
                 Ok(r) => r,
                 Err(e) => {
@@ -2263,12 +2281,12 @@ pub async fn handle_python_reqs(
                     uv_install_proccess.kill().await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
-                },                
+                },
                 (_, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
                     // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
                     (stderr_future.await, uv_install_proccess.wait().await)
-                 } => match exitstatus {
+                } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(
                             workspace_id = %w_id,
@@ -2306,6 +2324,10 @@ pub async fn handle_python_reqs(
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
             let s3_push = false;
+
+            if !*DISABLE_NSJAIL {
+                let _ = std::fs::remove_file(format!("{job_dir}/{req}.config.proto"));
+            }
 
             print_success(
                 false,
@@ -2449,7 +2471,6 @@ pub async fn start_worker(
     )
     .await?;
 
-    let _args = None;
     let (
         import_loader,
         import_base64,
@@ -2461,7 +2482,7 @@ pub async fn start_worker(
         spread,
         _,
         _,
-    ) = prepare_wrapper(job_dir, inner_content, script_path, _args.as_ref(), true).await?;
+    ) = prepare_wrapper(job_dir, false, None, None, inner_content, script_path).await?;
 
     {
         let indented_transforms = transforms

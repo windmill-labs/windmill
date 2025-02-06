@@ -474,7 +474,7 @@ async fn list_user_usage(
         FROM usr
             , LATERAL (
             SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
-                FROM completed_job
+                FROM v2_as_completed_job
                 WHERE workspace_id = $1
                 AND job_kind NOT IN ('flow', 'flowpreview', 'flownode')
                 AND email = usr.email
@@ -487,7 +487,7 @@ async fn list_user_usage(
         .fetch_all(&mut *tx),
     )
     .await
-    .map_err(|e| Error::InternalErr(format!("Timed out while fetching user usage: {e:#}")))??;
+    .map_err(|e| Error::internal_err(format!("Timed out while fetching user usage: {e:#}")))??;
     tx.commit().await?;
     Ok(Json(rows))
 }
@@ -695,7 +695,7 @@ async fn global_whoami(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e:#}")));
+    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")));
 
     if let Ok(user) = user {
         Ok(Json(user))
@@ -1591,7 +1591,7 @@ async fn login(
 
     if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
         let parsed_hash =
-            PasswordHash::new(&hash).map_err(|e| Error::InternalErr(e.to_string()))?;
+            PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_err()
@@ -2315,25 +2315,9 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // ---- queue ----
+    // ---- v2_job ----
     sqlx::query!(
-        r#"UPDATE queue SET script_path = REGEXP_REPLACE(script_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE script_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
-        new_username,
-        old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        r#"UPDATE queue SET schedule_path = REGEXP_REPLACE(schedule_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE schedule_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
-        new_username,
-        old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE queue SET permissioned_as = ('u/' || $1) WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
+        r#"UPDATE v2_job SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id
@@ -2342,44 +2326,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE queue SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await
-    .unwrap();
-
-    sqlx::query!(
-        "UPDATE queue SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await
-    .unwrap();
-
-    // ---- completed_job ----
-    sqlx::query!(
-        r#"UPDATE completed_job SET script_path = REGEXP_REPLACE(script_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE script_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
-        new_username,
-        old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        r#"UPDATE completed_job SET schedule_path = REGEXP_REPLACE(schedule_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE schedule_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
-        new_username,
-        old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE completed_job SET permissioned_as = ('u/' || $1) WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
+        r#"UPDATE v2_job SET trigger = REGEXP_REPLACE(trigger,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE trigger LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id
@@ -2388,24 +2335,42 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE completed_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        "UPDATE v2_job SET permissioned_as = ('u/' || $1) WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
         new_username,
         old_username,
         w_id
     )
     .execute(&mut **tx)
-    .await
-    .unwrap();
+    .await?;
 
     sqlx::query!(
-        "UPDATE completed_job SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
+        "UPDATE v2_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
         new_username,
         old_username,
         w_id
     )
     .execute(&mut **tx)
-    .await
-    .unwrap();
+    .await?;
+
+    // ---- v2_job_queue ----
+    sqlx::query!(
+        "UPDATE v2_job_queue SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // ---- v2_job_completed ----
+    sqlx::query!(
+        "UPDATE v2_job_completed SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
 
     // ---- resources----
     sqlx::query!(

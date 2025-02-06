@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::ai::{AiResource, AI_KEY_CACHE};
+use crate::ai::{AIProvider, AIResource, AI_KEY_CACHE};
 use crate::db::ApiAuthed;
 use crate::users_ee::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
@@ -199,7 +199,9 @@ pub struct WorkspaceSettings {
     pub webhook: Option<String>,
     pub deploy_to: Option<String>,
     pub ai_resource: Option<serde_json::Value>,
-    pub code_completion_enabled: bool,
+    pub ai_models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_completion_model: Option<String>,
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
@@ -268,7 +270,8 @@ struct EditWebhook {
 #[derive(Deserialize)]
 struct EditCopilotConfig {
     ai_resource: Option<serde_json::Value>,
-    code_completion_enabled: bool,
+    code_completion_model: Option<String>,
+    ai_models: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -431,7 +434,7 @@ async fn get_settings(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting settings: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -454,7 +457,7 @@ async fn get_deploy_to(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("getting deploy_to: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -682,27 +685,37 @@ async fn edit_copilot_config(
     let mut tx = db.begin().await?;
 
     if let Some(ai_resource) = &eo.ai_resource {
-        let path = serde_json::from_value::<AiResource>(ai_resource.clone())
-            .map_err(|e| Error::BadRequest(e.to_string()))?
-            .path;
+        let parsed_ai_resource = serde_json::from_value::<AIResource>(ai_resource.clone())
+            .map_err(|e| Error::BadRequest(e.to_string()))?;
+
+        #[cfg(not(feature = "enterprise"))]
+        {
+            if matches!(parsed_ai_resource.provider, AIProvider::CustomAI) {
+                return Err(Error::BadRequest(
+                    "Custom AI is only available on EE".to_string(),
+                ));
+            }
+        }
+
         sqlx::query!(
-            "UPDATE workspace_settings SET ai_resource = $1, code_completion_enabled = $2 WHERE workspace_id = $3",
+            "UPDATE workspace_settings SET ai_resource = $1, code_completion_model = $2, ai_models = $3 WHERE workspace_id = $4",
             ai_resource,
-            eo.code_completion_enabled,
+            eo.code_completion_model,
+            eo.ai_models.as_slice(),
             &w_id
         )
         .execute(&mut *tx)
         .await?;
 
         if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
-            if cached.path != path {
+            if cached.path != parsed_ai_resource.path {
                 AI_KEY_CACHE.remove(&w_id);
             }
         }
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET ai_resource = NULL, code_completion_enabled = $1 WHERE workspace_id = $2",
-            eo.code_completion_enabled,
+            "UPDATE workspace_settings SET ai_resource = NULL, code_completion_model = $1, ai_models = '{}' WHERE workspace_id = $2",
+            eo.code_completion_model,
             &w_id,
         )
         .execute(&mut *tx)
@@ -720,8 +733,8 @@ async fn edit_copilot_config(
             [
                 ("ai_resource", &format!("{:?}", eo.ai_resource)[..]),
                 (
-                    "code_completion_enabled",
-                    &format!("{:?}", eo.code_completion_enabled)[..],
+                    "code_completion_model",
+                    &format!("{:?}", eo.code_completion_model)[..],
                 ),
             ]
             .into(),
@@ -735,9 +748,12 @@ async fn edit_copilot_config(
 
 #[derive(Serialize)]
 struct CopilotInfo {
-    pub ai_provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_provider: Option<AIProvider>,
     pub exists_ai_resource: bool,
-    pub code_completion_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_completion_model: Option<String>,
+    pub ai_models: Vec<String>,
 }
 async fn get_copilot_info(
     Extension(db): Extension<DB>,
@@ -745,33 +761,26 @@ async fn get_copilot_info(
 ) -> JsonResult<CopilotInfo> {
     let mut tx = db.begin().await?;
     let record = sqlx::query!(
-        "SELECT ai_resource, code_completion_enabled FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT ai_resource, code_completion_model, ai_models FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting ai_resource and code_completion_enabled: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("getting ai_resource and code_completion_model: {e:#}")))?;
     tx.commit().await?;
 
     let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
-        let ai_resource = serde_json::from_value::<AiResource>(ai_resource);
-        let exist = ai_resource.is_ok();
-        (
-            if exist {
-                ai_resource.unwrap().provider
-            } else {
-                "".to_string()
-            },
-            exist,
-        )
+        let ai_resource = serde_json::from_value::<AIResource>(ai_resource)?;
+        (Some(ai_resource.provider), true)
     } else {
-        ("".to_string(), false)
+        (None, false)
     };
 
     Ok(Json(CopilotInfo {
         ai_provider,
         exists_ai_resource,
-        code_completion_enabled: record.code_completion_enabled,
+        code_completion_model: record.code_completion_model,
+        ai_models: record.ai_models,
     }))
 }
 
@@ -801,7 +810,7 @@ async fn edit_large_file_storage_config(
     if let Some(lfs_config) = new_config.large_file_storage {
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
-                .map_err(|err| Error::InternalErr(err.to_string()))?;
+                .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
@@ -870,7 +879,7 @@ async fn edit_git_sync_config(
 
     if let Some(git_sync_settings) = new_config.git_sync_settings {
         let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
-            .map_err(|err| Error::InternalErr(err.to_string()))?;
+            .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
@@ -936,7 +945,7 @@ async fn edit_deploy_ui_config(
     if let Some(deploy_ui_settings) = new_config.deploy_ui_settings {
         let serialized_config =
             serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
-                .map_err(|err| Error::InternalErr(err.to_string()))?;
+                .map_err(|err| Error::internal_err(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
@@ -1031,7 +1040,7 @@ async fn get_default_scripts(
     )
     .fetch_optional(&mut *tx)
     .await
-    .map_err(|err| Error::InternalErr(format!("getting default_app: {err}")))?;
+    .map_err(|err| Error::internal_err(format!("getting default_app: {err}")))?;
     tx.commit().await?;
 
     Ok(Json(default_scripts.flatten()))
@@ -1105,7 +1114,7 @@ async fn get_default_app(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|err| Error::InternalErr(format!("getting default_app: {err}")))?;
+    .map_err(|err| Error::internal_err(format!("getting default_app: {err}")))?;
     tx.commit().await?;
 
     Ok(Json(WorkspaceDefaultApp { default_app_path }))

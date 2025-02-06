@@ -241,7 +241,9 @@ struct SimplifiedSettings {
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
     ai_resource: Option<serde_json::Value>,
-    code_completion_enabled: bool,
+    ai_models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code_completion_model: Option<String>,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
     default_app: Option<String>,
@@ -558,7 +560,7 @@ pub(crate) async fn tarball_workspace(
         for group in groups {
             let extra_perms: HashMap<String, bool> = serde_json::from_value(group.extra_perms)
                 .map_err(|e| {
-                    Error::InternalErr(format!(
+                    Error::internal_err(format!(
                         "Error parsing extra_perms for group {}: {}",
                         group.name, e
                     ))
@@ -617,7 +619,8 @@ pub(crate) async fn tarball_workspace(
                 deploy_to, 
                 error_handler, 
                 ai_resource, 
-                code_completion_enabled, 
+                ai_models,
+                code_completion_model,
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
                 large_file_storage, 
@@ -635,7 +638,7 @@ pub(crate) async fn tarball_workspace(
             .map(|v| serde_json::to_string_pretty(&v).ok())
             .ok()
             .flatten()
-            .ok_or_else(|| Error::InternalErr("Error serializing settings".to_string()))?;
+            .ok_or_else(|| Error::internal_err("Error serializing settings".to_string()))?;
 
         archive
             .write_to_archive(&settings_str, "settings.json")
@@ -654,7 +657,7 @@ pub(crate) async fn tarball_workspace(
             .map(|v| serde_json::to_string_pretty(&v).ok())
             .ok()
             .flatten()
-            .ok_or_else(|| Error::InternalErr("Error serializing enryption key".to_string()))?;
+            .ok_or_else(|| Error::internal_err("Error serializing enryption key".to_string()))?;
         archive
             .write_to_archive(&key_json, "encryption_key.json")
             .await?;

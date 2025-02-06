@@ -208,7 +208,7 @@ pub async fn create_token_for_owner(
     let jwt_secret = JWT_SECRET.read().await;
 
     if jwt_secret.is_empty() {
-        return Err(Error::InternalErr("No JWT secret found".to_string()));
+        return Err(Error::internal_err("No JWT secret found".to_string()));
     }
 
     let job_authed = match sqlx::query_as!(
@@ -226,7 +226,7 @@ pub async fn create_token_for_owner(
             fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
                 .await
                 .map_err(|e| {
-                    Error::InternalErr(format!(
+                    Error::internal_err(format!(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
                 })?
@@ -254,7 +254,7 @@ pub async fn create_token_for_owner(
         &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
     .map_err(|err| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "Could not encode JWT token for job {job_id}: {:?}",
             err
         ))
@@ -1278,7 +1278,7 @@ pub async fn run_worker(
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
+                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) v2_job_queue, v2_job_runtime, v2_job_status")
                         .execute(&db2)
                         .await
                     {
@@ -1325,12 +1325,16 @@ pub async fn run_worker(
                     same_worker_job.job_id
                 );
                 let r = sqlx::query_as::<_, PulledJob>(
-                    "UPDATE queue SET last_ping = now() WHERE id = $1 RETURNING *",
+                    "WITH ping AS (
+                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 RETURNING id
+                    ) SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)",
                 )
                 .bind(same_worker_job.job_id)
                 .fetch_optional(db)
                 .await
-                .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
+                .map_err(|_| {
+                    Error::internal_err("Impossible to fetch same_worker job".to_string())
+                });
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
                         worker = %worker_name, hostname = %hostname,
@@ -1484,6 +1488,7 @@ pub async fn run_worker(
                             job: Arc::new(job.job),
                             success: true,
                             result: Arc::new(empty_result()),
+                            result_columns: None,
                             mem_peak: 0,
                             cached_res_path: None,
                             token: "".to_string(),
@@ -1880,6 +1885,7 @@ pub enum SendResult {
 pub struct JobCompleted {
     pub job: Arc<QueuedJob>,
     pub result: Arc<Box<RawValue>>,
+    pub result_columns: Option<Vec<String>>,
     pub mem_peak: i32,
     pub success: bool,
     pub cached_res_path: Option<String>,
@@ -1994,21 +2000,31 @@ async fn handle_queued_job(
             db,
             &job.workspace_id,
             job.parent_job
-                .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
+                .ok_or_else(|| Error::internal_err(format!("expected parent job")))?,
             job.id,
         )
         .warn_after_seconds(5)
         .await?;
     } else if let Some(parent_job) = job.parent_job {
         if let Err(e) = sqlx::query_scalar!(
-            "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    jsonb_set(
+                        COALESCE(flow_status, '{}'::jsonb),
+                        array[$1],
+                        COALESCE(flow_status->$1, '{}'::jsonb)
+                    ),
+                    array[$1, 'started_at'],
+                    to_jsonb(now()::text)
+                )
+            WHERE id = $2",
             &job.id.to_string(),
-            parent_job,
-            &job.workspace_id
+            parent_job
         )
         .execute(db)
         .warn_after_seconds(5)
-        .await {
+        .await
+        {
             tracing::error!("Could not update parent job started_at flow_status: {}", e);
         }
     }
@@ -2056,6 +2072,7 @@ async fn handle_queued_job(
                 .send(JobCompleted {
                     job,
                     result,
+                    result_columns: None,
                     mem_peak: 0,
                     canceled_by: None,
                     success: true,
@@ -2280,7 +2297,7 @@ pub async fn get_hub_script_content_and_requirements(
 ) -> error::Result<ContentReqLangEnvs> {
     let script_path = script_path
         .clone()
-        .ok_or_else(|| Error::InternalErr(format!("expected script path for hub script")))?;
+        .ok_or_else(|| Error::internal_err(format!("expected script path for hub script")))?;
 
     let script =
         get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, db).await?;
@@ -2331,7 +2348,7 @@ async fn handle_code_execution_job(
 ) -> error::Result<Box<RawValue>> {
     let script_hash = || {
         job.script_hash
-            .ok_or_else(|| Error::InternalErr("expected script hash".into()))
+            .ok_or_else(|| Error::internal_err("expected script hash"))
     };
     let (arc_data, arc_metadata, data, metadata): (
         Arc<ScriptData>,
@@ -2349,7 +2366,8 @@ async fn handle_code_execution_job(
                 _ => None,
             };
 
-            arc_data = preview.ok_or_else(|| Error::InternalErr("expected preview".to_string()))?;
+            arc_data =
+                preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
             metadata = ScriptMetadata { language: job.language, codebase, envs: None };
             (arc_data.as_ref(), &metadata)
         }
@@ -2378,7 +2396,7 @@ async fn handle_code_execution_job(
             let script_path = job
                 .script_path
                 .as_ref()
-                .ok_or_else(|| Error::InternalErr("expected script path".to_string()))?;
+                .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
             if script_path.starts_with("hub/") {
                 let ContentReqLangEnvs { content, lockfile, language, envs, codebase } =
                     get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
@@ -2394,7 +2412,7 @@ async fn handle_code_execution_job(
                 )
                 .fetch_optional(db)
                 .await?
-                .ok_or_else(|| Error::InternalErr("expected script hash".to_string()))?;
+                .ok_or_else(|| Error::internal_err("expected script hash".to_string()))?;
 
                 (arc_data, arc_metadata) = cache::script::fetch(db, ScriptHash(hash)).await?;
                 (arc_data.as_ref(), arc_metadata.as_ref())
@@ -2421,7 +2439,7 @@ async fn handle_code_execution_job(
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
-        return Err(Error::InternalErr(
+        return Err(Error::internal_err(
             "MySQL requires the mysql feature to be enabled".to_string(),
         ));
 
@@ -2449,7 +2467,7 @@ async fn handle_code_execution_job(
         #[allow(unreachable_code)]
         #[cfg(not(feature = "bigquery"))]
         {
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Bigquery requires the bigquery feature to be enabled".to_string(),
             ));
         }
@@ -2503,7 +2521,7 @@ async fn handle_code_execution_job(
         #[allow(unreachable_code)]
         #[cfg(not(feature = "mssql"))]
         {
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Microsoft SQL server requires the mssql feature to be enabled".to_string(),
             ));
         }
@@ -2533,7 +2551,7 @@ async fn handle_code_execution_job(
         #[allow(unreachable_code)]
         #[cfg(not(feature = "oracledb"))]
         {
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Oracle DB requires the oracledb feature to be enabled".to_string(),
             ));
         }
@@ -2644,7 +2662,7 @@ mount {{
         }
         Some(ScriptLang::Python3) => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Python requires the python feature to be enabled".to_string(),
             ));
 
@@ -2761,7 +2779,7 @@ mount {{
         }
         Some(ScriptLang::Php) => {
             #[cfg(not(feature = "php"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "PHP requires the php feature to be enabled".to_string(),
             ));
 
@@ -2785,7 +2803,7 @@ mount {{
         }
         Some(ScriptLang::Rust) => {
             #[cfg(not(feature = "rust"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
             ));
 
@@ -2809,7 +2827,7 @@ mount {{
         }
         Some(ScriptLang::Ansible) => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Ansible requires the python feature to be enabled".to_string(),
             ));
 

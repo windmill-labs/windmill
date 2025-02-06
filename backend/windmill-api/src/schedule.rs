@@ -196,7 +196,7 @@ async fn create_schedule(
         .bind(&ns.cron_version.unwrap_or("v2".to_string()))
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -282,7 +282,7 @@ async fn edit_schedule(
         .bind(&es.cron_version)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -356,7 +356,7 @@ async fn list_schedule(
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
     }
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, Schedule>(&sql)
         .fetch_all(&mut *tx)
         .await?;
@@ -407,8 +407,8 @@ async fn list_schedule_with_jobs(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
     let rows = sqlx::query_as!(ScheduleWJobs,
-        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE
-        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL AND is_skipped = False ORDER BY started_at DESC LIMIT 20) AS jobs ) t
+        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM v2_as_completed_job WHERE
+        v2_as_completed_job.schedule_path = schedule.path AND v2_as_completed_job.workspace_id = $1 AND parent_job IS NULL AND is_skipped = False ORDER BY started_at DESC LIMIT 20) AS jobs ) t
         WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
@@ -832,17 +832,30 @@ pub struct EditSchedule {
 }
 
 pub async fn clear_schedule<'c>(
-    db: &mut Transaction<'c, Postgres>,
+    tx: &mut Transaction<'c, Postgres>,
     path: &str,
     w_id: &str,
 ) -> Result<()> {
     tracing::info!("Clearing schedule {}", path);
     sqlx::query!(
-        "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false",
+        "WITH to_delete AS (
+            SELECT id FROM v2_job_queue
+                JOIN v2_job j USING (id)
+            WHERE trigger_kind = 'schedule'
+                AND trigger = $1
+                AND j.workspace_id = $2
+                AND flow_step_id IS NULL
+                AND running = false
+            FOR UPDATE
+        ), deleted AS (
+            DELETE FROM v2_job_queue
+            WHERE id IN (SELECT id FROM to_delete)
+            RETURNING id
+        ) DELETE FROM v2_job WHERE id IN (SELECT id FROM deleted)",
         path,
         w_id
     )
-    .execute(&mut **db)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }

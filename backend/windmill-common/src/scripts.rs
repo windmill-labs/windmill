@@ -464,7 +464,7 @@ pub async fn get_full_hub_script_by_path(
     let mut path_iterator = path.split("/");
     let version = path_iterator
         .next()
-        .ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
+        .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
     let cache_path = format!("{HUB_CACHE_DIR}/{version}");
     let script;
     if tokio::fs::metadata(&cache_path).await.is_err() {

@@ -8,11 +8,11 @@ export interface Setting {
 	key: string
 	// If value is not specified for first element, it will automatcally use undefined
 	select_items?: {
-		label: string,
-		tooltip?: string,
+		label: string
+		tooltip?: string
 		// If not specified, label will be used
-		value?: any,
-	}[],
+		value?: any
+	}[]
 	fieldType:
 		| 'text'
 		| 'number'
@@ -41,7 +41,7 @@ export interface Setting {
 	isValid?: (value: any) => boolean
 	error?: string
 	defaultValue?: () => any
-	codeAreaLang?: string,
+	codeAreaLang?: string
 }
 
 export type SettingStorage = 'setting'
@@ -81,9 +81,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					value.includes('://') &&
-					!value?.endsWith('/') &&
-					!value?.endsWith(' ')
+					  value.includes('://') &&
+					  !value?.endsWith('/') &&
+					  !value?.endsWith(' ')
 					: false
 		},
 		{
@@ -182,7 +182,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Azure OpenAI base path',
 			description:
-				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
@@ -236,24 +236,26 @@ export const settings: Record<string, Setting[]> = {
 			// 2. Change LATEST_STABLE_PY in dockerfile
 			// 3. Change #[default] annotation for PyVersion in backend
 			placeholder: '3.10,3.11,3.12,3.13',
-			select_items: [{
-				label: "Latest Stable",
-				value: "default",
-				tooltip: "python-3.11",
-			},
-			{
-				label: "3.10",
-			},
-			{
-				label: "3.11",
-			},
-			{
-				label: "3.12",
-			},
-			{
-				label: "3.13",
-			}],
-			storage: 'setting',
+			select_items: [
+				{
+					label: 'Latest Stable',
+					value: 'default',
+					tooltip: 'python-3.11'
+				},
+				{
+					label: '3.10'
+				},
+				{
+					label: '3.11'
+				},
+				{
+					label: '3.12'
+				},
+				{
+					label: '3.13'
+				}
+			],
+			storage: 'setting'
 		},
 		{
 			label: 'Pip index url',
@@ -294,8 +296,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Nuget Config',
-			description:
-				'Write a nuget.config file to set custom package sources and credentials',
+			description: 'Write a nuget.config file to set custom package sources and credentials',
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',
