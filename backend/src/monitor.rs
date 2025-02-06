@@ -136,7 +136,7 @@ pub async fn initial_load(
     tx: tokio::sync::broadcast::Sender<()>,
     worker_mode: bool,
     server_mode: bool,
-    _is_agent: bool,
+    #[cfg(feature = "parquet")] disable_s3_store: bool,
 ) {
     if let Err(e) = load_metrics_enabled(db).await {
         tracing::error!("Error loading expose metrics: {e:#}");
@@ -180,7 +180,7 @@ pub async fn initial_load(
     }
 
     #[cfg(feature = "parquet")]
-    if !_is_agent {
+    if !disable_s3_store {
         reload_s3_cache_setting(&db).await;
     }
 
