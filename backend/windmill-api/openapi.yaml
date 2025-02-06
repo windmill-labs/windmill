@@ -2004,6 +2004,33 @@ paths:
                       type: string
                     team_id:
                       type: string
+  
+  /w/{workspace}/workspaces/available_teams_channels:
+    get:
+      summary: list available teams channels
+      operationId: listAvailableTeamsChannels
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    channel_name:
+                      type: string
+                    channel_id:
+                      type: string
+                    service_url:
+                      type: string
+                    tenant_id:
+                      type: string
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -2037,6 +2064,40 @@ paths:
     post:
       summary: run a job that sends a message to Slack
       operationId: runSlackMessageTestJob
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: path to hub script to run and its corresponding args
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hub_script_path:
+                  type: string
+                channel:
+                  type: string
+                test_msg:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/json:
+              schema:
+                type: object
+                properties:
+                  job_uuid:
+                    type: string
+  
+  /w/{workspace}/workspaces/run_teams_message_test_job:
+    post:
+      summary: run a job that sends a message to Teams
+      operationId: runTeamsMessageTestJob
       tags:
         - workspace
       parameters:
@@ -3381,7 +3442,7 @@ paths:
     post:
       summary: send update to Microsoft Teams activity
       description: Respond to a Microsoft Teams activity after a workspace command is run
-      operationId: updateActivity
+      operationId: sendMessageToConversation
       tags:
         - teams
       requestBody:
@@ -3391,15 +3452,15 @@ paths:
             schema:
               type: object
               required:
-                - activity_id
+                - conversation_id
                 - text
               properties:
-                activity_id:
+                conversation_id:
                   type: string
                   description: The ID of the Teams conversation/activity
                 success:
                   type: boolean
-                  description: Indicates if the activity was successful and used for styling the card conditionally
+                  description: Used for styling the card conditionally
                   default: true
                 text:
                   type: string
