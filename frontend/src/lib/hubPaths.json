@@ -10,6 +10,9 @@
 	"slackErrorHandler_0": "hub/9079/workspace-or-schedule-error-handler-slack",
 	"slackRecoveryHandler": "hub/9080/slack/schedule-recovery-handler-slack",
 	"slackSuccessHandler": "hub/9072/slack/schedule-success-handler-slack",
+	"teamsErrorHandler": "hub/9081/workspace-or-schedule-error-handler-teams",
+	"teamsRecoveryHandler": "hub/9082/teams/schedule-recovery-handler-teams",
+	"teamsSuccessHandler": "hub/9073/teams/schedule-success-handler-teams",
 	"slackReport": "hub/9084/slack",
 	"discordReport": "hub/9085/discord",
 	"smtpReport": "hub/9086/smtp"

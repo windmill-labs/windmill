@@ -58,7 +58,10 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::utils::not_found_if_none;
 
-use crate::teams_ee::{edit_teams_command, workspaces_list_available_teams_ids, connect_teams};
+use crate::teams_ee::{
+    connect_teams, edit_teams_command, run_teams_message_test_job,
+    workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
+};
 
 lazy_static::lazy_static! {
     static ref WORKSPACE_KEY_REGEXP: Regex = Regex::new("^[a-zA-Z0-9]{64}$").unwrap();
@@ -76,11 +79,22 @@ pub fn workspaced_service() -> Router {
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
         .route("/edit_teams_command", post(edit_teams_command))
-        .route("/available_teams_ids", get(workspaces_list_available_teams_ids))
+        .route(
+            "/available_teams_ids",
+            get(workspaces_list_available_teams_ids),
+        )
+        .route(
+            "/available_teams_channels",
+            get(workspaces_list_available_teams_channels),
+        )
         .route("/connect_teams", post(connect_teams))
         .route(
             "/run_slack_message_test_job",
             post(run_slack_message_test_job),
+        )
+        .route(
+            "/run_teams_message_test_job",
+            post(run_teams_message_test_job),
         )
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))

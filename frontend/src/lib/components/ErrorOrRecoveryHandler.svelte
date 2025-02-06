@@ -5,6 +5,7 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { base } from '$lib/base'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import {
 		FlowService,
@@ -14,21 +15,26 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
+	import type { ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 
-	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, RotateCw, XCircle, RefreshCcw } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 
 	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
 	const slackHandlerScriptPath = hubPaths.slackErrorHandler
 	const slackSuccessHandler = hubPaths.slackSuccessHandler
 
+	const teamsRecoveryHandler = hubPaths.teamsRecoveryHandler
+	const teamsHandlerScriptPath = hubPaths.teamsErrorHandler
+	const teamsSuccessHandler = hubPaths.teamsSuccessHandler
+
 	export let errorOrRecovery: 'error' | 'recovery' | 'success'
 	export let isEditable: boolean
-	export let slackToggleText: string = 'Enable'
+	export let toggleText: string = 'Enable'
 	export let showScriptHelpText: boolean = false
-	export let handlerSelected: 'custom' | 'slack'
+	export let handlerSelected: 'custom' | 'slack' | 'teams'
 
 	export let handlerPath: string | undefined
 	export let handlerExtraArgs: Record<string, any>
@@ -36,13 +42,18 @@
 	export let customInitialScriptPath: string | undefined
 	export let customScriptTemplate: string
 	export let customHandlerKind: 'flow' | 'script' = 'script'
-	let customHandlerSchema: Schema | undefined
 
+	let customHandlerSchema: Schema | undefined
 	let slackHandlerSchema: Schema | undefined
+	let teamsHandlerSchema: Schema | undefined
+	let isFetching: boolean = false
+
+	let teams_channels: ListAvailableTeamsChannelsResponse = []
+	
 	let workspaceConnectedToSlack: boolean | undefined = undefined
-	let slackConnectionTestJob:
-		| { uuid: string; is_success: boolean; in_progress: boolean }
-		| undefined
+	let workspaceConnectedToTeams: boolean | undefined = undefined
+
+	let connectionTestJob: { uuid: string; is_success: boolean; in_progress: boolean } | undefined
 
 	async function loadSlackResources() {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
@@ -53,16 +64,35 @@
 		}
 	}
 
-	async function sendSlackMessage(channel: string): Promise<void> {
-		let submitted_job = await WorkspaceService.runSlackMessageTestJob({
+	async function loadTeamsResources() {
+		isFetching = true
+		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		if (!emptyString(settings.teams_team_name) && !emptyString(settings.teams_team_id)) {
+			workspaceConnectedToTeams = true
+		} else {
+			workspaceConnectedToTeams = false
+		}
+
+		teams_channels = await WorkspaceService.listAvailableTeamsChannels({ workspace: $workspaceStore! })
+		isFetching = false
+	}
+
+	async function sendMessage(channel: string, platform: 'teams' | 'slack'): Promise<void> {
+		const testJobFunction =
+			platform === 'slack'
+				? WorkspaceService.runSlackMessageTestJob
+				: WorkspaceService.runTeamsMessageTestJob
+
+		let submitted_job = await testJobFunction({
 			workspace: $workspaceStore!,
 			requestBody: {
 				hub_script_path: handlerPath,
 				channel: channel,
-				test_msg: `This is a notification to test the connection between Slack and Windmill workspace '${$workspaceStore!}'`
+				test_msg: `This is a notification to test the connection between ${platform} and Windmill workspace '${$workspaceStore!}'`
 			}
 		})
-		slackConnectionTestJob = {
+
+		connectionTestJob = {
 			uuid: submitted_job.job_uuid!,
 			in_progress: true,
 			is_success: false
@@ -71,16 +101,16 @@
 			tryCode: async () => {
 				const testResult = await JobService.getCompletedJob({
 					workspace: $workspaceStore!,
-					id: slackConnectionTestJob!.uuid
+					id: connectionTestJob!.uuid
 				})
-				slackConnectionTestJob!.in_progress = false
-				slackConnectionTestJob!.is_success = testResult.success
+				connectionTestJob!.in_progress = false
+				connectionTestJob!.is_success = testResult.success
 			},
 			timeoutCode: async () => {
 				try {
 					await JobService.cancelQueuedJob({
 						workspace: $workspaceStore!,
-						id: slackConnectionTestJob!.uuid,
+						id: connectionTestJob!.uuid,
 						requestBody: {
 							reason: 'Slack message not sent after 5s'
 						}
@@ -92,6 +122,14 @@
 			interval: 500,
 			timeout: 5000
 		})
+	}
+
+	async function sendSlackMessage(channel: string): Promise<void> {
+		await sendMessage(channel, 'slack')
+	}
+
+	async function sendTeamsMessage(channel: string): Promise<void> {
+		await sendMessage(channel, 'teams')
 	}
 
 	async function loadHandlerScriptArgs(p: string, defaultArgs: string[] = []) {
@@ -145,14 +183,34 @@
 		}
 	}
 
+	function isTeamsHandler(scriptPath: string | undefined) {
+		if (scriptPath === undefined) {
+			return false
+		}
+		if (errorOrRecovery == 'error') {
+			return (
+				scriptPath.startsWith('hub/') &&
+				scriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
+			)
+		} else if (errorOrRecovery == 'recovery') {
+			return (
+				scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-recovery-handler-teams')
+			)
+		} else {
+			return scriptPath.startsWith('hub/') && scriptPath.endsWith('/schedule-success-handler-teams')
+		}
+	}
+
 	$: {
 		if ($workspaceStore) {
 			loadSlackResources()
+			loadTeamsResources()
 		}
 	}
 
 	$: handlerPath &&
 		!isSlackHandler(handlerPath) &&
+		!isTeamsHandler(handlerPath) &&
 		loadHandlerScriptArgs(handlerPath, [
 			'path',
 			'workspace_id',
@@ -187,11 +245,33 @@
 			'email',
 			'slack'
 		]).then((schema) => (slackHandlerSchema = schema))
+
+	$: handlerPath &&
+		isTeamsHandler(handlerPath) &&
+		loadHandlerScriptArgs(handlerPath, [
+			'path',
+			'workspace_id',
+			'job_id',
+			'is_flow',
+			'schedule_path',
+			'error',
+			'error_started_at',
+			'failed_times',
+			'started_at',
+			'success_times',
+			'success_result',
+			'success_started_at',
+			'email',
+			'teams'
+		]).then((schema) => (teamsHandlerSchema = schema))
 </script>
 
 <div>
-	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
+	<Tabs bind:selected={handlerSelected} on:change={() => {
+		//TODO
+	}} class="mt-2 mb-4">
 		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
+		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
 		<Tab value="custom" disabled={!isEditable}>
 			Custom
 			<slot name="custom-tab-tooltip" />
@@ -254,7 +334,7 @@
 		<Toggle
 			disabled={!$enterpriseLicense || !isEditable}
 			checked={isSlackHandler(handlerPath)}
-			options={{ right: slackToggleText }}
+			options={{ right: toggleText }}
 			on:change={async (e) => {
 				if (e.detail && errorOrRecovery === 'error') {
 					handlerPath = slackHandlerScriptPath
@@ -313,11 +393,11 @@
 				on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
 				size="xs">Send test message</Button
 			>
-			{#if slackConnectionTestJob !== undefined}
+			{#if connectionTestJob !== undefined}
 				<p class="text-normal text-2xs mt-1 gap-2">
-					{#if slackConnectionTestJob.in_progress}
+					{#if connectionTestJob.in_progress}
 						<RotateCw size={14} />
-					{:else if slackConnectionTestJob.is_success}
+					{:else if connectionTestJob.is_success}
 						<CheckCircle2 size={14} class="text-green-600" />
 					{:else}
 						<XCircle size={14} class="text-red-700" />
@@ -325,9 +405,103 @@
 					Message sent via Windmill job
 					<a
 						target="_blank"
-						href={`${base}/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}
+						href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
 					>
-						{slackConnectionTestJob.uuid}
+						{connectionTestJob.uuid}
+					</a>
+				</p>
+			{/if}
+		{/if}
+	{/if}
+{:else if handlerSelected === 'teams'}
+	<span class="w-full flex mb-3">
+		<Toggle
+			disabled={!$enterpriseLicense || !isEditable}
+			checked={isTeamsHandler(handlerPath)}
+			options={{ right: toggleText }}
+			on:change={async (e) => {
+				if (e.detail && errorOrRecovery === 'error') {
+					handlerPath = teamsHandlerScriptPath
+				} else if (e.detail && errorOrRecovery === 'recovery') {
+					handlerPath = teamsRecoveryHandler
+				} else if (e.detail && errorOrRecovery === 'success') {
+					handlerPath = teamsSuccessHandler
+				} else {
+					handlerPath = undefined
+				}
+			}}
+		/>
+	</span>
+	{#if workspaceConnectedToTeams}
+		<div class="w-1/2 flex flex-row items-center gap-2">
+			<div class="pt-1 flex-shrink-0">
+				<MsTeamsIcon height="24px" width="24px" />
+			</div>
+			<p class="text-sm">Teams Channel</p>
+			<div class="flex-grow">
+				<select class="w-full" bind:value={handlerExtraArgs['teams_channel']}>
+					{#if teams_channels.length === 0}
+						<option value="" disabled selected>Bot not connected to any channel</option>
+					{:else}
+						<option value="" disabled selected>Select Teams channel</option>
+						{#each teams_channels as channel}
+							<option value={channel.channel_id}>
+								{channel.channel_name}
+							</option>
+						{/each}
+					{/if}
+				</select>
+			</div>
+			<div class="flex-shrink-0">
+				<button on:click={loadTeamsResources} class="flex items-center gap-1 mt-2">
+					<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
+				</button>
+			</div>
+		</div>
+	{:else if workspaceConnectedToTeams == undefined}
+		<Loader2 class="animate-spin" size={10} />
+	{/if}
+	{#if $enterpriseLicense && isTeamsHandler(handlerPath)}
+		{#if workspaceConnectedToTeams == false}
+			<Alert type="error" title="Workspace not connected to Teams">
+				<div class="flex flex-row gap-x-1 w-full items-center">
+					<p class="text-clip grow min-w-0">
+						The workspace needs to be connected to Teams to use this feature. You can <a
+							target="_blank"
+							href="{base}/workspace_settings?tab=slack">configure it here</a
+						>.
+					</p>
+					<Button
+						variant="border"
+						color="light"
+						on:click={loadTeamsResources}
+						startIcon={{ icon: RotateCw }}
+					/>
+				</div>
+			</Alert>
+		{:else}
+			<Button
+				disabled={emptyString(handlerExtraArgs['teams_channel'])}
+				btnClasses="w-32 text-center"
+				color="dark"
+				on:click={() => sendTeamsMessage(handlerExtraArgs['teams_channel'])}
+				size="xs">Send test message</Button
+			>
+			{#if connectionTestJob !== undefined}
+				<p class="text-normal text-2xs mt-1 gap-2">
+					{#if connectionTestJob.in_progress}
+						<RotateCw size={14} />
+					{:else if connectionTestJob.is_success}
+						<CheckCircle2 size={14} class="text-green-600" />
+					{:else}
+						<XCircle size={14} class="text-red-700" />
+					{/if}
+					Message sent via Windmill job
+					<a
+						target="_blank"
+						href={`${base}/run/${connectionTestJob.uuid}?workspace=${$workspaceStore}`}
+					>
+						{connectionTestJob.uuid}
 					</a>
 				</p>
 			{/if}

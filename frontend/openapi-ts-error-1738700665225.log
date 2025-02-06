@@ -1,0 +1,28 @@
+Error parsing /home/alex/windmill/windmill/backend/windmill-api/openapi.yaml: duplicated mapping key (3222:3)
+
+ 3219 |               schema:
+ 3220 |                 type: string
+ 3221 |   
+ 3222 |   /w/{workspace}/oauth/disconnec ...
+----------^
+ 3223 |     post:
+ 3224 |       summary: disconnect slack
+ParserError: Error parsing /home/alex/windmill/windmill/backend/windmill-api/openapi.yaml: duplicated mapping key (3222:3)
+
+ 3219 |               schema:
+ 3220 |                 type: string
+ 3221 |   
+ 3222 |   /w/{workspace}/oauth/disconnec ...
+----------^
+ 3223 |     post:
+ 3224 |       summary: disconnect slack
+    at Object.parse (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parsers/yaml.js:44:23)
+    at getResult (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:116:22)
+    at runNextPlugin (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:64:32)
+    at /home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:55:9
+    at new Promise (<anonymous>)
+    at Object.run (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:54:12)
+    at parseFile (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parse.js:130:38)
+    at parse (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parse.js:56:30)
+    at async $RefParser.parse (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/index.js:115:28)
+    at async $RefParser.resolve (/home/alex/windmill/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/index.js:145:13)

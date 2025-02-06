@@ -842,7 +842,7 @@
 									bind:handlerSelected={errorHandlerSelected}
 									bind:handlerPath={errorHandlerPath}
 									customInitialScriptPath={errorHandlerCustomInitialPath}
-									slackToggleText="Alert channel on error"
+									toggleText="Alert channel on error"
 									customScriptTemplate="/scripts/add?hub=hub%2F9081%2Fwindmill%2Fschedule_error_handler_template"
 									bind:customHandlerKind={errorHandleritemKind}
 									bind:handlerExtraArgs={errorHandlerExtraArgs}
@@ -937,7 +937,7 @@
 									bind:handlerSelected={recoveryHandlerSelected}
 									bind:handlerPath={recoveryHandlerPath}
 									customInitialScriptPath={recoveryHandlerCustomInitialPath}
-									slackToggleText="Alert channel when error recovered"
+									toggleText="Alert channel when error recovered"
 									customScriptTemplate="/scripts/add?hub=hub%2F9082%2Fwindmill%2Fschedule_recovery_handler_template"
 									bind:customHandlerKind={recoveryHandlerItemKind}
 									bind:handlerExtraArgs={recoveryHandlerExtraArgs}
@@ -1030,7 +1030,7 @@
 									bind:handlerSelected={successHandlerSelected}
 									bind:handlerPath={successHandlerPath}
 									customInitialScriptPath={successHandlerCustomInitialPath}
-									slackToggleText="Alert channel when successful"
+									toggleText="Alert channel when successful"
 									customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
 									bind:customHandlerKind={successHandlerItemKind}
 									bind:handlerExtraArgs={successHandlerExtraArgs}

@@ -106,7 +106,7 @@
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
-	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
 	let errorHandlerInitialScriptPath: string
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
@@ -437,12 +437,11 @@
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
-			errorHandlerSelected =
-				emptyString(errorHandlerScriptPath) ||
-				(errorHandlerScriptPath.startsWith('hub/') &&
-					errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack'))
-					? 'slack'
-					: 'custom'
+			errorHandlerSelected = 
+				emptyString(errorHandlerScriptPath) ? 'custom' :
+				(errorHandlerScriptPath.startsWith('hub/') && errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')) ? 'slack' :
+				(errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')) ? 'teams' :
+				'custom'
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		codeCompletionEnabled = settings.code_completion_enabled
@@ -991,7 +990,7 @@
 			<div class="flex flex-col mt-5 gap-5 items-start">
 				<Toggle
 					disabled={!$enterpriseLicense ||
-						(errorHandlerSelected === 'slack' &&
+						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
 							!emptyString(errorHandlerScriptPath) &&
 							emptyString(errorHandlerExtraArgs['channel']))}
 					bind:checked={errorHandlerMutedOnCancel}
@@ -999,7 +998,7 @@
 				/>
 				<Button
 					disabled={!$enterpriseLicense ||
-						(errorHandlerSelected === 'slack' &&
+						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
 							!emptyString(errorHandlerScriptPath) &&
 							emptyString(errorHandlerExtraArgs['channel']))}
 					size="sm"
