@@ -12,6 +12,8 @@
 
 	export let kind: 'websocket' | 'nats' | 'kafka' | 'postgres'
 	export let args: Record<string, any>
+	export let noButton = false
+	export let testLoading: boolean = false
 
 	const kindToName: { [key: string]: string } = {
 		websocket: 'WebSocket',
@@ -20,9 +22,8 @@
 		postgres: 'Postgres'
 	}
 
-	let testLoading: boolean = false
 	let promise: CancelablePromise<any> | null = null
-	async function testTriggerConnection() {
+	export async function testTriggerConnection() {
 		if (testLoading) {
 			promise?.cancel()
 			return
@@ -63,16 +64,18 @@
 	}
 </script>
 
-<div class="flex flex-row justify-end mt-1">
-	<Button
-		spacingSize="sm"
-		size="xs"
-		color="light"
-		variant="border"
-		on:click={testTriggerConnection}
-		loading={testLoading}
-		clickableWhileLoading
-	>
-		Test connection
-	</Button>
-</div>
+{#if !noButton}
+	<div class="flex flex-row justify-end mt-1">
+		<Button
+			spacingSize="sm"
+			size="xs"
+			color="light"
+			variant="border"
+			on:click={testTriggerConnection}
+			loading={testLoading}
+			clickableWhileLoading
+		>
+			Test connection
+		</Button>
+	</div>
+{/if}
