@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, static_asset_config as \"static_asset_config: _\" FROM http_trigger WHERE workspace_id = $1 AND http_method = $2",
+  "query": "SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, static_asset_config as \"static_asset_config: _\", is_static_website FROM http_trigger WHERE workspace_id = $1 AND http_method = $2",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,11 @@
         "ordinal": 9,
         "name": "static_asset_config: _",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_static_website",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -83,8 +88,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "a76be7f4e9e8b8c81afe50fcbf1f3d393ed0bb73314e5c430f32541c43bcac52"
+  "hash": "8ff25d890d3f7019c5c6f2b47f29f4c7b2c91094036d9b5037ef9a4ac986ee53"
 }

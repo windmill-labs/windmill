@@ -31,7 +31,7 @@ impl<B> OnResponse<B> for MyOnResponse {
         if *LOG_REQUESTS {
             let latency = latency.as_millis();
             let status = response.status().as_u16();
-            if response.status().is_success() {
+            if response.status().is_success() || response.status().is_redirection() {
                 tracing::info!(latency = latency, status = status, "response")
             } else {
                 tracing::error!(latency = latency, status = status, "response")
