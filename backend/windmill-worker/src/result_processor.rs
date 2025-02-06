@@ -232,6 +232,7 @@ async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
     job: Arc<QueuedJob>,
     result: Arc<Box<RawValue>>,
+    result_columns: Option<Vec<String>>,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     success: bool,
@@ -242,6 +243,7 @@ async fn send_job_completed(
     let jc = JobCompleted {
         job,
         result,
+        result_columns,
         mem_peak,
         canceled_by,
         success,
@@ -272,52 +274,22 @@ pub async fn process_result(
 ) -> error::Result<bool> {
     match result {
         Ok(r) => {
-            let job = if column_order.is_some() || new_args.is_some() {
-                let mut updated_job = (*job).clone();
-                if let Some(column_order) = column_order {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "column_order": column_order
-                                    }
-                                }))));
-                        }
-                    }
-                }
-                if let Some(new_args) = new_args {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            // TODO save original args somewhere
-                            // if let Some(args) = updated_job.args.as_mut() {
-                            //     args.0.remove(ENTRYPOINT_OVERRIDE);
-                            // }
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "preprocessed_args": true
-                                    }
-                                }))));
-                        }
-                    }
-                    updated_job.args = Some(Json(new_args));
-                }
-                Arc::new(updated_job)
-            } else {
-                job
-            };
+            // Update script args to preprocessed args
+            if let Some(preprocessed_args) = new_args {
+                sqlx::query!(
+                    "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
+                    Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
+                    job.id
+                )
+                .execute(db)
+                .await?;
+            }
 
             send_job_completed(
                 job_completed_tx,
                 job,
                 r,
+                column_order,
                 mem_peak,
                 canceled_by,
                 true,
@@ -363,6 +335,7 @@ pub async fn process_result(
                 job_completed_tx,
                 job,
                 Arc::new(to_raw_value(&error_value)),
+                None,
                 mem_peak,
                 canceled_by,
                 false,
@@ -435,7 +408,17 @@ pub async fn handle_receive_completed_job(
 }
 
 pub async fn process_completed_job(
-    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, duration, .. }: JobCompleted,
+    JobCompleted {
+        job,
+        result,
+        mem_peak,
+        success,
+        cached_res_path,
+        canceled_by,
+        duration,
+        result_columns,
+        ..
+    }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -455,12 +438,32 @@ pub async fn process_completed_job(
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
 
+        if job.flow_step_id.as_deref() == Some("preprocessor") {
+            // Do this before inserting to `v2_job_completed` for backwards compatibility
+            // when we set `flow_status->_metadata->preprocessed_args` to true.
+            sqlx::query!(
+                r#"UPDATE v2_job SET
+                    args = '{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}'::jsonb,
+                    preprocessed = TRUE
+                WHERE id = $1 AND preprocessed = FALSE"#,
+                job.id
+            )
+            .execute(db)
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "error while deleting args of preprocessing step: {e:#}"
+                ))
+            })?;
+        }
+
         add_completed_job(
             db,
             &job,
             true,
             false,
             Json(&result),
+            result_columns,
             mem_peak.to_owned(),
             canceled_by,
             false,

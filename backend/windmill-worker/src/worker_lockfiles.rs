@@ -634,7 +634,7 @@ pub async fn handle_flow_dependency_job(
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
     if sqlx::query_scalar!(
-        "SELECT canceled AS \"canceled!\" FROM queue WHERE id = $1",
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
         job.id
     )
     .fetch_optional(db)
@@ -1528,7 +1528,7 @@ pub async fn handle_app_dependency_job(
 
         // Re-check cancelation to ensure we don't accidentially override an app.
         if sqlx::query_scalar!(
-            "SELECT canceled AS \"canceled!\" FROM queue WHERE id = $1",
+            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
             job.id
         )
         .fetch_optional(db)

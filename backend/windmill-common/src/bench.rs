@@ -84,6 +84,7 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
     let benchmark_kind = std::env::var("BENCHMARK_KIND").unwrap_or("noop".to_string());
 
     if benchmark_jobs > 0 {
+        let mut tx = db.begin().await.unwrap();
         match benchmark_kind.as_str() {
             "dedicated" => {
                 // you need to create the script first, check https://github.com/windmill-labs/windmill/blob/b76a92cfe454c686f005c65f534e29e039f3c706/benchmarks/lib.ts#L47
@@ -92,10 +93,10 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     "f/benchmarks/dedicated",
                     "admins"
                 )
-                .fetch_one(db)
+                .fetch_one(&mut *tx)
                 .await
                 .unwrap_or_else(|_e| panic!("failed to insert dedicated jobs"));
-                sqlx::query!("INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11))",
+                let uuids = sqlx::query_scalar!("INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM generate_series(1, $10)) RETURNING id",
                     hash,
                     "f/benchmarks/dedicated",
                     JobKind::Script as JobKind,
@@ -104,12 +105,21 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     "admin",
                     "u/admin",
                     "admin@windmill.dev",
-                    chrono::Utc::now(),
                     "admins",
                     benchmark_jobs
                 )
-                .execute(db)
-                .await.unwrap_or_else(|_e| panic!("failed to insert dedicated jobs"));
+                .fetch_all(&mut *tx)
+                .await.unwrap_or_else(|_e| panic!("failed to insert dedicated jobs (1)"));
+                sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &uuids, "admins", "admins:f/benchmarks/dedicated")
+                .execute(&mut *tx)
+                .await.unwrap_or_else(|_e| panic!("failed to insert dedicated jobs (2)"));
+                sqlx::query!(
+                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                    &uuids
+                )
+                .execute(&mut *tx)
+                .await
+                .unwrap_or_else(|_e| panic!("failed to insert dedicated jobs (3)"));
             }
             "parallelflow" => {
                 //create dedicated script
@@ -124,9 +134,9 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                 "flow",
                 "admin",
                 )
-                .execute(db)
+                .execute(&mut *tx)
                 .await.unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs {_e:#}"));
-                sqlx::query!("INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, raw_flow, flow_status) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12 FROM generate_series(1, 1))",
+                let uuids = sqlx::query_scalar!("INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, raw_flow) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, 1)) RETURNING id",
                     None::<i64>,
                     None::<String>,
                     JobKind::FlowPreview as JobKind,
@@ -135,7 +145,6 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     "admin",
                     "u/admin",
                     "admin@windmill.dev",
-                    chrono::Utc::now(),
                     "admins",
                     serde_json::from_str::<serde_json::Value>(r#"
 {
@@ -169,7 +178,24 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
   "preprocessor_module": null
 }
                     "#).unwrap(),
-                    serde_json::from_str::<serde_json::Value>(r#"
+                )
+                .fetch_all(&mut *tx)
+                .await.unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (1)"));
+                sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &uuids, "admins", "flow")
+                .execute(&mut *tx)
+                .await.unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (2)"));
+                sqlx::query!(
+                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                    &uuids
+                )
+                .execute(&mut *tx)
+                .await
+                .unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (3)"));
+                sqlx::query!(
+                    "INSERT INTO v2_job_status (id, flow_status) SELECT unnest($1::uuid[]), $2",
+                    &uuids,
+                    serde_json::from_str::<serde_json::Value>(
+                        r#"
 {
 		"step": 0,
 		"modules": [
@@ -186,13 +212,16 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
 		"preprocessor_module": null
 	}
 
-                "#).unwrap()
+                "#
+                    )
+                    .unwrap()
                 )
-                .execute(db)
-                .await.unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs"));
+                .execute(&mut *tx)
+                .await
+                .unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (4)"));
             }
             _ => {
-                sqlx::query!("INSERT INTO queue (id, script_hash, script_path, job_kind, language, tag, created_by, permissioned_as, email, scheduled_for, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, $11))",
+                let uuids = sqlx::query_scalar!("INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM generate_series(1, $10)) RETURNING id",
                     None::<i64>,
                     None::<String>,
                     JobKind::Noop as JobKind,
@@ -201,13 +230,23 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     "admin",
                     "u/admin",
                     "admin@windmill.dev",
-                    chrono::Utc::now(),
                     "admins",
                     benchmark_jobs
                 )
-                .execute(db)
-                .await.unwrap_or_else(|_e| panic!("failed to insert noop jobs"));
+                .fetch_all(&mut *tx)
+                .await.unwrap_or_else(|_e| panic!("failed to insert noop jobs (1)"));
+                sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &uuids, "admins", "deno")
+                .execute(&mut *tx)
+                .await.unwrap_or_else(|_e| panic!("failed to insert noop jobs (2)"));
+                sqlx::query!(
+                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+                    &uuids
+                )
+                .execute(&mut *tx)
+                .await
+                .unwrap_or_else(|_e| panic!("failed to insert noop jobs (3)"));
             }
         }
+        tx.commit().await.unwrap();
     }
 }

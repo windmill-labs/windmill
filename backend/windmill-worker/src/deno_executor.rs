@@ -7,17 +7,15 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
-        read_file, read_result, start_child_process, OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
+        start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::{
-    error::Result, jobs::PREPROCESSOR_FAKE_ENTRYPOINT, worker::write_file, BASE_URL,
-};
+use windmill_common::{error::Result, worker::write_file, BASE_URL};
 use windmill_common::{
     error::{self},
     jobs::QueuedJob,
@@ -197,24 +195,19 @@ pub async fn handle_deno_job(
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
     append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
-    let (main_override, apply_preprocessor) = match get_main_override(job.args.as_ref()) {
-        Some(main_override) => {
-            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
-                (None, true)
-            } else {
-                (Some(main_override), false)
-            }
-        }
-        None => (None, false),
-    };
+    let main_override = job.script_entrypoint_override.as_deref();
+    let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
 
     write_file(job_dir, "main.ts", inner_content)?;
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
-        let args =
-            windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
-                .args;
+        let args = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            main_override.map(ToString::to_string),
+        )?
+        .args;
 
         let pre_args = if apply_preprocessor {
             Some(
@@ -246,7 +239,7 @@ pub async fn handle_deno_job(
             .join("\n    ");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
-        let main_name = main_override.unwrap_or("main".to_string());
+        let main_name = main_override.unwrap_or("main");
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         let (preprocessor_import, preprocessor) = if let Some(pre_args) = pre_args {
             let pre_spread = pre_args.into_iter().map(|x| x.name).join(",");

@@ -4,7 +4,7 @@ use sqlx::{Pool, Postgres};
 
 pub async fn get_queue_counts(db: &Pool<Postgres>) -> HashMap<String, u32> {
     sqlx::query!(
-        "SELECT tag AS \"tag!\", count(*) AS \"count!\" FROM queue WHERE
+        "SELECT tag AS \"tag!\", count(*) AS \"count!\" FROM v2_job_queue WHERE
             scheduled_for <= now() - ('3 seconds')::interval AND running = false
             GROUP BY tag",
     )

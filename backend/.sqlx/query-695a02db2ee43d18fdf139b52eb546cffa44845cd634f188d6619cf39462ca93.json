@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                result #> $3 AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                result_columns,\n                created_by AS \"created_by!\"\n            FROM v2_job_completed c\n                JOIN v2_job USING (id)\n            WHERE c.id = $1 AND c.workspace_id = $2 AND ($4::text[] IS NULL OR tag = ANY($4))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "result_columns",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "695a02db2ee43d18fdf139b52eb546cffa44845cd634f188d6619cf39462ca93"
+}

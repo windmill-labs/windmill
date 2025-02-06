@@ -9,15 +9,14 @@
 	// import { copyToClipboard } from '$lib/utils'
 	// import { deepEqual } from 'fast-equals'
 
-	export let flowStatus: any
+	export let preprocessed: boolean | undefined
 
 	// $: args =
 	// 	'_metadata' in flowStatus && 'original_args' in flowStatus['_metadata']
 	// 		? flowStatus['_metadata']['original_args']
 	// 		: undefined
 
-	$: hasPreprocessedArgs =
-		'_metadata' in flowStatus && !!flowStatus['_metadata']['preprocessed_args']
+	$: hasPreprocessedArgs = preprocessed === true
 
 	// $: argsStr = args !== undefined ? JSON.stringify(args, null, 4) : undefined
 

@@ -15,8 +15,8 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_main_override,
-        get_reserved_variables, read_result, start_child_process, OccupancyMetrics,
+        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
+        read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
@@ -190,11 +190,14 @@ pub async fn handle_php_job(
 
     let _ = write_file(job_dir, "main.php", inner_content)?;
 
-    let main_override = get_main_override(job.args.as_ref());
+    let main_override = job.script_entrypoint_override.as_deref();
 
     let write_wrapper_f = async {
-        let args =
-            windmill_parser_php::parse_php_signature(inner_content, main_override.clone())?.args;
+        let args = windmill_parser_php::parse_php_signature(
+            inner_content,
+            main_override.map(ToString::to_string),
+        )?
+        .args;
 
         let args_to_include = args
             .iter()
@@ -220,7 +223,7 @@ pub async fn handle_php_job(
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        let main_name = main_override.unwrap_or("main".to_string());
+        let main_name = main_override.unwrap_or("main");
 
         let wrapper_content: String = format!(
             r#"

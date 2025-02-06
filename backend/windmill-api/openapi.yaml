@@ -11924,6 +11924,8 @@ components:
           type: number
         suspend:
           type: number
+        preprocessed:
+          type: boolean
       required:
         - id
         - running
@@ -12031,6 +12033,8 @@ components:
           type: number
         aggregate_wait_time_ms:
           type: number
+        preprocessed:
+          type: boolean
       required:
         - id
         - created_by

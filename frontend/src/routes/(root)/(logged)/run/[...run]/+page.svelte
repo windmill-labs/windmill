@@ -726,7 +726,7 @@
 							</div>
 						{/if}
 						{#if job && job.flow_status && job.job_kind === 'script'}
-							<PreprocessedArgsDisplay flowStatus={job.flow_status} />
+							<PreprocessedArgsDisplay preprocessed={job.preprocessed} />
 						{/if}
 						{#if persistentScriptDefinition}
 							<button on:click={() => persistentScriptDrawer.open?.(persistentScriptDefinition)}

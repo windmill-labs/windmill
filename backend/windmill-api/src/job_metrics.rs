@@ -171,7 +171,7 @@ async fn set_job_progress(
     if let Some(flow_job_id) = flow_job_id {
         // TODO: Return error if trying to set completed job?
         sqlx::query!(
-            "UPDATE queue
+            "UPDATE v2_job_status
                 SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step', 'progress'], $1)
                 WHERE id = $2",
             serde_json::json!(percent.clamp(0, 99)),

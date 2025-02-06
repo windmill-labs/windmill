@@ -23,7 +23,7 @@ GRANT ALL PRIVILEGES ON TABLE workspace_key TO windmill_user;
 CREATE FUNCTION "notify_insert_on_completed_job" ()
 RETURNS TRIGGER AS $$
 BEGIN
-    PERFORM pg_notify('insert on completed_job', NEW.id::text);
+    PERFORM pg_notify('completed', NEW.id::text);
     RETURN NEW;
 END;
 $$ LANGUAGE PLPGSQL;
@@ -37,7 +37,7 @@ EXECUTE FUNCTION "notify_insert_on_completed_job" ();
 CREATE FUNCTION "notify_queue" ()
 RETURNS TRIGGER AS $$
 BEGIN
-    PERFORM pg_notify('queue', NEW.id::text);
+    PERFORM pg_notify('queued', NEW.id::text);
     RETURN NEW;
 END;
 $$ LANGUAGE PLPGSQL;
