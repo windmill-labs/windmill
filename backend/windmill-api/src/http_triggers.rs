@@ -756,7 +756,7 @@ async fn route_job(
                     .flatten()
                     .unwrap_or("application/octet-stream".parse().unwrap()),
             );
-            if !response_headers.contains_key("content-disposition") {
+            if !trigger.is_static_website {
                 response_headers.insert(
                     "content-disposition",
                     config.filename.as_ref().map_or_else(

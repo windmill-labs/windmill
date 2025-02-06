@@ -57,6 +57,8 @@
 
 	async function handleChange(files: File[] | undefined) {
 		if (folderOnly) {
+			uniqueFolderPrefix = getRandomFolderPrefix()
+			uploadedFolderRoot = undefined
 			await Promise.all(
 				files?.map(async (file) => {
 					await uploadFileToS3(file, file.name)
@@ -103,7 +105,6 @@
 				throw new Error('Missing root folder')
 			}
 			if (uploadedFolderRoot && rootFolder !== uploadedFolderRoot) {
-				uploadedFolderRoot = undefined
 				throw new Error('Uploading a file in a different root folder than the previous files')
 			} else {
 				uploadedFolderRoot = rootFolder
