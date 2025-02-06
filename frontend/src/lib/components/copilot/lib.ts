@@ -32,11 +32,13 @@ import type { ChatCompletionRequest } from '@mistralai/mistralai/models/componen
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
+// need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	openai: ['gpt-4o', 'gpt-4o-mini'],
 	anthropic: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+	googleai: ['gemini-1.5-flash'],
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
 	customai: []
@@ -45,7 +47,26 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 export const OPENAI_COMPATIBLE_BASE_URLS = {
 	groq: 'https://api.groq.com/openai/v1',
 	openrouter: 'https://openrouter.ai/api/v1',
-	deepseek: 'https://api.deepseek.com/v1'
+	deepseek: 'https://api.deepseek.com/v1',
+	googleai: 'https://generativelanguage.googleapis.com/v1beta/openai'
+} as const
+
+const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParamsStreaming = {
+	model: '',
+	max_tokens: 8192, //TODO: make this dynamic
+	temperature: 0,
+	seed: 42,
+	stream: true,
+	messages: []
+}
+
+export const OPENAI_COMPATIBLE_COMPLETION_CONFIG = {
+	groq: DEFAULT_COMPLETION_CONFIG,
+	openrouter: DEFAULT_COMPLETION_CONFIG,
+	deepseek: DEFAULT_COMPLETION_CONFIG,
+	googleai: {
+		max_tokens: 8192 //TODO: make this dynamic
+	} as ChatCompletionCreateParamsStreaming
 } as const
 
 class WorkspacedAIClients {
@@ -114,15 +135,6 @@ class WorkspacedAIClients {
 }
 
 export const workspaceAIClients = new WorkspacedAIClients()
-
-const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParamsStreaming = {
-	model: '',
-	max_tokens: 8000, //TODO: make this dynamic
-	temperature: 0,
-	seed: 42,
-	stream: true,
-	messages: []
-}
 
 namespace MistralAI {
 	export const mistralConfig: ChatCompletionRequest = {
@@ -510,9 +522,16 @@ export async function getNonStreamingCompletion(
 						dangerouslyAllowBrowser: true
 				  })
 				: workspaceAIClients.getOpenaiClient()
+			const config =
+				aiProvider === 'openai'
+					? OpenAi.openaiConfig
+					: OPENAI_COMPATIBLE_COMPLETION_CONFIG[aiProvider]
+			if (!config) {
+				throw new Error('No config for this provider: ' + aiProvider)
+			}
 			const completion = await openaiClient.chat.completions.create(
 				{
-					...(aiProvider === 'openai' ? OpenAi.openaiConfig : DEFAULT_COMPLETION_CONFIG),
+					...config,
 					messages,
 					model,
 					stream: false
@@ -578,9 +597,16 @@ export async function getCompletion(
 		}
 		default: {
 			const openaiClient = workspaceAIClients.getOpenaiClient()
+			const config =
+				aiProvider === 'openai'
+					? OpenAi.openaiConfig
+					: OPENAI_COMPATIBLE_COMPLETION_CONFIG[aiProvider]
+			if (!config) {
+				throw new Error('No config for this provider: ' + aiProvider)
+			}
 			const completion = await openaiClient.chat.completions.create(
 				{
-					...(aiProvider === 'openai' ? OpenAi.openaiConfig : DEFAULT_COMPLETION_CONFIG),
+					...config,
 					model,
 					messages
 				},
