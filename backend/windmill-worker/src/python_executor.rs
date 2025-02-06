@@ -1615,6 +1615,7 @@ async fn spawn_uv_install(
     // If none, it is system python
     py_path: Option<String>,
     no_uv_install: bool,
+    worker_dir: &str,
 ) -> Result<tokio::process::Child, Error> {
     if !*DISABLE_NSJAIL {
         tracing::info!(
@@ -1649,13 +1650,30 @@ async fn spawn_uv_install(
         vars.push(("REQ", &req));
         vars.push(("TARGET", venv_p));
 
+        std::fs::create_dir_all(venv_p)?;
+        let nsjail_proto = format!("{req}.config.proto");
+        // Prepare NSJAIL
+        let _ = write_file(
+            job_dir,
+            &nsjail_proto,
+            &(if no_uv_install {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
+            } else {
+                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+            })
+            .replace("{WORKER_DIR}", worker_dir)
+            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+            .replace("{TARGET_DIR}", &venv_p)
+            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )?;
+    
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
             .envs(vars)
             .envs(PROXY_ENVS.clone())
-            .args(vec!["--config", "download.config.proto"])
+            .args(vec!["--config", &nsjail_proto])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await
@@ -1841,6 +1859,8 @@ pub async fn handle_python_reqs(
     // TODO: Remove (Deprecated)
     mut no_uv_install: bool,
 ) -> error::Result<Vec<String>> {
+    let worker_dir = worker_dir.to_string();
+
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1923,22 +1943,6 @@ pub async fn handle_python_reqs(
             .clone()
             .map(handle_ephemeral_token),
     );
-
-    // Prepare NSJAIL
-    if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "download.config.proto",
-            &(if no_uv_install {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
-            } else {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-            })
-            .replace("{WORKER_DIR}", &worker_dir)
-            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
-    };
 
     // Cached paths
     let mut req_with_penv: Vec<(String, String)> = vec![];
@@ -2176,7 +2180,7 @@ pub async fn handle_python_reqs(
         let pip_indexes = pip_indexes.clone();
         let py_path = py_path.clone();
         let pids = pids.clone();
-
+        let worker_dir = worker_dir.clone();
         handles.push(task::spawn(async move {
             // permit will be dropped anyway if this thread exits at any point
             // so we dont have to drop it manually
@@ -2244,7 +2248,8 @@ pub async fn handle_python_reqs(
                 &job_dir,
                 pip_indexes,
                 py_path,
-                no_uv_install
+                no_uv_install,
+                &worker_dir
             ).await {
                 Ok(r) => r,
                 Err(e) => {
@@ -2327,6 +2332,10 @@ pub async fn handle_python_reqs(
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
             let s3_push = false;
+
+            if !*DISABLE_NSJAIL {
+                let _ = std::fs::remove_file(format!("{job_dir}/{req}.config.proto"));
+            }
 
             print_success(
                 false,
