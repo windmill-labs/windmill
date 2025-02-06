@@ -735,11 +735,11 @@ pub async fn delete_expired_items(db: &DB) -> () {
         match db.begin().await {
             Ok(mut tx) => {
                 let deleted_jobs = sqlx::query_scalar!(
-                            "DELETE FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id",
-                            job_retention_secs
-                        )
-                        .fetch_all(&mut *tx)
-                        .await;
+                    "DELETE FROM completed_job WHERE created_at <= now() - ($1::bigint::text || ' s')::interval  AND started_at + ((duration_ms/1000 + $1::bigint) || ' s')::interval <= now() RETURNING id AS \"id!\"",
+                    job_retention_secs
+                )
+                .fetch_all(&mut *tx)
+                .await;
 
                 match deleted_jobs {
                     Ok(deleted_jobs) => {
@@ -1507,26 +1507,26 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
 async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "WITH zombie_jobs AS (
-                    UPDATE queue SET running = false, started_at = null
-                    WHERE last_ping < now() - ($1 || ' seconds')::interval
-                     AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false 
-                    RETURNING id, workspace_id, last_ping
-                ),
-                update_concurrency AS (
-                    UPDATE concurrency_counter cc
-                    SET job_uuids = job_uuids - zj.id::text
-                    FROM zombie_jobs zj
-                    INNER JOIN concurrency_key ck ON ck.job_id = zj.id
-                    WHERE cc.concurrency_id = ck.key
-                )
-                SELECT id, workspace_id, last_ping FROM zombie_jobs",
-                *ZOMBIE_JOB_TIMEOUT,
+            "WITH zombie_jobs AS (
+                UPDATE queue SET running = false, started_at = null
+                WHERE last_ping < now() - ($1 || ' seconds')::interval
+                 AND running = true AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false
+                RETURNING id, workspace_id, last_ping
+            ),
+            update_concurrency AS (
+                UPDATE concurrency_counter cc
+                SET job_uuids = job_uuids - zj.id::text
+                FROM zombie_jobs zj
+                INNER JOIN concurrency_key ck ON ck.job_id = zj.id
+                WHERE cc.concurrency_id = ck.key
             )
-            .fetch_all(db)
-            .await
-            .ok()
-            .unwrap_or_else(|| vec![]);
+            SELECT id AS \"id!\", workspace_id AS \"workspace_id!\", last_ping FROM zombie_jobs",
+            *ZOMBIE_JOB_TIMEOUT,
+        )
+        .fetch_all(db)
+        .await
+        .ok()
+        .unwrap_or_else(|| vec![]);
 
         #[cfg(feature = "prometheus")]
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
