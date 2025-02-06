@@ -20,6 +20,7 @@
 	import RustIcon from '$lib/components/icons/RustIcon.svelte'
 	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
 	import CSharpIcon from '$lib/components/icons/CSharpIcon.svelte'
+	import NuIcon from '$lib/components/icons/NuIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -85,7 +86,8 @@
 		php: PHPIcon,
 		rust: RustIcon,
 		ansible: AnsibleIcon,
-		csharp: CSharpIcon
+		csharp: CSharpIcon,
+		nu: NuIcon
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8
