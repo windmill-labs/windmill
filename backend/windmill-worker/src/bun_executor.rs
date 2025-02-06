@@ -1,12 +1,11 @@
 #[cfg(feature = "deno_core")]
 use std::time::Instant;
-use std::{collections::HashMap, fs, io, path::Path, process::Stdio};
+use std::{collections::HashMap, fs, path::Path, process::Stdio};
 
+use anyhow::Context;
 use base64::Engine;
 use itertools::Itertools;
 
-#[cfg(not(feature = "deno_core"))]
-use serde_json::value::to_raw_value;
 use serde_json::value::RawValue;
 
 use sha2::Digest;
@@ -531,7 +530,7 @@ pub async fn generate_wrapper_mjs(
         format!("{job_dir}/wrapper.js"),
         format!("{job_dir}/wrapper.mjs"),
     )
-    .map_err(|e| error::Error::InternalErr(format!("Could not move wrapper to mjs: {e:#}")))?;
+    .map_err(|e| error::Error::internal_err(format!("Could not move wrapper to mjs: {e:#}")))?;
     Ok(())
 }
 
@@ -644,7 +643,7 @@ pub fn copy_recursively(
     source: impl AsRef<Path>,
     destination: impl AsRef<Path>,
     skip: Option<&Vec<String>>,
-) -> io::Result<()> {
+) -> Result<()> {
     let mut stack = Vec::new();
     stack.push((
         source.as_ref().to_path_buf(),
@@ -652,7 +651,9 @@ pub fn copy_recursively(
         0,
     ));
     while let Some((current_source, current_destination, level)) = stack.pop() {
-        for entry in fs::read_dir(&current_source)? {
+        for entry in fs::read_dir(&current_source)
+            .context(format!("reading directory {current_source:?}"))?
+        {
             let entry = entry?;
             let filetype = entry.file_type()?;
             let destination = current_destination.join(entry.file_name());
@@ -670,7 +671,11 @@ pub fn copy_recursively(
                 fs::create_dir_all(&destination)?;
                 stack.push((entry.path(), destination, level + 1));
             } else {
-                fs::hard_link(&original, &destination)?
+                fs::hard_link(&original, &destination).map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "hard linking from {original:?} to {destination:?}: {e:#}"
+                    ))
+                })?;
             }
         }
     }
@@ -816,7 +821,7 @@ async fn write_lock(splitted_lockb_2: &str, job_dir: &str, is_binary: bool) -> R
             "bun.lockb",
             &base64::engine::general_purpose::STANDARD
                 .decode(splitted_lockb_2)
-                .map_err(|_| error::Error::InternalErr(format!("Could not decode bun.lockb")))?,
+                .map_err(|_| error::Error::internal_err(format!("Could not decode bun.lockb")))?,
         )
         .await?;
     } else {
@@ -984,7 +989,7 @@ pub async fn handle_bun_job(
                             "bunfig.toml".to_string(),
                         ]),
                     ) {
-                        fs::remove_dir_all(&buntar_path)?;
+                        fs::remove_dir_all(&buntar_path).context("deleting buntar directory")?;
                         tracing::error!("Could not create buntar: {e}");
                     }
                 }
@@ -1297,7 +1302,7 @@ try {{
             tracing::error!(
                 r#""deno_core" feature is not activated, but "//native" annotation used. Returning empty value..."#
             );
-            return Ok(to_raw_value("").unwrap());
+            return Err(error::Error::internal_err("deno_core feature is not activated, but //native annotation used. Returning empty value...".to_string()));
         }
 
         #[cfg(feature = "deno_core")]
@@ -1355,7 +1360,6 @@ try {{
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
                     "{SHARED_MOUNT}",
@@ -1496,13 +1500,13 @@ try {{
         let args = read_file(&format!("{job_dir}/args.json"))
             .await
             .map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while reading args from preprocessing: {e:#}"
                 ))
             })?;
         let args: HashMap<String, Box<RawValue>> =
             serde_json::from_str(args.get()).map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while deserializing args from preprocessing: {e:#}"
                 ))
             })?;
@@ -1625,7 +1629,7 @@ pub async fn start_worker(
                     &base64::engine::general_purpose::STANDARD
                         .decode(lock)
                         .map_err(|_| {
-                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                            error::Error::internal_err("Could not decode bun.lockb".to_string())
                         })?,
                 )
                 .await?;

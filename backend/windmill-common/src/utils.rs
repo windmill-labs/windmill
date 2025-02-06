@@ -395,7 +395,7 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
                 workspace_id,
                 err
             );
-            Err(Error::SqlErr(err))
+            return Err(err.into());
         }
     }
 }

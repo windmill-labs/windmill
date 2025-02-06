@@ -180,7 +180,7 @@ async fn list_triggers(
     }
     let sql = sqlb
         .sql()
-        .map_err(|e| error::Error::InternalErr(e.to_string()))?;
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, HttpTrigger>(&sql)
         .fetch_all(&mut *tx)
         .await?;
@@ -675,7 +675,7 @@ async fn route_job(
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
-        return error::Error::InternalErr(
+        return error::Error::internal_err(
             "Static asset configuration is not supported in this build".to_string(),
         )
         .into_response();
@@ -693,7 +693,7 @@ async fn route_job(
                 config.storage,
             )
             .await?;
-            let s3_resource = s3_resource_opt.ok_or(error::Error::InternalErr(
+            let s3_resource = s3_resource_opt.ok_or(error::Error::internal_err(
                 "No files storage resource defined at the workspace level".to_string(),
             ))?;
             let s3_client = build_object_store_client(&s3_resource).await?;
@@ -725,7 +725,7 @@ async fn route_job(
 
             let s3_object = s3_object.map_err(|err| {
                 tracing::warn!("Error retrieving file from S3: {:?}", err);
-                error::Error::InternalErr(format!("Error retrieving file: {}", err.to_string()))
+                error::Error::internal_err(format!("Error retrieving file: {}", err.to_string()))
             })?;
 
             let mut response_headers = http::HeaderMap::new();
