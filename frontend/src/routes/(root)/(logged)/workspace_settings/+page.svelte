@@ -150,8 +150,6 @@
 	let editedWorkspaceEncryptionKey: string | undefined = undefined
 	let workspaceReencryptionInProgress: boolean = false
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let codeCompletionEnabled: boolean = false
-	let selected: AiProviderTypes = 'openai'
 	let slack_tabs: 'slack_commands' | 'teams_commands' = 'slack_commands'
 	let tab =
 		($page.url.searchParams.get('tab') as
