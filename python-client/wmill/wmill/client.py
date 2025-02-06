@@ -710,11 +710,11 @@ class Windmill:
         return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
     
 
-    def send_teams_message(self, conversation_id: str, text: str, success: bool = True):
+    def send_teams_message(self, conversation_id: str, text: str, success: bool = True, card_block: dict = None):
         """
         Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
         """
-        return self.post(f"/teams/activities", json={"conversation_id": conversation_id, "text": text, "success": success})
+        return self.post(f"/teams/activities", json={"conversation_id": conversation_id, "text": text, "success": success, "card_block": card_block})
 
 
 def init_global_client(f):
@@ -1076,8 +1076,8 @@ def request_interactive_slack_approval(
     )
 
 @init_global_client
-def send_teams_message(conversation_id: str, text: str, success: bool):
-    return _client.send_teams_message(conversation_id, text, success)
+def send_teams_message(conversation_id: str, text: str, success: bool, card_block: dict = None):
+    return _client.send_teams_message(conversation_id, text, success, card_block)
 
 @init_global_client
 def cancel_running() -> dict:

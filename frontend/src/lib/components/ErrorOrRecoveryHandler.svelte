@@ -43,9 +43,11 @@
 	export let customScriptTemplate: string
 	export let customHandlerKind: 'flow' | 'script' = 'script'
 
+	let initialSlackChannel: string | undefined = undefined
+	let initialTeamsChannel: string | undefined = undefined
+
 	let customHandlerSchema: Schema | undefined
 	let slackHandlerSchema: Schema | undefined
-	let teamsHandlerSchema: Schema | undefined
 	let isFetching: boolean = false
 
 	let teams_channels: ListAvailableTeamsChannelsResponse = []
@@ -201,10 +203,35 @@
 		}
 	}
 
+	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = undefined
+
+	$: {
+		if (lastHandlerSelected !== handlerSelected) {
+			lastHandlerSelected = handlerSelected;
+			updateHandlerExtraArgs();
+		}
+	}
+
+	function updateHandlerExtraArgs() {
+		if (handlerSelected === 'slack' && initialSlackChannel) {
+			handlerExtraArgs['channel'] = initialSlackChannel;
+		} else if (handlerSelected === 'teams' && initialTeamsChannel) {
+			handlerExtraArgs['channel'] = initialTeamsChannel;
+		} else {
+			handlerExtraArgs['channel'] = undefined;
+		}
+		connectionTestJob = undefined;
+	}
+
 	$: {
 		if ($workspaceStore) {
 			loadSlackResources()
 			loadTeamsResources()
+			if (handlerSelected === 'slack') {
+				initialSlackChannel = handlerExtraArgs['channel']
+			} else if (handlerSelected === 'teams') {
+				initialTeamsChannel = handlerExtraArgs['channel']
+			}
 		}
 	}
 
@@ -229,6 +256,7 @@
 
 	$: handlerPath &&
 		isSlackHandler(handlerPath) &&
+		!isTeamsHandler(handlerPath) &&
 		loadHandlerScriptArgs(handlerPath, [
 			'path',
 			'workspace_id',
@@ -245,31 +273,10 @@
 			'email',
 			'slack'
 		]).then((schema) => (slackHandlerSchema = schema))
-
-	$: handlerPath &&
-		isTeamsHandler(handlerPath) &&
-		loadHandlerScriptArgs(handlerPath, [
-			'path',
-			'workspace_id',
-			'job_id',
-			'is_flow',
-			'schedule_path',
-			'error',
-			'error_started_at',
-			'failed_times',
-			'started_at',
-			'success_times',
-			'success_result',
-			'success_started_at',
-			'email',
-			'teams'
-		]).then((schema) => (teamsHandlerSchema = schema))
 </script>
 
 <div>
-	<Tabs bind:selected={handlerSelected} on:change={() => {
-		//TODO
-	}} class="mt-2 mb-4">
+	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
 		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
 		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
 		<Tab value="custom" disabled={!isEditable}>
@@ -439,7 +446,7 @@
 			</div>
 			<p class="text-sm">Teams Channel</p>
 			<div class="flex-grow">
-				<select class="w-full" bind:value={handlerExtraArgs['teams_channel']}>
+				<select class="w-full" bind:value={handlerExtraArgs['channel']}>
 					{#if teams_channels.length === 0}
 						<option value="" disabled selected>Bot not connected to any channel</option>
 					{:else}
@@ -481,10 +488,10 @@
 			</Alert>
 		{:else}
 			<Button
-				disabled={emptyString(handlerExtraArgs['teams_channel'])}
+				disabled={emptyString(handlerExtraArgs['channel'])}
 				btnClasses="w-32 text-center"
 				color="dark"
-				on:click={() => sendTeamsMessage(handlerExtraArgs['teams_channel'])}
+				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'])}
 				size="xs">Send test message</Button
 			>
 			{#if connectionTestJob !== undefined}

@@ -3476,6 +3476,10 @@ paths:
                 text:
                   type: string
                   description: The message text to be sent in the Teams card
+                card_block:
+                  type: object
+                  description: The card block to be sent in the Teams card
+
       responses:
         '200':
           description: Activity processed successfully

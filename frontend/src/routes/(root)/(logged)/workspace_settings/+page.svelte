@@ -570,6 +570,8 @@
 		if (errorHandlerScriptPath) {
 			if (errorHandlerScriptPath !== undefined && isSlackHandler(errorHandlerScriptPath)) {
 				errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			} else {
+				errorHandlerExtraArgs['slack'] = undefined
 			}
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
