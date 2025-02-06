@@ -22,7 +22,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-
+	import { isCloudHosted } from '$lib/cloud'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -66,7 +66,6 @@
 			itemKind = nis_flow ? 'flow' : 'script'
 			is_async = false
 			requires_auth = false
-			initialRoutePath = ''
 			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
 			http_method = defaultValues?.http_method ?? 'post'
@@ -78,6 +77,7 @@
 			path = ''
 			initialPath = ''
 			dirtyPath = false
+			is_static_website = false
 		} finally {
 			drawerLoading = false
 		}
@@ -89,11 +89,11 @@
 	let dirtyRoutePath = false
 	let is_async = false
 	let requires_auth = false
-	let initialRoutePath = ''
 	let route_path = ''
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
+	let is_static_website = false
 
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode = false
@@ -113,12 +113,14 @@
 		is_flow = s.is_flow
 		path = s.path
 		route_path = s.route_path
-		initialRoutePath = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
-		static_asset_config = s.static_asset_config
-		s3FileUploadRawMode = !!static_asset_config
+		if (!isCloudHosted()) {
+			static_asset_config = s.static_asset_config
+			s3FileUploadRawMode = !!static_asset_config
+			is_static_website = s.is_static_website
+		}
 
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
@@ -136,7 +138,8 @@
 					requires_auth,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
-					static_asset_config
+					static_asset_config,
+					is_static_website
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -151,7 +154,8 @@
 					requires_auth,
 					route_path,
 					http_method,
-					static_asset_config
+					static_asset_config,
+					is_static_website
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -166,11 +170,14 @@
 	let drawer: Drawer
 
 	let dirtyPath = false
+
+	$: !static_asset_config && (is_static_website = false)
 </script>
 
 {#if static_asset_config}
 	<S3FilePicker
 		bind:this={s3FilePicker}
+		folderOnly={is_static_website}
 		bind:selectedFileKey={static_asset_config}
 		on:close={() => {
 			s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
@@ -220,102 +227,125 @@
 				</div>
 
 				<RouteEditorConfigSection
-					isFlow={is_flow}
-					{path}
+					initialTriggerPath={initialPath}
 					bind:route_path
 					bind:isValid
 					bind:dirtyRoutePath
 					bind:http_method
 					{can_write}
 					bind:static_asset_config
-					{initialRoutePath}
 				/>
 
 				<Section label="Target">
-					<ToggleButtonGroup
-						disabled={fixedScriptPath != '' || !can_write}
-						selected={static_asset_config ? 'static_asset' : 'runnable'}
-						on:selected={(ev) => {
-							if (ev.detail === 'static_asset') {
-								static_asset_config = { s3: '' }
-								script_path = ''
-								initialScriptPath = ''
-								is_flow = false
-								http_method = 'get'
-							} else {
-								static_asset_config = undefined
-							}
-						}}
-					>
-						<ToggleButton label="Runnable" value="runnable" />
-						<ToggleButton label="Static asset" value="static_asset" />
-					</ToggleButtonGroup>
+					{#if !isCloudHosted()}
+						<ToggleButtonGroup
+							disabled={fixedScriptPath != '' || !can_write}
+							selected={static_asset_config
+								? is_static_website
+									? 'static_website'
+									: 'static_asset'
+								: 'runnable'}
+							on:selected={(ev) => {
+								if (ev.detail === 'static_asset' || ev.detail === 'static_website') {
+									static_asset_config = { s3: '' }
+									s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
+									script_path = ''
+									initialScriptPath = ''
+									is_flow = false
+									http_method = 'get'
+									is_async = false
+									is_static_website = ev.detail === 'static_website'
+									if (is_static_website) {
+										requires_auth = false
+									}
+								} else if (ev.detail === 'runnable') {
+									static_asset_config = undefined
+								}
+							}}
+						>
+							<ToggleButton label="Runnable" value="runnable" />
+							<ToggleButton label="Static asset" value="static_asset" />
+							<ToggleButton label="Static website" value="static_website" />
+						</ToggleButtonGroup>
+					{/if}
 
 					{#if static_asset_config}
-						<div class="flex flex-col w-full gap-1">
-							{#if can_write}
-								<Toggle
-									class="flex justify-end"
-									bind:checked={s3FileUploadRawMode}
-									size="xs"
-									options={{ left: 'Existing file' }}
-									disabled={!can_write}
-								/>
-							{/if}
-							{#if s3FileUploadRawMode}
+						{#if is_static_website}
+							<p class="text-xs my-1 text-tertiary">
+								Upload or specify a <b>folder</b> on S3. All its files will be served under the path
+								above. Use this full path as the base URL of your website to ensure relative imports
+								work correctly.
+							</p>
+						{/if}
+						<div class="flex flex-col gap-4">
+							<div class="flex flex-col w-full gap-1">
 								{#if can_write}
-									<JsonEditor
-										bind:editor={s3Editor}
-										on:focus={(e) => {
-											dispatch('focus')
-										}}
-										on:blur={(e) => {
-											dispatch('blur')
-										}}
-										code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
-										bind:value={static_asset_config}
-									/>
-								{:else}
-									<Highlight
-										language={json}
-										code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
-									/>
-								{/if}
-								{#if can_write}
-									<Button
-										variant="border"
-										color="light"
+									<Toggle
+										class="flex justify-end"
+										bind:checked={s3FileUploadRawMode}
 										size="xs"
-										btnClasses="mt-1"
-										on:click={() => {
-											s3FilePicker?.open?.(static_asset_config)
-										}}
-										startIcon={{ icon: Pipette }}
-									>
-										Choose an object from the catalog
-									</Button>
+										options={{ left: 'Existing file' }}
+										disabled={!can_write}
+									/>
 								{/if}
-							{:else}
-								<FileUpload
-									allowMultiple={false}
-									randomFileKey={true}
-									on:addition={(evt) => {
-										static_asset_config = {
-											s3: evt.detail?.path ?? '',
-											filename: evt.detail?.filename ?? undefined
-										}
-										s3FileUploadRawMode = true
-									}}
-									on:deletion={(evt) => {
-										static_asset_config = {
-											s3: ''
-										}
-									}}
-								/>
-							{/if}
+								{#if s3FileUploadRawMode}
+									{#if can_write}
+										<JsonEditor
+											bind:editor={s3Editor}
+											on:focus={(e) => {
+												dispatch('focus')
+											}}
+											on:blur={(e) => {
+												dispatch('blur')
+											}}
+											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
+											bind:value={static_asset_config}
+										/>
+									{:else}
+										<Highlight
+											language={json}
+											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
+										/>
+									{/if}
+									{#if can_write}
+										<Button
+											variant="border"
+											color="light"
+											size="xs"
+											btnClasses="mt-1"
+											on:click={() => {
+												s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
+											}}
+											startIcon={{ icon: Pipette }}
+										>
+											Choose an object from the catalog
+										</Button>
+									{/if}
+								{:else}
+									{#key is_static_website}
+										<FileUpload
+											folderOnly={is_static_website}
+											allowMultiple={false}
+											randomFileKey={true}
+											on:addition={(evt) => {
+												static_asset_config = {
+													s3: evt.detail?.path ?? '',
+													filename: evt.detail?.filename ?? undefined
+												}
+												s3FileUploadRawMode = true
+											}}
+											on:deletion={(evt) => {
+												static_asset_config = {
+													s3: ''
+												}
+											}}
+										/>
+									{/key}
+								{/if}
+							</div>
 						</div>
 					{:else}
-						<p class="text-xs mb-1 text-tertiary">
+						<p class="text-xs mt-0.5 mb-1 text-tertiary">
 							Pick a script or flow to be triggered<Required required={true} /><br />
 							To handle headers, query or path parameters, add a preprocessor to your runnable.
 						</p>
@@ -346,48 +376,52 @@
 					{/if}
 				</Section>
 
-				<Section label="Advanced">
-					<div class="flex flex-col gap-4">
-						<div class="flex flex-row justify-between">
-							<Label label="Request type" class="w-full">
+				{#if !is_static_website}
+					<Section label="Advanced">
+						<div class="flex flex-col gap-4">
+							{#if !static_asset_config}
+								<div class="flex flex-row justify-between">
+									<Label label="Request type" class="w-full">
+										<svelte:fragment slot="action">
+											<ToggleButtonGroup
+												class="w-auto h-full"
+												bind:selected={is_async}
+												disabled={!can_write || !!static_asset_config}
+											>
+												<ToggleButton
+													label="Async"
+													value={true}
+													tooltip="The returning value is the uuid of the job assigned to execute the job."
+												/>
+												<ToggleButton
+													label="Sync"
+													value={false}
+													tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+												/>
+											</ToggleButtonGroup>
+										</svelte:fragment>
+									</Label>
+								</div>
+							{/if}
+							<Label label="Authentication" class="w-full">
 								<svelte:fragment slot="action">
 									<ToggleButtonGroup
 										class="w-auto h-full"
-										bind:selected={is_async}
+										bind:selected={requires_auth}
 										disabled={!can_write}
 									>
+										<ToggleButton label="None" value={false} />
 										<ToggleButton
-											label="Async"
+											label="Required"
 											value={true}
-											tooltip="The returning value is the uuid of the job assigned to execute the job."
-										/>
-										<ToggleButton
-											label="Sync"
-											value={false}
-											tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+											tooltip="Requires authentication with read access on the route"
 										/>
 									</ToggleButtonGroup>
 								</svelte:fragment>
 							</Label>
 						</div>
-						<Label label="Authentication" class="w-full">
-							<svelte:fragment slot="action">
-								<ToggleButtonGroup
-									class="w-auto h-full"
-									bind:selected={requires_auth}
-									disabled={!can_write}
-								>
-									<ToggleButton label="None" value={false} />
-									<ToggleButton
-										label="Required"
-										value={true}
-										tooltip="Requires authentication with read access on the route"
-									/>
-								</ToggleButtonGroup>
-							</svelte:fragment>
-						</Label>
-					</div>
-				</Section>
+					</Section>
+				{/if}
 			</div>
 		{/if}
 	</DrawerContent>
