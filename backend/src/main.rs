@@ -374,6 +374,11 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let is_agent = mode == Mode::Agent;
 
+    #[cfg(feature = "parquet")]
+    let disable_s3_store = std::env::var("DISABLE_S3_STORE")
+        .ok()
+        .is_some_and(|x| x == "1" || x == "true");
+
     if !is_agent {
         let skip_migration = std::env::var("SKIP_MIGRATION")
             .map(|val| val == "true")
@@ -474,7 +479,15 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
-        initial_load(&db, killpill_tx.clone(), worker_mode, server_mode, is_agent).await;
+        initial_load(
+            &db,
+            killpill_tx.clone(),
+            worker_mode,
+            server_mode,
+            #[cfg(feature = "parquet")]
+            disable_s3_store,
+        )
+        .await;
 
         monitor_db(
             &db,
@@ -635,7 +648,7 @@ Windmill Community Edition {GIT_VERSION}
                         killpill_tx.clone(),
                         num_workers,
                         base_internal_url.clone(),
-                        mode.clone() == Mode::Agent,
+                        is_agent,
                         hostname.clone(),
                     )
                     .await?;
@@ -757,8 +770,10 @@ Windmill Community Edition {GIT_VERSION}
                                                     reload_job_default_timeout_setting(&db).await
                                                 },
                                                 #[cfg(feature = "parquet")]
-                                                OBJECT_STORE_CACHE_CONFIG_SETTING if !is_agent => {
-                                                    reload_s3_cache_setting(&db).await
+                                                OBJECT_STORE_CACHE_CONFIG_SETTING => {
+                                                    if !disable_s3_store {
+                                                        reload_s3_cache_setting(&db).await
+                                                    }
                                                 },
                                                 SCIM_TOKEN_SETTING => {
                                                     reload_scim_token_setting(&db).await

@@ -40,7 +40,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 55] = [
+pub const ENV_SETTINGS: [&str; 56] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -96,11 +96,12 @@ pub const ENV_SETTINGS: [&str; 55] = [
     "OTEL_METRICS",
     "OTEL_TRACING",
     "OTEL_LOGS",
+    "DISABLE_S3_STORE",
 ];
 
 use crate::error;
-use sqlx::Pool;
 use sqlx::postgres::Postgres;
+use sqlx::Pool;
 
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
