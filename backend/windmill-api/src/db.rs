@@ -180,6 +180,14 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
     }
 
+    // Remove the migration `v2_fix_no_runtime` in favor of `v2_fix_no_runtime_2`.
+    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250201145632")
+        .execute(db)
+        .await
+    {
+        tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
+    }
+
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
         .await
