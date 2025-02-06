@@ -213,8 +213,6 @@
 			/>
 		{:else if captureType === 'http'}
 			<RouteEditorConfigSection
-				{isFlow}
-				{path}
 				{showCapture}
 				can_write={true}
 				runnableArgs={data?.args}

@@ -18,9 +18,8 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
-        read_file, read_file_content, read_result, start_child_process, write_file_binary,
-        OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
+        read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
@@ -44,7 +43,7 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
+    jobs::QueuedJob,
     scripts::ScriptLang,
     worker::{exists_in_cache, save_cache, write_file},
     DB,
@@ -880,16 +879,8 @@ pub async fn handle_bun_job(
     if codebase.is_some() {
         annotation.nodejs = true
     }
-    let (main_override, apply_preprocessor) = match get_main_override(job.args.as_ref()) {
-        Some(main_override) => {
-            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
-                (None, true)
-            } else {
-                (Some(main_override), false)
-            }
-        }
-        None => (None, false),
-    };
+    let main_override = job.script_entrypoint_override.as_deref();
+    let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
 
     #[cfg(not(feature = "enterprise"))]
     if annotation.nodejs || annotation.npm {
@@ -1056,9 +1047,12 @@ pub async fn handle_bun_job(
             return Ok(()) as error::Result<()>;
         }
         // let mut start = Instant::now();
-        let args =
-            windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
-                .args;
+        let args = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            main_override.map(ToString::to_string),
+        )?
+        .args;
 
         let pre_args = if apply_preprocessor {
             Some(
@@ -1092,7 +1086,7 @@ pub async fn handle_bun_job(
         let spread = args.into_iter().map(|x| x.name).join(",");
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-        let main_name = main_override.unwrap_or("main".to_string());
+        let main_name = main_override.unwrap_or("main");
 
         let main_import = if codebase.is_some() || has_bundle_cache {
             "./main.js"
@@ -1360,7 +1354,6 @@ try {{
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
                     "{SHARED_MOUNT}",

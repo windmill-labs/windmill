@@ -1278,7 +1278,7 @@ pub async fn run_worker(
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
+                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) v2_job_queue, v2_job_runtime, v2_job_status")
                         .execute(&db2)
                         .await
                     {
@@ -1325,7 +1325,9 @@ pub async fn run_worker(
                     same_worker_job.job_id
                 );
                 let r = sqlx::query_as::<_, PulledJob>(
-                    "UPDATE queue SET last_ping = now() WHERE id = $1 RETURNING *",
+                    "WITH ping AS (
+                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 RETURNING id
+                    ) SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)",
                 )
                 .bind(same_worker_job.job_id)
                 .fetch_optional(db)
@@ -1486,6 +1488,7 @@ pub async fn run_worker(
                             job: Arc::new(job.job),
                             success: true,
                             result: Arc::new(empty_result()),
+                            result_columns: None,
                             mem_peak: 0,
                             cached_res_path: None,
                             token: "".to_string(),
@@ -1882,6 +1885,7 @@ pub enum SendResult {
 pub struct JobCompleted {
     pub job: Arc<QueuedJob>,
     pub result: Arc<Box<RawValue>>,
+    pub result_columns: Option<Vec<String>>,
     pub mem_peak: i32,
     pub success: bool,
     pub cached_res_path: Option<String>,
@@ -2003,14 +2007,24 @@ async fn handle_queued_job(
         .await?;
     } else if let Some(parent_job) = job.parent_job {
         if let Err(e) = sqlx::query_scalar!(
-            "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    jsonb_set(
+                        COALESCE(flow_status, '{}'::jsonb),
+                        array[$1],
+                        COALESCE(flow_status->$1, '{}'::jsonb)
+                    ),
+                    array[$1, 'started_at'],
+                    to_jsonb(now()::text)
+                )
+            WHERE id = $2",
             &job.id.to_string(),
-            parent_job,
-            &job.workspace_id
+            parent_job
         )
         .execute(db)
         .warn_after_seconds(5)
-        .await {
+        .await
+        {
             tracing::error!("Could not update parent job started_at flow_status: {}", e);
         }
     }
@@ -2058,6 +2072,7 @@ async fn handle_queued_job(
                 .send(JobCompleted {
                     job,
                     result,
+                    result_columns: None,
                     mem_peak: 0,
                     canceled_by: None,
                     success: true,
