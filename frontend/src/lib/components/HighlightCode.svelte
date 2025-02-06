@@ -61,7 +61,7 @@
 			case 'csharp':
 				return csharp
 			case 'nu':
-				return nu
+				return python
 			case 'ansible':
 				return yaml;
 			default:

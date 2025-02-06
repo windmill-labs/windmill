@@ -1122,7 +1122,7 @@
 		initialized = true
 
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code, (lang == 'nu') ? 'python' : lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
