@@ -951,6 +951,21 @@ impl RunJob {
         let r = completed_job(uuid, db).await;
         r
     }
+
+    /// push the job, spawn a worker, wait until the job is in completed_job
+    async fn run_until_complete_with<F: Future<Output = ()>>(
+        self,
+        db: &Pool<Postgres>,
+        port: u16,
+        test: impl Fn(Uuid) -> F,
+    ) -> CompletedJob {
+        let uuid = self.push(db).await;
+        let listener = listen_for_completed_jobs(db).await;
+        test(uuid).await;
+        in_test_worker(db, listener.find(&uuid), port).await;
+        let r = completed_job(uuid, db).await;
+        r
+    }
 }
 
 async fn run_job_in_new_worker_until_complete(
@@ -3743,6 +3758,73 @@ async fn test_result_format(db: Pool<Postgres>) {
     assert_eq!(result.get(), correct_result);
 }
 
+#[sqlx::test(fixtures("base"))]
+async fn test_job_labels(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let db = &db;
+    let test = |original_labels: &'static [&'static str]| async move {
+        let job = RunJob::from(JobPayload::RawFlow {
+            value: serde_json::from_value(json!({
+                "modules": [{
+                    "id": "a",
+                    "value": {
+                        "type": "rawscript",
+                        "content": r#"export function main(world: string) {
+                        const greet = `Hello ${world}!`;
+                        console.log(greet)
+                        return { greet, wm_labels: ["yolo", "greet", "greet", world] };
+                    }"#,
+                        "language": "deno",
+                        "input_transforms": {
+                            "world": { "type": "javascript", "expr": "flow_input.world" }
+                        }
+                    }
+                }],
+                "schema": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": { "world": { "type": "string" } },
+                    "type": "object",
+                    "order": [ "world" ]
+                }
+            }))
+            .unwrap(),
+            path: None,
+            restarted_from: None,
+        })
+        .arg("world", json!("you"))
+        .run_until_complete_with(&db, port, |id| async move {
+            sqlx::query!(
+                "UPDATE v2_job SET labels = $2 WHERE id = $1 AND $2::TEXT[] IS NOT NULL",
+                id,
+                original_labels as &[&str],
+            )
+            .execute(db)
+            .await
+            .unwrap();
+        })
+        .await;
+
+        let result = job.json_result().unwrap();
+        assert_eq!(result.get("greet"), Some(&json!("Hello you!")));
+        let labels = sqlx::query_scalar!("SELECT labels FROM v2_job WHERE id = $1", job.id)
+            .fetch_one(db)
+            .await
+            .unwrap();
+        let mut expected_labels = original_labels
+            .iter()
+            .chain(&["yolo", "greet", "you"])
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        expected_labels.sort();
+        assert_eq!(labels, Some(expected_labels));
+    };
+    test(&[]).await;
+    test(&["z", "a", "x"]).await;
+}
+
 async fn test_for_versions<F: Future<Output = ()>>(
     version_flags: impl Iterator<Item = Arc<RwLock<bool>>>,
     test: impl Fn() -> F,
@@ -3795,6 +3877,53 @@ mod job_payload {
             .unwrap();
 
             assert_eq!(result, json!("Hello foo!"));
+        };
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_script_hash_payload_with_preprocessor(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let test = || async {
+            let db = &db;
+            let job = RunJob::from(JobPayload::ScriptHash {
+                hash: ScriptHash(123413),
+                path: "f/system/hello_with_preprocessor".to_string(),
+                custom_concurrency_key: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                language: ScriptLang::Deno,
+                priority: None,
+                apply_preprocessor: true,
+            })
+            .run_until_complete_with(db, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("bar")));
+            assert_eq!(args.get("bar"), Some(&json!("baz")));
+            // TODO: remove this check on v2 phase 4
+            assert_eq!(
+                job.flow_status.as_ref().unwrap().get("_metadata"),
+                Some(&json!({"preprocessed_args": true}))
+            );
+            assert_eq!(job.json_result().unwrap(), json!("Hello bar baz"));
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
         };
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
     }
@@ -4081,7 +4210,7 @@ mod job_payload {
             let result = RunJob::from(JobPayload::Flow {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
-                apply_preprocessor: true,
+                apply_preprocessor: false,
             })
             .run_until_complete(&db, port)
             .await
@@ -4106,6 +4235,73 @@ mod job_payload {
             version: 1443253234253454,
         })
         .run_until_complete(&db, port)
+        .await
+        .json_result()
+        .unwrap();
+        // Test the "lite" flow.
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_flow_payload_with_preprocessor(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let db = &db;
+        let test = || async {
+            let job = RunJob::from(JobPayload::Flow {
+                path: "f/system/hello_with_preprocessor".to_string(),
+                dedicated_worker: None,
+                apply_preprocessor: true,
+            })
+            .run_until_complete_with(db, port, |id| async move {
+                let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+                assert_eq!(job.preprocessed, Some(false));
+            })
+            .await;
+
+            let args = job.args.as_ref().unwrap();
+            let flow_status = job.flow_status.as_ref().unwrap();
+            assert_eq!(args.get("foo"), Some(&json!("bar")));
+            assert_eq!(args.get("bar"), Some(&json!("baz")));
+            assert_eq!(job.json_result().unwrap(), json!("Hello bar-baz"));
+            let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", job.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+            let flow_status = serde_json::from_value::<FlowStatus>(flow_status.clone()).unwrap();
+            let FlowStatusModule::Success { job, .. } = flow_status.preprocessor_module.unwrap()
+            else {
+                panic!("Expected a success preprocessor module");
+            };
+            let pp_id = job;
+            let job = sqlx::query!(
+                "SELECT preprocessed, script_entrypoint_override FROM v2_job WHERE id = $1",
+                pp_id
+            )
+            .fetch_one(db)
+            .await
+            .unwrap();
+            assert_eq!(job.preprocessed, Some(true));
+            assert_eq!(
+                job.script_entrypoint_override.as_deref(),
+                Some("preprocessor")
+            );
+        };
+        // Test the not "lite" flow.
+        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        // Deploy the flow to produce the "lite" version.
+        let _ = RunJob::from(JobPayload::FlowDependencies {
+            path: "f/system/hello_with_preprocessor".to_string(),
+            dedicated_worker: None,
+            version: 1443253234253456,
+        })
+        .run_until_complete(db, port)
         .await
         .json_result()
         .unwrap();
