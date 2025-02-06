@@ -830,8 +830,8 @@
 						}}
 						onSelect={editTeamsCommand}
 						connectHref={undefined}
-						createScriptHref="{base}/scripts/add?hub=hub%2F314%2Fteams%2Fexample_of_responding_to_a_teams_command"
-						createFlowHref="{base}/flows/add?hub=28"
+						createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+						createFlowHref="{base}/flows/add?hub=58"
 						documentationLink="https://www.windmill.dev/docs/integrations/teams"
 						onLoadSettings={loadSettings}
 						display_name={teams_team_name}
