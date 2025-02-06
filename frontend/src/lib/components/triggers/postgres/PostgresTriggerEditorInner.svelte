@@ -184,7 +184,7 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (selectedTable === 'specific' && invalidRelations(relations, true) === true) {
+		if (selectedTable === 'specific' && invalidRelations(relations, true, true) === true) {
 			return
 		}
 		if (edit) {
@@ -333,12 +333,47 @@
 						disabled={!can_write}
 					/>
 				</Label>
-
-				<Section label="Database">
+				<Section label="Runnable">
 					<p class="text-xs text-tertiary">
+						Pick a script or flow to be triggered <Required required={true} />
+					</p>
+					<div class="flex flex-row mb-2">
+						<ScriptPicker
+							disabled={fixedScriptPath != '' || !can_write}
+							initialPath={fixedScriptPath || initialScriptPath}
+							kinds={['script']}
+							allowFlow={true}
+							bind:itemKind
+							bind:scriptPath={script_path}
+							allowRefresh
+						/>
+
+						{#if script_path === undefined && is_flow === false}
+							<div class="flex">
+								<Button
+									disabled={!can_write}
+									btnClasses="ml-4 mt-2"
+									color="dark"
+									size="xs"
+									on:click={getTemplateScript}
+									target="_blank"
+									{loading}
+									>Create from template
+									<Tooltip light>
+										The conversion requires a <strong>database resource</strong> and at least one
+										<strong>schema</strong>
+										to be set.<br />
+										Please ensure these conditions are met before proceeding.
+									</Tooltip>
+								</Button>
+							</div>
+						{/if}
+					</div>
+				</Section>
+				<Section label="Database">
+					<p class="text-xs text-tertiary mb-2">
 						Pick a database to connect to <Required required={true} />
 					</p>
-
 					<div class="flex flex-col gap-8">
 						<div class="flex flex-col gap-2">
 							<ResourcePicker
@@ -540,43 +575,6 @@
 									</svelte:fragment>
 								</Tabs>
 							</Label>
-						{/if}
-					</div>
-				</Section>
-				<Section label="Runnable">
-					<p class="text-xs text-tertiary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh
-						/>
-
-						{#if script_path === undefined && is_flow === false}
-							<div class="flex">
-								<Button
-									disabled={!can_write}
-									btnClasses="ml-4 mt-2"
-									color="dark"
-									size="xs"
-									on:click={getTemplateScript}
-									target="_blank"
-									{loading}
-									>Create from template
-									<Tooltip light>
-										The conversion requires a <strong>database resource</strong> and at least one
-										<strong>schema</strong>
-										to be set.<br />
-										Please ensure these conditions are met before proceeding.
-									</Tooltip>
-								</Button>
-							</div>
 						{/if}
 					</div>
 				</Section>

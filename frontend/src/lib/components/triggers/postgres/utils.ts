@@ -10,73 +10,90 @@ type RelationError = {
 	schemaName?: string
 	trackAllTablesInSchema: boolean
 	trackSpecificColumnsInTable: boolean
+	duplicateSchemaName: boolean | undefined
 }
-export function invalidRelations(relations: Relations[], showError?: boolean): boolean {
-	let result: RelationError = {
+export function invalidRelations(
+	relations: Relations[],
+	trackSchemaTableError: boolean,
+	showError?: boolean
+): boolean {
+	let error: RelationError = {
 		schemaIndex: -1,
 		tableIndex: -1,
 		schemaError: false,
 		tableError: false,
 		trackAllTablesInSchema: false,
-		trackSpecificColumnsInTable: false
+		trackSpecificColumnsInTable: false,
+		duplicateSchemaName: undefined
 	}
+
+	const duplicateName: Set<string> = new Set()
+	console.log(relations.length)
 	for (const [schemaIndex, relation] of relations.entries()) {
+		error.schemaIndex = schemaIndex + 1
+		error.schemaName = relation.schema_name
 		if (emptyString(relation.schema_name)) {
-			result.schemaError = true
-			result.schemaIndex = schemaIndex + 1
+			error.schemaError = true
 			break
 		} else {
+			if (duplicateName.has(relation.schema_name)) {
+				error.duplicateSchemaName = true
+				break
+			}
+			duplicateName.add(relation.schema_name)
 			const tableToTrack = relation.table_to_track
 			if (tableToTrack.length > 0) {
 				for (const [tableIndex, table] of tableToTrack.entries()) {
 					if (emptyString(table.table_name)) {
-						result.tableError = true
-						result.tableIndex = tableIndex + 1
-						result.schemaName = relation.schema_name
-						result.schemaIndex = schemaIndex + 1
+						error.tableError = true
+						error.tableIndex = tableIndex + 1
 						break
 					}
 					if (
-						!result.trackSpecificColumnsInTable &&
+						!error.trackSpecificColumnsInTable &&
 						table.columns_name &&
 						table.columns_name.length > 0
 					) {
-						result.trackSpecificColumnsInTable = true
+						error.trackSpecificColumnsInTable = true
 					}
 				}
-				if (result.tableError) {
+				if (error.tableError) {
 					break
 				}
-			} else if (!result.trackAllTablesInSchema) {
-				result.trackAllTablesInSchema = true
+			} else if (!error.trackAllTablesInSchema) {
+				error.trackAllTablesInSchema = true
 			}
 
-			if (result.trackAllTablesInSchema && result.trackSpecificColumnsInTable) {
+			if (
+				trackSchemaTableError &&
+				error.trackAllTablesInSchema &&
+				error.trackSpecificColumnsInTable
+			) {
 				break
 			}
 		}
 	}
+	const errorFound =
+		error.tableError ||
+		error.schemaError ||
+		error.duplicateSchemaName ||
+		(trackSchemaTableError && error.trackAllTablesInSchema && error.trackSpecificColumnsInTable)
+	if (showError && errorFound) {
+		let errorMessage: string = ''
 
-	const error =
-		result.tableError ||
-		result.schemaError ||
-		(result.trackAllTablesInSchema && result.trackSpecificColumnsInTable)
-	if (showError) {
-		if (error === true) {
-			let errorMessage: string = ''
-
-			if (result.schemaError) {
-				errorMessage = `Schema Error: Please enter a name for schema number ${result.schemaIndex}`
-			} else if (result.tableError) {
-				errorMessage = `Table Error: Please enter a name for table number ${result.tableIndex} inside schema number ${result.schemaIndex}`
-				errorMessage += emptyString(result.schemaName) ? '' : ` named: ${result.schemaName}`
-			} else {
-				errorMessage =
-					'Configuration Error: Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations.'
-			}
-			sendUserToast(errorMessage, true)
+		if (error.schemaError) {
+			errorMessage = `Schema Error: Please enter a name for schema number ${error.schemaIndex}`
+		} else if (error.tableError) {
+			errorMessage = `Table Error: Please enter a name for table number ${error.tableIndex} inside schema number ${error.schemaIndex}`
+			errorMessage += emptyString(error.schemaName) ? '' : ` named: ${error.schemaName}`
+		} else if (error.duplicateSchemaName) {
+			errorMessage = `Schema Error: schema name '${error.schemaName}' is already taken`
+		} else {
+			errorMessage =
+				'Configuration Error: Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations.'
 		}
+		sendUserToast(errorMessage, true)
 	}
 
-	return error
+	return errorFound
 }
