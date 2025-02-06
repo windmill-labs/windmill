@@ -170,6 +170,8 @@
 	let drawer: Drawer
 
 	let dirtyPath = false
+
+	$: !static_asset_config && (is_static_website = false)
 </script>
 
 {#if static_asset_config}
@@ -253,9 +255,11 @@
 									http_method = 'get'
 									is_async = false
 									is_static_website = ev.detail === 'static_website'
+									if (is_static_website) {
+										requires_auth = false
+									}
 								} else if (ev.detail === 'runnable') {
 									static_asset_config = undefined
-									is_static_website = false
 								}
 							}}
 						>
@@ -269,7 +273,7 @@
 						{#if is_static_website}
 							<p class="text-xs my-1 text-tertiary">
 								Upload or specify a <b>folder</b> on S3. All its files will be served under the path
-								above. Use this full path as the base URL in your website to ensure relative imports
+								above. Use this full path as the base URL of your website to ensure relative imports
 								work correctly.
 							</p>
 						{/if}
@@ -372,48 +376,52 @@
 					{/if}
 				</Section>
 
-				<Section label="Advanced">
-					<div class="flex flex-col gap-4">
-						<div class="flex flex-row justify-between">
-							<Label label="Request type" class="w-full">
+				{#if !is_static_website}
+					<Section label="Advanced">
+						<div class="flex flex-col gap-4">
+							{#if !static_asset_config}
+								<div class="flex flex-row justify-between">
+									<Label label="Request type" class="w-full">
+										<svelte:fragment slot="action">
+											<ToggleButtonGroup
+												class="w-auto h-full"
+												bind:selected={is_async}
+												disabled={!can_write || !!static_asset_config}
+											>
+												<ToggleButton
+													label="Async"
+													value={true}
+													tooltip="The returning value is the uuid of the job assigned to execute the job."
+												/>
+												<ToggleButton
+													label="Sync"
+													value={false}
+													tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+												/>
+											</ToggleButtonGroup>
+										</svelte:fragment>
+									</Label>
+								</div>
+							{/if}
+							<Label label="Authentication" class="w-full">
 								<svelte:fragment slot="action">
 									<ToggleButtonGroup
 										class="w-auto h-full"
-										bind:selected={is_async}
-										disabled={!can_write || !!static_asset_config}
+										bind:selected={requires_auth}
+										disabled={!can_write}
 									>
+										<ToggleButton label="None" value={false} />
 										<ToggleButton
-											label="Async"
+											label="Required"
 											value={true}
-											tooltip="The returning value is the uuid of the job assigned to execute the job."
-										/>
-										<ToggleButton
-											label="Sync"
-											value={false}
-											tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+											tooltip="Requires authentication with read access on the route"
 										/>
 									</ToggleButtonGroup>
 								</svelte:fragment>
 							</Label>
 						</div>
-						<Label label="Authentication" class="w-full">
-							<svelte:fragment slot="action">
-								<ToggleButtonGroup
-									class="w-auto h-full"
-									bind:selected={requires_auth}
-									disabled={!can_write}
-								>
-									<ToggleButton label="None" value={false} />
-									<ToggleButton
-										label="Required"
-										value={true}
-										tooltip="Requires authentication with read access on the route"
-									/>
-								</ToggleButtonGroup>
-							</svelte:fragment>
-						</Label>
-					</div>
-				</Section>
+					</Section>
+				{/if}
 			</div>
 		{/if}
 	</DrawerContent>
