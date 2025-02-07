@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Tab, Tabs, Badge } from '$lib/components/common'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { base } from '$lib/base'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
@@ -43,15 +45,13 @@
 	export let customScriptTemplate: string
 	export let customHandlerKind: 'flow' | 'script' = 'script'
 
-	let initialSlackChannel: string | undefined = undefined
-	let initialTeamsChannel: string | undefined = undefined
-
 	let customHandlerSchema: Schema | undefined
 	let slackHandlerSchema: Schema | undefined
 	let isFetching: boolean = false
 
 	let teams_channels: ListAvailableTeamsChannelsResponse = []
-	
+	let teams_team_name: string | undefined = undefined
+
 	let workspaceConnectedToSlack: boolean | undefined = undefined
 	let workspaceConnectedToTeams: boolean | undefined = undefined
 
@@ -74,8 +74,12 @@
 		} else {
 			workspaceConnectedToTeams = false
 		}
-
-		teams_channels = await WorkspaceService.listAvailableTeamsChannels({ workspace: $workspaceStore! })
+		if (workspaceConnectedToTeams) {
+			teams_team_name = settings.teams_team_name
+			teams_channels = await WorkspaceService.listAvailableTeamsChannels({
+				workspace: $workspaceStore!
+			})
+		}
 		isFetching = false
 	}
 
@@ -203,33 +207,40 @@
 		}
 	}
 
-	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = undefined
-
-	$: {
-		if (lastHandlerSelected !== handlerSelected) {
-			lastHandlerSelected = handlerSelected;
-			updateHandlerExtraArgs();
-		}
-	}
-
-	function updateHandlerExtraArgs() {
-		if (handlerSelected === 'slack' && initialSlackChannel) {
-			handlerExtraArgs['channel'] = initialSlackChannel;
-		} else if (handlerSelected === 'teams' && initialTeamsChannel) {
-			handlerExtraArgs['channel'] = initialTeamsChannel;
-		}
-		connectionTestJob = undefined;
-	}
-
 	$: {
 		if ($workspaceStore) {
 			loadSlackResources()
 			loadTeamsResources()
-			if (handlerSelected === 'slack') {
-				initialSlackChannel = handlerExtraArgs['channel']
-			} else if (handlerSelected === 'teams') {
-				initialTeamsChannel = handlerExtraArgs['channel']
+		}
+	}
+
+	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = undefined
+	let tmpSlackChannel: string | undefined = undefined
+	let tmpTeamsChannel: string | undefined = undefined
+	$: {
+		if (lastHandlerSelected !== handlerSelected) {
+			if (lastHandlerSelected === 'teams') {
+				tmpTeamsChannel = handlerExtraArgs['channel']
+				if (handlerSelected === 'slack') {
+					handlerExtraArgs['channel'] = tmpSlackChannel
+				} else if (handlerSelected === 'custom') {
+					handlerExtraArgs['channel'] = ''
+				}
+			} else if (lastHandlerSelected === 'slack') {
+				tmpSlackChannel = handlerExtraArgs['channel']
+				if (handlerSelected === 'teams') {
+					handlerExtraArgs['channel'] = tmpTeamsChannel
+				} else if (handlerSelected === 'custom') {
+					handlerExtraArgs['channel'] = ''
+				}
+			} else if (lastHandlerSelected === 'custom') {
+				if (handlerSelected === 'slack') {
+					handlerExtraArgs['channel'] = tmpSlackChannel
+				} else if (handlerSelected === 'teams') {
+					handlerExtraArgs['channel'] = tmpTeamsChannel
+				}
 			}
+			lastHandlerSelected = handlerSelected
 		}
 	}
 
@@ -254,7 +265,6 @@
 
 	$: handlerPath &&
 		isSlackHandler(handlerPath) &&
-		!isTeamsHandler(handlerPath) &&
 		loadHandlerScriptArgs(handlerPath, [
 			'path',
 			'workspace_id',
@@ -438,7 +448,7 @@
 		/>
 	</span>
 	{#if workspaceConnectedToTeams}
-		<div class="w-1/2 flex flex-row items-center gap-2">
+		<div class="w-2/3 flex flex-row items-center gap-2">
 			<div class="pt-1 flex-shrink-0">
 				<MsTeamsIcon height="24px" width="24px" />
 			</div>
@@ -463,6 +473,17 @@
 				</button>
 			</div>
 		</div>
+		<div class="flex flex-row gap-2 pb-4">
+			<p class="text-sm">
+				This workspace is connected to Team: <Badge color="blue" size="xs" class="mt-2">{teams_team_name}</Badge>
+			</p>
+			<Tooltip text={teams_team_name}>
+				Each workspace can only be connected to one Microsoft Teams team. You can configure it under <a
+					target="_blank"
+					href="{base}/workspace_settings?tab=teams">workspace settings</a
+				>.
+			</Tooltip>
+		</div>
 	{:else if workspaceConnectedToTeams == undefined}
 		<Loader2 class="animate-spin" size={10} />
 	{/if}
@@ -471,9 +492,9 @@
 			<Alert type="error" title="Workspace not connected to Teams">
 				<div class="flex flex-row gap-x-1 w-full items-center">
 					<p class="text-clip grow min-w-0">
-						The workspace needs to be connected to Teams to use this feature. You can <a
-							target="_blank"
-							href="{base}/workspace_settings?tab=slack">configure it here</a
+						The workspace needs to be connected to Teams to use this feature. You can configure it
+						under <a target="_blank" href="{base}/workspace_settings?tab=teams"
+							>workspace settings</a
 						>.
 					</p>
 					<Button
@@ -489,7 +510,7 @@
 				disabled={emptyString(handlerExtraArgs['channel'])}
 				btnClasses="w-32 text-center"
 				color="dark"
-				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'])}
+				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 				size="xs">Send test message</Button
 			>
 			{#if connectionTestJob !== undefined}

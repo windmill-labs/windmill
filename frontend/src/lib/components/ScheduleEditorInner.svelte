@@ -344,6 +344,7 @@
 				failedTimes = s.on_failure_times ?? 1
 				failedExact = s.on_failure_exact ?? false
 				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
+				console.log('errorHandlerExtraArgs', errorHandlerExtraArgs)
 				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
 			} else {
 				errorHandlerPath = undefined
