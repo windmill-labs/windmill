@@ -31,3 +31,6 @@ pub async fn workspaces_list_available_teams_channels() -> Result<StatusCode, Er
     ));
 }
 
+pub fn teams_service() -> Router {
+    Router::new()
+}
