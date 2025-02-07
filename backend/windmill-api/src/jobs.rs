@@ -3425,13 +3425,25 @@ pub async fn run_workflow_as_code(
 
     if !wkflow_query.skip_update.unwrap_or(false) {
         sqlx::query!(
-            "UPDATE v2_job_status SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($3::text))) WHERE id = $2",
-            uuid.to_string(),
+            "INSERT INTO v2_job_status (id, workflow_as_code_status)
+            VALUES ($1, JSONB_SET('{}'::JSONB, array[$2], $3))
+            ON CONFLICT (id) DO UPDATE SET workflow_as_code_status =
+                COALESCE(EXCLUDED.workflow_as_code_status, '{}'::JSONB) || $3",
             job_id,
-            entrypoint
-        ).execute(&mut *tx).await?;
+            uuid.to_string(),
+            serde_json::json!({ "scheduled_for": Utc::now(), "name": entrypoint }),
+        )
+        .execute(&mut *tx)
+        .await?;
     } else {
         tracing::info!("Skipping update of flow status for job {job_id} in workspace {w_id}");
+        sqlx::query!(
+            "INSERT INTO v2_job_status (id, workflow_as_code_status) VALUES ($1, '{}'::JSONB)
+            ON CONFLICT (id) DO NOTHING",
+            job_id,
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     if *CLOUD_HOSTED {
