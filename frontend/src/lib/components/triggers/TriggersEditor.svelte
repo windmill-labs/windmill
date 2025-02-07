@@ -41,7 +41,6 @@
 	const { selectedTrigger, simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
-	console.log({ selectedTrigger: $selectedTrigger, eventStreamType })
 	onDestroy(() => {
 		dispatch('exitTriggers')
 	})

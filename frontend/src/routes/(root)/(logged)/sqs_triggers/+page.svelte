@@ -140,15 +140,15 @@
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 				: triggers?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 			: triggers?.filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+				)
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -158,10 +158,10 @@
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -337,7 +337,7 @@
 										? { icon: Pen }
 										: {
 												icon: Eye
-										  }}
+											}}
 									color="dark"
 								>
 									{canWrite ? 'Edit' : 'View'}
@@ -357,11 +357,15 @@
 											icon: Trash,
 											disabled: !canWrite,
 											action: async () => {
-												await SqsTriggerService.deleteSqsTrigger({
-													workspace: $workspaceStore ?? '',
-													path
-												})
-												loadTriggers()
+												try {
+													await SqsTriggerService.deleteSqsTrigger({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													loadTriggers()
+												} catch (error) {
+													sendUserToast(error.body, true)
+												}
 											}
 										},
 										{

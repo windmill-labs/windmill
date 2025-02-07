@@ -47,7 +47,7 @@
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
+			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
 		}
