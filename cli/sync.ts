@@ -116,7 +116,7 @@ async function addCodebaseDigestIfRelevant(
       const parsed: any = yamlParseContent(path, content);
       if (parsed && typeof parsed == "object") {
         parsed["codebase"] = c.digest;
-        parsed["lock"] = '';
+        parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
       } else {
         throw Error(
@@ -159,8 +159,12 @@ export async function FSFSElement(
       // },
       async getContentText(): Promise<string> {
         const content = await Deno.readTextFile(localP);
-        const itemPath = localP.substring(p.length + 1)
-        const r = await addCodebaseDigestIfRelevant(itemPath, content, codebases);
+        const itemPath = localP.substring(p.length + 1);
+        const r = await addCodebaseDigestIfRelevant(
+          itemPath,
+          content,
+          codebases
+        );
         return r;
       },
     };
@@ -352,12 +356,12 @@ function ZipFSElement(
     )
       ? "flow"
       : p.endsWith("app.json")
-        ? "app"
-        : p.endsWith("script.json")
-          ? "script"
-          : p.endsWith("resource.json")
-            ? "resource"
-            : "other";
+      ? "app"
+      : p.endsWith("script.json")
+      ? "script"
+      : p.endsWith("resource.json")
+      ? "resource"
+      : "other";
 
     const isJson = p.endsWith(".json");
 
@@ -387,7 +391,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() { },
+                async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -398,7 +402,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "flow.yaml"),
-              async *getChildren() { },
+              async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(flow, yamlOptions);
@@ -414,7 +418,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() { },
+                async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -425,7 +429,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
-              async *getChildren() { },
+              async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
@@ -490,7 +494,7 @@ function ZipFSElement(
         r.push({
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
-          async *getChildren() { },
+          async *getChildren() {},
           // deno-lint-ignore require-await
           async getContentText() {
             return lock;
@@ -513,7 +517,7 @@ function ZipFSElement(
               removeSuffix(finalPath, ".resource.json") +
               ".resource.file." +
               formatExtension,
-            async *getChildren() { },
+            async *getChildren() {},
             // deno-lint-ignore require-await
             async getContentText() {
               return fileContent;
@@ -574,19 +578,19 @@ export async function* readDirRecursiveWithIgnore(
     // getContentBytes(): Promise<Uint8Array>;
     getContentText(): Promise<string>;
   }[] = [
-      {
-        path: root.path,
-        ignored: ignore(root.path, root.isDirectory),
-        isDirectory: root.isDirectory,
-        c: root.getChildren,
-        // getContentBytes(): Promise<Uint8Array> {
-        //   throw undefined;
-        // },
-        getContentText(): Promise<string> {
-          throw undefined;
-        },
+    {
+      path: root.path,
+      ignored: ignore(root.path, root.isDirectory),
+      isDirectory: root.isDirectory,
+      c: root.getChildren,
+      // getContentBytes(): Promise<Uint8Array> {
+      //   throw undefined;
+      // },
+      getContentText(): Promise<string> {
+        throw undefined;
       },
-    ];
+    },
+  ];
 
   while (stack.length > 0) {
     const e = stack.pop()!;
@@ -606,7 +610,13 @@ export async function* readDirRecursiveWithIgnore(
 
 type Added = { name: "added"; path: string; content: string };
 type Deleted = { name: "deleted"; path: string };
-type Edit = { name: "edited"; path: string; before: string; after: string; codebase?: string };
+type Edit = {
+  name: "edited";
+  path: string;
+  before: string;
+  after: string;
+  codebase?: string;
+};
 
 type Change = Added | Deleted | Edit;
 
@@ -624,6 +634,15 @@ export async function elementsToMap(
     if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
+    if (
+      !skips.includeTriggers &&
+      (path.endsWith(".http_trigger" + ext) ||
+        path.endsWith(".websocket_trigger" + ext) ||
+        path.endsWith(".kafka_trigger" + ext) ||
+        path.endsWith(".nats_trigger" + ext) ||
+        path.endsWith(".postgres_trigger" + ext))
+    )
+      continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;
@@ -683,6 +702,7 @@ export interface Skips {
   skipSecrets?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
+  includeTriggers?: boolean | undefined;
   includeUsers?: boolean | undefined;
   includeGroups?: boolean | undefined;
   includeSettings?: boolean | undefined;
@@ -700,9 +720,9 @@ async function compareDynFSElement(
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-      elementsToMap(els1, ignore, json, skips),
-      elementsToMap(els2, ignore, json, skips),
-    ])
+        elementsToMap(els1, ignore, json, skips),
+        elementsToMap(els2, ignore, json, skips),
+      ])
     : [await elementsToMap(els1, ignore, json, skips), {}];
 
   const changes: Change[] = [];
@@ -738,7 +758,8 @@ async function compareDynFSElement(
   }
   const codebaseChanges: Record<string, string> = {};
   for (let [k, v] of Object.entries(m1)) {
-    const isScriptMetadata = k.endsWith(".script.yaml") || k.endsWith(".script.json");
+    const isScriptMetadata =
+      k.endsWith(".script.yaml") || k.endsWith(".script.json");
     const skipMetadata = skips.skipScriptsMetadata && isScriptMetadata;
 
     if (m2[k] === undefined) {
@@ -749,8 +770,7 @@ async function compareDynFSElement(
     } else {
       if (m2[k] == v) {
         continue;
-      }
-      else if (k.endsWith(".json")) {
+      } else if (k.endsWith(".json")) {
         if (deepEqual(JSON.parse(v), JSON.parse(m2[k]))) {
           continue;
         }
@@ -775,14 +795,23 @@ async function compareDynFSElement(
           continue;
         }
       }
-      changes.push({ name: "edited", path: k, after: v, before: m2[k], codebase: codebaseChanges[k] });
+      changes.push({
+        name: "edited",
+        path: k,
+        after: v,
+        before: m2[k],
+        codebase: codebaseChanges[k],
+      });
     }
   }
 
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
     if (m1[k] === undefined) {
-      if (!ignoreMetadataDeletion || (!k?.endsWith(".script.yaml") && !k?.endsWith(".script.json"))) {
+      if (
+        !ignoreMetadataDeletion ||
+        (!k?.endsWith(".script.yaml") && !k?.endsWith(".script.json"))
+      ) {
         changes.push({ name: "deleted", path: k });
       } else if (k?.endsWith(".script.yaml")) {
         let o = parseYaml(k, m2[k]);
@@ -795,12 +824,22 @@ async function compareDynFSElement(
 
   for (const [k, v] of Object.entries(remoteCodebase)) {
     const tsFile = k.replace(".script.yaml", ".ts");
-    if (changes.find(c => c.path == tsFile && (c.name == "edited" || c.name == "deleted"))) {
+    if (
+      changes.find(
+        (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
+      )
+    ) {
       continue;
     }
     let c = findCodebase(tsFile, codebases);
     if (c?.digest != v) {
-      changes.push({ name: "edited", path: tsFile, codebase: v, before: m1[tsFile], after: m2[tsFile] });
+      changes.push({
+        name: "edited",
+        path: tsFile,
+        codebase: v,
+        before: m1[tsFile],
+        after: m2[tsFile],
+      });
     }
   }
 
@@ -841,16 +880,24 @@ function getOrderFromPath(p: string) {
     return 6;
   } else if (typ == "schedule") {
     return 7;
-  } else if (typ == "variable") {
+  } else if (
+    typ == "http_trigger" ||
+    typ == "websocket_trigger" ||
+    typ == "kafka_trigger" ||
+    typ == "nats_trigger" ||
+    typ == "postgres_trigger"
+  ) {
     return 8;
-  } else if (typ == "user") {
+  } else if (typ == "variable") {
     return 9;
-  } else if (typ == "group") {
+  } else if (typ == "user") {
     return 10;
-  } else if (typ == "encryption_key") {
+  } else if (typ == "group") {
     return 11;
-  } else {
+  } else if (typ == "encryption_key") {
     return 12;
+  } else {
+    return 13;
   }
 }
 
@@ -956,8 +1003,7 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   const isScript = exts.some((e) => p.endsWith(e));
   if (isScript) {
     if (p.includes(".flow" + SEP)) {
-      const folder =
-        p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+      const folder = p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
       if (!tracker.flows.includes(folder)) {
         tracker.flows.push(folder);
       }
@@ -1031,6 +1077,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.skipResources,
       opts.skipSecrets,
       opts.includeSchedules,
+      opts.includeTriggers,
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
@@ -1070,8 +1117,6 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     }
 
     const conflicts = [];
-
-
 
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
@@ -1224,7 +1269,11 @@ function prettyChanges(changes: Change[]) {
       );
     } else if (change.name === "edited") {
       log.info(
-        colors.yellow(`~ ${getTypeStrFromPath(change.path)} ` + change.path + (change.codebase ? ` (codebase changed)` : ""))
+        colors.yellow(
+          `~ ${getTypeStrFromPath(change.path)} ` +
+            change.path +
+            (change.codebase ? ` (codebase changed)` : "")
+        )
       );
       if (change.before != change.after) {
         showDiff(change.before, change.after);
@@ -1300,6 +1349,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.skipResources,
       opts.skipSecrets,
       opts.includeSchedules,
+      opts.includeTriggers,
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
@@ -1321,7 +1371,6 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     true,
     codebases
   );
-
 
   const globalDeps = await findGlobalDeps();
 
@@ -1346,28 +1395,38 @@ export async function push(opts: GlobalOptions & SyncOptions) {
   }
 
   if (staleScripts.length > 0) {
-    log.info("")
-    log.warn("Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:");
+    log.info("");
+    log.warn(
+      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:"
+    );
     for (const stale of staleScripts) {
       log.warn(stale);
     }
 
-    log.info("")
+    log.info("");
   }
 
   for (const change of tracker.flows) {
-    const stale = await generateFlowLockInternal(change, true, workspace, false, true);
+    const stale = await generateFlowLockInternal(
+      change,
+      true,
+      workspace,
+      false,
+      true
+    );
     if (stale) {
       staleFlows.push(stale);
     }
   }
 
   if (staleFlows.length > 0) {
-    log.warn("Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:");
+    log.warn(
+      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:"
+    );
     for (const stale of staleFlows) {
       log.warn(stale);
     }
-    log.info("")
+    log.info("");
   }
 
   const version = await fetchVersion(workspace.remote);
@@ -1393,7 +1452,6 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     const start = performance.now();
     log.info(colors.gray(`Applying changes to files ...`));
 
-
     let stateful = opts.stateful;
     if (stateful) {
       try {
@@ -1406,21 +1464,26 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     // Group changes by base path (before first dot)
     const groupedChanges = new Map<string, typeof changes>();
     for (const change of changes) {
-      const basePath = change.path.split('.')[0];
+      const basePath = change.path.split(".")[0];
       if (!groupedChanges.has(basePath)) {
         groupedChanges.set(basePath, []);
       }
       groupedChanges.get(basePath)!.push(change);
     }
 
-
-
     let parallelizationFactor = opts.parallel ?? 1;
     if (parallelizationFactor <= 0) {
       parallelizationFactor = 1;
     }
     const groupedChangesArray = Array.from(groupedChanges.entries());
-    log.info(`found changes for ${groupedChangesArray.length} items with a total of ${groupedChangesArray.reduce((acc, [_, changes]) => acc + changes.length, 0)} files to process`);
+    log.info(
+      `found changes for ${
+        groupedChangesArray.length
+      } items with a total of ${groupedChangesArray.reduce(
+        (acc, [_, changes]) => acc + changes.length,
+        0
+      )} files to process`
+    );
     if (parallelizationFactor > 1) {
       log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
     }
@@ -1481,7 +1544,9 @@ export async function push(opts: GlobalOptions & SyncOptions) {
               }
               if (stateTarget) {
                 await ensureDir(path.dirname(stateTarget));
-                log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
+                log.info(
+                  `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
+                );
               }
 
               if (isFileResource(change.path)) {
@@ -1545,7 +1610,9 @@ export async function push(opts: GlobalOptions & SyncOptions) {
               }
               if (stateTarget) {
                 await ensureDir(path.dirname(stateTarget));
-                log.info(`Adding ${getTypeStrFromPath(change.path)} ${change.path}`);
+                log.info(
+                  `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
+                );
               }
               const obj = parseFromPath(change.path, change.content);
               await pushObj(
@@ -1622,6 +1689,36 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                     path: removeSuffix(target, ".schedule.json"),
                   });
                   break;
+                case "http_trigger":
+                  await wmill.deleteHttpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".http_trigger.json"),
+                  });
+                  break;
+                case "websocket_trigger":
+                  await wmill.deleteWebsocketTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".websocket_trigger.json"),
+                  });
+                  break;
+                case "kafka_trigger":
+                  await wmill.deleteKafkaTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".kafka_trigger.json"),
+                  });
+                  break;
+                case "nats_trigger":
+                  await wmill.deleteNatsTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".nats_trigger.json"),
+                  });
+                  break;
+                case "postgres_trigger":
+                  await wmill.deletePostgresTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".postgres_trigger.json"),
+                  });
+                  break;
                 case "variable":
                   await wmill.deleteVariable({
                     workspace: workspaceId,
@@ -1682,7 +1779,9 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     }
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
+        `\nDone! All ${changes.length} changes pushed to the remote workspace ${
+          workspace.workspaceId
+        } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
       )
     );
   }
@@ -1706,6 +1805,7 @@ const command = new Command()
   .option("--skip-resources", "Skip syncing  resources")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
+  .option("--include-triggers", "Include syncing triggers")
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
@@ -1734,6 +1834,7 @@ const command = new Command()
   .option("--skip-resources", "Skip syncing  resources")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
+  .option("--include-triggers", "Include syncing triggers")
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
@@ -1754,10 +1855,7 @@ const command = new Command()
     "--message <message:string>",
     "Include a message that will be added to all scripts/flows/apps updated during this push"
   )
-  .option(
-    "--parallel <number>",
-    "Number of changes to process in parallel"
-  )
+  .option("--parallel <number>", "Number of changes to process in parallel")
   // deno-lint-ignore no-explicit-any
   .action(push as any);
 
