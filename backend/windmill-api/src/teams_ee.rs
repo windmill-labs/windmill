@@ -1,4 +1,5 @@
 use http::status::StatusCode;
+#[cfg(feature = "enterprise")]
 use axum::Router;
 use windmill_common::error::Error;
 
