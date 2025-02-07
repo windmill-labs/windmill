@@ -124,7 +124,7 @@
 			kind: 'nats'
 		},
 		{
-			label: 'Amazon SQS' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Sqs' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/sqs_triggers',
 			icon: AwsIcon,
 			disabled: $userStore?.operator /*|| !$enterpriseLicense*/,

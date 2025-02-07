@@ -179,21 +179,6 @@
 				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
-		{:else if captureType === 'sqs'}
-			<SqsTriggerEditorConfigSection
-				can_write={true}
-				headless={true}
-				bind:queue_url={args.queue_url}
-				bind:aws_resource_path={args.aws_resource_path}
-				{showCapture}
-				{captureInfo}
-				bind:captureTable
-				on:applyArgs
-				on:updateSchema
-				on:addPreprocessor
-				on:captureToggle={handleCapture}
-				on:testWithArgs
-			/>
 		{:else if captureType === 'webhook'}
 			<WebhooksConfigSection
 				{isFlow}
@@ -272,6 +257,22 @@
 				on:updateSchema
 				on:addPreprocessor
 				on:captureToggle={handleCapture}
+			/>
+		{:else if captureType === 'sqs'}
+			<SqsTriggerEditorConfigSection
+				can_write={true}
+				headless={true}
+				bind:queue_url={args.queue_url}
+				bind:aws_resource_path={args.aws_resource_path}
+				bind:message_attributes={args.message_attributes}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{/if}
 	</div>

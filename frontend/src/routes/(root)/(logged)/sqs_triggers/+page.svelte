@@ -208,15 +208,15 @@
 />
 
 <CenteredPage>
-	<PageHeader title="Amazon SQS triggers" tooltip="Amazon SQS trigger">
+	<PageHeader title="Sqs triggers" tooltip="Sqs trigger">
 		<Button size="md" startIcon={{ icon: Plus }} on:click={() => sqsTriggerEditor.openNew(false)}>
-			New&nbsp;Amazon SQS trigger
+			New&nbsp;Sqs trigger
 		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			Amazon SQS triggers are disabled in the multi-tenant cloud.
+			Sqs triggers are disabled in the multi-tenant cloud.
 		</Alert>
 		<div class="py-4" />
 	{/if}
@@ -224,14 +224,14 @@
 		<div class="w-full pb-4 pt-6">
 			<input
 				type="text"
-				placeholder="Search Amazon SQS triggers"
+				placeholder="Search Sqs triggers"
 				bind:value={filter}
 				class="search-item"
 			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Amazon SQS trigger" icon={Database} />
+					<ToggleButton small value="trigger" label="Sqs trigger" icon={Database} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -300,9 +300,9 @@
 										<div slot="text">
 											{#if enabled}
 												{#if !server_id}
-												Amazon SQS trigger is starting...
+													Sqs trigger is starting...
 												{:else}
-													Could not connect to Amazon SQS{error ? ': ' + error : ''}
+													Could not connect to Sqs{error ? ': ' + error : ''}
 												{/if}
 											{:else}
 												Disabled because of an error: {error}

@@ -3,6 +3,7 @@ CREATE TABLE sqs_trigger(
     path VARCHAR(255) NOT NULL,
     queue_url VARCHAR(255) NOT NULL,
     aws_resource_path VARCHAR(255) NOT NULL,
+    message_attributes TEXT[],
     script_path VARCHAR(255) NOT NULL,
     is_flow BOOLEAN NOT NULL,
     workspace_id VARCHAR(50) NOT NULL,

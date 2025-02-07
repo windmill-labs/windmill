@@ -578,82 +578,141 @@ export async function main(approver?: string) {
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
 export const BUN_PREPROCESSOR_MODULE_CODE = `
+/**
+* Known possible keys for the SQS Message System Attributes Record.
+* These strings can appear as keys in the \`attributes\` Record<string, string>
+*/
+type PossibleSQSAttributeKeys = 
+ | 'AwsTraceHeader'
+ | 'ApproximateFirstReceiveTimestamp'
+ | 'ApproximateReceiveCount'
+ | 'DeadLetterQueueSourceArn'
+ | 'MessageDeduplicationId'
+ | 'MessageGroupId'
+ | 'SenderId'
+ | 'SentTimestamp'
+ | 'SequenceNumber';
+
 export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		},
-		sqs?: {
-			queueUrl: string //The queue url
-		}
-	},
-	/* your other args */ 
+ wm_trigger: {
+   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
+   http?: {
+     route: string // The route path, e.g. "/users/:id"
+     path: string  // The actual path called, e.g. "/users/123"
+     method: string
+     params: Record<string, string> // path parameters
+     query: Record<string, string>  // query parameters
+     headers: Record<string, string>
+   },
+   websocket?: {
+     url: string // The websocket url
+   },
+   kafka?: {
+     brokers: string[]
+     topic: string
+     group_id: string
+   },
+   nats?: {
+     servers: string[]
+     subject: string
+     headers?: Record<string, string[]>
+     status?: number
+     description?: string
+     length: number
+   },
+   sqs?: {
+     queue_url: string,
+     message_id?: string,
+     receipt_handle?: string,
+     md5_of_body?: string,
+     md5_of_message_attributes?: string,
+     // The keys can be any of PossibleSQSAttributeKeys or other strings
+     attributes: Record<string, string>,
+     message_attributes?: Record<string, {
+       string_value?: string,
+       binary_value?: Uint8Array,
+       string_list_values?: string[],
+       binary_list_values?: Uint8Array[],
+       data_type: string
+     }>
+   }
+ },
+ /* your other args */
 ) {
-	return {
-		// return the args to be passed to the runnable
-	}
+ return {
+   // return the args to be passed to the runnable
+ }
 }
 `
 
 const DENO_PREPROCESSOR_MODULE_CODE = `
+/**
+* Known possible keys for the SQS Message System Attributes Record.
+* These strings can appear as keys in the \`attributes\` Record<string, string>
+*/
+type PossibleSQSAttributeKeys = 
+ | 'AwsTraceHeader'
+ | 'ApproximateFirstReceiveTimestamp'
+ | 'ApproximateReceiveCount'
+ | 'DeadLetterQueueSourceArn'
+ | 'MessageDeduplicationId'
+ | 'MessageGroupId'
+ | 'SenderId'
+ | 'SentTimestamp'
+ | 'SequenceNumber';
+
 export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		},
-		sqs?: {
-			queueUrl: string //The queue url
-		}
-	},
-	/* your other args */ 
+ wm_trigger: {
+   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
+   http?: {
+     route: string // The route path, e.g. "/users/:id"
+     path: string  // The actual path called, e.g. "/users/123"
+     method: string
+     params: Record<string, string> // path parameters
+     query: Record<string, string>  // query parameters
+     headers: Record<string, string>
+   },
+   websocket?: {
+     url: string // The websocket url
+   },
+   kafka?: {
+     brokers: string[]
+     topic: string
+     group_id: string
+   },
+   nats?: {
+     servers: string[]
+     subject: string
+     headers?: Record<string, string[]>
+     status?: number
+     description?: string
+     length: number
+   },
+   sqs?: {
+     queue_url: string,
+     message_id?: string,
+     receipt_handle?: string,
+     md5_of_body?: string,
+     md5_of_message_attributes?: string,
+     /** 
+      * Record of message attributes where keys can be any of value of type PossibleSQSAttributeKeys
+      * or other string values. The values are always strings.
+      */
+     attributes: Record<string, string>,
+     message_attributes?: Record<string, {
+       string_value?: string,
+       binary_value?: Uint8Array,
+       string_list_values?: string[],
+       binary_list_values?: Uint8Array[],
+       data_type: string
+     }>
+   }
+ },
+ /* your other args */
 ) {
-	return {
-		// return the args to be passed to the runnable
-	}
+ return {
+   // return the args to be passed to the runnable
+ }
 }
 `
 
@@ -686,48 +745,75 @@ def main():
 
 export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 
+# Known possible keys for the SQS Message System Attributes
+PossibleSQSAttributeKeys = Literal[
+   "AwsTraceHeader",
+   "ApproximateFirstReceiveTimestamp", 
+   "ApproximateReceiveCount",
+   "DeadLetterQueueSourceArn",
+   "MessageDeduplicationId",
+   "MessageGroupId",
+   "SenderId",
+   "SentTimestamp",
+   "SequenceNumber"
+]
+
 class Http(TypedDict):
-	route: str # The route path, e.g. "/users/:id"
-	path: str # The actual path called, e.g. "/users/123"
-	method: str
-	params: dict[str, str]
-	query: dict[str, str]
-	headers: dict[str, str]
+   route: str # The route path, e.g. "/users/:id"
+   path: str  # The actual path called, e.g. "/users/123"
+   method: str
+   params: dict[str, str]
+   query: dict[str, str]
+   headers: dict[str, str]
 
 class Websocket(TypedDict):
-	url: str # The websocket url
+   url: str # The websocket url
 
 class Kafka(TypedDict):
-	topic: str
-	brokers: list[str]
-	group_id: str
+   topic: str
+   brokers: list[str]
+   group_id: str
 
 class Nats(TypedDict):
-	servers: list[str]
-	subject: str
-	headers: dict[str, list[str]] | None
-	status: int | None
-	description: str | None
-	length: int
+   servers: list[str]
+   subject: str
+   headers: dict[str, list[str]] | None
+   status: int | None
+   description: str | None
+   length: int
+
+class MessageAttribute(TypedDict):
+   string_value: str | None
+   binary_value: bytes | None
+   string_list_values: list[str] | None
+   binary_list_values: list[bytes] | None
+   data_type: str
 
 class Sqs(TypeDict):
-	queue_url: str #The queue url
+   queue_url: str
+   message_id: str | None
+   receipt_handle: str | None
+   md5_of_body: str | None
+   md5_of_message_attributes: str | None
+   # The keys can be any of PossibleSQSAttributeKeys or other strings
+   attributes: dict[str, str]
+   message_attributes: dict[str, MessageAttribute] | None
 
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "sqs"]
-	http: Http | None
-	websocket: Websocket | None
-	kafka: Kafka | None
-	nats: Nats | None
-	sqs: Sqs | None
+   kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "sqs"]
+   http: Http | None
+   websocket: Websocket | None
+   kafka: Kafka | None
+   nats: Nats | None
+   sqs: Sqs | None
 
 def preprocessor(
-	wm_trigger: WmTrigger,
-	# your other args
+   wm_trigger: WmTrigger,
+   # your other args
 ):
-	return {
-		# return the args to be passed to the runnable
-	}
+   return {
+       # return the args to be passed to the runnable
+   }
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash

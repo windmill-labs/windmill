@@ -14,6 +14,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SqsTriggerService } from '$lib/gen'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import QueueSetup from './QueueSetup.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -31,6 +32,7 @@
 	let drawerLoading = true
 	let aws_resource_path: string = ''
 	let queue_url = ''
+	let message_attributes: string[] = []
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -67,6 +69,7 @@
 			aws_resource_path = defaultValues?.aws_resource_path ?? ''
 			queue_url = defaultValues?.queue_url ?? ''
 			path = ''
+			message_attributes = []
 			initialPath = ''
 			edit = false
 			dirtyPath = false
@@ -86,11 +89,12 @@
 			aws_resource_path = s.aws_resource_path
 			queue_url = s.queue_url
 			is_flow = s.is_flow
+			message_attributes = s.message_attributes ?? []
 			path = s.path
 			enabled = s.enabled
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (error) {
-			sendUserToast(`Could not load sqs trigger: ${error.body}`, true)
+			sendUserToast(`Could not load Sqs trigger: ${error.body}`, true)
 		}
 	}
 
@@ -105,7 +109,8 @@
 					enabled,
 					is_flow,
 					queue_url,
-					aws_resource_path
+					aws_resource_path,
+					message_attributes
 				}
 			})
 			sendUserToast(`SqsTrigger ${path} updated`)
@@ -118,7 +123,8 @@
 					queue_url,
 					path,
 					script_path,
-					is_flow
+					is_flow,
+					message_attributes
 				}
 			})
 			sendUserToast(`SqsTrigger ${path} created`)
@@ -136,9 +142,9 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit Amazon SQS trigger ${initialPath}`
-				: `Amazon SQS trigger ${initialPath}`
-			: 'New sqs trigger'}
+				? `Edit Sqs trigger ${initialPath}`
+				: `Sqs trigger ${initialPath}`
+			: 'New Sqs trigger'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
@@ -225,14 +231,7 @@
 					<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
 				</Section>
 
-				<Section label="SQS Queue Selection">
-					<p class="text-xs mb-1 text-tertiary">
-						Provide the URL of the SQS queue the application should listen to. <Required
-							required={true}
-						/>
-					</p>
-					<input type="text" placeholder={'Queue url'} bind:value={queue_url} />
-				</Section>
+				<QueueSetup bind:can_write bind:queue_url bind:message_attributes />
 			</div>
 		{/if}
 	</DrawerContent>

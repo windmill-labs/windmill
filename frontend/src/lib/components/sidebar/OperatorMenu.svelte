@@ -84,6 +84,11 @@
 			href: `${base}/nats_triggers`
 		},
 		{
+			label: 'Sqs triggers',
+			id: 'triggers',
+			href: `${base}/sqs_triggers`
+		},
+		{
 			label: 'Audit logs',
 			id: 'audit_logs',
 			href: `${base}/audit_logs`

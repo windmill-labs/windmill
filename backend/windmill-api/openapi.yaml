@@ -9821,6 +9821,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                sqs_trigger
               ]
       responses:
         "200":
@@ -9862,6 +9863,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                sqs_trigger
               ]
       requestBody:
         description: acl to add
@@ -9914,6 +9916,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                sqs_trigger
               ]
       requestBody:
         description: acl to add
@@ -13481,6 +13484,10 @@ components:
           type: string
         aws_resource_path:
           type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
         server_id:
           type: string
         last_server_ping:
@@ -13503,6 +13510,10 @@ components:
           type: string
         aws_resource_path:
           type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
         path:
           type: string
         script_path:
@@ -13525,6 +13536,10 @@ components:
           type: string
         aws_resource_path:
           type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
         path:
           type: string
         script_path:

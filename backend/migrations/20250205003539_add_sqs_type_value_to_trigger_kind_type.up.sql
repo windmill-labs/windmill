@@ -1,2 +1,2 @@
 -- Add up migration script here
-ALTER TYPE TRIGGER_KIND ADD 'sqs';
+ALTER TYPE TRIGGER_KIND ADD VALUE 'sqs';

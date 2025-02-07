@@ -80,7 +80,7 @@
 
 {#each triggersToDisplay as type}
 	{@const { icon, countKey } = triggerTypeConfig[type]}
-	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense)}
+	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense)}
 		<Popover>
 			<svelte:fragment slot="text">{camelCaseToWords(type)}</svelte:fragment>
 			<TriggerButton
@@ -91,7 +91,9 @@
 				selected={selected &&
 					($selectedTrigger === type ||
 						(type === 'eventStreams' &&
-							($selectedTrigger === 'kafka' || $selectedTrigger === 'nats')))}
+							($selectedTrigger === 'kafka' ||
+								$selectedTrigger === 'nats' ||
+								$selectedTrigger === 'sqs')))}
 			>
 				{#if countKey}
 					<TriggerCount count={$triggersCount?.[countKey]} />

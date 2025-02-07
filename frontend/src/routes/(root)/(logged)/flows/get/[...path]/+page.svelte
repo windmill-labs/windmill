@@ -576,12 +576,6 @@
 			</div>
 		</svelte:fragment>
 
-		<svelte:fragment slot="sqs">
-			<div class="p-2">
-				<SqsTriggerPanel path={flow.path ?? ''} isFlow />
-			</div>
-		</svelte:fragment>
-
 		<svelte:fragment slot="kafka">
 			<div class="p-2">
 				<KafkaTriggersPanel path={flow.path ?? ''} isFlow />
@@ -593,9 +587,16 @@
 				<PostgresTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
+		
 		<svelte:fragment slot="nats">
 			<div class="p-2">
 				<NatsTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+
+		<svelte:fragment slot="sqs">
+			<div class="p-2">
+				<SqsTriggerPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
 

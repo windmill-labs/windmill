@@ -67,7 +67,7 @@
 
 {#if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		Amazon SQS triggers are disabled in the multi-tenant cloud.
+		Sqs triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
@@ -80,7 +80,7 @@
 		</Description>
 
 		{#if !newItem && sqsTriggers && sqsTriggers.length > 0}
-			<Section label="Amazon SQS">
+			<Section label="Sqs">
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-col divide-y pt-2">
 						{#each sqsTriggers as sqsTriggers (sqsTriggers.path)}

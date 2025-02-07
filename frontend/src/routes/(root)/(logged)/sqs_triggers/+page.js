@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'Amazon SQS triggers' }
+		stuff: { title: 'Sqs triggers' }
 	}
 }

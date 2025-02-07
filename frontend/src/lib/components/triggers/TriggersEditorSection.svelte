@@ -32,7 +32,7 @@
 		kafka: '+ New Kafka trigger',
 		email: 'Email trigger',
 		nats: '+ New NATS trigger',
-		sqs: '+ New Amazon SQS trigger'
+		sqs: '+ New Sqs trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')

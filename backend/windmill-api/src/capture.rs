@@ -126,7 +126,8 @@ pub struct KafkaTriggerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SqsTriggerConfig {
     pub queue_url: String,
-    pub aws_resource_path: String
+    pub aws_resource_path: String,
+    pub message_attributes: Option<Vec<String>>
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]

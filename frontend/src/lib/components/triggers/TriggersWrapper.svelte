@@ -31,14 +31,6 @@
 			bind:url_runnable_args={args.url_runnable_args}
 			showCapture={false}
 		/>
-	{:else if triggerType === 'sqs'}
-		<SqsTriggerEditorConfigSection
-			bind:queue_url={args.queue_url}
-			bind:aws_resource_path={args.aws_resource_path}
-			headless={true}
-			can_write={true}
-			showCapture={false}
-		/>
 	{:else if triggerType === 'webhook'}
 		<WebhooksConfigSection
 			{isFlow}
@@ -70,5 +62,14 @@
 		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{:else if triggerType === 'nats'}
 		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
+	{:else if triggerType === 'sqs'}
+		<SqsTriggerEditorConfigSection
+			bind:queue_url={args.queue_url}
+			bind:aws_resource_path={args.aws_resource_path}
+			bind:message_attributes={args.message_attributes}
+			headless={true}
+			can_write={true}
+			showCapture={false}
+		/>
 	{/if}
 </div>
