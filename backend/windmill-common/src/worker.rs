@@ -107,7 +107,7 @@ fn format_pull_query(peek: String) -> String {
     format!(
         "WITH peek AS (
             {}
-        ), q AS (
+        ), q AS NOT MATERIALIZED (
             UPDATE v2_job_queue SET
                 running = true,
                 started_at = coalesce(started_at, now()),
@@ -117,12 +117,11 @@ fn format_pull_query(peek: String) -> String {
                 started_at, scheduled_for, running,
                 canceled_by, canceled_reason, canceled_by IS NOT NULL AS canceled,
                 suspend, suspend_until
-        ), r AS (
+        ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
-            RETURNING ping AS last_ping, memory_peak AS mem_peak
-        ), j AS (
+        ), j AS NOT MATERIALIZED (
             SELECT
                 id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
                 runnable_path AS script_path, args, kind AS job_kind,
@@ -136,13 +135,13 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
         ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
             running, script_hash, script_path, args, null as logs, canceled, canceled_by,
-            canceled_reason, last_ping, job_kind, schedule_path, permissioned_as,
+            canceled_reason, NULL as last_ping, job_kind, schedule_path, permissioned_as,
             flow_status, is_flow_step, language, suspend,  suspend_until,
-            same_worker, pre_run_error, email,  visible_to_owner, mem_peak,
+            same_worker, pre_run_error, email,  visible_to_owner, NULL as mem_peak,
             root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
             timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
             script_entrypoint_override, preprocessed
-        FROM q, r, j
+        FROM q, j
             LEFT JOIN v2_job_status f USING (id)",
         peek
     )
