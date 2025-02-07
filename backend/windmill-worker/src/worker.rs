@@ -2006,13 +2006,13 @@ async fn handle_queued_job(
         .warn_after_seconds(5)
         .await?;
     } else if let Some(parent_job) = job.parent_job {
-        if let Err(e) = sqlx::query_scalar!(
+        let _ = sqlx::query_scalar!(
             "UPDATE v2_job_status SET
-                flow_status = jsonb_set(
+                workflow_as_code_status = jsonb_set(
                     jsonb_set(
-                        COALESCE(flow_status, '{}'::jsonb),
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
                         array[$1],
-                        COALESCE(flow_status->$1, '{}'::jsonb)
+                        COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
                     ),
                     array[$1, 'started_at'],
                     to_jsonb(now()::text)
@@ -2024,9 +2024,12 @@ async fn handle_queued_job(
         .execute(db)
         .warn_after_seconds(5)
         .await
-        {
-            tracing::error!("Could not update parent job started_at flow_status: {}", e);
-        }
+        .inspect_err(|e| {
+            tracing::error!(
+                "Could not update parent job `started_at` in workflow as code status: {}",
+                e
+            )
+        });
     }
 
     let started = Instant::now();
