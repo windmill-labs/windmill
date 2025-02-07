@@ -1,4 +1,5 @@
 use http::status::StatusCode;
+use axum::Router;
 use windmill_common::error::Error;
 
 pub async fn edit_teams_command() -> Result<StatusCode, Error> {
