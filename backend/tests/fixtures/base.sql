@@ -152,7 +152,8 @@ BEGIN
     -- v2_job_status:
     IF EXISTS(SELECT 1 FROM v2_job_status  WHERE id = OLD.id) THEN
         SELECT * INTO job_status FROM v2_job_status WHERE id = OLD.id;
-        IF job_status.flow_status::TEXT IS DISTINCT FROM OLD.__flow_status::TEXT THEN
+        IF COALESCE(job_status.flow_status, job_status.workflow_as_code_status)::TEXT IS DISTINCT FROM OLD.__flow_status::TEXT
+        THEN
             RAISE EXCEPTION 'flow_status mismatch';
         END IF;
         IF job_status.flow_leaf_jobs::TEXT IS DISTINCT FROM OLD.__leaf_jobs::TEXT THEN

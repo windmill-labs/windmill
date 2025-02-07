@@ -353,7 +353,7 @@ pub enum JobPayload {
     Noop,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct RawCode {
     pub content: String,
     pub path: Option<String>,

@@ -3828,6 +3828,71 @@ async fn test_job_labels(db: Pool<Postgres>) {
     test(&["z", "a", "x"]).await;
 }
 
+#[cfg(feature = "python")]
+const WORKFLOW_AS_CODE: &str = r#"
+from wmill import task
+
+import pandas as pd
+import numpy as np
+
+@task()
+def heavy_compute(n: int):
+    df = pd.DataFrame(np.random.randn(100, 4), columns=list('ABCD'))
+    return df.sum().sum()
+
+@task
+def send_result(res: int, email: str):
+    print(f"Sending result {res} to {email}")
+    return "OK"
+
+def main(n: int):
+    l = []
+    for i in range(n):
+        l.append(heavy_compute(i))
+    print(l)
+    return [send_result(sum(l), "example@example.com"), n]
+"#;
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "hello"))]
+async fn test_workflow_as_code(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    // workflow as code require at least 2 workers:
+    let db = &db;
+    in_test_worker(
+        &db,
+        async move {
+            let job = RunJob::from(JobPayload::Code(RawCode {
+                language: ScriptLang::Python3,
+                content: WORKFLOW_AS_CODE.into(),
+                ..RawCode::default()
+            }))
+            .arg("n", json!(3))
+            .run_until_complete(&db, port)
+            .await;
+
+            assert_eq!(job.json_result().unwrap(), json!(["OK", 3]));
+            let workflow_as_code_status = sqlx::query_scalar!(
+                "SELECT workflow_as_code_status FROM v2_job_completed WHERE id = $1",
+                job.id
+            )
+            .fetch_one(db)
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                workflow_as_code_status.get("name"),
+                Some(&json!("send_result"))
+            );
+        },
+        port,
+    )
+    .await;
+}
+
 async fn test_for_versions<F: Future<Output = ()>>(
     version_flags: impl Iterator<Item = Arc<RwLock<bool>>>,
     test: impl Fn() -> F,

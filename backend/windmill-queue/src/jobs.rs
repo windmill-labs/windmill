@@ -591,28 +591,28 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , canceled_by
                     , canceled_reason
                     , flow_status
+                    , workflow_as_code_status
                     , memory_peak
                     , status
                     )
-                VALUES ($1, $2, $3, COALESCE($12::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($3, now()))))*1000), $5, $13, $7, $8, $9,\
-                        $11, CASE WHEN $6::BOOL THEN 'canceled'::job_status
-                        WHEN $10::BOOL THEN 'skipped'::job_status
-                        WHEN $4::BOOL THEN 'success'::job_status
-                        ELSE 'failure'::job_status END)
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $5 RETURNING duration_ms AS \"duration_ms!\"",
-            /* $1 */ queued_job.workspace_id,
-            /* $2 */ queued_job.id,
-            /* $3 */ queued_job.started_at,
-            /* $4 */ success,
-            /* $5 */ result as Json<&T>,
-            /* $6 */ canceled_by.is_some(),
-            /* $7 */ canceled_by.clone().map(|cb| cb.username).flatten(),
-            /* $8 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
-            /* $9 */ &queued_job.flow_status as &Option<Json<Box<RawValue>>>,
-            /* $10 */ skipped,
-            /* $11 */ if mem_peak > 0 { Some(mem_peak) } else { None },
-            /* $12 */ duration,
-            /* $13 */ result_columns as Option<&Vec<String>>,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                        flow_status, workflow_as_code_status,
+                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
+                        WHEN $7::BOOL THEN 'skipped'::job_status
+                        WHEN $2::BOOL THEN 'success'::job_status
+                        ELSE 'failure'::job_status END AS status
+                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            /* $1 */ queued_job.id,
+            /* $2 */ success,
+            /* $3 */ result as Json<&T>,
+            /* $4 */ canceled_by.is_some(),
+            /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
+            /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
+            /* $7 */ skipped,
+            /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+            /* $9 */ duration,
+            /* $10 */ result_columns as Option<&Vec<String>>,
         )
         .fetch_one(&mut *tx)
         .await
@@ -633,28 +633,14 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
 
         if !queued_job.is_flow_step {
-            if _duration > 500
-                && (queued_job.job_kind == JobKind::Script
-                    || queued_job.job_kind == JobKind::Preview)
-            {
-                if let Err(e) = sqlx::query!(
-                "UPDATE v2_job_completed SET flow_status = f.flow_status FROM v2_job_status f WHERE v2_job_completed.id = $1 AND f.id = $1 AND v2_job_completed.workspace_id = $2",
-                &queued_job.id,
-                &queued_job.workspace_id
-            )
-            .execute(&mut *tx)
-            .await {
-                tracing::error!("Could not update job duration: {}", e);
-            }
-            }
             if let Some(parent_job) = queued_job.parent_job {
-                if let Err(e) = sqlx::query_scalar!(
+                let _ = sqlx::query_scalar!(
                     "UPDATE v2_job_status SET
-                        flow_status = jsonb_set(
+                        workflow_as_code_status = jsonb_set(
                             jsonb_set(
-                                COALESCE(flow_status, '{}'::jsonb),
+                                COALESCE(workflow_as_code_status, '{}'::jsonb),
                                 array[$1],
-                                COALESCE(flow_status->$1, '{}'::jsonb)
+                                COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
                             ),
                             array[$1, 'duration_ms'],
                             to_jsonb($2::bigint)
@@ -665,9 +651,11 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     parent_job
                 )
                 .execute(&mut *tx)
-                .await {
-                    tracing::error!("Could not update parent job flow_status: {}", e);
-                }
+                .await
+                .inspect_err(|e| tracing::error!(
+                    "Could not update parent job `duration_ms` in workflow as code status: {}",
+                    e,
+                ));
             }
         }
         // tracing::error!("Added completed job {:#?}", queued_job);
