@@ -5179,15 +5179,12 @@ async fn get_job_update(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, running }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, .. }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
     let record = sqlx::query!(
         "SELECT
             c.id IS NOT NULL AS completed,
-            CASE 
-                WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
-                ELSE false
-            END AS running,
+            q.id IS NOT NULL AND q.running AS running,
             SUBSTR(logs, GREATEST($1 - log_offset, 0)) AS logs,
             COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
             CASE
@@ -5221,8 +5218,7 @@ async fn get_job_update(
         log_offset,
         &w_id,
         job_id,
-        get_progress.unwrap_or(false),
-        running,
+        get_progress.unwrap_or(false)
     )
     .fetch_optional(&db)
     .await?
