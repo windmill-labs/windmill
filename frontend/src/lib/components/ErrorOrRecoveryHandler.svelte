@@ -215,33 +215,24 @@
 	}
 
 	let lastHandlerSelected: 'slack' | 'teams' | 'custom' | undefined = undefined
-	let tmpSlackChannel: string | undefined = undefined
-	let tmpTeamsChannel: string | undefined = undefined
+	let channelCache = {
+		slack: undefined as string | undefined,
+		teams: undefined as string | undefined
+	}
 	$: {
-		if (lastHandlerSelected !== handlerSelected) {
-			if (lastHandlerSelected === 'teams') {
-				tmpTeamsChannel = handlerExtraArgs['channel']
-				if (handlerSelected === 'slack') {
-					handlerExtraArgs['channel'] = tmpSlackChannel
-				} else if (handlerSelected === 'custom') {
-					handlerExtraArgs['channel'] = ''
-				}
-			} else if (lastHandlerSelected === 'slack') {
-				tmpSlackChannel = handlerExtraArgs['channel']
-				if (handlerSelected === 'teams') {
-					handlerExtraArgs['channel'] = tmpTeamsChannel
-				} else if (handlerSelected === 'custom') {
-					handlerExtraArgs['channel'] = ''
-				}
-			} else if (lastHandlerSelected === 'custom') {
-				if (handlerSelected === 'slack') {
-					handlerExtraArgs['channel'] = tmpSlackChannel
-				} else if (handlerSelected === 'teams') {
-					handlerExtraArgs['channel'] = tmpTeamsChannel
-				}
+		if (lastHandlerSelected !== handlerSelected && lastHandlerSelected !== undefined) {
+			if (lastHandlerSelected === 'teams' || lastHandlerSelected === 'slack') {
+				channelCache[lastHandlerSelected] = handlerExtraArgs['channel']
 			}
-			lastHandlerSelected = handlerSelected
+
+			if (handlerSelected === 'custom') {
+				handlerExtraArgs['channel'] = ''
+			} else {
+				handlerExtraArgs['channel'] = channelCache[handlerSelected] ?? ''
+			}
 		}
+
+		lastHandlerSelected = handlerSelected
 	}
 
 	$: handlerPath &&
