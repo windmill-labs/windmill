@@ -1,7 +1,7 @@
 import process from "node:process";
 import { colors, Confirm, log, yamlParseFile, yamlStringify } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
-import { AiResource, Config, GlobalSetting } from "./gen/types.gen.ts";
+import { AIResource, Config, GlobalSetting } from "./gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
@@ -20,7 +20,7 @@ export interface SimplifiedSettings {
   error_handler?: string;
   error_handler_extra_args?: any;
   error_handler_muted_on_cancel?: boolean;
-  ai_resource?: AiResource;
+  ai_resource?: AIResource;
   code_completion_model?: string;
   ai_models: string[];
   large_file_storage?: any;
