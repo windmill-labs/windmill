@@ -111,7 +111,8 @@ fn format_pull_query(peek: String) -> String {
             UPDATE v2_job_queue SET
                 running = true,
                 started_at = coalesce(started_at, now()),
-                suspend_until = null
+                suspend_until = null,
+                worker = $1
             WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for, running,
@@ -121,7 +122,6 @@ fn format_pull_query(peek: String) -> String {
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
-            RETURNING ping AS last_ping, memory_peak AS mem_peak
         ), j AS (
             SELECT
                 id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
@@ -136,13 +136,13 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
         ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
             running, script_hash, script_path, args, null as logs, canceled, canceled_by,
-            canceled_reason, last_ping, job_kind, schedule_path, permissioned_as,
+            canceled_reason, null as last_ping, job_kind, schedule_path, permissioned_as,
             flow_status, is_flow_step, language, suspend,  suspend_until,
-            same_worker, pre_run_error, email,  visible_to_owner, mem_peak,
+            same_worker, pre_run_error, email,  visible_to_owner, null as mem_peak,
             root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
             timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
             script_entrypoint_override, preprocessed
-        FROM q, r, j
+        FROM q, j
             LEFT JOIN v2_job_status f USING (id)",
         peek
     )
