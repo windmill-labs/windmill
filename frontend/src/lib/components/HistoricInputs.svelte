@@ -121,9 +121,9 @@
 						/>
 					{/each}
 					{#if jobs?.length == 5}
-						<div class="text-left text-tertiary text-xs"
-							>... there may be more runs not displayed here as the limit is 5</div
-						>
+						<tr class="text-left text-tertiary text-xs w-full">
+							<td class="w-full px-2" colspan="3">limited to 5 runs</td>
+						</tr>
 					{/if}
 				</tbody>
 			{:else}
