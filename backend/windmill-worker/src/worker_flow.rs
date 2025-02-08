@@ -1137,6 +1137,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             same_worker_tx.clone(),
             worker_dir,
             job_completed_tx,
+            worker_name,
         )
         .warn_after_seconds(10)
         .await
@@ -1528,6 +1529,7 @@ pub async fn handle_flow(
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
+    worker_name: &str,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
     let status = flow_job
@@ -1581,6 +1583,7 @@ pub async fn handle_flow(
         same_worker_tx,
         worker_dir,
         job_completed_tx,
+        worker_name,
     )
     .warn_after_seconds(10)
     .await?;
@@ -1638,6 +1641,7 @@ async fn push_next_flow_job(
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
+    worker_name: &str,
 ) -> error::Result<()> {
     let job_root = flow_job
         .root_job
@@ -2645,6 +2649,16 @@ async fn push_next_flow_job(
         )
         .warn_after_seconds(2)
         .await?;
+
+        if continue_on_same_worker {
+            let _ = sqlx::query!(
+                "UPDATE v2_job_queue SET worker = $2 WHERE id = $1",
+                uuid,
+                worker_name
+            )
+            .execute(&mut *inner_tx)
+            .await;
+        }
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
