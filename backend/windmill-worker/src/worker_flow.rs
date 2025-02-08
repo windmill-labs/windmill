@@ -2651,7 +2651,6 @@ async fn push_next_flow_job(
         .await?;
 
         if continue_on_same_worker {
-            tracing::error!("{}", worker_name);
             let _ = sqlx::query!(
                 "UPDATE v2_job_queue SET worker = $2 WHERE id = $1",
                 uuid,
