@@ -3875,6 +3875,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) {
             .await;
 
             assert_eq!(job.json_result().unwrap(), json!(["OK", 3]));
+
             let workflow_as_code_status = sqlx::query_scalar!(
                 "SELECT workflow_as_code_status FROM v2_job_completed WHERE id = $1",
                 job.id
@@ -3883,10 +3884,33 @@ async fn test_workflow_as_code(db: Pool<Postgres>) {
             .await
             .unwrap()
             .unwrap();
-            assert_eq!(
-                workflow_as_code_status.get("name"),
-                Some(&json!("send_result"))
-            );
+
+            #[derive(Deserialize)]
+            #[allow(dead_code)]
+            struct WorkflowJobStatus {
+                name: String,
+                started_at: String,
+                scheduled_for: String,
+                duration_ms: i64,
+            }
+
+            let workflow_as_code_status: std::collections::HashMap<String, WorkflowJobStatus> =
+                serde_json::from_value(workflow_as_code_status).unwrap();
+
+            let uuids = sqlx::query_scalar!("SELECT id FROM v2_job WHERE parent_job = $1", job.id)
+                .fetch_all(db)
+                .await
+                .unwrap();
+
+            assert_eq!(uuids.len(), 4);
+            for uuid in uuids {
+                let status = workflow_as_code_status.get(&uuid.to_string());
+                assert!(status.is_some());
+                assert!(
+                    status.unwrap().name == "send_result"
+                        || status.unwrap().name == "heavy_compute"
+                );
+            }
         },
         port,
     )
