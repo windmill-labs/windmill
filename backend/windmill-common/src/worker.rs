@@ -107,7 +107,7 @@ fn format_pull_query(peek: String) -> String {
     format!(
         "WITH peek AS (
             {}
-        ), q AS (
+        ), q AS NOT MATERIALIZED (
             UPDATE v2_job_queue SET
                 running = true,
                 started_at = coalesce(started_at, now()),
@@ -118,11 +118,11 @@ fn format_pull_query(peek: String) -> String {
                 started_at, scheduled_for, running,
                 canceled_by, canceled_reason, canceled_by IS NOT NULL AS canceled,
                 suspend, suspend_until
-        ), r AS (
+        ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
-        ), j AS (
+        ), j AS NOT MATERIALIZED (
             SELECT
                 id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
                 runnable_path AS script_path, args, kind AS job_kind,
