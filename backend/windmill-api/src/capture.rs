@@ -122,7 +122,7 @@ pub struct KafkaTriggerConfig {
     pub group_id: String,
 }
 
-#[cfg(feature = "sqs_trigger")]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SqsTriggerConfig {
     pub queue_url: String,
@@ -143,6 +143,7 @@ pub struct NatsTriggerConfig {
     pub use_jetstream: bool,
 }
 
+#[cfg(feature = "websocket")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
@@ -155,8 +156,9 @@ pub struct WebsocketTriggerConfig {
 enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
+    #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
-    #[cfg(feature = "sqs_trigger")]
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
     Sqs(SqsTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),

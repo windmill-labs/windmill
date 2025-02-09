@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { SqsTriggerService, type SqsTrigger } from '$lib/gen'
 
 	import { canWrite } from '$lib/utils'
@@ -65,7 +65,11 @@
 	bind:this={sqsTriggerEditor}
 />
 
-{#if isCloudHosted()}
+{#if !$enterpriseLicense}
+	<Alert title="EE Only" type="warning" size="xs">
+		Sqs triggers are an enterprise only feature.
+	</Alert>
+{:else if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
 		Sqs triggers are disabled in the multi-tenant cloud.
 	</Alert>

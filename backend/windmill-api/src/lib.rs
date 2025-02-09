@@ -104,7 +104,7 @@ mod settings;
 mod slack_approvals;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
-#[cfg(feature = "sqs_trigger")]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
 mod static_assets;
 mod stripe_ee;
@@ -322,12 +322,12 @@ pub async fn run_server(
     };
 
     let sqs_triggers_service = {
-        #[cfg(all(feature = "sqs_trigger"))]
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
             sqs_triggers_ee::workspaced_service()
         }
 
-        #[cfg(not(feature = "sqs_trigger"))]
+        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
         {
             Router::new()
         }
@@ -381,12 +381,14 @@ pub async fn run_server(
             let nats_killpill_rx = rx.resubscribe();
             nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
         }
+
         #[cfg(feature = "postgres_trigger")]
         {
             let db_killpill_rx = rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
-        #[cfg(feature = "sqs_trigger")]
+
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
             let sqs_killpill_rx = rx.resubscribe();
             sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);

@@ -127,7 +127,7 @@
 			label: 'Sqs' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/sqs_triggers',
 			icon: AwsIcon,
-			disabled: $userStore?.operator /*|| !$enterpriseLicense*/,
+			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'sqs'
 		}
 	]
