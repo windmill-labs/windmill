@@ -3427,8 +3427,12 @@ pub async fn run_workflow_as_code(
         sqlx::query!(
             "INSERT INTO v2_job_status (id, workflow_as_code_status)
             VALUES ($1, JSONB_SET('{}'::JSONB, array[$2], $3))
-            ON CONFLICT (id) DO UPDATE SET workflow_as_code_status =
-                COALESCE(EXCLUDED.workflow_as_code_status, '{}'::JSONB) || $3",
+            ON CONFLICT (id) DO UPDATE SET
+                workflow_as_code_status = JSONB_SET(
+                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::JSONB), 
+                    array[$2],
+                    $3
+                )",
             job_id,
             uuid.to_string(),
             serde_json::json!({ "scheduled_for": Utc::now(), "name": entrypoint }),
@@ -4894,7 +4898,7 @@ async fn add_batch_jobs(
     .await?;
 
     sqlx::query!(
-        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+        "INSERT INTO v2_job_runtime (id, ping) SELECT unnest($1::uuid[]), null",
         &uuids,
     )
     .execute(&mut *tx)
@@ -5175,12 +5179,15 @@ async fn get_job_update(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { log_offset, get_progress, .. }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { log_offset, get_progress, running }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
     let record = sqlx::query!(
         "SELECT
             c.id IS NOT NULL AS completed,
-            q.id IS NOT NULL AND q.running AS running,
+            CASE 
+                WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
+                ELSE false
+            END AS running,
             SUBSTR(logs, GREATEST($1 - log_offset, 0)) AS logs,
             COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
             CASE
@@ -5214,7 +5221,8 @@ async fn get_job_update(
         log_offset,
         &w_id,
         job_id,
-        get_progress.unwrap_or(false)
+        get_progress.unwrap_or(false),
+        running,
     )
     .fetch_optional(&db)
     .await?
