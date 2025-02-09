@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.458.1](https://github.com/windmill-labs/windmill/compare/v1.458.0...v1.458.1) (2025-02-07)
+
+
+### Bug Fixes
+
+* **cli:** ai resource type typo ([#5240](https://github.com/windmill-labs/windmill/issues/5240)) ([b09eb04](https://github.com/windmill-labs/windmill/commit/b09eb04c24743aa43f80bc65e6158cc3b2b557f2))
+* get update endpoint ([#5245](https://github.com/windmill-labs/windmill/issues/5245)) ([fcf8f31](https://github.com/windmill-labs/windmill/commit/fcf8f312bc4a27d8da02542964d5d0122ef71a12))
+
+## [1.458.0](https://github.com/windmill-labs/windmill/compare/v1.457.1...v1.458.0) (2025-02-07)
+
+
+### Features
+
+* serve static websites ([#5218](https://github.com/windmill-labs/windmill/issues/5218)) ([48e4ae6](https://github.com/windmill-labs/windmill/commit/48e4ae6561bfac725bc9ddee2697b44af48ad3a8))
+
+
+### Bug Fixes
+
+* remove unnecessary rw on cache for powershell in nsjail ([#5236](https://github.com/windmill-labs/windmill/issues/5236)) ([3bb19dd](https://github.com/windmill-labs/windmill/commit/3bb19dd87cbdb0e36148b8b4e19c4312804fb38e))
+
 ## [1.457.1](https://github.com/windmill-labs/windmill/compare/v1.457.0...v1.457.1) (2025-02-05)
 
 

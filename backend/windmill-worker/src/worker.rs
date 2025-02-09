@@ -1325,16 +1325,28 @@ pub async fn run_worker(
                     same_worker_job.job_id
                 );
                 let r = sqlx::query_as::<_, PulledJob>(
-                    "WITH ping AS (
+                    "
+                    WITH ping AS (
                         UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 RETURNING id
-                    ) SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)",
+                    )
+                    SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)
+                    ",
                 )
                 .bind(same_worker_job.job_id)
                 .fetch_optional(db)
                 .await
-                .map_err(|_| {
-                    Error::internal_err("Impossible to fetch same_worker job".to_string())
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Impossible to fetch same_worker job {}: {}",
+                        same_worker_job.job_id, e
+                    ))
                 });
+                let _ = sqlx::query!(
+                    "UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1",
+                    same_worker_job.job_id
+                )
+                .execute(db)
+                .await;
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
                         worker = %worker_name, hostname = %hostname,
@@ -1381,7 +1393,7 @@ pub async fn run_worker(
                     last_suspend_first = Instant::now();
                 }
 
-                let job = pull(&db, suspend_first).await;
+                let job = pull(&db, suspend_first, &worker_name).await;
 
                 add_time!(bench, "job pulled from DB");
                 let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -2006,13 +2018,13 @@ async fn handle_queued_job(
         .warn_after_seconds(5)
         .await?;
     } else if let Some(parent_job) = job.parent_job {
-        if let Err(e) = sqlx::query_scalar!(
+        let _ = sqlx::query_scalar!(
             "UPDATE v2_job_status SET
-                flow_status = jsonb_set(
+                workflow_as_code_status = jsonb_set(
                     jsonb_set(
-                        COALESCE(flow_status, '{}'::jsonb),
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
                         array[$1],
-                        COALESCE(flow_status->$1, '{}'::jsonb)
+                        COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
                     ),
                     array[$1, 'started_at'],
                     to_jsonb(now()::text)
@@ -2024,9 +2036,12 @@ async fn handle_queued_job(
         .execute(db)
         .warn_after_seconds(5)
         .await
-        {
-            tracing::error!("Could not update parent job started_at flow_status: {}", e);
-        }
+        .inspect_err(|e| {
+            tracing::error!(
+                "Could not update parent job `started_at` in workflow as code status: {}",
+                e
+            )
+        });
     }
 
     let started = Instant::now();
@@ -2101,6 +2116,7 @@ async fn handle_queued_job(
             same_worker_tx,
             worker_dir,
             job_completed_tx.0.clone(),
+            worker_name,
         )
         .warn_after_seconds(10)
         .await?;
