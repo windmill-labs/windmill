@@ -320,7 +320,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
-    if num_workers > 1 {
+    if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
         println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
         );
@@ -344,8 +344,17 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     println!("Connecting to database...");
-    let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
+    let db = windmill_common::initial_connection().await?;
 
+    let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
+
+    tracing::info!(
+        "PostgreSQL version: {} (windmill require PG >= 14)",
+        num_version
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "UNKNOWN".to_string())
+    );
     load_otel(&db).await;
 
     tracing::info!("Database connected");
@@ -362,16 +371,6 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
-    let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
-
-    tracing::info!(
-        "PostgreSQL version: {} (windmill require PG >= 14)",
-        num_version
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "UNKNOWN".to_string())
-    );
-
     let is_agent = mode == Mode::Agent;
 
     #[cfg(feature = "parquet")]
@@ -379,7 +378,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         .ok()
         .is_some_and(|x| x == "1" || x == "true");
 
-    if !is_agent {
+    if !is_agent && !indexer_mode {
         let skip_migration = std::env::var("SKIP_MIGRATION")
             .map(|val| val == "true")
             .unwrap_or(false);
@@ -391,6 +390,11 @@ async fn windmill_main() -> anyhow::Result<()> {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
     }
+
+    drop(db);
+    let worker_mode = num_workers > 0;
+
+    let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
 
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -454,8 +458,6 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
     }
-
-    let worker_mode = num_workers > 0;
 
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
