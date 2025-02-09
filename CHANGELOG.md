@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.458.2](https://github.com/windmill-labs/windmill/compare/v1.458.1...v1.458.2) (2025-02-09)
+
+
+### Bug Fixes
+
+* **frontend:** accordion list header on eval / background function ([#5244](https://github.com/windmill-labs/windmill/issues/5244)) ([32298e5](https://github.com/windmill-labs/windmill/commit/32298e5bfcd9ad1ca2954642d789e0f5d03b1680))
+* worker name in job + better timeout handling for same_worker jobs ([#5248](https://github.com/windmill-labs/windmill/issues/5248)) ([403826f](https://github.com/windmill-labs/windmill/commit/403826fca994535e59cc3c042f41bb47448dd951))
+* workflow as code status  ([#5246](https://github.com/windmill-labs/windmill/issues/5246)) ([61ac7e9](https://github.com/windmill-labs/windmill/commit/61ac7e91de7da54bd405d721fe6e47ed8e5a5e9e))
+
 ## [1.458.1](https://github.com/windmill-labs/windmill/compare/v1.458.0...v1.458.1) (2025-02-07)
 
 
