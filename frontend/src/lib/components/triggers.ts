@@ -51,6 +51,7 @@ export type TriggerKind =
 	| 'kafka'
 	| 'nats'
 	| 'postgres'
+	| 'mqtt'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':
@@ -65,6 +66,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'kafka'
 		case 'nats':
 			return 'nats'
+		case 'mqtt':
+			return 'mqtt'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

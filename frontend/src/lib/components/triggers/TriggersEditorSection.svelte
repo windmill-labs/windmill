@@ -31,7 +31,8 @@
 		webhook: 'Webhook',
 		kafka: '+ New Kafka trigger',
 		email: 'Email trigger',
-		nats: '+ New NATS trigger'
+		nats: '+ New NATS trigger',
+		mqtt: '+ New Mqtt trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')

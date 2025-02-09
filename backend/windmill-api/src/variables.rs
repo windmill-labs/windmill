@@ -8,6 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
+    resources::get_resource_value_interpolated_internal,
     users::{maybe_refresh_folders, require_owner_of_path},
     webhook_util::{WebhookMessage, WebhookShared},
 };
@@ -19,6 +20,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde_json::Value;
+
 use windmill_audit::audit_ee::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
@@ -32,7 +34,7 @@ use windmill_common::{
 
 use lazy_static::lazy_static;
 use windmill_common::variables::{decrypt, encrypt};
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Postgres, Transaction};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -700,4 +702,41 @@ pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<S
     }
 
     Ok(value)
+}
+
+pub async fn get_resource<T>(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    resource_path: &str,
+    w_id: &str,
+) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    let resource = get_resource_value_interpolated_internal(
+        &authed,
+        user_db,
+        &db,
+        &w_id,
+        &resource_path,
+        None,
+        "",
+    )
+    .await?;
+
+    let resource = match resource {
+        Some(resource) => serde_json::from_value::<T>(resource)
+            .map_err(|e| Error::SerdeJson { error: e, location: "variable.rs".to_string() })?,
+        None => {
+            return {
+                Err(Error::NotFound(format!(
+                    "resource at path :{} do not exist",
+                    &resource_path
+                )))
+            }
+        }
+    };
+
+    Ok(resource)
 }

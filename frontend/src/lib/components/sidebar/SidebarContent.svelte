@@ -53,6 +53,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -109,6 +110,13 @@
 			kind: 'postgres'
 		},
 		{
+			label: 'Mqtt',
+			href: '/mqtt_triggers',
+			icon: MqttIcon,
+			disabled: $userStore?.operator,
+			kind: 'mqtt'
+		},
+		{
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/kafka_triggers',
 			icon: KafkaIcon,
@@ -121,7 +129,7 @@
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats'
-		}
+		},
 	]
 
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {

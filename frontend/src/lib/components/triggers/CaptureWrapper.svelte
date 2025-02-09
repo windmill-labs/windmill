@@ -14,6 +14,7 @@
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -54,8 +55,8 @@
 			acc[c.trigger_kind] = c
 			return acc
 		}, {})
-
-		if ((captureType === 'websocket' || captureType === 'kafka') && captureActive) {
+		const streamingCapture = ['websocket', 'kafka', 'mqtt']
+		if (streamingCapture.includes(captureType) && captureActive) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -121,17 +122,11 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-
-	let cloudDisabled =
-		(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-		isCloudHosted()
+	const streamingCaptures = ['mqtt', 'websocket', 'postgres', 'kafka', 'nats']
+	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (
-			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-			config &&
-			captureActive
-		) {
+		if (streamingCaptures.includes(captureType) && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
@@ -259,6 +254,19 @@
 				on:updateSchema
 				on:addPreprocessor
 				on:captureToggle={handleCapture}
+			/>
+		{:else if captureType === 'mqtt'}
+			<MqttEditorConfigSection
+				can_write={true}
+				headless={true}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{/if}
 	</div>

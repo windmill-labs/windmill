@@ -2,6 +2,7 @@
 	import {
 		CancelablePromise,
 		KafkaTriggerService,
+		MqttTriggerService,
 		NatsTriggerService,
 		WebsocketTriggerService
 	} from '$lib/gen'
@@ -9,7 +10,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
-	export let kind: 'websocket' | 'nats' | 'kafka'
+	export let kind: 'websocket' | 'nats' | 'kafka' | 'mqtt'
 	export let args: Record<string, any>
 
 	const kindToName: { [key: string]: string } = {
@@ -40,6 +41,11 @@
 				})
 			} else if (kind === 'kafka') {
 				promise = KafkaTriggerService.testKafkaConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			} else if (kind === 'mqtt') {
+				promise = MqttTriggerService.testMqttConnection({
 					workspace: $workspaceStore!,
 					requestBody: args as any
 				})

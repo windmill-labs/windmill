@@ -10,8 +10,7 @@
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import { MqttIcon, NatsIcon, KafkaIcon } from '$lib/components/icons'
 
 	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -27,6 +26,7 @@
 		| 'websockets'
 		| 'kafka'
 		| 'nats'
+		| 'mqtt'
 		| 'emails'
 		| 'eventStreams'
 		| 'postgres'
@@ -66,6 +66,7 @@
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
 		emails: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count' },
+		mqtt: { icon: MqttIcon, countKey: 'mqtt_count' },
 		eventStreams: { icon: PlugZap }
 	}
 

@@ -88,6 +88,7 @@ pub enum TriggerKind {
     Kafka,
     Email,
     Nats,
+    Mqtt
 }
 
 impl fmt::Display for TriggerKind {
@@ -99,6 +100,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
+            TriggerKind::Mqtt => "mqtt"
         };
         write!(f, "{}", s)
     }
@@ -133,6 +135,11 @@ pub struct NatsTriggerConfig {
     pub use_jetstream: bool,
 }
 
+#[cfg(feature = "mqtt_trigger")]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MqttTriggerConfig;
+
+#[cfg(feature = "websocket")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
@@ -145,11 +152,14 @@ pub struct WebsocketTriggerConfig {
 enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
+    #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "nats"))]
     Nats(NatsTriggerConfig),
+    #[cfg(feature = "mqtt_trigger")]
+    Mqtt(MqttTriggerConfig)
 }
 
 #[derive(Serialize, Deserialize)]

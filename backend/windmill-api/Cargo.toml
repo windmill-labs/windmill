@@ -29,7 +29,7 @@ oauth2 = ["dep:async-oauth2"]
 http_trigger = ["dep:matchit"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
-
+mqtt_trigger = ["dep:thiserror"]
 [dependencies]
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }

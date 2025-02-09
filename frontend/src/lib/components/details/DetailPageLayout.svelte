@@ -30,6 +30,7 @@
 		| 'scheduledPoll'
 		| 'kafka'
 		| 'nats'
+		| 'mqtt'
 	>('webhooks')
 
 	const simplifiedPoll = writable(false)
@@ -67,6 +68,7 @@
 							<slot slot="kafka" name="kafka" />
 							<slot slot="postgres" name="postgres" />
 							<slot slot="nats" name="nats" />
+							<slot slot="mqtt" name="mqtt" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
@@ -114,6 +116,7 @@
 								<slot slot="kafka" name="kafka" />
 								<slot slot="postgres" name="postgres" />
 								<slot slot="nats" name="nats" />
+								<slot slot="mqtt" name="mqtt" />
 								<slot slot="emails" name="emails" />
 								<slot slot="schedules" name="schedules" />
 								<slot slot="cli" name="cli" />
