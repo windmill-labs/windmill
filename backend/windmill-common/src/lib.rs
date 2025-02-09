@@ -8,6 +8,7 @@
 
 use std::{
     net::SocketAddr,
+    str::FromStr,
     sync::{atomic::AtomicBool, Arc},
 };
 
@@ -272,10 +273,12 @@ pub async fn connect(
     use std::time::Duration;
 
     sqlx::postgres::PgPoolOptions::new()
-        .min_connections(3)
+        .min_connections(max_connections)
         .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
-        .connect(database_url)
+        .connect_with(
+            sqlx::postgres::PgConnectOptions::from_str(database_url)?.statement_cache_capacity(400),
+        )
         .await
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
 }
