@@ -2,6 +2,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
+	import { clickOutside } from '$lib/utils'
 
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
@@ -13,6 +14,7 @@
 	export let disabled = false
 	export let createMenu: (any) => any
 	export let invisible: boolean = false
+	export let useClickOutside: boolean = true
 
 	// Use the passed createMenu function
 	const menu = createMenu({
@@ -36,12 +38,26 @@
 	export function close() {
 		open = false
 	}
+
+	async function getMenuElements(): Promise<HTMLElement[]> {
+		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+	}
 </script>
 
 <div class={twMerge('w-full h-8', $$props.class)}>
 	<ResolveOpen {open} on:open on:close />
 
-	<button class={twMerge('w-full h-full', justifyEnd ? 'flex justify-end' : '')} {disabled}>
+	<button
+		class={twMerge('w-full h-full', justifyEnd ? 'flex justify-end' : '')}
+		{disabled}
+		use:clickOutside={{ capture: false, exclude: getMenuElements }}
+		on:click_outside={() => {
+			if (useClickOutside) {
+				close()
+			}
+		}}
+		data-menu
+	>
 		<slot name="trigger" trigger={$trigger} />
 	</button>
 

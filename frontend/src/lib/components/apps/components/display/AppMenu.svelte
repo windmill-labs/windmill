@@ -105,6 +105,7 @@
 				on:close
 				on:open
 				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
+				useClickOutside={true}
 			>
 				<svelte:fragment slot="trigger" let:trigger>
 					<div use:melt={trigger} class="w-full h-full">
