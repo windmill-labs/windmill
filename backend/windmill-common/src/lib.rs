@@ -273,7 +273,7 @@ pub async fn connect(
     use std::time::Duration;
 
     sqlx::postgres::PgPoolOptions::new()
-        .min_connections(max_connections)
+        .min_connections((max_connections / 5).clamp(3, max_connections))
         .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
         .connect_with(
