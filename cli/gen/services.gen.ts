@@ -2895,7 +2895,7 @@ export const deleteScriptByHash = (data: DeleteScriptByHashData): CancelableProm
 }); };
 
 /**
- * delete all scripts at a given path (require admin)
+ * delete script at a given path (require admin)
  * @param data The data for the request.
  * @param data.workspace
  * @param data.path

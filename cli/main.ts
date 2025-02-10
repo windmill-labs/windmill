@@ -17,6 +17,7 @@ import variable from "./variable.ts";
 import hub from "./hub.ts";
 import folder from "./folder.ts";
 import schedule from "./schedule.ts";
+import trigger from "./trigger.ts";
 import sync from "./sync.ts";
 import instance from "./instance.ts";
 import workerGroups from "./worker_groups.ts";
@@ -44,6 +45,7 @@ export {
   hub,
   folder,
   schedule,
+  trigger,
   sync,
   instance,
   dev,
@@ -60,7 +62,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.458.3";
+export const VERSION = "1.458.4";
 
 const command = new Command()
   .name("wmill")
@@ -108,6 +110,7 @@ const command = new Command()
         skipResources: true,
         skipSecrets: true,
         includeSchedules: false,
+        includeTriggers: false,
       })
     );
     log.info(colors.green("wmill.yaml created"));
@@ -122,6 +125,7 @@ const command = new Command()
   .command("hub", hub)
   .command("folder", folder)
   .command("schedule", schedule)
+  .command("trigger", trigger)
   .command("dev", dev)
   .command("sync", sync)
   .command("instance", instance)

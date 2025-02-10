@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                -- slack_team_id, \n                -- slack_name, \n                -- slack_command_script, \n                -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,\n                auto_invite_domain IS NOT NULL AS \"auto_invite_enabled!\",\n                CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS \"auto_invite_as!\", \n                CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS \"auto_invite_mode!\", \n                webhook, \n                deploy_to, \n                error_handler, \n                ai_resource, \n                ai_models,\n                code_completion_model,\n                error_handler_extra_args, \n                error_handler_muted_on_cancel, \n                large_file_storage, \n                git_sync,\n                default_app,\n                default_scripts,\n                workspace.name\n            FROM workspace_settings\n            LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id\n            WHERE workspace_id = $1",
+  "query": "SELECT\n                -- slack_team_id, \n                -- slack_name, \n                -- slack_command_script, \n                -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,\n                auto_invite_domain IS NOT NULL AS \"auto_invite_enabled!\",\n                CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS \"auto_invite_as!\", \n                CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS \"auto_invite_mode!\", \n                webhook, \n                deploy_to, \n                error_handler, \n                ai_resource, \n                ai_models,\n                code_completion_model,\n                error_handler_extra_args, \n                error_handler_muted_on_cancel, \n                large_file_storage, \n                git_sync,\n                default_app,\n                default_scripts,\n                workspace.name,\n                mute_critical_alerts,\n                color,\n                operator_settings\n            FROM workspace_settings\n            LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id\n            WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,21 @@
         "ordinal": 15,
         "name": "name",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 16,
+        "name": "mute_critical_alerts",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 18,
+        "name": "operator_settings",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -105,8 +120,11 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "51648e377d47815d0b15694572d5c9cc0a303d70980346e1f3c4096a8922d7d5"
+  "hash": "91878f06c6e27d864bd50d8cd4adde4395ab6ef1181237a886fa398dcfa0b589"
 }

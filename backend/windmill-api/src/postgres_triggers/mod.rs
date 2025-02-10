@@ -26,8 +26,9 @@ use handler::{
     exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
     is_database_in_logical_level, list_database_publication, list_postgres_triggers,
     list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Database,
-    PostgresTrigger, Relations,
+    Relations,
 };
+pub use handler::PostgresTrigger;
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
 

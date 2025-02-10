@@ -222,12 +222,16 @@ pub struct PostgresTrigger {
     pub edited_by: String,
     pub email: String,
     pub edited_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_perms: Option<serde_json::Value>,
     pub postgres_resource_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub server_id: Option<String>,
     pub replication_slot_name: String,
     pub publication_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub enabled: bool,
 }
