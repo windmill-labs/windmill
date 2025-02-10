@@ -677,16 +677,22 @@
 									<img
 										alt="preview rendered"
 										class="w-auto h-full"
-										src={`/api/w/${workspaceId}/${appPath ? 'apps_u/load_image_preview/' + appPath : 'job_helpers/load_image_preview'}?file_key=${result.s3}` +
-											(result.storage ? `&storage=${result.storage}` : '')}
+										src={`/api/w/${workspaceId}/${
+											appPath
+												? 'apps_u/load_image_preview/' + appPath
+												: 'job_helpers/load_image_preview'
+										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
 									<PdfViewer
 										allowFullscreen
-										source={`/api/w/${workspaceId}/${appPath ? 'apps_u/load_image_preview/' + appPath : 'job_helpers/load_image_preview'}?file_key=${result.s3}` +
-											(result.storage ? `&storage=${result.storage}` : '')}
+										source={`/api/w/${workspaceId}/${
+											appPath
+												? 'apps_u/load_image_preview/' + appPath
+												: 'job_helpers/load_image_preview'
+										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{/if}
