@@ -248,7 +248,7 @@ declare function setValue(id: string, value: any): void;
  */
 declare function setSelectedIndex(id: string, index: number): void;
 
-/** close a drawer or modal
+/** open a drawer or modal
   * @param id component's id
  */
 declare function open(id: string): void;
