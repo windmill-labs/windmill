@@ -3875,6 +3875,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) {
             .await;
 
             assert_eq!(job.json_result().unwrap(), json!(["OK", 3]));
+
             let workflow_as_code_status = sqlx::query_scalar!(
                 "SELECT workflow_as_code_status FROM v2_job_completed WHERE id = $1",
                 job.id
@@ -3883,10 +3884,33 @@ async fn test_workflow_as_code(db: Pool<Postgres>) {
             .await
             .unwrap()
             .unwrap();
-            assert_eq!(
-                workflow_as_code_status.get("name"),
-                Some(&json!("send_result"))
-            );
+
+            #[derive(Deserialize)]
+            #[allow(dead_code)]
+            struct WorkflowJobStatus {
+                name: String,
+                started_at: String,
+                scheduled_for: String,
+                duration_ms: i64,
+            }
+
+            let workflow_as_code_status: std::collections::HashMap<String, WorkflowJobStatus> =
+                serde_json::from_value(workflow_as_code_status).unwrap();
+
+            let uuids = sqlx::query_scalar!("SELECT id FROM v2_job WHERE parent_job = $1", job.id)
+                .fetch_all(db)
+                .await
+                .unwrap();
+
+            assert_eq!(uuids.len(), 4);
+            for uuid in uuids {
+                let status = workflow_as_code_status.get(&uuid.to_string());
+                assert!(status.is_some());
+                assert!(
+                    status.unwrap().name == "send_result"
+                        || status.unwrap().name == "heavy_compute"
+                );
+            }
         },
         port,
     )
@@ -4473,5 +4497,125 @@ mod job_payload {
             assert_eq!(result, json!("Hello Jean Neige!"));
         };
         test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+    }
+
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_raw_flow_payload_with_restarted_from(db: Pool<Postgres>) {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let db = &db;
+        let test = |restarted_from, arg, result| async move {
+            let job = RunJob::from(JobPayload::RawFlow {
+                value: serde_json::from_value(json!({
+                    "modules": [{
+                        "id": "a",
+                        "value": {
+                            "type": "rawscript",
+                            "content": r#"export function main(world: string) {
+                                return `Hello ${world}!`;
+                            }"#,
+                            "language": "deno",
+                            "input_transforms": {
+                                "world": { "type": "javascript", "expr": "flow_input.world" }
+                            }
+                        }
+                    }, {
+                        "id": "b",
+                        "value": {
+                            "type": "rawscript",
+                            "content": r#"export function main(world: string, a: string) {
+                                return `${a} ${world}!`;
+                            }"#,
+                            "language": "deno",
+                            "input_transforms": {
+                                "world": { "type": "javascript", "expr": "flow_input.world" },
+                                "a": { "type": "javascript", "expr": "results.a" }
+                            }
+                        }
+                    }, {
+                        "id": "c",
+                        "value": {
+                            "type": "forloopflow",
+                            "iterator": { "type": "javascript", "expr": "['a', 'b', 'c']" },
+                            "modules": [{
+                                "value": {
+                                    "input_transforms": {
+                                        "world": { "type": "javascript", "expr": "flow_input.world" },
+                                        "b": { "type": "javascript", "expr": "results.b" },
+                                        "x": { "type": "javascript", "expr": "flow_input.iter.value" }
+                                    },
+                                    "type": "rawscript",
+                                    "language": "deno",
+                                    "content": r#"export function main(world: string, b: string, x: string) {
+                                        return `${x}: ${b} ${world}!`;
+                                    }"#,
+                                },
+                            }],
+                        }
+                    }],
+                    "schema": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": { "world": { "type": "string" } },
+                        "type": "object",
+                        "order": [  "world" ]
+                    }
+                }))
+                .unwrap(),
+                path: None,
+                restarted_from,
+            })
+            .arg("world", arg)
+            .run_until_complete(db, port)
+            .await;
+
+            assert_eq!(job.json_result().unwrap(), result);
+            job.id
+        };
+        let flow_job_id = test(
+            None,
+            json!("foo"),
+            json!([
+                "a: Hello foo! foo! foo!",
+                "b: Hello foo! foo! foo!",
+                "c: Hello foo! foo! foo!"
+            ]),
+        )
+        .await;
+        let flow_job_id = test(
+            Some(RestartedFrom { flow_job_id, step_id: "a".into(), branch_or_iteration_n: None }),
+            json!("foo"),
+            json!([
+                "a: Hello foo! foo! foo!",
+                "b: Hello foo! foo! foo!",
+                "c: Hello foo! foo! foo!"
+            ]),
+        )
+        .await;
+        let flow_job_id = test(
+            Some(RestartedFrom { flow_job_id, step_id: "b".into(), branch_or_iteration_n: None }),
+            json!("bar"),
+            json!([
+                "a: Hello foo! bar! bar!",
+                "b: Hello foo! bar! bar!",
+                "c: Hello foo! bar! bar!"
+            ]),
+        )
+        .await;
+        let _ = test(
+            Some(RestartedFrom {
+                flow_job_id,
+                step_id: "c".into(),
+                branch_or_iteration_n: Some(1),
+            }),
+            json!("yolo"),
+            json!([
+                "a: Hello foo! bar! bar!",
+                "b: Hello foo! bar! yolo!",
+                "c: Hello foo! bar! yolo!"
+            ]),
+        )
+        .await;
     }
 }

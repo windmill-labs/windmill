@@ -3427,8 +3427,12 @@ pub async fn run_workflow_as_code(
         sqlx::query!(
             "INSERT INTO v2_job_status (id, workflow_as_code_status)
             VALUES ($1, JSONB_SET('{}'::JSONB, array[$2], $3))
-            ON CONFLICT (id) DO UPDATE SET workflow_as_code_status =
-                COALESCE(EXCLUDED.workflow_as_code_status, '{}'::JSONB) || $3",
+            ON CONFLICT (id) DO UPDATE SET
+                workflow_as_code_status = JSONB_SET(
+                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::JSONB), 
+                    array[$2],
+                    $3
+                )",
             job_id,
             uuid.to_string(),
             serde_json::json!({ "scheduled_for": Utc::now(), "name": entrypoint }),
@@ -4894,7 +4898,7 @@ async fn add_batch_jobs(
     .await?;
 
     sqlx::query!(
-        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+        "INSERT INTO v2_job_runtime (id, ping) SELECT unnest($1::uuid[]), null",
         &uuids,
     )
     .execute(&mut *tx)
