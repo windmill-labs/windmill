@@ -219,6 +219,17 @@
 							bind:scriptPath={script_path}
 							allowRefresh
 						/>
+						{#if script_path === undefined}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href={itemKind === 'flow'
+									? '/flows/add?hub=55'
+									: '/scripts/add?hub=hub%2F9088%2Fwindmill%2FHTTP%20route%20script%20with%20preprocessor%20template'}
+								target="_blank">Create from template</Button
+							>
+						{/if}
 					</div>
 				</Section>
 

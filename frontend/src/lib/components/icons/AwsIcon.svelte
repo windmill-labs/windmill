@@ -1,14 +1,13 @@
 <script lang="ts">
-	export let height = '24px'
-	export let width = '24px'
+	export let size: number
 	export let color: string | undefined = undefined
 	let clazz = ''
 	export { clazz as class }
 </script>
 
 <svg
-	{width}
-	{height}
+	width={size}
+	height={size}
 	viewBox="0 0 168 168"
 	class={clazz}
 	xmlns="http://www.w3.org/2000/svg"

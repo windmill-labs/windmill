@@ -9,6 +9,7 @@
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
 
 	export let small = false
 
@@ -87,7 +88,7 @@
 				on:click={() => handleClick('sqs')}
 			>
 				<div class="flex flex-row items-center gap-2">
-					<Unplug size={16} />
+					<AwsIcon size={16} />
 					<p class="text-xs text-secondary">SQS</p>
 				</div>
 			</button>
