@@ -265,7 +265,10 @@
 							dispatch('click', argName)
 						}}
 					>
-						{#if typeof args == 'object' && schema?.properties[argName]}
+						{#if args && typeof args == 'object' && schema?.properties[argName]}
+							<!-- {argName}
+							{args == undefined}
+							{JSON.stringify(args?.[argName])} -->
 							{#if !hidden[argName]}
 								<ArgInput
 									on:change={() => {

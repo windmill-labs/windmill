@@ -304,7 +304,7 @@
 
 	function resetArgs() {
 		if (!previewSchema) {
-			previewArguments = undefined
+			// previewArguments = undefined
 			savedPreviewArgs = undefined
 		}
 	}

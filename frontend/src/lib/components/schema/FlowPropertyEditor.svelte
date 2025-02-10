@@ -304,7 +304,7 @@
 		{/if}
 	{:else if type === 'object' && format !== 'resource-s3_object'}
 		<Tabs
-			selected={initialObjectSelected}
+			bind:selected={initialObjectSelected}
 			on:selected={(e) => {
 				if (e.detail === 'custom-object') {
 					format = ''
@@ -327,7 +327,7 @@
 		</Tabs>
 	{/if}
 
-	{#if !(type === 'object' && oneOf && oneOf.length >= 2)}
+	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object')}
 		<Label label="Default">
 			<ArgInput
 				noDefaultOnSelectFirst
