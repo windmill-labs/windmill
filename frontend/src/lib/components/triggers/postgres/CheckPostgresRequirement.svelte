@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
 
-	let config: { isLogical: boolean; show: boolean } = { isLogical: false, show: false }
 	let loadingConfiguration = false
 
 	const checkDatabaseConfiguration = async () => {
@@ -15,12 +14,32 @@
 			return
 		}
 		try {
-			loadingConfiguration = true
-			config.isLogical = await PostgresTriggerService.isValidPostgresConfiguration({
+			const error = !(await PostgresTriggerService.isValidPostgresConfiguration({
 				workspace: $workspaceStore!,
 				path: postgres_resource_path
-			})
-			config.show = true
+			}))
+
+			let msg = 'Database is in logical mode. Triggers can be used.'
+
+			if (error) {
+				msg =
+					'Database is NOT in logical mode. Triggers cannot be used. Refer to the PostgreSQL documentation for configuration requirements.'
+			}
+
+			sendUserToast(msg, error)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		}
+		loadingConfiguration = false
+	}
+
+	const checkConnectionAndDatabaseConfiguration = async () => {
+		try {
+			loadingConfiguration = true
+			if (checkConnection) {
+				await checkConnection()
+			}
+			await checkDatabaseConfiguration()
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
@@ -31,10 +50,6 @@
 	export let postgres_resource_path: string
 	export let checkConnection: any | undefined = undefined
 
-	$: if (postgres_resource_path === undefined) {
-		config.show = false
-	}
-
 	console.log('dbg check connection', checkConnection)
 </script>
 
@@ -43,8 +58,7 @@
 		<Button
 			disabled={!can_write}
 			loading={loadingConfiguration}
-			on:click={() =>
-				checkDatabaseConfiguration().then(checkConnection ? checkConnection() : () => {})}
+			on:click={checkConnectionAndDatabaseConfiguration}
 			size="xs"
 			color="light"
 			spacingSize="sm"
@@ -60,15 +74,5 @@
 				</p>
 			</Tooltip>
 		</Button>
-		{#if config.show}
-			<Alert title="Postgres configuration" type={config.isLogical === true ? 'success' : 'error'}>
-				{#if config.isLogical}
-					Database is in logical mode. Triggers can be used.
-				{:else}
-					Database is NOT in logical mode. Triggers cannot be used. Refer to the PostgreSQL
-					documentation for configuration requirements.
-				{/if}
-			</Alert>
-		{/if}
 	</div>
 {/if}

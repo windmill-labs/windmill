@@ -59,11 +59,6 @@
 			(selectedTable === 'all' || (notEmpty ?? false))
 	}
 
-	$: if (emptyString(postgres_resource_path)) {
-		selectedTable = 'specific'
-		publication = { ...DEFAULT_PUBLICATION }
-	}
-
 	$: updateConfig(publication)
 
 	let testTriggerConnection: TestTriggerConnection | undefined = undefined
@@ -93,6 +88,12 @@
 					disabled={!can_write}
 					bind:value={postgres_resource_path}
 					resourceType={'postgresql'}
+					on:change={() => {
+						if (emptyString(postgres_resource_path)) {
+							selectedTable = 'specific'
+							publication = { ...DEFAULT_PUBLICATION }
+						}
+					}}
 				/>
 				{#if postgres_resource_path}
 					<TestTriggerConnection
