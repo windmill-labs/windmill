@@ -246,6 +246,8 @@ export function pointerDownOutside(
 	options?: ClickOutsideOptions
 ): { destroy(): void; update(newOptions: ClickOutsideOptions): void } {
 	const handlePointerDown = async (event: PointerEvent) => {
+		if (!event.isTrusted) return
+
 		if (options?.customEventName) {
 			node.dispatchEvent(
 				new CustomEvent<PointerEvent>(options.customEventName, {

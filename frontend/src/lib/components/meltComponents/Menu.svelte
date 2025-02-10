@@ -2,7 +2,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
-	import { clickOutside } from '$lib/utils'
+	import { pointerDownOutside } from '$lib/utils'
 
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
@@ -14,7 +14,7 @@
 	export let disabled = false
 	export let createMenu: (any) => any
 	export let invisible: boolean = false
-	export let useClickOutside: boolean = true
+	export let usePointerDownOutside: boolean = false
 
 	// Use the passed createMenu function
 	const menu = createMenu({
@@ -50,9 +50,15 @@
 	<button
 		class={twMerge('w-full h-full', justifyEnd ? 'flex justify-end' : '')}
 		{disabled}
-		use:clickOutside={{ capture: false, exclude: getMenuElements }}
-		on:click_outside={() => {
-			if (useClickOutside) {
+		use:pointerDownOutside={{
+			capture: true,
+			stopPropagation: open,
+			exclude: getMenuElements,
+			customEventName: 'pointerdown_menu'
+		}}
+		on:pointerdown_outside={() => {
+			console.log('dbg pointer down menu outside')
+			if (usePointerDownOutside) {
 				close()
 			}
 		}}
@@ -62,7 +68,7 @@
 	</button>
 
 	<Portal name="menu-v3">
-		<div class="z-[6000]" use:melt={$menuElement}>
+		<div class="z-[6000]" use:melt={$menuElement} data-menu>
 			<div
 				class={twMerge(
 					'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
