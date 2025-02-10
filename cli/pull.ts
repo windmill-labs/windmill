@@ -11,6 +11,7 @@ export async function downloadZip(
   skipResources?: boolean,
   skipSecrets?: boolean,
   includeSchedules?: boolean,
+  includeTriggers?: boolean,
   includeUsers?: boolean,
   includeGroups?: boolean,
   includeSettings?: boolean,
@@ -38,11 +39,11 @@ export async function downloadZip(
         skipResources ?? false
       }&skip_secrets=${skipSecrets ?? false}&include_schedules=${
         includeSchedules ?? false
-      }&include_users=${includeUsers ?? false}&include_groups=${
-        includeGroups ?? false
-      }&include_settings=${includeSettings ?? false}&include_key=${
-        includeKey ?? false
-      }&default_ts=${defaultTs ?? "bun"}`,
+      }&include_triggers=${includeTriggers ?? false}&include_users=${
+        includeUsers ?? false
+      }&include_groups=${includeGroups ?? false}&include_settings=${
+        includeSettings ?? false
+      }&include_key=${includeKey ?? false}&default_ts=${defaultTs ?? "bun"}`,
     {
       headers: requestHeaders,
       method: "GET",

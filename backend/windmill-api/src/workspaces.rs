@@ -165,32 +165,54 @@ struct Workspace {
 #[derive(FromRow, Serialize, Debug)]
 pub struct WorkspaceSettings {
     pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_command_script: Option<String>,
     pub slack_email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_invite_domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_invite_operator: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_add: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_resource: Option<serde_json::Value>,
     pub ai_models: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_extra_args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_muted_on_cancel: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
-    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
-    pub deploy_ui: Option<serde_json::Value>,          // effectively: WorkspaceDeploymentUISettings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
     pub automatic_billing: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_scripts: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub operator_settings: Option<serde_json::Value>,
 }
 

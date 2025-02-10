@@ -12,6 +12,7 @@ export interface SyncOptions {
   skipResources?: boolean;
   skipSecrets?: boolean;
   includeSchedules?: boolean;
+  includeTriggers?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
   includeSettings?: boolean;

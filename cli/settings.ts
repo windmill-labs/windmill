@@ -28,6 +28,9 @@ export interface SimplifiedSettings {
   default_app?: string;
   default_scripts?: any;
   name: string;
+  mute_critical_alerts?: boolean;
+  color?: string;
+  operator_settings?: any;
 }
 
 const INSTANCE_SETTINGS_PATH = "instance_settings.yaml";
@@ -85,6 +88,9 @@ export async function pushWorkspaceSettings(
       default_app: remoteSettings.default_app,
       default_scripts: remoteSettings.default_scripts,
       name: workspaceName,
+      mute_critical_alerts: remoteSettings.mute_critical_alerts,
+      color: remoteSettings.color,
+      operator_settings: remoteSettings.operator_settings,
     };
   } catch (err) {
     throw new Error(`Failed to get workspace settings: ${err}`);
@@ -166,12 +172,12 @@ export async function pushWorkspaceSettings(
     });
   }
   if (
-    localSettings.error_handler !== settings.error_handler ||
+    localSettings.error_handler != settings.error_handler ||
     !deepEqual(
       localSettings.error_handler_extra_args,
       settings.error_handler_extra_args
     ) ||
-    localSettings.error_handler_muted_on_cancel !==
+    localSettings.error_handler_muted_on_cancel !=
       settings.error_handler_muted_on_cancel
   ) {
     log.debug(`Updating error handler...`);
@@ -185,7 +191,7 @@ export async function pushWorkspaceSettings(
       },
     });
   }
-  if (localSettings.deploy_to !== settings.deploy_to) {
+  if (localSettings.deploy_to != settings.deploy_to) {
     log.debug(`Updating deploy to...`);
     await wmill.editDeployTo({
       workspace,
@@ -221,7 +227,7 @@ export async function pushWorkspaceSettings(
       requestBody: localSettings.default_scripts,
     });
   }
-  if (localSettings.default_app !== settings.default_app) {
+  if (localSettings.default_app != settings.default_app) {
     log.debug(`Updating default app...`);
     await wmill.editWorkspaceDefaultApp({
       workspace,
@@ -231,13 +237,41 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.name !== settings.name) {
+  if (localSettings.name != settings.name) {
     log.debug(`Updating workspace name...`);
     await wmill.changeWorkspaceName({
       workspace,
       requestBody: {
         new_name: localSettings.name,
       },
+    });
+  }
+
+  if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
+    log.debug(`Updating mute critical alerts...`);
+    await wmill.workspaceMuteCriticalAlertsUi({
+      workspace,
+      requestBody: {
+        mute_critical_alerts: localSettings.mute_critical_alerts,
+      },
+    });
+  }
+
+  if (localSettings.color != settings.color) {
+    log.debug(`Updating workspace color...`);
+    await wmill.changeWorkspaceColor({
+      workspace,
+      requestBody: {
+        color: localSettings.color,
+      },
+    });
+  }
+
+  if (localSettings.operator_settings != settings.operator_settings) {
+    log.debug(`Updating operator settings...`);
+    await wmill.updateOperatorSettings({
+      workspace,
+      requestBody: localSettings.operator_settings,
     });
   }
 }
