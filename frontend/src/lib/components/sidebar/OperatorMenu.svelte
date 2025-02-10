@@ -282,7 +282,13 @@
 			</div>
 		</div>
 		{#if $enterpriseLicense}
-			<MultiplayerMenu />
+			<div
+				on:mouseenter={() => (moreOpen = true)}
+				on:mouseleave={() => (moreOpen = false)}
+				role="none"
+			>
+				<MultiplayerMenu />
+			</div>
 		{/if}
 	</Menu>
 </Menubar>
