@@ -4898,7 +4898,7 @@ async fn add_batch_jobs(
     .await?;
 
     sqlx::query!(
-        "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
+        "INSERT INTO v2_job_runtime (id, ping) SELECT unnest($1::uuid[]), null",
         &uuids,
     )
     .execute(&mut *tx)

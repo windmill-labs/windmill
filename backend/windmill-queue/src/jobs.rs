@@ -594,13 +594,15 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , workflow_as_code_status
                     , memory_peak
                     , status
+                    , worker
                     )
                 SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
                         flow_status, workflow_as_code_status,
                         $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
                         WHEN $2::BOOL THEN 'success'::job_status
-                        ELSE 'failure'::job_status END AS status
+                        ELSE 'failure'::job_status END AS status,
+                        q.worker
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ queued_job.id,
@@ -1826,10 +1828,15 @@ impl std::ops::Deref for PulledJob {
 pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
+    worker_name: &str,
 ) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
     loop {
-        let (job, suspended) =
-            pull_single_job_and_mark_as_running_no_concurrency_limit(db, suspend_first).await?;
+        let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
+            db,
+            suspend_first,
+            worker_name,
+        )
+        .await?;
 
         let Some(job) = job else {
             return Ok((None, suspended));
@@ -2033,13 +2040,14 @@ pub async fn pull(
                 running = false,
                 started_at = null,
                 scheduled_for = $1
-            WHERE id = (SELECT id FROM ping)",
+            WHERE id = $2",
             estimated_next_schedule_timestamp,
             job_uuid,
         )
-        .fetch_all(&mut *tx)
+        .execute(&mut *tx)
         .await
         .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
+
         tx.commit().await?
     }
 }
@@ -2047,6 +2055,7 @@ pub async fn pull(
 async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
     db: &Pool<Postgres>,
     suspend_first: bool,
+    worker_name: &str,
 ) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
     let job_and_suspended: (Option<PulledJob>, bool) = {
         /* Jobs can be started if they:
@@ -2066,6 +2075,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         let r = if suspend_first {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
+                .bind(worker_name)
                 .fetch_optional(db)
                 .await?
         } else {
@@ -2086,6 +2096,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
                 let r = sqlx::query_as::<_, PulledJob>(query)
+                    .bind(worker_name)
                     .fetch_optional(db)
                     .await?;
 
@@ -3779,9 +3790,12 @@ pub async fn push<'c, 'd>(
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
 
-    sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", job_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)",
+        job_id
+    )
+    .execute(&mut *tx)
+    .await?;
     if let Some(flow_status) = flow_status {
         sqlx::query!(
             "INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)",
