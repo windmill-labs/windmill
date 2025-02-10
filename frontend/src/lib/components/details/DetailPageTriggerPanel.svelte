@@ -114,7 +114,7 @@
 							<ToggleButtonGroup bind:selected={eventStreamType}>
 								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
 								<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
-								<ToggleButton value="sqs" label="Sqs" icon={AwsIcon} />
+								<ToggleButton value="sqs" label="SQS" icon={AwsIcon} />
 							</ToggleButtonGroup>
 						</div>
 						{#if eventStreamType === 'kafka'}

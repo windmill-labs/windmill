@@ -94,7 +94,7 @@
 			enabled = s.enabled
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (error) {
-			sendUserToast(`Could not load Sqs trigger: ${error.body}`, true)
+			sendUserToast(`Could not load SQS trigger: ${error.body}`, true)
 		}
 	}
 
@@ -113,7 +113,7 @@
 					message_attributes
 				}
 			})
-			sendUserToast(`SqsTrigger ${path} updated`)
+			sendUserToast(`SQS trigger ${path} updated`)
 		} else {
 			await SqsTriggerService.createSqsTrigger({
 				workspace: $workspaceStore!,
@@ -127,7 +127,7 @@
 					message_attributes
 				}
 			})
-			sendUserToast(`SqsTrigger ${path} created`)
+			sendUserToast(`SQS trigger ${path} created`)
 		}
 
 		if (!$usedTriggerKinds.includes('sqs')) {
@@ -142,9 +142,9 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit Sqs trigger ${initialPath}`
-				: `Sqs trigger ${initialPath}`
-			: 'New Sqs trigger'}
+				? `Edit SQS trigger ${initialPath}`
+				: `SQS trigger ${initialPath}`
+			: 'New SQS trigger'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">

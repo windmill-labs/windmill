@@ -6,6 +6,7 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
 	import QueueSetup from './QueueSetup.svelte'
+	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 
 	let urlError: string = ''
 	export let can_write: boolean = false
@@ -39,12 +40,17 @@
 	<Section label="Amazon SQS" {headless}>
 		<div class="flex flex-col w-full gap-4">
 			<Section small label="AWS connection setup">
-				<p class="text-xs mb-1 text-tertiary">
-					Select an AWS resource with credentials to authenticate your account. <Required
-						required={true}
-					/>
-				</p>
-				<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+				<div class="flex flex-col gap-1">
+					<p class="text-xs mb-1 text-tertiary">
+						Select an AWS resource with credentials to authenticate your account. <Required
+							required={true}
+						/>
+					</p>
+					<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+					{#if isValid}
+						<TestTriggerConnection kind="sqs" args={{ aws_resource_path, queue_url }} />
+					{/if}
+				</div>
 			</Section>
 			<QueueSetup bind:can_write bind:queue_url bind:message_attributes />
 		</div>

@@ -84,7 +84,7 @@
 			href: `${base}/nats_triggers`
 		},
 		{
-			label: 'Sqs triggers',
+			label: 'SQS triggers',
 			id: 'triggers',
 			href: `${base}/sqs_triggers`
 		},

@@ -67,11 +67,11 @@
 
 {#if !$enterpriseLicense}
 	<Alert title="EE Only" type="warning" size="xs">
-		Sqs triggers are an enterprise only feature.
+		SQS triggers are an enterprise only feature.
 	</Alert>
 {:else if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		Sqs triggers are disabled in the multi-tenant cloud.
+		SQS triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
@@ -84,7 +84,7 @@
 		</Description>
 
 		{#if !newItem && sqsTriggers && sqsTriggers.length > 0}
-			<Section label="Sqs">
+			<Section label="SQS">
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-col divide-y pt-2">
 						{#each sqsTriggers as sqsTriggers (sqsTriggers.path)}

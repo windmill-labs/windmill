@@ -3,6 +3,7 @@
 		CancelablePromise,
 		KafkaTriggerService,
 		NatsTriggerService,
+		SqsTriggerService,
 		WebsocketTriggerService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -16,7 +17,7 @@
 		websocket: 'WebSocket',
 		nats: 'NATS server(s)',
 		kafka: 'Kafka broker(s)',
-		sqs: 'Sqs'
+		sqs: 'SQS'
 	}
 
 	let testLoading: boolean = false
@@ -41,6 +42,11 @@
 				})
 			} else if (kind === 'kafka') {
 				promise = KafkaTriggerService.testKafkaConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			} else if (kind === 'sqs') {
+				promise = SqsTriggerService.testSqsConnection({
 					workspace: $workspaceStore!,
 					requestBody: args as any
 				})
