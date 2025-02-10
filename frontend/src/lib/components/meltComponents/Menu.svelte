@@ -57,7 +57,6 @@
 			customEventName: 'pointerdown_menu'
 		}}
 		on:pointerdown_outside={() => {
-			console.log('dbg pointer down menu outside')
 			if (usePointerDownOutside) {
 				close()
 			}

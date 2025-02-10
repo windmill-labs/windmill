@@ -54,7 +54,7 @@
 	}
 </script>
 
-<Menu {createMenu} let:item>
+<Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
 		<MenuButtonMelt
 			class="!text-xs"

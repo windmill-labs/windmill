@@ -326,7 +326,7 @@
 						<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 					{/each}
 					{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
-						<Menu {createMenu} let:item>
+						<Menu {createMenu} let:item usePointerDownOutside>
 							<svelte:fragment slot="trigger" let:trigger>
 								<div
 									slot="trigger"
@@ -377,7 +377,7 @@
 				{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 					{#if menuLink.subItems}
 						{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
-						<Menu {createMenu} let:item>
+						<Menu {createMenu} let:item usePointerDownOutside>
 							<svelte:fragment slot="trigger" let:trigger>
 								<MenuButtonMelt
 									class="!text-2xs"
@@ -465,7 +465,7 @@
 			<Menubar let:createMenu>
 				{#each thirdMenuLinks as menuLink (menuLink)}
 					{#if menuLink.subItems}
-						<Menu {createMenu} let:item>
+						<Menu {createMenu} let:item usePointerDownOutside>
 							<svelte:fragment slot="trigger" let:trigger>
 								<button
 									class="relative w-full"
