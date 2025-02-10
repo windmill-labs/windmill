@@ -412,7 +412,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
 
     Ok((
         serde_json::from_str(trigger_config.get()).map_err(|e| {
-            Error::InternalErr(format!(
+            Error::internal_err(format!(
                 "error parsing capture config for {} trigger: {}",
                 kind, e
             ))

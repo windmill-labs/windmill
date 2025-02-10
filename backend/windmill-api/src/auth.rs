@@ -151,12 +151,16 @@ impl AuthCache {
                 }
             }
             _ => {
-                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<String>)>(
-                    "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) AND (workspace_id IS NULL OR workspace_id = $2) RETURNING owner, email, super_admin, scopes, label",
+                let user_o = sqlx::query!(
+                    "UPDATE token SET last_used_at = now() WHERE
+                        token = $1
+                        AND (expiration > NOW() OR expiration IS NULL)
+                        AND (workspace_id IS NULL OR workspace_id = $2)
+                    RETURNING owner, email, super_admin, scopes, label",
+                    token,
+                    w_id.as_ref(),
                 )
-                .bind(token)
-                .bind(w_id.as_ref())
+                .map(|x| (x.owner, x.email, x.super_admin, x.scopes, x.label))
                 .fetch_optional(&self.db)
                 .await
                 .ok()
@@ -251,12 +255,13 @@ impl AuthCache {
                             (_, Some(email), super_admin, scopes, label) => {
                                 let username_override = username_override_from_label(label);
                                 if w_id.is_some() {
-                                    let row_o = sqlx::query_as::<_, (String, bool, bool)>(
-                                        "SELECT username, is_admin, operator FROM usr where email = $1 AND \
-                                         workspace_id = $2 AND disabled = false",
+                                    let row_o = sqlx::query!(
+                                        "SELECT username, is_admin, operator FROM usr WHERE
+                                            email = $1 AND workspace_id = $2 AND disabled = false",
+                                        &email,
+                                        w_id.as_ref().unwrap()
                                     )
-                                    .bind(&email)
-                                    .bind(&w_id.as_ref().unwrap())
+                                    .map(|x| (x.username, x.is_admin, x.operator))
                                     .fetch_optional(&self.db)
                                     .await
                                     .unwrap_or(Some(("error".to_string(), false, false)));

@@ -71,7 +71,7 @@ pub async fn push_scheduled_job<'c>(
     let next = next.with_timezone(&chrono::Utc);
 
     let already_exists: bool = query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
+        "SELECT EXISTS (SELECT 1 FROM v2_as_queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
         &schedule.workspace_id,
         &schedule.path,
         next
@@ -149,7 +149,7 @@ pub async fn push_scheduled_job<'c>(
         if schedule.retry.is_some() {
             let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
                 .map_err(|err| {
-                    error::Error::InternalErr(format!(
+                    error::Error::internal_err(format!(
                         "Unable to parse retry information from schedule: {}",
                         err.to_string(),
                     ))

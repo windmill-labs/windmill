@@ -232,6 +232,7 @@ async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
     job: Arc<QueuedJob>,
     result: Arc<Box<RawValue>>,
+    result_columns: Option<Vec<String>>,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     success: bool,
@@ -242,6 +243,7 @@ async fn send_job_completed(
     let jc = JobCompleted {
         job,
         result,
+        result_columns,
         mem_peak,
         canceled_by,
         success,
@@ -272,52 +274,22 @@ pub async fn process_result(
 ) -> error::Result<bool> {
     match result {
         Ok(r) => {
-            let job = if column_order.is_some() || new_args.is_some() {
-                let mut updated_job = (*job).clone();
-                if let Some(column_order) = column_order {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "column_order": column_order
-                                    }
-                                }))));
-                        }
-                    }
-                }
-                if let Some(new_args) = new_args {
-                    match updated_job.flow_status {
-                        Some(_) => {
-                            tracing::warn!("flow_status was expected to be none");
-                        }
-                        None => {
-                            // TODO save original args somewhere
-                            // if let Some(args) = updated_job.args.as_mut() {
-                            //     args.0.remove(ENTRYPOINT_OVERRIDE);
-                            // }
-                            updated_job.flow_status =
-                                Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                    "_metadata": {
-                                        "preprocessed_args": true
-                                    }
-                                }))));
-                        }
-                    }
-                    updated_job.args = Some(Json(new_args));
-                }
-                Arc::new(updated_job)
-            } else {
-                job
-            };
+            // Update script args to preprocessed args
+            if let Some(preprocessed_args) = new_args {
+                sqlx::query!(
+                    "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
+                    Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
+                    job.id
+                )
+                .execute(db)
+                .await?;
+            }
 
             send_job_completed(
                 job_completed_tx,
                 job,
                 r,
+                column_order,
                 mem_peak,
                 canceled_by,
                 true,
@@ -331,7 +303,7 @@ pub async fn process_result(
         }
         Err(e) => {
             let error_value = match e {
-                Error::ExitStatus(i) => {
+                Error::ExitStatus(program, i) => {
                     let res = read_result(job_dir).await.ok();
 
                     if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
@@ -348,11 +320,11 @@ pub async fn process_result(
                             .last()
                             .unwrap_or(&last_10_log_lines);
 
-                        extract_error_value(log_lines, i, job.flow_step_id.clone())
+                        extract_error_value(&program, log_lines, i, job.flow_step_id.clone())
                     }
                 }
                 err @ _ => to_raw_value(&SerializedError {
-                    message: format!("error during execution of the script:\n{}", err),
+                    message: format!("error during execution of the script:\n{err:#}",),
                     name: "ExecutionErr".to_string(),
                     step_id: job.flow_step_id.clone(),
                     exit_code: None,
@@ -363,6 +335,7 @@ pub async fn process_result(
                 job_completed_tx,
                 job,
                 Arc::new(to_raw_value(&error_value)),
+                None,
                 mem_peak,
                 canceled_by,
                 false,
@@ -435,7 +408,17 @@ pub async fn handle_receive_completed_job(
 }
 
 pub async fn process_completed_job(
-    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, duration, .. }: JobCompleted,
+    JobCompleted {
+        job,
+        result,
+        mem_peak,
+        success,
+        cached_res_path,
+        canceled_by,
+        duration,
+        result_columns,
+        ..
+    }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -455,12 +438,32 @@ pub async fn process_completed_job(
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
 
+        if job.flow_step_id.as_deref() == Some("preprocessor") {
+            // Do this before inserting to `v2_job_completed` for backwards compatibility
+            // when we set `flow_status->_metadata->preprocessed_args` to true.
+            sqlx::query!(
+                r#"UPDATE v2_job SET
+                    args = '{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}'::jsonb,
+                    preprocessed = TRUE
+                WHERE id = $1 AND preprocessed = FALSE"#,
+                job.id
+            )
+            .execute(db)
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "error while deleting args of preprocessing step: {e:#}"
+                ))
+            })?;
+        }
+
         add_completed_job(
             db,
             &job,
             true,
             false,
             Json(&result),
+            result_columns,
             mem_peak.to_owned(),
             canceled_by,
             false,
@@ -662,10 +665,15 @@ pub struct SerializedError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
 }
-pub fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> Box<RawValue> {
+pub fn extract_error_value(
+    program: &str,
+    log_lines: &str,
+    i: i32,
+    step_id: Option<String>,
+) -> Box<RawValue> {
     return to_raw_value(&SerializedError {
         message: format!(
-            "ExitCode: {i}, last log lines:\n{}",
+            "exit code for \"{program}\": {i}, last log lines:\n{}",
             ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()
         ),
         name: "ExecutionErr".to_string(),

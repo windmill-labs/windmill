@@ -977,17 +977,17 @@ async fn get_modal_blocks(
 
     let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
-            queue.job_kind AS \"job_kind: JobKind\",
-            queue.script_hash AS \"script_hash: ScriptHash\",
-            queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-            completed_job.parent_job AS \"parent_job: Uuid\",
-            completed_job.created_at AS \"created_at: chrono::NaiveDateTime\",
-            completed_job.created_by AS \"created_by!\",
-            queue.script_path,
-            queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM queue
-        JOIN completed_job ON completed_job.parent_job = queue.id
-        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2
+            v2_as_queue.job_kind AS \"job_kind!: JobKind\",
+            v2_as_queue.script_hash AS \"script_hash: ScriptHash\",
+            v2_as_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+            v2_as_completed_job.parent_job AS \"parent_job: Uuid\",
+            v2_as_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
+            v2_as_completed_job.created_by AS \"created_by!\",
+            v2_as_queue.script_path,
+            v2_as_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_as_queue
+        JOIN v2_as_completed_job ON v2_as_completed_job.parent_job = v2_as_queue.id
+        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2
         LIMIT 1",
         job_id,
         &w_id

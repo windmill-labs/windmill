@@ -340,7 +340,7 @@ async fn update_folder(
 
     let sql = sqlb
         .sql()
-        .map_err(|e| error::Error::InternalErr(e.to_string()))?;
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
     let nfolder = sqlx::query_as::<_, Folder>(&sql)
         .fetch_optional(&mut *tx)
         .await?;

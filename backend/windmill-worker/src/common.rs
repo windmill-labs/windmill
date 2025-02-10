@@ -12,7 +12,6 @@ use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
 
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
@@ -149,13 +148,13 @@ pub async fn transform_json<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -177,13 +176,13 @@ pub async fn transform_json_as_values<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -237,7 +236,7 @@ pub async fn transform_json_value(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(format!(
+                return Err(Error::internal_err(format!(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
@@ -256,14 +255,14 @@ pub async fn transform_json_value(
             let mc =
                 build_crypt_with_key_suffix(&db, &job.workspace_id, &job.id.to_string()).await?;
             decrypt(&mc, encrypted.to_string()).and_then(|x| {
-                serde_json::from_str(&x).map_err(|e| Error::InternalErr(e.to_string()))
+                serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
             })
 
             // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {
-                sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_optional(db)
                     .await?
                     .flatten()
@@ -397,7 +396,7 @@ pub async fn get_reserved_variables(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if let Some(uuid) = job.parent_job {
-        sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+        sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
             .fetch_optional(db)
             .await?
             .flatten()
@@ -438,15 +437,6 @@ pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String,
     }
 
     r
-}
-
-pub fn get_main_override(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> Option<String> {
-    return args
-        .map(|x| {
-            x.0.get(ENTRYPOINT_OVERRIDE)
-                .map(|x| x.get().to_string().replace("\"", ""))
-        })
-        .flatten();
 }
 
 pub fn sizeof_val(v: &serde_json::Value) -> usize {
@@ -570,7 +560,7 @@ impl OccupancyMetrics {
 pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
     return cmd
         .spawn()
-        .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+        .map_err(|err| tentatively_improve_error(err.into(), executable));
 }
 
 pub async fn resolve_job_timeout(
@@ -930,7 +920,7 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     let err_msg = "program not found";
 
     if err.to_string().contains(&err_msg) {
-        return Error::InternalErr(format!(
+        return Error::internal_err(format!(
             "Executable {executable} not found on worker. PATH: {}",
             *PATH_ENV
         ));
@@ -967,5 +957,5 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
         .timeout(timeout_duration)
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| Error::InternalErr(format!("Error building http client: {e:#}")))
+        .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
