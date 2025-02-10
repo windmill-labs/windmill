@@ -4,10 +4,7 @@ use std::{
     fmt::Display,
     ops::Mul,
     str::FromStr,
-    sync::{
-        atomic::{AtomicU16, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 
@@ -15,11 +12,7 @@ use chrono::{NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
 use serde::{de::DeserializeOwned, Deserializer};
 use sqlx::{Pool, Postgres};
-use tokio::{
-    join,
-    sync::{mpsc, RwLock},
-};
-use uuid::Uuid;
+use tokio::{join, sync::RwLock};
 
 #[cfg(feature = "embedding")]
 use windmill_api::embeddings::update_embeddings_db;
@@ -37,7 +30,6 @@ use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
     error,
-    flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
@@ -50,12 +42,11 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     indexer::load_indexer_config,
-    jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{now_from_db, rd_string, report_critical_error, Mode},
+    utils::{rd_string, Mode},
     worker::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
         update_min_version, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG,
@@ -66,11 +57,9 @@ use windmill_common::{
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
     SERVICE_LOG_RETENTION_SECS,
 };
-use windmill_queue::cancel_job;
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
-    SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -89,18 +78,6 @@ use crate::ee::set_license_key;
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
-
-    static ref QUEUE_ZOMBIE_RESTART_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
-        "queue_zombie_restart_count",
-        "Total number of jobs restarted due to ping timeout."
-    )
-    .unwrap();
-    static ref QUEUE_ZOMBIE_DELETE_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
-        "queue_zombie_delete_count",
-        "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
-    )
-    .unwrap();
-
     static ref QUEUE_COUNT: prometheus::IntGaugeVec = prometheus::register_int_gauge_vec!(
         "queue_count",
         "Number of jobs in the queue",
@@ -109,26 +86,7 @@ lazy_static::lazy_static! {
 
 }
 lazy_static::lazy_static! {
-    static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
-    .ok()
-    .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "60".to_string());
-
-    static ref FLOW_ZOMBIE_TRANSITION_TIMEOUT: String = std::env::var("FLOW_ZOMBIE_TRANSITION_TIMEOUT")
-    .ok()
-    .and_then(|x| x.parse::<String>().ok())
-    .unwrap_or_else(|| "60".to_string());
-
-
-    pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
-    .ok()
-    .and_then(|x| x.parse::<bool>().ok())
-    .unwrap_or(true);
-
-
-
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
-
 }
 
 pub async fn initial_load(
@@ -1232,13 +1190,15 @@ pub async fn monitor_db(
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load {
-            handle_zombie_jobs(db, base_internal_url, "server").await;
-            match handle_zombie_flows(db).await {
-                Err(err) => {
-                    tracing::error!("Error handling zombie flows: {:?}", err);
-                }
-                _ => {}
-            }
+            windmill_worker::monitor::monitor_once(
+                &db,
+                base_internal_url,
+                "server",
+                None,
+                None,
+                None,
+            )
+            .await;
         }
     };
     let expired_items_f = async {
@@ -1514,346 +1474,6 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         *l = is_secure;
     }
 
-    Ok(())
-}
-
-async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
-    if *RESTART_ZOMBIE_JOBS {
-        let restarted = sqlx::query!(
-            "WITH zombie_jobs AS (
-                UPDATE v2_job_queue q SET running = false, started_at = null
-                FROM v2_job j, v2_job_runtime r
-                WHERE j.id = q.id AND j.id = r.id
-                    AND ping < now() - ($1 || ' seconds')::interval
-                    AND running = true
-                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')
-                    AND same_worker = false
-                RETURNING q.id, q.workspace_id, ping
-            ),
-            update_concurrency AS (
-                UPDATE concurrency_counter cc
-                SET job_uuids = job_uuids - zj.id::text
-                FROM zombie_jobs zj
-                INNER JOIN concurrency_key ck ON ck.job_id = zj.id
-                WHERE cc.concurrency_id = ck.key
-            )
-            SELECT id, workspace_id, ping FROM zombie_jobs",
-            *ZOMBIE_JOB_TIMEOUT,
-        )
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
-
-        #[cfg(feature = "prometheus")]
-        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-            QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
-        }
-
-        let base_url = BASE_URL.read().await.clone();
-        for r in restarted {
-            let last_ping = if let Some(x) = r.ping {
-                format!("last ping at {x}")
-            } else {
-                "no last ping".to_string()
-            };
-            let url = format!("{}/run/{}?workspace={}", base_url, r.id, r.workspace_id,);
-            let error_message = format!(
-                "Zombie job {} on {} ({}) detected, restarting it, {}",
-                r.id, r.workspace_id, url, last_ping
-            );
-
-            let _ = sqlx::query!("
-                INSERT INTO job_logs (job_id, logs)
-                VALUES ($1, 'Restarted job after not receiving job''s ping for too long the ' || now() || '\n\n')
-                ON CONFLICT (job_id) DO UPDATE SET logs = job_logs.logs || '\n' || EXCLUDED.logs
-                WHERE job_logs.job_id = $1",
-                r.id
-            )
-            .execute(db)
-            .await;
-            tracing::error!(error_message);
-            report_critical_error(error_message, db.clone(), Some(&r.workspace_id), None).await;
-        }
-    }
-
-    let same_worker_timeout_jobs = {
-        let long_same_worker_jobs = sqlx::query!(
-            "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval 
-    AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
-        )
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
-
-        let worker_ids = long_same_worker_jobs
-            .iter()
-            .map(|x| x.worker.clone().unwrap_or_default())
-            .collect::<Vec<_>>();
-
-        let long_dead_workers: std::collections::HashSet<String> = sqlx::query_scalar!(
-            "WITH worker_ids AS (SELECT unnest($1::text[]) as worker) 
-            SELECT worker_ids.worker FROM worker_ids 
-            LEFT JOIN worker_ping ON worker_ids.worker = worker_ping.worker 
-                WHERE worker_ping.worker IS NULL OR worker_ping.ping_at < now() - ('60 seconds')::interval",
-            &worker_ids[..]
-        )
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![])
-        .into_iter()
-        .filter_map(|x| x)
-        .collect();
-
-        let mut timeouts: Vec<Uuid> = vec![];
-        for worker in long_same_worker_jobs {
-            if worker.worker.is_some() && long_dead_workers.contains(&worker.worker.unwrap()) {
-                if let Some(ids) = worker.ids {
-                    timeouts.extend(ids);
-                }
-            }
-        }
-        if !timeouts.is_empty() {
-            tracing::error!(
-                "Failing same worker zombie jobs: {:?}",
-                timeouts
-                    .iter()
-                    .map(|x| x.hyphenated().to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-        }
-
-        let jobs = sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
-            .bind(&timeouts[..])
-            .fetch_all(db)
-            .await
-            .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
-            .unwrap_or_default();
-
-        jobs
-    };
-
-    let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
-        vec![]
-    } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
-        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
-        .fetch_all(db)
-        .await
-        .ok()
-            .unwrap_or_else(|| vec![])
-    };
-
-    let timeouts = non_restartable_jobs
-        .into_iter()
-        .chain(same_worker_timeout_jobs)
-        .collect::<Vec<_>>();
-
-    #[cfg(feature = "prometheus")]
-    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
-    }
-
-    for job in timeouts {
-        // since the job is unrecoverable, the same worker queue should never be sent anything
-        let (same_worker_tx_never_used, _same_worker_rx_never_used) =
-            mpsc::channel::<SameWorkerPayload>(1);
-        let same_worker_tx_never_used =
-            SameWorkerSender(same_worker_tx_never_used, Arc::new(AtomicU16::new(0)));
-        let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
-
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
-        let token = create_token_for_owner(
-            &db,
-            &job.workspace_id,
-            &job.permissioned_as,
-            &label,
-            *SCRIPT_TOKEN_EXPIRY,
-            &job.email,
-            &job.id,
-        )
-        .await
-        .expect("could not create job token");
-
-        let client = AuthedClient {
-            base_internal_url: base_internal_url.to_string(),
-            token,
-            workspace: job.workspace_id.to_string(),
-            force_client: None,
-        };
-
-        let last_ping = job.last_ping.clone();
-        let _ = handle_job_error(
-            db,
-            &client,
-            &job,
-            0,
-            None,
-            error::Error::ExecutionErr(format!(
-                "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, same_worker: {})",
-                last_ping
-                    .map(|x| x.to_string())
-                    .unwrap_or_else(|| "no ping".to_string()),
-                *ZOMBIE_JOB_TIMEOUT,
-                job.same_worker
-            )),
-            true,
-            same_worker_tx_never_used,
-            "",
-            worker_name,
-            send_result_never_used,
-            #[cfg(feature = "benchmark")]
-            &mut windmill_worker::bench::BenchmarkIter::new(),
-        )
-        .await;
-    }
-}
-
-async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
-    let flows = sqlx::query!(
-        r#"
-        SELECT
-            id AS "id!", workspace_id AS "workspace_id!", parent_job, is_flow_step,
-            flow_status AS "flow_status: Box<str>", last_ping, same_worker
-        FROM v2_as_queue
-        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
-            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
-            AND canceled = false
-        "#,
-        FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
-    )
-    .fetch_all(db)
-    .await?;
-
-    for flow in flows {
-        let status = flow
-            .flow_status
-            .as_deref()
-            .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
-        if !flow.same_worker.unwrap_or(false)
-            && status.is_some_and(|s| {
-                s.modules
-                    .get(0)
-                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
-            })
-        {
-            let error_message = format!(
-                "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
-                flow.id, flow.workspace_id
-            );
-            tracing::error!(error_message);
-            report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None).await;
-            // if the flow hasn't started and is a zombie, we can simply restart it
-            let mut tx = db.begin().await?;
-
-            let concurrency_key =
-                sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", flow.id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-
-            if let Some(key) = concurrency_key {
-                sqlx::query!(
-                    "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
-                    key,
-                    flow.id.hyphenated().to_string()
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-
-            sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null
-                WHERE id = $1 AND canceled_by IS NULL",
-                flow.id
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            tx.commit().await?;
-        } else {
-            let id = flow.id.clone();
-            let last_ping = flow.last_ping.clone();
-            let now = now_from_db(db).await?;
-            let reason = format!(
-                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
-                if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
-                    format!("Flow was cancelled because subflow {id}")
-                } else {
-                    format!("Flow {id} was cancelled because it")
-                }
-            );
-            report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, reason).await?;
-        }
-    }
-
-    let flows2 = sqlx::query!(
-        r#"
-        DELETE
-        FROM parallel_monitor_lock
-        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
-        RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM v2_job_queue q
-            WHERE q.id = parent_flow_id AND q.running = true AND q.canceled_by IS NULL
-        ) AS workspace_id
-        "#,
-        FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
-    )
-    .fetch_all(db)
-    .await?;
-
-    for flow in flows2 {
-        if let Some(parent_flow_workspace_id) = flow.workspace_id {
-            tracing::error!(
-                "parallel Zombie flow detected: {} in workspace {}. Last ping was: {:?}.",
-                flow.parent_flow_id,
-                parent_flow_workspace_id,
-                flow.last_ping
-            );
-            cancel_zombie_flow_job(db, flow.parent_flow_id, &parent_flow_workspace_id,
-                format!("Flow {} cancelled as one of the parallel branch {} was unable to make the last transition ", flow.parent_flow_id, flow.job_id))
-                .await?;
-        } else {
-            tracing::info!("releasing lock for parallel flow: {}", flow.parent_flow_id);
-        }
-    }
-    Ok(())
-}
-
-async fn cancel_zombie_flow_job(
-    db: &Pool<Postgres>,
-    id: Uuid,
-    workspace_id: &str,
-    message: String,
-) -> Result<(), error::Error> {
-    let mut tx = db.begin().await?;
-    tracing::error!(
-        "zombie flow detected: {} in workspace {}. Cancelling it.",
-        id,
-        workspace_id
-    );
-    (tx, _) = cancel_job(
-        "monitor",
-        Some(message),
-        id,
-        workspace_id,
-        tx,
-        db,
-        true,
-        false,
-    )
-    .await?;
-    tx.commit().await?;
     Ok(())
 }
 

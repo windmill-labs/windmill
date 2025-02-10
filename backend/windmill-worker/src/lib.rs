@@ -25,6 +25,7 @@ mod handle_child;
 mod job_logger;
 mod job_logger_ee;
 mod js_eval;
+pub mod monitor;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
 #[cfg(feature = "oracledb")]

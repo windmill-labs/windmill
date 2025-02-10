@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 use std::future::Future;
-use std::{str::FromStr, sync::Arc};
+use std::{default::Default, str::FromStr, sync::Arc};
 use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
 
 #[cfg(feature = "enterprise")]
@@ -13,7 +13,6 @@ use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres};
 
 use tokio::sync::RwLock;
-#[cfg(feature = "enterprise")]
 use tokio::time::{timeout, Duration};
 
 use windmill_api_client::types::{CreateFlowBody, RawScript};
@@ -42,7 +41,7 @@ pub struct CompletedJob {
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     pub script_path: Option<String>,
@@ -153,7 +152,7 @@ impl ApiServer {
         println!("closing api server");
         let Self { tx, task, .. } = self;
         drop(tx);
-        task.await.unwrap()
+        task.await?
     }
 }
 
@@ -213,7 +212,7 @@ mod suspend_resume {
     }
 
     fn flow() -> FlowValue {
-        serde_json::from_value(serde_json::json!({
+        serde_json::from_value(json!({
                 "modules": [{
                     "id": "a",
                     "value": {
@@ -302,7 +301,10 @@ mod suspend_resume {
         let queue = listen_for_queue(&db).await;
         let db_ = db.clone();
 
-        in_test_worker(&db, async move {
+        in_test_worker(
+            &db,
+            WorkerOptions { port, ..Default::default() },
+            async move {
                 let db = db_;
 
                 wait_until_flow_suspends(flow, queue, &db).await;
@@ -336,8 +338,9 @@ mod suspend_resume {
                 .unwrap();
 
                 completed.find(&flow).await.unwrap();
-            }, port)
-            .await;
+            }
+        )
+        .await;
 
         server.close().await.unwrap();
 
@@ -409,7 +412,10 @@ mod suspend_resume {
         let queue = listen_for_queue(&db).await;
         let db_ = db.clone();
 
-        in_test_worker(&db, async move {
+        in_test_worker(
+            &db,
+            WorkerOptions { port, ..Default::default() },
+            async move {
                 let db = db_;
 
                 wait_until_flow_suspends(flow, queue, &db).await;
@@ -439,8 +445,9 @@ mod suspend_resume {
                 .unwrap();
 
                 completed.find(&flow).await.unwrap();
-            }, port)
-            .await;
+            }
+        )
+        .await;
 
         server.close().await.unwrap();
 
@@ -496,7 +503,7 @@ mod retry {
                 results
             });
 
-            return Self { addr, tx, task };
+            Self { addr, tx, task }
         }
 
         async fn close(self) -> Vec<u8> {
@@ -528,7 +535,7 @@ def main(last, port):
     }
 
     fn flow_forloop_retry() -> FlowValue {
-        serde_json::from_value(serde_json::json!({
+        serde_json::from_value(json!({
             "modules": [{
                 "id": "a",
                 "value": {
@@ -640,15 +647,15 @@ def main(last, port):
 
         assert_eq!(server.close().await, attempts);
 
-        assert!(
+        assert_eq!(
             result[1]["error"]
                 .as_object()
                 .unwrap()
                 .get("message")
                 .unwrap()
                 .as_str()
-                .unwrap()
-                == "read"
+                .unwrap(),
+            "read"
         );
     }
 
@@ -775,7 +782,7 @@ async fn test_iteration(db: Pool<Postgres>) {
 
     let server = ApiServer::start(db.clone()).await;
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [{
             "value": {
                 "type": "forloopflow",
@@ -806,7 +813,7 @@ async fn test_iteration(db: Pool<Postgres>) {
             .await
             .json_result()
             .unwrap();
-    assert_eq!(result, serde_json::json!([]));
+    assert_eq!(result, json!([]));
 
     /* Don't actually test that this does 257 jobs or that will take forever. */
     let result =
@@ -833,7 +840,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
 
     let server = ApiServer::start(db.clone()).await;
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [{
             "value": {
                 "type": "forloopflow",
@@ -865,7 +872,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
             .await
             .json_result()
             .unwrap();
-    assert_eq!(result, serde_json::json!([]));
+    assert_eq!(result, json!([]));
 
     /* Don't actually test that this does 257 jobs or that will take forever. */
     let job =
@@ -946,7 +953,12 @@ impl RunJob {
     async fn run_until_complete(self, db: &Pool<Postgres>, port: u16) -> CompletedJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
-        in_test_worker(db, listener.find(&uuid), port).await;
+        in_test_worker(
+            db,
+            WorkerOptions { port, ..Default::default() },
+            listener.find(&uuid),
+        )
+        .await;
         let r = completed_job(uuid, db).await;
         r
     }
@@ -961,7 +973,12 @@ impl RunJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         test(uuid).await;
-        in_test_worker(db, listener.find(&uuid), port).await;
+        in_test_worker(
+            db,
+            WorkerOptions { port, ..Default::default() },
+            listener.find(&uuid),
+        )
+        .await;
         let r = completed_job(uuid, db).await;
         r
     }
@@ -975,17 +992,34 @@ async fn run_job_in_new_worker_until_complete(
     RunJob::from(job).run_until_complete(db, port).await
 }
 
+#[derive(Default)]
+enum MonitorZombiesOption {
+    #[default]
+    Disabled,
+    Enabled {
+        restart_zombies: bool,
+        timeout_seconds: &'static str,
+        flow_timeout_seconds: &'static str,
+    },
+}
+
+#[derive(Default)]
+struct WorkerOptions {
+    port: u16,
+    monitor_zombies: MonitorZombiesOption,
+}
+
 /// Start a worker with a timeout and run a future, until the worker quits or we time out.
 ///
 /// Cleans up the worker before resolving.
-async fn in_test_worker<Fut: std::future::Future>(
+async fn in_test_worker<Fut: Future>(
     db: &Pool<Postgres>,
+    options: WorkerOptions,
     inner: Fut,
-    port: u16,
-) -> <Fut as std::future::Future>::Output {
+) -> <Fut as Future>::Output {
     set_jwt_secret().await;
-    let (quit, worker) = spawn_test_worker(db, port);
-    let worker = tokio::time::timeout(std::time::Duration::from_secs(60), worker);
+    let (quit, worker) = spawn_test_worker(db, options);
+    let worker = timeout(Duration::from_secs(60), worker);
     tokio::pin!(worker);
 
     let res = tokio::select! {
@@ -1010,7 +1044,7 @@ async fn in_test_worker<Fut: std::future::Future>(
 
 fn spawn_test_worker(
     db: &Pool<Postgres>,
-    port: u16,
+    options: WorkerOptions,
 ) -> (
     tokio::sync::broadcast::Sender<()>,
     tokio::task::JoinHandle<()>,
@@ -1032,8 +1066,9 @@ fn spawn_test_worker(
     let ip: &str = Default::default();
 
     let tx2 = tx.clone();
-    let future = async move {
-        let base_internal_url = format!("http://localhost:{}", port);
+    let db2 = db.clone();
+    let worker_fut = async move {
+        let base_internal_url = format!("http://localhost:{}", options.port);
         {
             let mut wc = WORKER_CONFIG.write().await;
             (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
@@ -1045,7 +1080,7 @@ fn spawn_test_worker(
             windmill_common::worker::make_pull_query(&wc).await;
         }
         windmill_worker::run_worker(
-            &db,
+            &db2,
             worker_instance,
             worker_name,
             1,
@@ -1059,6 +1094,35 @@ fn spawn_test_worker(
         .await
     };
 
+    let MonitorZombiesOption::Enabled { restart_zombies, timeout_seconds, flow_timeout_seconds } =
+        options.monitor_zombies
+    else {
+        return (tx, tokio::task::spawn(worker_fut));
+    };
+
+    let mut rx = tx.subscribe();
+    let monitor_fut = async move {
+        let base_internal_url = format!("http://localhost:{}", options.port);
+        loop {
+            if rx.try_recv().is_ok() {
+                break;
+            }
+            windmill_worker::monitor::monitor_once(
+                &db,
+                &base_internal_url,
+                worker_instance,
+                Some(timeout_seconds),
+                Some(restart_zombies),
+                Some(flow_timeout_seconds),
+            )
+            .await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+
+    let future = async move {
+        tokio::select! { biased; _ = worker_fut => (), _ = monitor_fut => () }
+    };
     (tx, tokio::task::spawn(future))
 }
 
@@ -1101,10 +1165,10 @@ async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
 }
 
 #[axum::async_trait(?Send)]
-trait StreamFind: futures::Stream + Unpin + Sized {
+trait StreamFind: Stream + Unpin + Sized {
     async fn find(self, item: &Self::Item) -> Option<Self::Item>
     where
-        for<'l> &'l Self::Item: std::cmp::PartialEq,
+        for<'l> &'l Self::Item: PartialEq,
     {
         use futures::{future::ready, StreamExt};
 
@@ -1112,7 +1176,7 @@ trait StreamFind: futures::Stream + Unpin + Sized {
     }
 }
 
-impl<T: futures::Stream + Unpin + Sized> StreamFind for T {}
+impl<T: Stream + Unpin + Sized> StreamFind for T {}
 
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow(db: Pool<Postgres>) {
@@ -1228,7 +1292,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
         let job = run_job_in_new_worker_until_complete(&db, job.clone(), port).await;
         // println!("job: {:#?}", job.flow_status);
         let result = job.json_result().unwrap();
-        assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
+        assert_eq!(result, json!([2, 4, 6]), "iteration: {}", i);
     }
 }
 
@@ -1238,7 +1302,7 @@ async fn test_identity(db: Pool<Postgres>) {
 
     let server = ApiServer::start(db.clone()).await;
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [{
                 "value": {
                     "type": "rawscript",
@@ -1266,7 +1330,7 @@ async fn test_identity(db: Pool<Postgres>) {
             .await
             .json_result()
             .unwrap();
-    assert_eq!(result, serde_json::json!(42));
+    assert_eq!(result, json!(42));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1488,7 +1552,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
         .unwrap();
     assert_eq!(
         result,
-        serde_json::json!("false 1,true 1,false 1,true 2,false 1,true 3,false 1,true 3")
+        json!("false 1,true 1,false 1,true 2,false 1,true 3,false 1,true 3")
     );
 }
 
@@ -1541,7 +1605,7 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) {
         .await
         .json_result()
         .unwrap();
-    assert_eq!(result, serde_json::json!([[42]]));
+    assert_eq!(result, json!([[42]]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1551,7 +1615,7 @@ async fn test_stop_after_if(db: Pool<Postgres>) {
     // let port = server.addr.port();
 
     let port = 123;
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
                 "id": "a",
@@ -1604,7 +1668,7 @@ async fn test_stop_after_if_nested(db: Pool<Postgres>) {
     // let port = server.addr.port();
 
     let port = 123;
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
                 "id": "a",
@@ -1664,7 +1728,7 @@ async fn test_python_flow(db: Pool<Postgres>) {
     let numbers = "def main(): return [1, 2, 3]";
     let doubles = "def main(n): return n * 2";
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!( {
+    let flow: FlowValue = serde_json::from_value(json!( {
         "modules": [
             {
                 "value": {
@@ -1708,7 +1772,7 @@ async fn test_python_flow(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-        assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {i}");
+        assert_eq!(result, json!([2, 4, 6]), "iteration: {i}");
     }
 }
 
@@ -1718,7 +1782,7 @@ async fn test_python_flow_2(db: Pool<Postgres>) {
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
             "modules": [
                 {
                     "value": {
@@ -1743,7 +1807,7 @@ async fn test_python_flow_2(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-        assert_eq!(result, serde_json::json!("Hello"), "iteration: {i}");
+        assert_eq!(result, json!("Hello"), "iteration: {i}");
     }
 }
 
@@ -1783,7 +1847,7 @@ func main(derp string) (string, error) {
     .json_result()
     .unwrap();
 
-    assert_eq!(result, serde_json::json!("hello world"));
+    assert_eq!(result, json!("hello world"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1818,7 +1882,7 @@ fn main(world: String) -> Result<String, String> {
     .json_result()
     .unwrap();
 
-    assert_eq!(result, serde_json::json!("Hello Hyrule!"));
+    assert_eq!(result, json!("Hello Hyrule!"));
 }
 
 // #[sqlx::test(fixtures("base"))]
@@ -1923,7 +1987,7 @@ def main():
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!("hello world"));
+    assert_eq!(result, json!("hello world"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1959,7 +2023,7 @@ def main():
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!(3));
+    assert_eq!(result, json!(3));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1994,7 +2058,7 @@ def main():
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!("test-workspace"));
+    assert_eq!(result, json!("test-workspace"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2028,7 +2092,7 @@ export async function main(a: Date) {
     .json_result()
     .unwrap();
 
-    assert_eq!(result, serde_json::json!("object"));
+    assert_eq!(result, json!("object"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2062,7 +2126,7 @@ export async function main(a: Date) {
     .json_result()
     .unwrap();
 
-    assert_eq!(result, serde_json::json!("object"));
+    assert_eq!(result, json!("object"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2097,7 +2161,7 @@ def main(a: datetime, b: bytes):
     .json_result()
     .unwrap();
 
-    assert_eq!(result, serde_json::json!([true, true]));
+    assert_eq!(result, json!([true, true]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2106,7 +2170,7 @@ async fn test_empty_loop_1(db: Pool<Postgres>) {
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
                 "id": "a",
@@ -2153,7 +2217,7 @@ async fn test_empty_loop_1(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!(0));
+    assert_eq!(result, json!(0));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2162,7 +2226,7 @@ async fn test_invalid_first_step(db: Pool<Postgres>) {
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
                 "value": {
@@ -2200,7 +2264,7 @@ async fn test_empty_loop_2(db: Pool<Postgres>) {
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
                 "value": {
@@ -2233,7 +2297,7 @@ async fn test_empty_loop_2(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!([]));
+    assert_eq!(result, json!([]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2241,7 +2305,7 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
                 "id": "a",
@@ -2288,7 +2352,7 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!(9));
+    assert_eq!(result, json!(9));
 }
 
 fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
@@ -2356,7 +2420,7 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!([1, 2]));
+    assert_eq!(result, json!([1, 2]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2392,7 +2456,7 @@ async fn test_branchone_with_cond(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!([1, 3]));
+    assert_eq!(result, json!([1, 3]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2430,7 +2494,7 @@ async fn test_branchall_sequential(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+    assert_eq!(result, json!([[1, 2], [1, 3]]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2467,7 +2531,7 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+    assert_eq!(result, json!([[1, 2], [1, 3]]));
 }
 
 #[derive(Deserialize)]
@@ -2615,7 +2679,7 @@ async fn test_branchone_nested(db: Pool<Postgres>) {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!([1, 2, 3]));
+    assert_eq!(result, json!([1, 2, 3]));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -2675,7 +2739,7 @@ async fn test_branchall_nested(db: Pool<Postgres>) {
     println!("{:#?}", result);
     assert_eq!(
         result,
-        serde_json::json!([[[[1, 2], [1, 3], 4], [[1, 2], [1, 3], 5]], [1, 6]])
+        json!([[[[1, 2], [1, 3], 4], [[1, 2], [1, 3], 5]], [1, 6]])
     );
 }
 
@@ -2685,7 +2749,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
 
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+    let flow: FlowValue = serde_json::from_value(json!({
             "modules": [{
                 "id": "a",
                 "value": {
@@ -2798,7 +2862,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
 
-    let flow: windmill_api_client::types::OpenFlow = serde_json::from_value(serde_json::json!({
+    let flow: windmill_api_client::types::OpenFlow = serde_json::from_value(json!({
         "summary": "",
         "description": "",
         "value": {
@@ -2898,7 +2962,12 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
         .unwrap();
     let mut str = listen_for_completed_jobs(&db).await;
     let listen_first_job = str.next();
-    in_test_worker(&db, listen_first_job, port).await;
+    in_test_worker(
+        &db,
+        WorkerOptions { port, ..Default::default() },
+        listen_first_job,
+    )
+    .await;
 
     let modules = client
         .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
@@ -3193,6 +3262,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     let db2 = db.clone();
     in_test_worker(
         &db,
+        WorkerOptions { port, ..Default::default() },
         async move {
             str.next().await; // completed error job
 
@@ -3220,7 +3290,6 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 );
             }
         },
-        port,
     )
     .await;
 
@@ -3264,6 +3333,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     let db2 = db.clone();
     in_test_worker(
         &db,
+        WorkerOptions { port, ..Default::default() },
         async move {
             str.next().await; // completed working job
             let uuid = timeout(Duration::from_millis(5000), str.next()).await; // recovery handler
@@ -3287,7 +3357,6 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 panic!("a script was run after main job execution but was not schedule recovery handler");
             }
         },
-        port,
     )
     .await;
 }
@@ -3346,6 +3415,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     let db2 = db.clone();
     in_test_worker(
         &db,
+        WorkerOptions { port, ..Default::default() },
         async move {
             str.next().await; // completed error step
             str.next().await; // completed error flow
@@ -3374,7 +3444,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 );
             }
         },
-        port,
     )
     .await;
 
@@ -3418,6 +3487,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     let db2 = db.clone();
     in_test_worker(
         &db,
+        WorkerOptions { port, ..Default::default() },
         async move {
             str.next().await; // completed working step
             str.next().await; // completed working flow
@@ -3442,7 +3512,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 panic!("a script was run after main job execution but was not schedule recovery handler");
             }
         },
-        port,
     )
     .await;
 }
@@ -3502,6 +3571,7 @@ async fn run_deployed_relative_imports(
     let db2 = db.clone();
     in_test_worker(
         &db,
+        WorkerOptions { port, ..Default::default() },
         async move {
             completed.next().await; // deployed script
 
@@ -3534,7 +3604,7 @@ async fn run_deployed_relative_imports(
 
             assert_eq!(
                 result,
-                serde_json::json!([
+                json!([
                     "f/system/same_folder_script",
                     "f/system/same_folder_script",
                     "f/system_relative/different_folder_script",
@@ -3542,7 +3612,6 @@ async fn run_deployed_relative_imports(
                 ])
             );
         },
-        port,
     )
     .await;
 }
@@ -3560,6 +3629,7 @@ async fn run_preview_relative_imports(
     let db2 = db.clone();
     in_test_worker(
         &db,
+        WorkerOptions { port, ..Default::default() },
         async move {
             let job = RunJob::from(JobPayload::Code(RawCode {
                 hash: None,
@@ -3582,7 +3652,7 @@ async fn run_preview_relative_imports(
 
             assert_eq!(
                 result,
-                serde_json::json!([
+                json!([
                     "f/system/same_folder_script",
                     "f/system/same_folder_script",
                     "f/system_relative/different_folder_script",
@@ -3590,7 +3660,6 @@ async fn run_preview_relative_imports(
                 ])
             );
         },
-        port,
     )
     .await;
 }
@@ -3864,6 +3933,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) {
     let db = &db;
     in_test_worker(
         &db,
+        WorkerOptions { port, ..Default::default() },
         async move {
             let job = RunJob::from(JobPayload::Code(RawCode {
                 language: ScriptLang::Python3,
@@ -3912,7 +3982,6 @@ async fn test_workflow_as_code(db: Pool<Postgres>) {
                 );
             }
         },
-        port,
     )
     .await;
 }
