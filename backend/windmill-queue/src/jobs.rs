@@ -2040,13 +2040,14 @@ pub async fn pull(
                 running = false,
                 started_at = null,
                 scheduled_for = $1
-            WHERE id = (SELECT id FROM ping)",
+            WHERE id = $2",
             estimated_next_schedule_timestamp,
             job_uuid,
         )
-        .fetch_all(&mut *tx)
+        .execute(&mut *tx)
         .await
         .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
+
         tx.commit().await?
     }
 }
