@@ -52,7 +52,7 @@
 		{disabled}
 		use:pointerDownOutside={{
 			capture: true,
-			stopPropagation: open,
+			stopPropagation: false,
 			exclude: getMenuElements,
 			customEventName: 'pointerdown_menu'
 		}}
