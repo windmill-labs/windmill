@@ -1,9 +1,9 @@
-use crate::{
+use serde::Serialize;
+use tokio::time::Instant;
+use windmill_common::{
     worker::{write_file, TMP_DIR},
     DB,
 };
-use serde::Serialize;
-use tokio::time::Instant;
 
 #[derive(Serialize)]
 pub struct BenchmarkInfo {
@@ -79,7 +79,7 @@ impl BenchmarkIter {
 }
 
 pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
-    use crate::{jobs::JobKind, scripts::ScriptLang};
+    use windmill_common::{jobs::JobKind, scripts::ScriptLang};
 
     let benchmark_kind = std::env::var("BENCHMARK_KIND").unwrap_or("noop".to_string());
 
