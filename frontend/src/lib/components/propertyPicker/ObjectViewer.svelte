@@ -93,7 +93,7 @@
 					size="xs2"
 					variant="border"
 					on:click={collapse}
-					wrapperClasses="inline-flex w-fit"
+					wrapperClasses="!inline-flex w-fit"
 					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
 					>-</Button
 				>
@@ -218,7 +218,7 @@
 				size="xs2"
 				variant="border"
 				on:click={collapse}
-				wrapperClasses="inline-flex w-fit"
+				wrapperClasses="!inline-flex w-fit"
 				btnClasses="h-4 text-[9px] px-1  text-primary rounded-[0.275rem]"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}

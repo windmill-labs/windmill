@@ -169,6 +169,34 @@
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
+
+	async function loadIndividualStepsStates() {
+		dfs($flowStore.value.modules, async (module) => {
+			if ($flowStateStore[module.id]?.previewResult) {
+				return
+			}
+			const previousJobId = await JobService.listJobs({
+				workspace: $workspaceStore!,
+				scriptPathExact: (initialPath == '' ? $pathStore : initialPath) + '/' + module.id,
+				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
+				page: 1,
+				perPage: 1
+			})
+
+			if (previousJobId.length > 0) {
+				const getJobResult = await JobService.getCompletedJobResultMaybe({
+					workspace: $workspaceStore!,
+					id: previousJobId[0].id
+				})
+				if (getJobResult.result) {
+					$flowStateStore[module.id] = {
+						...($flowStateStore[module.id] ?? {}),
+						previewResult: getJobResult.result
+					}
+				}
+			}
+		})
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -401,6 +429,9 @@
 				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
 			>
 				<FlowHistoryJobPicker
+					on:nohistory={() => {
+						loadIndividualStepsStates()
+					}}
 					on:select={(e) => {
 						if (!currentJobId) {
 							currentJobId = jobId
@@ -439,11 +470,14 @@
 					{flowStateStore}
 					{jobId}
 					on:done={() => {
-						console.log('done')
 						$executionCount = $executionCount + 1
 					}}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
+						if (initial) {
+							console.log('loading initial steps after initial job loaded')
+							loadIndividualStepsStates()
+						}
 					}}
 					bind:selectedJobStep
 				/>
