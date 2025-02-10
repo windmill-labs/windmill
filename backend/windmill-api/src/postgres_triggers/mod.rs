@@ -15,7 +15,7 @@ use handler::{
     create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
     exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
     is_database_in_logical_level, list_database_publication, list_postgres_triggers,
-    list_slot_name, set_enabled, update_postgres_trigger, PostgresTrigger,
+    list_slot_name, set_enabled, update_postgres_trigger,
 };
 use windmill_common::{db::UserDB, utils::StripPath};
 use windmill_queue::PushArgsOwned;
