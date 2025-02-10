@@ -1130,7 +1130,6 @@ async fn insert_flow_modules<'c>(
         same_worker,
     ))
     .await?;
-    add_virtual_items_if_necessary(modules);
     if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
         return Ok(tx);
     }
@@ -1259,6 +1258,7 @@ async fn reduce_flow<'c>(
         }
         module.value = to_raw_value(&val);
     }
+    add_virtual_items_if_necessary(&mut *modules);
     Ok(tx)
 }
 
