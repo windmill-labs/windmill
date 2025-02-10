@@ -87,7 +87,7 @@
 		goto('/user/workspaces')
 	}
 
-	const defaultExtraTriggerLinks = [
+	$: defaultExtraTriggerLinks = [
 		{
 			label: 'HTTP',
 			href: '/routes',

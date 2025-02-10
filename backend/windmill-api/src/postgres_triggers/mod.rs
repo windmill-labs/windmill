@@ -29,6 +29,7 @@ mod relation;
 mod replication_message;
 mod trigger;
 
+pub use handler::PostgresTrigger;
 pub use trigger::start_database;
 
 fn publication_service() -> Router {
