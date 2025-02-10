@@ -146,7 +146,7 @@
 					</div>
 				</svelte:fragment>
 
-				<div class="flex flex-col w-full p-1 gap-2">
+				<div class="flex flex-col w-full p-1 gap-2 max-h-[50vh] overflow-y-auto">
 					{#if menuItems.length > 0}
 						{#each menuItems as actionButton, actionIndex (actionButton?.id)}
 							{#if actionButton.type == 'buttoncomponent'}
