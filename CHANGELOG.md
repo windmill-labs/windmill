@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.458.4](https://github.com/windmill-labs/windmill/compare/v1.458.3...v1.458.4) (2025-02-10)
+
+
+### Bug Fixes
+
+* fix concurrent limit jobs non restarting ([4828a77](https://github.com/windmill-labs/windmill/commit/4828a77f21fe62f36632490f811fb01b39977662))
+
 ## [1.458.3](https://github.com/windmill-labs/windmill/compare/v1.458.2...v1.458.3) (2025-02-10)
 
 
