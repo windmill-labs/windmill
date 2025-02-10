@@ -230,7 +230,11 @@
 
 	let oldDefaultValue = structuredClone(defaultValue)
 	function handleDefaultValueChange() {
-		if (deepEqual(value, oldDefaultValue)) {
+		if (
+			deepEqual(value, oldDefaultValue) &&
+			!deepEqual(value, defaultValue) &&
+			!deepEqual(defaultValue, oldDefaultValue)
+		) {
 			value = defaultValue
 		}
 		oldDefaultValue = structuredClone(defaultValue)

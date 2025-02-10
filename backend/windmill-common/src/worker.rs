@@ -104,7 +104,7 @@ lazy_static::lazy_static! {
 }
 
 fn format_pull_query(peek: String) -> String {
-    format!(
+    let r = format!(
         "WITH peek AS (
             {}
         ), q AS NOT MATERIALIZED (
@@ -145,7 +145,9 @@ fn format_pull_query(peek: String) -> String {
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)",
         peek
-    )
+    );
+    tracing::debug!("pull query: {}", r);
+    r
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
