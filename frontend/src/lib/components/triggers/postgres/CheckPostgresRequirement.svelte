@@ -14,22 +14,23 @@
 			return
 		}
 		try {
-			const error = !(await PostgresTriggerService.isValidPostgresConfiguration({
+			const invalidConfig = !(await PostgresTriggerService.isValidPostgresConfiguration({
 				workspace: $workspaceStore!,
 				path: postgres_resource_path
 			}))
 
 			let msg = 'Database is in logical mode. Triggers can be used.'
 
-			if (error) {
+			if (invalidConfig) {
 				msg =
 					'Database is NOT in logical mode. Triggers cannot be used. Refer to the PostgreSQL documentation for configuration requirements.'
 			}
 
-			sendUserToast(msg, error)
+			sendUserToast(msg, invalidConfig)
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
+		
 		loadingConfiguration = false
 	}
 
