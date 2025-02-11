@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
-	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { allItems } from '../utils'
+	import type { App, AppEditorContext, AppViewerContext } from '../types'
+	import { allItems, BG_PREFIX } from '../utils'
 	import RecomputeAllButton from './RecomputeAllButton.svelte'
 
 	const { runnableComponents, app, initialized, recomputeAllContext } =
@@ -13,10 +13,21 @@
 	let firstLoad = false
 	let progressTimer: NodeJS.Timeout | undefined = undefined
 
-	$: !firstLoad &&
-		$initialized.initializedComponents?.length ==
-			allItems($app.grid, $app.subgrids).length + ($app.hiddenInlineScripts?.length ?? 0) &&
-		refresh()
+	$: !firstLoad && canInitializeAll($initialized?.initializedComponents, $app) && refresh()
+
+	function canInitializeAll(initialized: string[] | undefined, app: App) {
+		if (app.lazyInitRequire == undefined) {
+			return (
+				initialized?.length ==
+				allItems(app.grid, app.subgrids).length + (app.hiddenInlineScripts?.length ?? 0)
+			)
+		} else {
+			return (
+				app.hiddenInlineScripts?.every((x, i) => initialized?.includes(BG_PREFIX + i)) &&
+				app.lazyInitRequire?.every((x) => initialized?.includes(x))
+			)
+		}
+	}
 
 	$: $recomputeAllContext.componentNumber =
 		Object.values($runnableComponents).filter((x) => x.autoRefresh).length ?? 0
