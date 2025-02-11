@@ -65,6 +65,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'kafka'
 		case 'nats':
 			return 'nats'
+		case 'postgres':
+			return  'postgres'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}
