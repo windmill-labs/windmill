@@ -329,4 +329,8 @@
 			{/if}
 		</div>
 	</div>
+{:else}
+	{#each $app?.subgrids?.[subGridId] ?? [] as item}
+		<Component render={false} component={item.data} id={item.id} />
+	{/each}
 {/if}
