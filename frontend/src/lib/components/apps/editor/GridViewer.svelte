@@ -32,6 +32,8 @@
 
 	const cols = columnConfiguration
 
+	let showSkeleton = false
+
 	let getComputedCols: 3 | 12 | undefined =
 		$app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
 
@@ -56,6 +58,9 @@
 	}, throttleUpdate)
 
 	onMount(() => {
+		setTimeout(() => {
+			showSkeleton = true
+		}, 500)
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width
@@ -116,7 +121,7 @@
 				{/if}
 			</div>
 		{/each}
-	{:else}
+	{:else if showSkeleton}
 		<div
 			class="h-full w-full flex-col animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
 		/>

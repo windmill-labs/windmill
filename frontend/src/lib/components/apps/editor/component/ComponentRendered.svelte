@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
@@ -31,11 +31,19 @@
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
 
 	let initializing: boolean | undefined = undefined
+
 	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0
 	let componentContainerWidth: number = 0
 
 	let inlineEditorOpened: boolean = false
+	let showSkeleton = false
+
+	onMount(() => {
+		setTimeout(() => {
+			showSkeleton = true
+		}, 500)
+	})
 
 	function mouseOut() {
 		outTimeout && clearTimeout(outTimeout)
@@ -189,7 +197,7 @@
 		/>
 	</div>
 </div>
-{#if initializing}
+{#if initializing && showSkeleton}
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
@@ -203,6 +211,6 @@
 				$hoverStore = undefined
 			}
 		}}
-		class="absolute inset-0 center-center flex-col border animate-skeleton animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
+		class="absolute inset-0 center-center flex-col border animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
 	/>
 {/if}

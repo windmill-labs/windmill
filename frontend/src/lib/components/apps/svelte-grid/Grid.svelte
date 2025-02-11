@@ -80,10 +80,6 @@
 
 	let mounted = false
 	onMount(() => {
-		if (getComputedCols && parentWidth && xPerPx == 0) {
-			xPerPx = parentWidth / getComputedCols!
-		}
-
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width
@@ -406,7 +402,7 @@
 			</div>
 		{/if}
 	{/if}
-	{#if getComputedCols}
+	{#if xPerPx > 0}
 		{#each sortedItems as item (item.id)}
 			{#if item[getComputedCols] != undefined}
 				{#if $isCtrlOrMetaPressedStore && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
@@ -504,8 +500,6 @@
 				</MoveResize>
 			{/if}
 		{/each}
-	{:else}
-		<div class="h-full w-full bg-red-400" style="">FOO</div>
 	{/if}
 </div>
 
