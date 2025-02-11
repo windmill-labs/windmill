@@ -20,6 +20,8 @@
 		})
 		if (jobs.length > 0) {
 			dispatch('select', { jobId: jobs[0].id, initial: true })
+		} else {
+			dispatch('nohistory')
 		}
 	}
 

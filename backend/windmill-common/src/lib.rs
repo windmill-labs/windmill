@@ -19,8 +19,6 @@ use sqlx::{Pool, Postgres};
 
 pub mod apps;
 pub mod auth;
-#[cfg(feature = "benchmark")]
-pub mod bench;
 pub mod cache;
 pub mod db;
 pub mod ee;
@@ -221,28 +219,42 @@ async fn reset() -> () {
     todo!()
 }
 
-pub async fn connect_db(
-    server_mode: bool,
-    indexer_mode: bool,
-) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
-    use anyhow::Context;
+pub async fn get_database_url() -> Result<String, Error> {
     use std::env::var;
     use tokio::fs::File;
     use tokio::io::AsyncReadExt;
-
-    let database_url = match var("DATABASE_URL_FILE") {
+    match var("DATABASE_URL_FILE") {
         Ok(file_path) => {
             let mut file = File::open(file_path).await?;
             let mut contents = String::new();
             file.read_to_string(&mut contents).await?;
-            contents.trim().to_string()
+            Ok(contents.trim().to_string())
         }
         Err(_) => var("DATABASE_URL").map_err(|_| {
             Error::BadConfig(
                 "Either DATABASE_URL_FILE or DATABASE_URL env var is missing".to_string(),
             )
-        })?,
-    };
+        }),
+    }
+}
+
+pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
+    let database_url = get_database_url().await?;
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(sqlx::postgres::PgConnectOptions::from_str(&database_url)?)
+        .await
+        .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
+}
+
+pub async fn connect_db(
+    server_mode: bool,
+    indexer_mode: bool,
+    worker_mode: bool,
+) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
+    use anyhow::Context;
+
+    let database_url = get_database_url().await?;
 
     let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
         Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
@@ -263,12 +275,13 @@ pub async fn connect_db(
         }
     };
 
-    Ok(connect(&database_url, max_connections).await?)
+    Ok(connect(&database_url, max_connections, worker_mode).await?)
 }
 
 pub async fn connect(
     database_url: &str,
     max_connections: u32,
+    worker_mode: bool,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
     use std::time::Duration;
 
@@ -276,6 +289,18 @@ pub async fn connect(
         .min_connections((max_connections / 5).clamp(3, max_connections))
         .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
+        .after_connect(move |conn, _| {
+            if worker_mode {
+                Box::pin(async move {
+                    sqlx::query("SET enable_seqscan = OFF;")
+                        .execute(conn)
+                        .await?;
+                    Ok(())
+                })
+            } else {
+                Box::pin(async move { Ok(()) })
+            }
+        })
         .connect_with(
             sqlx::postgres::PgConnectOptions::from_str(database_url)?.statement_cache_capacity(400),
         )
