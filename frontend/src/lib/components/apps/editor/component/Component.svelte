@@ -15,7 +15,7 @@
 {:else}
 	<ComponentInner
 		{component}
-		{render}
+		render={false}
 		componentContainerHeight={0}
 		errorHandledByComponent={false}
 		inlineEditorOpened={false}

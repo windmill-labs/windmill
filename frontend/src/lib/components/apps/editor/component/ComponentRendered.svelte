@@ -203,6 +203,6 @@
 				$hoverStore = undefined
 			}
 		}}
-		class="absolute inset-0 center-center flex-col bg- border animate-skeleton"
+		class="absolute inset-0 center-center flex-col border animate-skeleton animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
 	/>
 {/if}

@@ -66,23 +66,29 @@
 	{/if}
 {/each}
 
-<div class="w-full h-full">
-	{#if $app.subgrids?.[`${id}-0`]}
-		<GroupWrapper {id} context={groupContext}>
-			<SubGridEditor
-				visible={render}
-				{id}
-				class={twMerge(css?.container?.class, 'wm-container')}
-				style={css?.container?.style}
-				subGridId={`${id}-0`}
-				containerHeight={componentContainerHeight}
-				on:focus={() => {
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-					}
-					onFocus()
-				}}
-			/>
-		</GroupWrapper>
-	{/if}
-</div>
+{#if render}
+	<div class="w-full h-full">
+		{#if $app.subgrids?.[`${id}-0`]}
+			<GroupWrapper {id} context={groupContext}>
+				<SubGridEditor
+					visible={render}
+					{id}
+					class={twMerge(css?.container?.class, 'wm-container')}
+					style={css?.container?.style}
+					subGridId={`${id}-0`}
+					containerHeight={componentContainerHeight}
+					on:focus={() => {
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+						}
+						onFocus()
+					}}
+				/>
+			</GroupWrapper>
+		{/if}
+	</div>
+{:else if $app.subgrids?.[`${id}-0`]}
+	<GroupWrapper {id} context={groupContext}>
+		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+	</GroupWrapper>
+{/if}

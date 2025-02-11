@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { columnConfiguration, WIDE_GRID_COLUMNS } from '../gridUtils'
+
 	import { ROW_GAP_X, ROW_GAP_Y, ROW_HEIGHT } from './appUtils'
 
-	import type { EditorBreakpoint } from '../types'
+	import type { AppViewerContext, EditorBreakpoint } from '../types'
 
-	import { onMount, createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher, getContext } from 'svelte'
 
 	import type { FilledItem } from '../svelte-grid/types'
 	import { getColumn, throttle } from '../svelte-grid/utils/other'
@@ -14,9 +16,10 @@
 
 	type T = $$Generic
 
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
+
 	export let items: FilledItem<T>[]
 	export let rowHeight: number = ROW_HEIGHT
-	export let cols: [number, number][]
 	export let gap = [ROW_GAP_X, ROW_GAP_Y]
 	export let throttleUpdate = 100
 	export let maxRow: number
@@ -27,12 +30,17 @@
 
 	export let parentWidth: number | undefined = undefined
 
-	let getComputedCols
+	const cols = columnConfiguration
+
+	let getComputedCols: 3 | 12 | undefined =
+		$app.mobileViewOnSmallerScreens == false ? WIDE_GRID_COLUMNS : undefined
+
 	let container
 
 	$: [gapX, gapY] = gap
 
 	let xPerPx = 0
+
 	let yPerPx = rowHeight
 
 	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
@@ -53,8 +61,9 @@
 				let width = entries[0].contentRect.width
 
 				if (width === containerWidth) return
-
-				getComputedCols = getColumn(parentWidth ?? width, cols)
+				if ($app.mobileViewOnSmallerScreens != false || !getComputedCols) {
+					getComputedCols = getColumn(parentWidth ?? width, cols)
+				}
 
 				xPerPx = width / getComputedCols
 
@@ -81,7 +90,7 @@
 </script>
 
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
-	{#if xPerPx}
+	{#if xPerPx && getComputedCols}
 		{#each items as item (item.id)}
 			{@const onTop = allIdsInPath?.includes(item.id)}
 			{@const width =
@@ -107,6 +116,10 @@
 				{/if}
 			</div>
 		{/each}
+	{:else}
+		<div
+			class="h-full w-full flex-col animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
+		/>
 	{/if}
 </div>
 

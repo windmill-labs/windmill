@@ -18,13 +18,13 @@
 	export let initializing: boolean | undefined
 	export let componentContainerHeight: number
 
-	type AccordionListValue = { header: string; [key: string]: any };
+	type AccordionListValue = { header: string; [key: string]: any }
 
 	type InternalAccordionListInput = AppInput & {
-		value: AccordionListValue[];
-	};
+		value: AccordionListValue[]
+	}
 
-	$: accordionInput = componentInput as InternalAccordionListInput;
+	$: accordionInput = componentInput as InternalAccordionListInput
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -61,7 +61,6 @@
 		activeIndex = activeIndex === index ? -1 : index
 		outputs.activeIndex.set(activeIndex)
 	}
-
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -85,80 +84,86 @@
 	bind:initializing
 	bind:result
 >
-	<div class="w-full flex flex-col overflow-auto max-h-full">
-		{#if $app.subgrids?.[`${id}-0`]}
-			{#if Array.isArray(result) && result.length > 0}
-				{#each result ?? [] as value, index}
-					<div class="border-b">
-						<button
-							on:pointerdown|stopPropagation
-							on:click={() => toggleAccordion(index)}
-							class={twMerge(
-								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
-								'wm-tabs-alltabs',
-								activeIndex === index
-									? twMerge('bg-surface text-primary ', 'wm-tabs-selectedTab')
-									: 'text-secondary'
-							)}
-						>
-							<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
-							{result[index]?.header || `Header ${index}`}
-						</button>
-						{#if activeIndex === index}
-							<div class="p-2 overflow-auto w-full">
-								<ListWrapper
-									onSet={(id, value) => {
-										if (!inputs[id]) {
-											inputs[id] = { [index]: value }
-										} else {
-											inputs[id] = { ...inputs[id], [index]: value }
-										}
-										outputs?.inputs.set(inputs, true)
-									}}
-									onRemove={(id) => {
-										if (inputs?.[id] == undefined) {
-											return
-										}
-										if (index == 0) {
-											delete inputs[id]
-											inputs = { ...inputs }
-										} else {
-											delete inputs[id][index]
-											inputs[id] = { ...inputs[id] }
-										}
-										outputs?.inputs.set(inputs, true)
-									}}
-									{value}
-									{index}
-								>
-									<SubGridEditor
-										{id}
-										visible={render}
-										class={twMerge(css?.container?.class, 'wm-accordion')}
-										style={css?.container?.style}
-										subGridId={`${id}-0`}
-										containerHeight={componentContainerHeight -
-											(30 * accordionInput?.value.length + 40)}
-										on:focus={() => {
-											if (!$connectingInput.opened) {
-												$selectedComponent = [id]
+	{#if render}
+		<div class="w-full flex flex-col overflow-auto max-h-full">
+			{#if $app.subgrids?.[`${id}-0`]}
+				{#if Array.isArray(result) && result.length > 0}
+					{#each result ?? [] as value, index}
+						<div class="border-b">
+							<button
+								on:pointerdown|stopPropagation
+								on:click={() => toggleAccordion(index)}
+								class={twMerge(
+									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+									'wm-tabs-alltabs',
+									activeIndex === index
+										? twMerge('bg-surface text-primary ', 'wm-tabs-selectedTab')
+										: 'text-secondary'
+								)}
+							>
+								<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
+								{result[index]?.header || `Header ${index}`}
+							</button>
+							{#if activeIndex === index}
+								<div class="p-2 overflow-auto w-full">
+									<ListWrapper
+										onSet={(id, value) => {
+											if (!inputs[id]) {
+												inputs[id] = { [index]: value }
+											} else {
+												inputs[id] = { ...inputs[id], [index]: value }
 											}
-											onFocus()
+											outputs?.inputs.set(inputs, true)
 										}}
-									/>
-								</ListWrapper>
-							</div>
-						{/if}
-					</div>
-				{/each}
-			{:else}
-				<ListWrapper disabled value={undefined} index={0}>
-					<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-				</ListWrapper>
-				{#if !Array.isArray(result)}
-					<div class="text-center text-tertiary">Input data is not an array</div>
+										onRemove={(id) => {
+											if (inputs?.[id] == undefined) {
+												return
+											}
+											if (index == 0) {
+												delete inputs[id]
+												inputs = { ...inputs }
+											} else {
+												delete inputs[id][index]
+												inputs[id] = { ...inputs[id] }
+											}
+											outputs?.inputs.set(inputs, true)
+										}}
+										{value}
+										{index}
+									>
+										<SubGridEditor
+											{id}
+											visible={render}
+											class={twMerge(css?.container?.class, 'wm-accordion')}
+											style={css?.container?.style}
+											subGridId={`${id}-0`}
+											containerHeight={componentContainerHeight -
+												(30 * accordionInput?.value.length + 40)}
+											on:focus={() => {
+												if (!$connectingInput.opened) {
+													$selectedComponent = [id]
+												}
+												onFocus()
+											}}
+										/>
+									</ListWrapper>
+								</div>
+							{/if}
+						</div>
+					{/each}
+				{:else}
+					<ListWrapper disabled value={undefined} index={0}>
+						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+					</ListWrapper>
+					{#if !Array.isArray(result)}
+						<div class="text-center text-tertiary">Input data is not an array</div>
+					{/if}
 				{/if}
 			{/if}
-		{/if}
-	</div>
+		</div>
+	{:else if $app.subgrids}
+		<ListWrapper disabled value={undefined} index={0}>
+			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+		</ListWrapper>
+	{/if}
 </RunnableWrapper>

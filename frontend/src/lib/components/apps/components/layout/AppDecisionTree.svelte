@@ -182,55 +182,61 @@
 
 <InitializeComponent {id} />
 
-<div class="w-full overflow-auto">
-	<div class="w-full">
-		{#if $app.subgrids}
-			{#each Object.values(nodes) ?? [] as node, i}
-				<SubGridEditor
-					visible={render && node.id === currentNodeId}
-					{id}
-					class={twMerge(css?.container?.class, 'wm-decision-tree')}
-					style={css?.container?.style}
-					subGridId={`${id}-${i}`}
-					containerHeight={componentContainerHeight - 40}
-					on:focus={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
-						}
-						onFocus(i)
-					}}
-				/>
-			{/each}
-		{/if}
+{#if render}
+	<div class="w-full overflow-auto">
+		<div class="w-full">
+			{#if $app.subgrids}
+				{#each Object.values(nodes) ?? [] as node, i}
+					<SubGridEditor
+						visible={render && node.id === currentNodeId}
+						{id}
+						class={twMerge(css?.container?.class, 'wm-decision-tree')}
+						style={css?.container?.style}
+						subGridId={`${id}-${i}`}
+						containerHeight={componentContainerHeight - 40}
+						on:focus={() => {
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+							}
+							onFocus(i)
+						}}
+					/>
+				{/each}
+			{/if}
+		</div>
 	</div>
-</div>
 
-<div class="h-8 flex flex-row gap-2 justify-end items-center px-2 bg-surface-primary z-50">
-	{#if isDebugging($debuggingComponents, id)}
-		<Badge color="red" size="xs2">
-			{`Debugging. Actions are disabled.`}
-		</Badge>
-	{/if}
-	{#if getFirstNode(nodes)?.id !== currentNodeId}
+	<div class="h-8 flex flex-row gap-2 justify-end items-center px-2 bg-surface-primary z-50">
+		{#if isDebugging($debuggingComponents, id)}
+			<Badge color="red" size="xs2">
+				{`Debugging. Actions are disabled.`}
+			</Badge>
+		{/if}
+		{#if getFirstNode(nodes)?.id !== currentNodeId}
+			<Button
+				on:click={prev}
+				size="xs2"
+				color="light"
+				startIcon={{ icon: ArrowLeft }}
+				disabled={isDebugging($debuggingComponents, id)}
+			>
+				Prev
+			</Button>
+		{/if}
 		<Button
-			on:click={prev}
+			on:click={next}
 			size="xs2"
-			color="light"
-			startIcon={{ icon: ArrowLeft }}
-			disabled={isDebugging($debuggingComponents, id)}
+			color="dark"
+			endIcon={{ icon: ArrowRight }}
+			disabled={isNextDisabled ||
+				currentNodeId === lastNodeId ||
+				isDebugging($debuggingComponents, id)}
 		>
-			Prev
+			Next
 		</Button>
-	{/if}
-	<Button
-		on:click={next}
-		size="xs2"
-		color="dark"
-		endIcon={{ icon: ArrowRight }}
-		disabled={isNextDisabled ||
-			currentNodeId === lastNodeId ||
-			isDebugging($debuggingComponents, id)}
-	>
-		Next
-	</Button>
-</div>
+	</div>
+{:else if $app.subgrids}
+	{#each Object.values(nodes) ?? [] as _node, i}
+		<SubGridEditor visible={false} {id} subGridId={`${id}-${i}`} />
+	{/each}
+{/if}

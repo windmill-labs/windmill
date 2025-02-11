@@ -82,47 +82,53 @@
 
 <InitializeComponent {id} />
 
-<div class="h-full w-full border" on:pointerdown={onFocus}>
-	{#key sumedup}
-		<Splitpanes {horizontal}>
-			{#each sumedup as paneSize, index (index)}
-				<Pane size={paneSize} minSize={20}>
-					<div
-						class="w-full h-full"
-						on:pointerdown|stopPropagation={() => {
-							$selectedComponent = [id]
-							$focusedGrid = {
-								parentComponentId: id,
-								subGridIndex: index
-							}
-						}}
-					>
-						{#if $app.subgrids?.[`${id}-${index}`]}
-							<SubGridEditor
-								visible={render}
-								{id}
-								shouldHighlight={$focusedGrid?.subGridIndex === index}
-								class={twMerge(
-									css?.container?.class,
-									horizontal ? 'wm-horizontal-split-panes' : 'wm-vertical-split-panes'
-								)}
-								style={css?.container?.style}
-								subGridId={`${id}-${index}`}
-								containerHeight={horizontal ? undefined : componentContainerHeight - 8}
-								on:focus={() => {
-									if (!$connectingInput.opened) {
-										$selectedComponent = [id]
-										$focusedGrid = {
-											parentComponentId: id,
-											subGridIndex: index
+{#if render}
+	<div class="h-full w-full border" on:pointerdown={onFocus}>
+		{#key sumedup}
+			<Splitpanes {horizontal}>
+				{#each sumedup as paneSize, index (index)}
+					<Pane size={paneSize} minSize={20}>
+						<div
+							class="w-full h-full"
+							on:pointerdown|stopPropagation={() => {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: index
+								}
+							}}
+						>
+							{#if $app.subgrids?.[`${id}-${index}`]}
+								<SubGridEditor
+									visible={render}
+									{id}
+									shouldHighlight={$focusedGrid?.subGridIndex === index}
+									class={twMerge(
+										css?.container?.class,
+										horizontal ? 'wm-horizontal-split-panes' : 'wm-vertical-split-panes'
+									)}
+									style={css?.container?.style}
+									subGridId={`${id}-${index}`}
+									containerHeight={horizontal ? undefined : componentContainerHeight - 8}
+									on:focus={() => {
+										if (!$connectingInput.opened) {
+											$selectedComponent = [id]
+											$focusedGrid = {
+												parentComponentId: id,
+												subGridIndex: index
+											}
 										}
-									}
-								}}
-							/>
-						{/if}
-					</div>
-				</Pane>
-			{/each}
-		</Splitpanes>
-	{/key}
-</div>
+									}}
+								/>
+							{/if}
+						</div>
+					</Pane>
+				{/each}
+			</Splitpanes>
+		{/key}
+	</div>
+{:else}
+	{#each sumedup as _paneSize, index (index)}
+		<SubGridEditor visible={false} {id} subGridId={`${id}-${index}`} />
+	{/each}
+{/if}

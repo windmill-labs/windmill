@@ -198,7 +198,6 @@
 				let:overlapped
 				let:moveMode
 				let:componentDraggedId
-				cols={columnConfiguration}
 				on:dropped={(e) => {
 					const { id, overlapped, x, y } = e.detail
 
