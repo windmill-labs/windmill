@@ -2,7 +2,7 @@
 	import { CodeXml, LayoutDashboard, Star } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
-	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
+	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	export let lightMode: boolean = false
 
 	export let isCollapsed: boolean = false
@@ -16,7 +16,7 @@
 
 <Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
-		<MenuButtonMelt
+		<MenuButton
 			class="!text-xs"
 			icon={Star}
 			label={'Favorites'}
@@ -39,7 +39,7 @@
 					<MenuItem
 						href={favorite.href}
 						{item}
-						class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover data-[highlighted]:bg-surface-hover"
+						class="w-full inline-flex flex-row px-4 py-2 data-[highlighted]:bg-surface-hover"
 					>
 						<span class="center-center">
 							{#if favorite.kind == 'script'}

@@ -23,8 +23,8 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { Menu, Menubar } from '$lib/components/meltComponents'
-	import MenuButtonMelt from './MenuButtonMelt.svelte'
-	import MenuLinkMelt from './MenuLinkMelt.svelte'
+	import MenuButton from './MenuButton.svelte'
+	import MenuLink from './MenuLink.svelte'
 	import { melt } from '@melt-ui/svelte'
 	let darkMode: boolean = false
 
@@ -117,7 +117,7 @@
 <Menubar let:createMenu>
 	<Menu {createMenu} let:item usePointerDownOutside>
 		<svelte:fragment slot="trigger" let:trigger>
-			<MenuButtonMelt
+			<MenuButton
 				class="!text-xs"
 				icon={MenuIcon}
 				{isCollapsed}
@@ -153,7 +153,7 @@
 		</div>
 
 		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-			<MenuLinkMelt class="!text-xs" {...menuLink} {isCollapsed} lightMode {item} />
+			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} lightMode {item} />
 		{/each}
 
 		<div class="divide-y" role="none">

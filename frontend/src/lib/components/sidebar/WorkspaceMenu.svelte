@@ -8,7 +8,7 @@
 		workspaceUsageStore
 	} from '$lib/stores'
 	import { Building, Plus, Settings } from 'lucide-svelte'
-	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
+	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu } from '$lib/components/meltComponents'
 	import { melt } from '@melt-ui/svelte'
 	import { goto } from '$lib/navigation'
@@ -56,7 +56,7 @@
 
 <Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
-		<MenuButtonMelt
+		<MenuButton
 			class="!text-xs"
 			icon={Building}
 			label={$workspaceStore ?? ''}

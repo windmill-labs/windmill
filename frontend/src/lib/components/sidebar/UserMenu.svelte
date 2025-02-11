@@ -13,7 +13,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { Crown, HardHat, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
-	import MenuButtonMelt from './MenuButtonMelt.svelte'
+	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 
 	let darkMode: boolean = false
@@ -31,7 +31,7 @@
 
 <Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
-		<MenuButtonMelt
+		<MenuButton
 			class="!text-xs"
 			icon={User}
 			label={`User (${$userStore?.username ?? $userStore?.email})`}

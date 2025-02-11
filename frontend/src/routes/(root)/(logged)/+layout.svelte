@@ -417,7 +417,7 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
+									<div class="px-2 py-4 border-y border-gray-500">
 										<Menubar let:createMenu>
 											<WorkspaceMenu {createMenu} />
 											<FavoriteMenu {createMenu} {favoriteLinks} />
@@ -472,8 +472,8 @@
 									{/if}
 								</div>
 							</button>
-							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
-								<Menubar let:createMenu>
+							<div class="px-2 py-4 border-y border-gray-700 flex flex-col gap-1">
+								<Menubar let:createMenu class="flex flex-col gap-1">
 									<WorkspaceMenu {createMenu} {isCollapsed} />
 									<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
 								</Menubar>
