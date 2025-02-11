@@ -225,7 +225,7 @@
 			try {
 				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
 			} catch (err) {
-				console.error(err)
+				console.error('Error storing frontend draft in localStorage', err)
 			}
 		}, 500)
 	}
