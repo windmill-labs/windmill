@@ -28,17 +28,15 @@ function create_context_function_template(
 	return `
 return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource, downloadFile) {
 "use strict";
-${
-	contextKeys && contextKeys.length > 0
-		? `let ${contextKeys.map((key) => ` ${key} = createProxy('${key}', context['${key}'])`)};`
-		: ``
-}
-${
-	hasReturnAsLastLine
-		? eval_string
-		: `
+${contextKeys && contextKeys.length > 0
+			? `let ${contextKeys.map((key) => ` ${key} = createProxy('${key}', context['${key}'])`)};`
+			: ``
+		}
+${hasReturnAsLastLine
+			? eval_string
+			: `
 return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_string}`
-}
+		}
 
 }                                                                                                                   
 `
@@ -271,9 +269,8 @@ export async function eval_like(
 
 			if (typeof input === 'object' && input.s3) {
 				const workspaceId = computeGlobalContext(worldStore).ctx.workspace
-				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${
-					input?.s3
-				}${input?.storage ? `&storage=${input.storage}` : ''}`
+				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${input?.s3
+					}${input?.storage ? `&storage=${input.storage}` : ''}`
 				downloadFile(s3href, filename || input.s3)
 			} else if (typeof input === 'string') {
 				if (input.startsWith('data:')) {
