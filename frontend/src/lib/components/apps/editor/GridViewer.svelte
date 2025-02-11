@@ -60,7 +60,7 @@
 	onMount(() => {
 		setTimeout(() => {
 			showSkeleton = true
-		}, 500)
+		}, 100)
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width

@@ -3,7 +3,7 @@
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
+	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import {
@@ -301,7 +301,6 @@
 					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
 					let:dataItem
-					cols={columnConfiguration}
 					breakpoint={$breakpoint}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}

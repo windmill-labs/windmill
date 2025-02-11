@@ -17,7 +17,7 @@
 
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher, getContext } from 'svelte'
+	import { onMount, createEventDispatcher, getContext, tick } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
@@ -79,6 +79,7 @@
 	}, throttleUpdate)
 
 	let mounted = false
+
 	onMount(() => {
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
@@ -402,7 +403,7 @@
 			</div>
 		{/if}
 	{/if}
-	{#if xPerPx > 0}
+	{#if xPerPx > 0 && getComputedCols}
 		{#each sortedItems as item (item.id)}
 			{#if item[getComputedCols] != undefined}
 				{#if $isCtrlOrMetaPressedStore && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
@@ -500,6 +501,10 @@
 				</MoveResize>
 			{/if}
 		{/each}
+	{:else if root}
+		<div
+			class="h-full w-full flex-col animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
+		/>
 	{/if}
 </div>
 

@@ -42,7 +42,7 @@
 	onMount(() => {
 		setTimeout(() => {
 			showSkeleton = true
-		}, 500)
+		}, 100)
 	})
 
 	function mouseOut() {
