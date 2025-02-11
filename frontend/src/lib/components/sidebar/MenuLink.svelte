@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
+	import { classNames, conditionalMelt } from '$lib/utils'
 	import { navigating, page } from '$app/stores'
 	import Popover from '../Popover.svelte'
 	import { base } from '$app/paths'
@@ -21,13 +21,6 @@
 			isSelected = $page.url.pathname.startsWith(href)
 		}
 	})
-
-	function conditionalMelt(node: HTMLElement, item: any) {
-		if (item) {
-			return item.action(node)
-		}
-		return { destroy: () => {} }
-	}
 </script>
 
 {#if !disabled}

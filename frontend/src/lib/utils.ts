@@ -353,13 +353,12 @@ export function removeItemAll<T>(arr: T[], value: T) {
 }
 
 export function emptyString(str: string | undefined | null): boolean {
-	return str === undefined || str === null || str === '' 
+	return str === undefined || str === null || str === ''
 }
 
 export function emptyStringTrimmed(str: string | undefined | null): boolean {
 	return str === undefined || str === null || str === '' || str.trim().length === 0
 }
-
 
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
 	return emptyString(str) ? dflt : str!
@@ -1105,4 +1104,11 @@ export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
 	return (
 		!!job_kind && (job_kind === 'preview' || job_kind === 'flowscript' || job_kind === 'appscript')
 	)
+}
+
+export function conditionalMelt(node: HTMLElement, meltElement: any) {
+	if (meltElement) {
+		return meltElement.action(node)
+	}
+	return { destroy: () => {} }
 }

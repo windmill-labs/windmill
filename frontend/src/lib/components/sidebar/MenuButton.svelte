@@ -4,7 +4,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { goto } from '$app/navigation'
-
+	import { conditionalMelt } from '$lib/utils'
 	export let label: string | undefined = undefined
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
@@ -18,13 +18,6 @@
 	export let href: string | undefined = undefined
 
 	let dispatch = createEventDispatcher()
-
-	function conditionalMelt(node: HTMLElement, triggerParams: any) {
-		if (triggerParams) {
-			return triggerParams.action(node)
-		}
-		return { destroy: () => {} }
-	}
 </script>
 
 {#if !disabled}
