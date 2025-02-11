@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM kafka_trigger\n                 WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "kafka_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "topics",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "server_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "last_server_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "8b784784fe63d91cc5ebe27022f803caf85d5916960308cff512047d4f0dcba4"
+}

@@ -5,6 +5,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
 	let name: string = ''
+	export let customName: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -24,7 +25,7 @@
 		<div class="flex flex-row gap-2 p-2 rounded-md">
 			<input
 				bind:value={name}
-				placeholder="Field name"
+				placeholder={`${customName ?? 'Field'} name`}
 				on:keydown={(event) => {
 					if (event.key === 'Enter') {
 						addField()
@@ -44,7 +45,7 @@
 				disabled={!name}
 				shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}
 			>
-				Add field
+				Add {customName ? customName.toLowerCase() : 'field'}
 			</Button>
 		</div>
 	</svelte:fragment>

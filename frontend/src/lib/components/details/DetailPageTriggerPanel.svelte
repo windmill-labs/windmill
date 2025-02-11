@@ -7,7 +7,10 @@
 		Terminal,
 		Webhook,
 		Unplug,
-		PlugZap
+		PlugZap,
+
+		Database
+
 	} from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
@@ -69,7 +72,7 @@
 			</Tab>
 			<Tab value="postgres">
 				<span class="flex flex-row gap-2 items-center text-xs">
-					<Unplug size={12} />
+					<Database size={12} />
 					Postgres
 				</span>
 			</Tab>

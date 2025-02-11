@@ -389,7 +389,7 @@
 											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: Share,
 											action: () => {
-												shareModal.openDrawer(path, 'websocket_trigger')
+												shareModal.openDrawer(path, 'postgres_trigger')
 											}
 										}
 									]}
