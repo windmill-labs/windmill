@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders,\n                    groups, workspace_id)\n                SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8\n                ON CONFLICT (job_id) DO UPDATE SET\n                    email = EXCLUDED.email,\n                    username = EXCLUDED.username,\n                    is_admin = EXCLUDED.is_admin,\n                    is_operator = EXCLUDED.is_operator,\n                    folders = EXCLUDED.folders,\n                    groups = EXCLUDED.groups,\n                    workspace_id = EXCLUDED.workspace_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "JsonbArray",
+        "TextArray",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d93a43bb6332212264abc5ca48879789cac188f3389874d263ff1373155b3a7e"
+}

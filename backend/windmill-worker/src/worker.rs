@@ -1048,9 +1048,9 @@ pub async fn run_worker(
     let is_dedicated_worker: bool = WORKER_CONFIG.read().await.dedicated_worker.is_some();
 
     #[cfg(feature = "benchmark")]
-    let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
+    let benchmark_jobs: usize = std::env::var("BENCHMARK_JOBS")
         .unwrap_or("5000".to_string())
-        .parse::<i32>()
+        .parse::<usize>()
         .unwrap();
 
     #[cfg(feature = "benchmark")]

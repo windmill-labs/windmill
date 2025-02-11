@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_key (job_id, key) SELECT unnest($1::uuid[]), $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "114759d2c9049f7d5f377ba4da5abc33223aa70aacbcb6fd730def35415c48fd"
+}
