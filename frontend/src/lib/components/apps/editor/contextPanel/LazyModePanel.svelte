@@ -25,7 +25,7 @@
 
 	<Toggle
 		label="Lazy mode"
-		value={Boolean($app.lazyInitRequire)}
+		checked={Boolean($app.lazyInitRequire != undefined)}
 		on:change={(e) => {
 			$app.lazyInitRequire = e.detail ? [] : undefined
 			code = JSON.stringify($app.lazyInitRequire)
@@ -36,7 +36,7 @@
 	/>
 
 	<Section label="Component ids to wait the initialization of before the initial refresh">
-		{#if $app.lazyInitRequire}
+		{#if $app.lazyInitRequire != undefined}
 			<JsonEditor bind:value={$app.lazyInitRequire} {code} />
 			<span class="text-tertiary text-xs">
 				{'e.g: ["a", "b"]'}, no need to put background runnables ids
