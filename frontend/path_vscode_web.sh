@@ -1,0 +1,2 @@
+cp  tsserver.web.js ./node_modules/@codingame/monaco-vscode-typescript-language-features-default-extension/resources/tsserver.web.js
+cp dep-CB_7IfJ-.js /git/windmill/frontend/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js

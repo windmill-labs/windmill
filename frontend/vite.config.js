@@ -14,6 +14,10 @@ const config = {
 	server: {
 		https: false,
 		port: 3000,
+		headers: {
+			'Cross-Origin-Opener-Policy': 'same-origin',
+			'Cross-Origin-Embedder-Policy': 'require-corp'
+		},
 		proxy: {
 			'^/api/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
@@ -49,6 +53,9 @@ const config = {
 			plugins: [importMetaUrlPlugin]
 		}
 	},
+	worker: {
+		format: 'es'
+	},
 	resolve: {
 		alias: {
 			path: 'path-browserify',
@@ -56,9 +63,6 @@ const config = {
 				'vscode/vscode/vs/editor/contrib/hover/browser/hoverContribution'
 		},
 		dedupe: ['vscode', 'monaco-editor']
-	},
-	worker: {
-		format: 'es'
 	},
 	assetsInclude: ['**/*.wasm']
 }

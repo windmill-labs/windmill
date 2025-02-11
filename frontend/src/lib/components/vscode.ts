@@ -3,13 +3,13 @@ import { initServices } from 'monaco-languageclient/vscode/services'
 // import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override'
 import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
-import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
+import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
 
 export let isInitialized = false
 export let isInitializing = false
 
-export async function initializeVscode(caller?: string) {
+export async function initializeVscode(caller?: string, htmlContainer?: HTMLElement) {
 	if (!isInitialized && !isInitializing) {
 		console.log(`Initializing vscode-api from ${caller ?? 'unknown'}`)
 		isInitializing = true
@@ -30,6 +30,7 @@ export async function initializeVscode(caller?: string) {
 					})
 				}
 			})
+
 			isInitialized = true
 			meditor.defineTheme('nord', {
 				base: 'vs-dark',

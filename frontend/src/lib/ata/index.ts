@@ -38,6 +38,30 @@ export interface ATABootstrapConfig {
 
 type ModuleMeta = { state: 'loading' }
 
+export type DepsToGet = {
+	raw: string
+	module: string
+	version: string | undefined
+}[]
+
+function getVersionFromRaw(d: string) {
+	if (d.lastIndexOf('@') > 0) {
+		const splitted = d.split('@')
+		let version = splitted.pop()
+		if (version?.startsWith('^') || version?.startsWith('~')) {
+			version = version.slice(1)
+		}
+		return version
+	}
+	return 'latest'
+}
+
+export function versionRangeToVersion(version: string) {
+	if (version.startsWith('^') || version.startsWith('~')) {
+		return version.slice(1)
+	}
+	return version
+}
 /**
  * The function which starts up type acquisition,
  * returns a function which you then pass the initial
@@ -57,11 +81,11 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 
 	let resLimit = { usage: 0 }
 
-	return async (initialSourceFile: string) => {
+	return async (initialSourceFile: string | DepsToGet) => {
 		estimatedToDownload = 0
 		estimatedDownloaded = 0
 
-		let todo: string[] = [initialSourceFile]
+		let todo: (string | DepsToGet)[] = [initialSourceFile]
 		let next: string[] = []
 		let i = 0
 		let nb = 0
@@ -84,34 +108,25 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		}
 	}
 
-	function getVersion(d: string) {
-		if (d.lastIndexOf('@') > 0) {
-			const splitted = d.split('@')
-			let version = splitted.pop()
-			if (version?.startsWith('^') || version?.startsWith('~')) {
-				version = version.slice(1)
-			}
-			return version
-		}
-		return 'latest'
-	}
-
 	async function resolveDeps(
-		initialSourceFile: string,
+		depsSource: string | DepsToGet,
 		depth: number,
 		resLimit: ResLimit
 	): Promise<string[]> {
-		let depsToGet = config
-			.depsParser(initialSourceFile)
-			.map((d: string) => {
-				let raw = mapModuleNameToModule(d)
-				return {
-					raw,
-					module: raw.lastIndexOf('@') > 0 ? raw.split('@').slice(0, -1).join('@') : raw,
-					version: getVersion(d)
-				}
-			})
-			.filter((f) => !moduleMap.has(f.raw))
+		let depsToGet =
+			typeof depsSource == 'object'
+				? depsSource
+				: config
+						.depsParser(depsSource)
+						.map((d: string) => {
+							let raw = mapModuleNameToModule(d)
+							return {
+								raw,
+								module: raw.lastIndexOf('@') > 0 ? raw.split('@').slice(0, -1).join('@') : raw,
+								version: getVersionFromRaw(raw)
+							}
+						})
+						.filter((f) => !moduleMap.has(f.raw))
 
 		if (depth == 0) {
 			const relativeDeps = depsToGet.filter((f) => isTypescriptRelativePath(f.raw))

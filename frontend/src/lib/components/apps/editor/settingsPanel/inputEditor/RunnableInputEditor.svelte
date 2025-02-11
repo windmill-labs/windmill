@@ -5,13 +5,14 @@
 	import type { AppComponent } from '../../component'
 	import RunnableSelector from '../mainInput/RunnableSelector.svelte'
 	import SelectedRunnable from '../SelectedRunnable.svelte'
-	import type { AppEditorContext } from '$lib/components/apps/types'
+	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
 
 	export let appInput: ResultAppInput
 	export let defaultUserInput = false
 	export let appComponent: AppComponent
 
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	function onPick({
 		runnable,
@@ -33,6 +34,7 @@
 	<SelectedRunnable {appComponent} bind:appInput />
 {:else if appInput !== undefined}
 	<RunnableSelector
+		unusedInlineScripts={$app.unusedInlineScripts}
 		hideCreateScript={appComponent.type === 'flowstatuscomponent'}
 		onlyFlow={appComponent.type === 'flowstatuscomponent'}
 		{defaultUserInput}

@@ -21,7 +21,8 @@
 	const shortcuts = {
 		left: 'B',
 		right: 'U',
-		bottom: 'L'
+		bottom: 'L',
+		top: 'T'
 	}
 </script>
 

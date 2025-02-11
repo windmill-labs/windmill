@@ -824,7 +824,6 @@
 						disabled={!$superadmin}
 						class="flex flex-1 grow h-full w-full"
 						automaticLayout
-						lang="shell"
 						scriptLang={'bash'}
 						useWebsockets={false}
 						fixedOverflowWidgets={false}
