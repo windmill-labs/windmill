@@ -66,7 +66,6 @@
 		Skeleton,
 		Tab,
 		Alert,
-		MenuItem,
 		DrawerContent
 	} from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
@@ -79,7 +78,7 @@
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -442,20 +441,21 @@
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			<div class="flex gap-2 items-center">
 				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-					<ButtonDropdown target="body" hasPadding={false}>
+					<Dropdown
+						items={[
+							{
+								displayName: 'Delete result, logs and args (admin only)',
+								action: () => {
+									job?.id && deleteCompletedJob(job.id)
+								},
+								type: 'delete'
+							}
+						]}
+					>
 						<svelte:fragment slot="buttonReplacement">
 							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
 						</svelte:fragment>
-						<svelte:fragment slot="items">
-							<MenuItem
-								on:click={() => {
-									job?.id && deleteCompletedJob(job.id)
-								}}
-							>
-								<span class="text-red-600"> Delete result, logs and args (admin only) </span>
-							</MenuItem>
-						</svelte:fragment>
-					</ButtonDropdown>
+					</Dropdown>
 					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 						<Button
 							href={runsHref}
@@ -474,9 +474,19 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
+			{#if ((job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined) || true}
 				<div class="inline">
-					<ButtonDropdown hasPadding={false}>
+					<Dropdown
+						items={[
+							{
+								displayName: 'Show Flow Debug Info',
+								action: () => {
+									debugInfo()
+								}
+							}
+						]}
+						class="h-auto"
+					>
 						<svelte:fragment slot="buttonReplacement">
 							<Button nonCaptureEvent size="xs" color="light">
 								<div class="flex flex-row items-center">
@@ -484,10 +494,7 @@
 								</div>
 							</Button>
 						</svelte:fragment>
-						<svelte:fragment slot="items">
-							<MenuItem on:click={debugInfo}>Show Flow Debug Info</MenuItem>
-						</svelte:fragment>
-					</ButtonDropdown>
+					</Dropdown>
 				</div>
 			{/if}
 			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}

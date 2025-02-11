@@ -3,23 +3,14 @@
 	import { Menu, Menubar } from '$lib/components/meltComponents'
 	import { melt } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
-
+	import type { Item } from '$lib/utils'
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
-
-	type Item = {
-		displayName: string
-		action?: (e: CustomEvent<any>) => void
-		icon?: any
-		href?: string
-		disabled?: boolean
-		type?: 'action' | 'delete'
-		hide?: boolean | undefined
-	}
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let justifyEnd: boolean = true
 	export let disabled = false
 	export let placement: Placement = 'bottom-end'
+	export let usePointerDownOutside = false
 
 	async function computeItems(): Promise<Item[]> {
 		if (typeof items === 'function') {
@@ -31,7 +22,17 @@
 </script>
 
 <Menubar let:createMenu>
-	<Menu {createMenu} {placement} {justifyEnd} on:close on:open {disabled} let:item>
+	<Menu
+		{createMenu}
+		{placement}
+		{justifyEnd}
+		on:close
+		on:open
+		{disabled}
+		let:item
+		class={$$props.class}
+		{usePointerDownOutside}
+	>
 		<svelte:fragment slot="trigger" let:trigger>
 			<div use:melt={trigger}>
 				{#if $$slots.buttonReplacement}

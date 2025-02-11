@@ -69,8 +69,7 @@
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -1645,33 +1644,11 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<ButtonDropdown hasPadding={false}>
+		<Dropdown items={moreItems} class="center-center">
 			<svelte:fragment slot="buttonReplacement">
-				<Button nonCaptureEvent size="xs" color="light">
-					<div class="flex flex-row items-center">
-						<MoreVertical size={14} />
-					</div>
-				</Button>
+				<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
 			</svelte:fragment>
-			<svelte:fragment slot="items">
-				{#each moreItems as item}
-					<MenuItem
-						on:click={item.action}
-						disabled={item.disabled}
-						class={item.disabled ? 'opacity-50' : ''}
-					>
-						<div
-							class={classNames(
-								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-							)}
-						>
-							<svelte:component this={item.icon} size={14} />
-							{item.displayName}
-						</div>
-					</MenuItem>
-				{/each}
-			</svelte:fragment>
-		</ButtonDropdown>
+		</Dropdown>
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
 		<div class="hidden md:inline relative overflow-visible">
