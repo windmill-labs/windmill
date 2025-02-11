@@ -65,6 +65,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "pythonjsonlogger" => "python-json-logger",
     "socks" => "PySocks",
     "taiga" => "python-taiga",
+    "docx" => "python-docx",
 };
 
 fn replace_import(x: String) -> String {

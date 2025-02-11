@@ -88,7 +88,7 @@ function getFlowInput(
 			}
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
-			if (parentModule.value.type === 'forloopflow') {
+			if (parentModule.value.type === 'forloopflow' || parentModule.value.type === 'whileloopflow') {
 				let parentFlowInputIter = { ...parentFlowInput }
 				if (parentFlowInputIter.hasOwnProperty('iter')) {
 					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']
@@ -263,9 +263,8 @@ declare const results = ${JSON.stringify(results)};
  */
 declare const previous_result: ${previousId ? JSON.stringify(results[previousId]) : 'any'};
 
-${
-	resume
-		? `
+${resume
+			? `
 /**
  * resume payload
  */
@@ -276,8 +275,8 @@ declare const resume: any
  */
 declare const approvers: string
 `
-		: ''
-}
+			: ''
+		}
 `
 }
 

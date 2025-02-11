@@ -84,7 +84,7 @@ impl Migrate for CustomMigrator {
                     })?
                     .unwrap_or(false);
                 if !r {
-                    tracing::info!("PG lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
+                    tracing::info!("PG migration lock already acquired by another server or worker, a migration is in progress, this may take a long time if you have many jobs and be normal, rechecking in 5s.");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
@@ -186,6 +186,16 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         .await
     {
         tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
+    }
+
+    // New version of `v2_as_queue` and `v2_as_completed_job` VIEWs.
+    if let Err(err) = sqlx::query!(
+        "DELETE FROM _sqlx_migrations WHERE version=20250201145630 OR version=20250201145631"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::info!("Could not remove sqlx migration with version=[20250201145630, 20250201145631] : {err:#}");
     }
 
     match sqlx::migrate!("../migrations")

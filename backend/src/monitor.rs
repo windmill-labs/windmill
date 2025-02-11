@@ -136,7 +136,7 @@ pub async fn initial_load(
     tx: tokio::sync::broadcast::Sender<()>,
     worker_mode: bool,
     server_mode: bool,
-    _is_agent: bool,
+    #[cfg(feature = "parquet")] disable_s3_store: bool,
 ) {
     if let Err(e) = load_metrics_enabled(db).await {
         tracing::error!("Error loading expose metrics: {e:#}");
@@ -180,7 +180,7 @@ pub async fn initial_load(
     }
 
     #[cfg(feature = "parquet")]
-    if !_is_agent {
+    if !disable_s3_store {
         reload_s3_cache_setting(&db).await;
     }
 
@@ -1577,19 +1577,81 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
     }
 
-    let mut timeout_query =
-        "SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')"
-            .to_string();
-    if *RESTART_ZOMBIE_JOBS {
-        timeout_query.push_str(" AND same_worker = true");
-    };
-    let timeouts = sqlx::query_as::<_, QueuedJob>(&timeout_query)
-        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
+    let same_worker_timeout_jobs = {
+        let long_same_worker_jobs = sqlx::query!(
+            "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval 
+    AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
+        )
         .fetch_all(db)
         .await
         .ok()
         .unwrap_or_else(|| vec![]);
+
+        let worker_ids = long_same_worker_jobs
+            .iter()
+            .map(|x| x.worker.clone().unwrap_or_default())
+            .collect::<Vec<_>>();
+
+        let long_dead_workers: std::collections::HashSet<String> = sqlx::query_scalar!(
+            "WITH worker_ids AS (SELECT unnest($1::text[]) as worker) 
+            SELECT worker_ids.worker FROM worker_ids 
+            LEFT JOIN worker_ping ON worker_ids.worker = worker_ping.worker 
+                WHERE worker_ping.worker IS NULL OR worker_ping.ping_at < now() - ('60 seconds')::interval",
+            &worker_ids[..]
+        )
+        .fetch_all(db)
+        .await
+        .ok()
+        .unwrap_or_else(|| vec![])
+        .into_iter()
+        .filter_map(|x| x)
+        .collect();
+
+        let mut timeouts: Vec<Uuid> = vec![];
+        for worker in long_same_worker_jobs {
+            if worker.worker.is_some() && long_dead_workers.contains(&worker.worker.unwrap()) {
+                if let Some(ids) = worker.ids {
+                    timeouts.extend(ids);
+                }
+            }
+        }
+        if !timeouts.is_empty() {
+            tracing::error!(
+                "Failing same worker zombie jobs: {:?}",
+                timeouts
+                    .iter()
+                    .map(|x| x.hyphenated().to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+
+        let jobs = sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
+            .bind(&timeouts[..])
+            .fetch_all(db)
+            .await
+            .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
+            .unwrap_or_default();
+
+        jobs
+    };
+
+    let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
+        vec![]
+    } else {
+        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
+    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
+        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
+        .fetch_all(db)
+        .await
+        .ok()
+            .unwrap_or_else(|| vec![])
+    };
+
+    let timeouts = non_restartable_jobs
+        .into_iter()
+        .chain(same_worker_timeout_jobs)
+        .collect::<Vec<_>>();
 
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1597,8 +1659,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     }
 
     for job in timeouts {
-        tracing::info!("timedout zombie job {} {}", job.id, job.workspace_id,);
-
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) =
             mpsc::channel::<SameWorkerPayload>(1);
@@ -1640,11 +1700,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             0,
             None,
             error::Error::ExecutionErr(format!(
-                "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {})",
+                "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, same_worker: {})",
                 last_ping
                     .map(|x| x.to_string())
                     .unwrap_or_else(|| "no ping".to_string()),
-                *ZOMBIE_JOB_TIMEOUT
+                *ZOMBIE_JOB_TIMEOUT,
+                job.same_worker
             )),
             true,
             same_worker_tx_never_used,
@@ -1652,7 +1713,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             worker_name,
             send_result_never_used,
             #[cfg(feature = "benchmark")]
-            &mut windmill_common::bench::BenchmarkIter::new(),
+            &mut windmill_worker::bench::BenchmarkIter::new(),
         )
         .await;
     }

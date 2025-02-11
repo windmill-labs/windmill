@@ -120,6 +120,8 @@
 				}
 				if (e.detail == 'date-time') {
 					format = 'date-time'
+				} else if (format) {
+					format = undefined
 				}
 				if (e.detail == 'none') {
 					pattern = undefined

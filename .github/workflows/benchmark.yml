@@ -14,9 +14,13 @@ jobs:
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=2GB -c work_mem=32MB -c effective_cache_size=4GB"
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
+          --shm-size=2g
+
+
       windmill:
         image: ghcr.io/windmill-labs/windmill-ee:main
         env:
@@ -55,6 +59,7 @@ jobs:
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=2GB -c work_mem=32MB -c effective_cache_size=4GB"
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
@@ -96,6 +101,7 @@ jobs:
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=2GB -c work_mem=32MB -c effective_cache_size=4GB"
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
@@ -171,6 +177,7 @@ jobs:
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=2GB -c work_mem=32MB -c effective_cache_size=4GB"
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
