@@ -90,7 +90,7 @@
 		</MenuItem>
 	</div>
 
-	{#if isCloudHosted() || true}
+	{#if isCloudHosted()}
 		<div class="border-t">
 			{#if !$isPremiumStore}
 				<span class="text-secondary block w-full text-left px-4 py-2 text-xs"
@@ -114,7 +114,7 @@
 						</div>
 					</div>
 				{/if}
-				{#if $userStore?.is_admin || true}
+				{#if $userStore?.is_admin}
 					<MenuItem
 						class={twMerge(itemClass, 'py-2')}
 						on:click={() => {

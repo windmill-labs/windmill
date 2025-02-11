@@ -290,7 +290,6 @@
 	]
 
 	export let isCollapsed: boolean = false
-	export let noGap: boolean = false
 
 	let leaveWorkspaceModal = false
 
@@ -309,11 +308,10 @@
 
 <nav
 	class={twMerge(
-		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between',
-		noGap ? 'gap-0' : 'gap-16'
+		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between gap-16'
 	)}
 >
-	<div class={twMerge('pt-4 ', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
+	<div class={twMerge('pt-4 mb-6 md:mb-10')}>
 		<div class="space-y-1">
 			{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
@@ -368,7 +366,7 @@
 		</div>
 	</div>
 	<div class="flex flex-col h-full justify-end">
-		<div class={twMerge('space-y-0.5 mb-6 md:mb-10', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
+		<div class="space-y-0.5 mb-6 md:mb-10">
 			<Menubar let:createMenu class="flex flex-col gap-1">
 				<UserMenu {isCollapsed} {createMenu} />
 
