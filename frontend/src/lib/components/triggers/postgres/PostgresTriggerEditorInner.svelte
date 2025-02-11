@@ -425,7 +425,7 @@
 							</Label>
 							<Label label="Table Tracking">
 								<svelte:fragment slot="header">
-									<Tooltip>
+									<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track">
 										<p>
 											Select the tables to track. You can choose to track
 											<strong>all tables in your database</strong>,

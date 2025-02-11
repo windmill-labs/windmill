@@ -32,7 +32,7 @@ use windmill_queue::PushArgsOwned;
 
 use super::{
     drop_logical_replication_slot_query, drop_publication_query, get_database_connection,
-    handler::{Database, PostgresTrigger},
+    handler::{Postgres, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
     ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };

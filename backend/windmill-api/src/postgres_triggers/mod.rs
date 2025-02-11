@@ -1,6 +1,7 @@
 use crate::{
-    db::DB,
+    db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
+    variables::get_resource,
     users::fetch_api_authed,
 };
 use chrono::Utc;
@@ -19,18 +20,17 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+pub use handler::PostgresTrigger;
 use handler::{
     alter_publication, create_postgres_trigger, create_publication, create_slot,
     create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
     exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
     is_database_in_logical_level, list_database_publication, list_postgres_triggers,
-    list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Database,
+    list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Postgres,
     Relations,
 };
-pub use handler::PostgresTrigger;
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
-
 mod bool;
 mod converter;
 mod handler;
@@ -54,13 +54,13 @@ pub async fn get_database_connection(
     postgres_resource_path: &str,
     w_id: &str,
 ) -> std::result::Result<PgConnection, windmill_common::error::Error> {
-    let database = get_database_resource(authed, user_db, db, postgres_resource_path, w_id).await?;
+    let database = get_resource::<Postgres>(authed, user_db, db, postgres_resource_path, w_id).await?;
 
     Ok(get_raw_postgres_connection(&database).await?)
 }
 
 pub async fn get_raw_postgres_connection(
-    db: &Database,
+    db: &Postgres,
 ) -> std::result::Result<PgConnection, Error> {
     let options = {
         let sslmode = if !db.sslmode.is_empty() {
@@ -199,39 +199,6 @@ pub fn generate_random_string() -> String {
         .collect::<String>();
 
     format!("{}_{}", timestamp, random_part)
-}
-
-pub async fn get_database_resource(
-    authed: ApiAuthed,
-    user_db: Option<UserDB>,
-    db: &DB,
-    database_resource_path: &str,
-    w_id: &str,
-) -> Result<Database, Error> {
-    let resource = get_resource_value_interpolated_internal(
-        &authed,
-        user_db,
-        &db,
-        &w_id,
-        &database_resource_path,
-        None,
-        "",
-    )
-    .await
-    .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
-
-    let resource = match resource {
-        Some(resource) => serde_json::from_value::<Database>(resource)?,
-        None => {
-            return {
-                Err(Error::NotFound(
-                    "Database resource do not exist".to_string(),
-                ))
-            }
-        }
-    };
-
-    Ok(resource)
 }
 
 fn publication_service() -> Router {

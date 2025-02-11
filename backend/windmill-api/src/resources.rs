@@ -515,7 +515,9 @@ pub async fn transform_json_value<'c>(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::internal_err(format!("Invalid resource path: {path}")));
+                return Err(Error::internal_err(format!(
+                    "Invalid resource path: {path}"
+                )));
             }
             let mut tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;

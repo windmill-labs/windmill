@@ -5,7 +5,7 @@ use std::collections::{
 
 use crate::{
     db::{ApiAuthed, DB},
-    postgres_triggers::mapper::{Mapper, MappingInfo}, variables::get_resource,
+    postgres_triggers::mapper::{Mapper, MappingInfo},
 };
 use axum::{
     extract::{Path, Query},
@@ -112,7 +112,6 @@ pub struct NewPostgresTrigger {
 pub struct TestPostgres {
     pub postgres_resource_path: String,
 }
-
 
 pub async fn test_postgres_connection(
     authed: ApiAuthed,
@@ -706,7 +705,7 @@ pub async fn get_publication_info(
     let publication_data =
         get_publication_scope_and_transaction(&mut connection, &publication_name).await;
 
-        let (all_table, transaction_to_track) = match publication_data {
+    let (all_table, transaction_to_track) = match publication_data {
         Ok(pub_data) => pub_data,
         Err(Error::SqlErr { error: sqlx::Error::RowNotFound, .. }) => {
             return Err(Error::NotFound(
