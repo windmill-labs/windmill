@@ -384,7 +384,7 @@
 							>
 								<div
 									class={classNames(
-										'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-300',
+										'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
 										menuOpen ? 'opacity-100' : 'opacity-0'
 									)}
 								>
@@ -393,10 +393,10 @@
 										on:click={() => {
 											menuOpen = !menuOpen
 										}}
-										class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 									>
 										<svg
-											class="h-6 w-6 text-white"
+											class="h-4 w-4 text-white"
 											xmlns="http://www.w3.org/2000/svg"
 											fill="none"
 											viewBox="0 0 24 24"
@@ -412,7 +412,7 @@
 										</svg>
 									</button>
 								</div>
-								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
+								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark flex flex-col">
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
@@ -519,6 +519,7 @@
 				</div>
 			{/if}
 
+			<!-- Legacy menu -->
 			<div
 				class={classNames(
 					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
