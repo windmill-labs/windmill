@@ -118,7 +118,7 @@
 	})
 
 	let sortedItems: FilledItem<T>[] = []
-	$: sortedItems = structuredClone(items).sort((a, b) => a.id.localeCompare(b.id))
+	$: sortedItems = smartCopy(items).sort((a, b) => a.id.localeCompare(b.id))
 
 	let resizing: boolean = false
 
@@ -135,34 +135,31 @@
 
 	let initItems: FilledItem<T>[] | undefined = undefined
 
-	// function smartCopy(items: FilledItem<T>[]) {
-	// 	return getComputedCols != undefined
-	// 		? items.map((item) => {
-	// 				return {
-	// 					...item,
-	// 					[getComputedCols]: {
-	// 						...item[getComputedCols],
-	// 						...shadows[item.id]
-	// 					}
-	// 				}
-	// 		  })
-	// 		: []
-	// }
+	function smartCopy(items: FilledItem<T>[]) {
+		return getComputedCols != undefined
+			? items.map((item) => {
+					return {
+						...item,
+						[getComputedCols as number]: structuredClone(item[getComputedCols as number])
+					}
+			  })
+			: []
+	}
 	const updateMatrix = ({ detail }) => {
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]
 		if (isPointerUp) {
 			if (initItems == undefined) {
-				citems = structuredClone(sortedItems)
+				citems = smartCopy(sortedItems)
 			} else {
-				citems = structuredClone(initItems)
+				citems = smartCopy(initItems)
 			}
 			initItems = undefined
 		} else {
 			if (initItems == undefined) {
-				initItems = structuredClone(sortedItems)
+				initItems = smartCopy(sortedItems)
 			}
-			citems = structuredClone(initItems)
+			citems = smartCopy(initItems)
 		}
 		let nselectedIds = selectedIds ?? []
 		if (detail.id && !selectedIds?.includes(detail.id)) {
@@ -228,7 +225,7 @@
 		}
 
 		if (isPointerUp && getComputedCols) {
-			dispatch('redraw', sortGridItemsPosition(structuredClone(sortedItems), getComputedCols))
+			dispatch('redraw', sortGridItemsPosition(smartCopy(sortedItems), getComputedCols))
 		}
 	}
 
