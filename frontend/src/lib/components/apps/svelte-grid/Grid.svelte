@@ -480,7 +480,6 @@
 				{#if item[getComputedCols]}
 					<slot
 						dataItem={item}
-						hidden={false}
 						overlapped={$overlappedStore}
 						moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
 						componentDraggedId={$componentDraggedIdStore}

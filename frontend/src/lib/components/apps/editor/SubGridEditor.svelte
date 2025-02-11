@@ -175,9 +175,7 @@
 
 {#if visible}
 	<div
-		class="translate-x-0 translate-y-0 w-full subgrid {visible
-			? 'visible'
-			: 'invisible h-0 overflow-hidden'}"
+		class="translate-x-0 translate-y-0 w-full subgrid"
 		bind:this={container}
 		on:pointerdown={onpointerdown}
 	>
@@ -211,7 +209,6 @@
 						}}
 						selectedIds={$selectedComponent}
 						let:dataItem
-						let:hidden
 						let:overlapped
 						let:moveMode
 						let:componentDraggedId
@@ -259,10 +256,9 @@
 						>
 							<GridEditorMenu id={dataItem.id}>
 								<Component
-									{hidden}
 									{overlapped}
 									fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-									render={visible}
+									render={true}
 									component={dataItem.data}
 									selected={Boolean($selectedComponent?.includes(dataItem.id))}
 									locked={isFixed(dataItem)}
@@ -306,7 +302,6 @@
 					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
 					let:dataItem
-					let:hidden
 					cols={columnConfiguration}
 					breakpoint={$breakpoint}
 					parentWidth={$parentWidth - 17}
@@ -320,11 +315,10 @@
 					>
 						<Component
 							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-							render={visible}
+							render={true}
 							component={dataItem.data}
 							selected={Boolean($selectedComponent?.includes(dataItem.id))}
 							locked={isFixed(dataItem)}
-							{hidden}
 						/>
 					</div>
 				</GridViewer>
@@ -335,7 +329,6 @@
 	{#each $app.subgrids?.[subGridId] ?? [] as item}
 		<Component
 			render={false}
-			hidden={true}
 			component={item.data}
 			selected={false}
 			locked={false}

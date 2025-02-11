@@ -195,7 +195,6 @@
 				}}
 				root
 				let:dataItem
-				let:hidden
 				let:overlapped
 				let:moveMode
 				let:componentDraggedId
@@ -252,7 +251,6 @@
 						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 					>
 						<Component
-							{hidden}
 							render={true}
 							component={dataItem.data}
 							selected={Boolean($selectedComponent?.includes(dataItem.id))}

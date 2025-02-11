@@ -16,8 +16,6 @@
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
-	export let render: boolean
-	export let hidden: boolean
 	export let fullHeight: boolean
 	export let overlapped: string | undefined = undefined
 	export let moveMode: string | undefined = undefined
@@ -97,8 +95,7 @@
 	on:mouseout|stopPropagation={mouseOut}
 	class={twMerge(
 		'h-full flex flex-col w-full component relative',
-		initializing ? 'overflow-hidden h-0' : '',
-		hidden && $mode === 'preview' ? 'hidden' : ''
+		initializing ? 'overflow-hidden h-0' : ''
 	)}
 	data-connection-button
 >
@@ -184,7 +181,7 @@
 	>
 		<ComponentInner
 			{component}
-			{render}
+			render={true}
 			{componentContainerHeight}
 			bind:initializing
 			bind:errorHandledByComponent
@@ -192,7 +189,7 @@
 		/>
 	</div>
 </div>
-{#if initializing && render && !hidden}
+{#if initializing}
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div

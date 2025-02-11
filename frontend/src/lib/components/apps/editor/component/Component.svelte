@@ -7,12 +7,11 @@
 	export let selected: boolean
 	export let locked: boolean = false
 	export let render: boolean
-	export let hidden: boolean
 	export let fullHeight: boolean
 </script>
 
 {#if render}
-	<ComponentRendered {component} {selected} {locked} {render} {hidden} {fullHeight} />
+	<ComponentRendered {component} {selected} {locked} {fullHeight} />
 {:else}
 	<ComponentInner
 		{component}

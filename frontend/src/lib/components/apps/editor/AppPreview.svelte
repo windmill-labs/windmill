@@ -292,7 +292,6 @@
 					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
-					let:hidden
 					cols={columnConfiguration}
 					{maxRow}
 					breakpoint={$breakpoint}
@@ -308,7 +307,6 @@
 							selected={false}
 							locked={true}
 							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-							{hidden}
 						/>
 					</div>
 				</GridViewer>
