@@ -122,9 +122,7 @@
 		{/if}
 	</div>
 {:else if $app.subgrids}
-	{JSON.stringify(resolvedConditions)}
 	{#each resolvedConditions ?? [] as _res, i}
-		{i}
 		<SubGridEditor visible={false} {id} subGridId={`${id}-${i}`} />
 	{/each}
 {/if}
