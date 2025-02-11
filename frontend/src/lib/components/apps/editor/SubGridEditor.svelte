@@ -329,8 +329,8 @@
 			{/if}
 		</div>
 	</div>
-{:else}
+{:else if $app.lazyInitRequire == undefined}
 	{#each $app?.subgrids?.[subGridId] ?? [] as item}
-		<Component render={false} component={item.data} id={item.id} />
+		<Component render={false} component={item.data} />
 	{/each}
 {/if}
