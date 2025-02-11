@@ -4,27 +4,21 @@ use crate::{
 };
 
 use anthropic::AnthropicCache;
-use axum::{
-    body::Bytes,
-    extract::{Path, Query},
-    response::IntoResponse,
-    routing::post,
-    Extension, Router,
-};
+use anyhow::Context;
+use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
+use http::HeaderMap;
 use lazy_static::lazy_static;
-use mistral::MistralCache;
-use openai::OpenaiCache;
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
-use serde::{Deserialize, Deserializer};
-use windmill_audit::audit_ee::audit_log;
-use windmill_audit::ActionKind;
-use windmill_common::error::{to_anyhow, Result};
-
-use windmill_common::error::Error;
-
+use serde::{Deserialize, Serialize};
 use serde_json::value::{RawValue, Value};
 use std::collections::HashMap;
+use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_common::error::{to_anyhow, Error, Result};
+
+use mistral::MistralCache;
+use openai::OpenaiCache;
+use openai_api_compatible::OpenaiApiCompatibleCache;
 
 lazy_static::lazy_static! {
     static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -33,16 +27,63 @@ lazy_static::lazy_static! {
         .build().unwrap();
 }
 
-trait AiRequest {
-    fn prepare_request(self, path: &str, body: Bytes) -> Result<RequestBuilder>;
+mod openai_api_compatible {
+    use super::*;
+
+    #[derive(Deserialize, Clone, Debug)]
+    pub struct OpenaiApiCompatibleCache {
+        pub base_url: String,
+        pub api_key: Option<String>,
+    }
+
+    impl OpenaiApiCompatibleCache {
+        pub fn prepare_request(self, path: &str, body: Bytes) -> Result<RequestBuilder> {
+            let url = format!("{}/{}", self.base_url, path);
+
+            let mut request = HTTP_CLIENT
+                .post(url)
+                .header("content-type", "application/json")
+                .body(body);
+
+            if let Some(api_key) = self.api_key {
+                request = request.header("Authorization", format!("Bearer {}", api_key));
+            }
+
+            Ok(request)
+        }
+    }
+
+    pub async fn get_cached_value(
+        db: &DB,
+        w_id: &str,
+        resource: Value,
+        base_url: Option<String>,
+    ) -> Result<KeyCache> {
+        let mut resource: OpenaiApiCompatibleCache = if let Some(base_url) = base_url {
+            let api_key = match resource {
+                Value::Object(mut obj) => obj
+                    .remove("api_key")
+                    .map(|v| serde_json::from_value::<String>(v.clone()).ok())
+                    .flatten(),
+                _ => None,
+            };
+            OpenaiApiCompatibleCache { base_url, api_key }
+        } else {
+            serde_json::from_value(resource).with_context(|| "validating custom AI resource")?
+        };
+
+        if let Some(api_key) = resource.api_key {
+            resource.api_key = Some(get_variable_or_self(api_key, db, w_id).await?);
+        }
+
+        Ok(KeyCache::OpenaiApiCompatible(resource))
+    }
 }
 
 mod openai {
     use super::*;
 
-    use super::{get_variable_or_self, KeyCache};
-
-    const API_VERSION: &str = "2023-05-15";
+    const API_VERSION: &str = "2024-10-21";
 
     #[derive(Deserialize, Debug)]
     struct OpenaiResource {
@@ -94,14 +135,14 @@ mod openai {
     }
 
     const BASE_URL: &str = "https://api.openai.com/v1";
-    impl AiRequest for OpenaiCache {
-        fn prepare_request(self, openai_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
+    impl OpenaiCache {
+        pub fn prepare_request(self, openai_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
             let OpenaiCache { api_key, azure_base_path, organization_id, user } = self;
             if user.is_some() {
                 tracing::debug!("Adding user to request body");
                 let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
                     .map_err(|e| {
-                    Error::InternalErr(format!("Failed to parse request body: {}", e))
+                    Error::internal_err(format!("Failed to parse request body: {}", e))
                 })?;
 
                 let user_json_string = serde_json::Value::String(user.unwrap()).to_string(); // makes sure to escape characters
@@ -109,12 +150,12 @@ mod openai {
                 json_body.insert(
                     "user".to_string(),
                     RawValue::from_string(user_json_string)
-                        .map_err(|e| Error::InternalErr(format!("Failed to parse user: {}", e)))?,
+                        .map_err(|e| Error::internal_err(format!("Failed to parse user: {}", e)))?,
                 );
 
                 body = serde_json::to_vec(&json_body)
                     .map_err(|e| {
-                        Error::InternalErr(format!("Failed to reserialize request body: {}", e))
+                        Error::internal_err(format!("Failed to reserialize request body: {}", e))
                     })?
                     .into();
             }
@@ -163,13 +204,13 @@ mod openai {
             .send()
             .await
             .map_err(|err| {
-                Error::InternalErr(format!(
+                Error::internal_err(format!(
                     "Failed to get OpenAI credentials using credentials flow: {}",
                     err
                 ))
             })?;
         let response = response.json::<OpenaiCredentials>().await.map_err(|err| {
-            Error::InternalErr(format!(
+            Error::internal_err(format!(
                 "Failed to parse OpenAI credentials from credentials flow: {}",
                 err
             ))
@@ -179,7 +220,7 @@ mod openai {
 
     pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
         let config = serde_json::from_value(resource)
-            .map_err(|e| Error::InternalErr(format!("validating openai resource {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("validating openai resource {e:#}")))?;
 
         let mut user = None::<String>;
         let mut resource = match config {
@@ -216,7 +257,7 @@ mod openai {
         let azure_base_path = if let Some(azure_base_path) = azure_base_path {
             Some(
                 serde_json::from_value::<String>(azure_base_path).map_err(|e| {
-                    Error::InternalErr(format!("validating openai azure base path {e:#}"))
+                    Error::internal_err(format!("validating openai azure base path {e:#}"))
                 })?,
             )
         } else {
@@ -245,15 +286,9 @@ mod anthropic {
 
     const API_VERSION: &str = "2023-06-01";
 
-    impl AnthropicCache {
-        pub fn new(api_key: String) -> Self {
-            Self { api_key }
-        }
-    }
-
     const BASE_URL: &str = "https://api.anthropic.com";
-    impl AiRequest for AnthropicCache {
-        fn prepare_request(self, anthropic_path: &str, body: Bytes) -> Result<RequestBuilder> {
+    impl AnthropicCache {
+        pub fn prepare_request(self, anthropic_path: &str, body: Bytes) -> Result<RequestBuilder> {
             let AnthropicCache { api_key } = self;
             let url = format!("{}/{}", BASE_URL, anthropic_path);
             let request = HTTP_CLIENT
@@ -268,10 +303,9 @@ mod anthropic {
 
     pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
         let mut resource: AnthropicCache = serde_json::from_value(resource)
-            .map_err(|e| Error::InternalErr(format!("validating anthropic resource {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("validating anthropic resource {e:#}")))?;
         resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
-        let workspace_cache = AnthropicCache::new(resource.api_key);
-        Ok(KeyCache::Anthropic(workspace_cache))
+        Ok(KeyCache::Anthropic(resource))
     }
 }
 
@@ -283,15 +317,9 @@ mod mistral {
         pub api_key: String,
     }
 
-    impl MistralCache {
-        pub fn new(api_key: String) -> Self {
-            Self { api_key }
-        }
-    }
-
     const BASE_URL: &str = "https://api.mistral.ai";
-    impl AiRequest for MistralCache {
-        fn prepare_request(self, mistral_path: &str, body: Bytes) -> Result<RequestBuilder> {
+    impl MistralCache {
+        pub fn prepare_request(self, mistral_path: &str, body: Bytes) -> Result<RequestBuilder> {
             let MistralCache { api_key } = self;
 
             let url = format!("{}/{}", BASE_URL, mistral_path);
@@ -307,11 +335,9 @@ mod mistral {
 
     pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
         let mut resource: MistralCache = serde_json::from_value(resource)
-            .map_err(|e| Error::InternalErr(format!("validating mistral resource {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("validating mistral resource {e:#}")))?;
         resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
-
-        let workspace_cache = MistralCache::new(resource.api_key);
-        Ok(KeyCache::Mistral(workspace_cache))
+        Ok(KeyCache::Mistral(resource))
     }
 }
 
@@ -320,16 +346,17 @@ pub enum KeyCache {
     Openai(OpenaiCache),
     Anthropic(AnthropicCache),
     Mistral(MistralCache),
+    OpenaiApiCompatible(OpenaiApiCompatibleCache),
 }
 
 #[derive(Clone, Debug)]
-pub struct AiCache {
+pub struct AICache {
     pub path: String,
     pub cached_key: KeyCache,
     pub expires_at: std::time::Instant,
 }
 
-impl AiCache {
+impl AICache {
     pub fn new(path: String, cached_key: KeyCache) -> Self {
         Self {
             path,
@@ -343,33 +370,55 @@ impl AiCache {
 }
 
 lazy_static! {
-    pub static ref AI_KEY_CACHE: Cache<String, AiCache> = Cache::new(500);
+    pub static ref AI_KEY_CACHE: Cache<String, AICache> = Cache::new(500);
 }
 
-#[derive(Deserialize, Debug)]
-struct ProxyQueryParams {
-    no_cache: Option<bool>,
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum AIProvider {
+    OpenAI,
+    Anthropic,
+    Mistral,
+    DeepSeek,
+    Groq,
+    OpenRouter,
+    CustomAI,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct AiResource {
-    pub path: String,
-    #[serde(deserialize_with = "check_if_valid_ai_provider")]
-    pub provider: String,
-}
-
-fn check_if_valid_ai_provider<'de, D>(provider: D) -> std::result::Result<String, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let provider = String::deserialize(provider)?;
-    match provider.as_str() {
-        "anthropic" | "openai" | "mistral" => Ok(provider),
-        _ => Err(serde::de::Error::custom(
-            "Only the following Ai providers are supported: openai, anthropic and mistral"
-                .to_string(),
-        )),
+impl AIProvider {
+    pub fn get_openai_compatible_base_url(&self) -> Result<Option<String>> {
+        match self {
+            AIProvider::DeepSeek => Ok(Some("https://api.deepseek.com/v1".to_string())),
+            AIProvider::Groq => Ok(Some("https://api.groq.com/openai/v1".to_string())),
+            AIProvider::OpenRouter => Ok(Some("https://openrouter.ai/api/v1".to_string())),
+            AIProvider::CustomAI => Ok(None),
+            _ => Err(Error::BadRequest(
+                "Please use the specific provider instead of the OpenAI compatible one".to_string(),
+            )),
+        }
     }
+}
+
+impl TryFrom<&str> for AIProvider {
+    type Error = Error;
+    fn try_from(s: &str) -> Result<Self> {
+        match s {
+            "openai" => Ok(AIProvider::OpenAI),
+            "anthropic" => Ok(AIProvider::Anthropic),
+            "mistral" => Ok(AIProvider::Mistral),
+            "groq" => Ok(AIProvider::Groq),
+            "openrouter" => Ok(AIProvider::OpenRouter),
+            "deepseek" => Ok(AIProvider::DeepSeek),
+            "customai" => Ok(AIProvider::CustomAI),
+            _ => Err(Error::BadRequest(format!("Invalid AI provider: {}", s))),
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AIResource {
+    pub path: String,
+    pub provider: AIProvider,
 }
 
 pub fn workspaced_service() -> Router {
@@ -382,74 +431,105 @@ async fn proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, ai_path)): Path<(String, String)>,
-    Query(query_params): Query<ProxyQueryParams>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
     let workspace_cache = AI_KEY_CACHE.get(&w_id);
+    let forced_resource_path = headers
+        .get("X-Resource-Path")
+        .map(|v| v.to_str().unwrap_or("").to_string());
     let ai_cache = match workspace_cache {
-        Some(cache) if !cache.is_expired() && !query_params.no_cache.unwrap_or(false) => {
-            cache.cached_key
-        }
+        Some(cache) if !cache.is_expired() && forced_resource_path.is_none() => cache.cached_key,
         _ => {
-            let ai_resource = sqlx::query_scalar!(
-                "SELECT ai_resource FROM workspace_settings WHERE workspace_id = $1",
-                &w_id
-            )
-            .fetch_one(&db)
-            .await?;
+            let (resource, resource_path, ai_provider) = if let Some(resource_path) =
+                forced_resource_path
+            {
+                // guess the provider from the resource type
+                let record = sqlx::query!(
+                    "SELECT value, resource_type FROM resource WHERE path = $1 AND workspace_id = $2",
+                    &resource_path,
+                    &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Could not find the resource {}, update the resource path in the workspace settings", resource_path
+                    ))
+                })?;
 
-            if ai_resource.is_none() {
-                return Err(Error::InternalErr("AI resource not configured".to_string()));
-            }
+                (
+                    record.value,
+                    resource_path,
+                    AIProvider::try_from(record.resource_type.as_str())?,
+                )
+            } else {
+                let ai_resource = sqlx::query_scalar!(
+                    "SELECT ai_resource FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id
+                )
+                .fetch_one(&db)
+                .await?;
 
-            let ai_resource = serde_json::from_value::<AiResource>(ai_resource.unwrap())
-                .map_err(|e| Error::BadRequest(e.to_string()))?;
-            let ai_resource_path = ai_resource.path;
+                if ai_resource.is_none() {
+                    return Err(Error::internal_err("AI resource not configured".to_string()));
+                }
 
-            let resource = sqlx::query_scalar!(
-                "SELECT value
-                FROM resource
-                WHERE path = $1 AND workspace_id = $2",
-                &ai_resource_path,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?
-            .ok_or_else(|| {
-                Error::InternalErr(format!(
-                    "Could not find the {} resource at path {ai_resource_path}, update the resource path in the workspace settings", ai_resource.provider
-                ))
-            })?;
+                let ai_resource = serde_json::from_value::<AIResource>(ai_resource.unwrap())
+                    .map_err(|e| Error::BadRequest(e.to_string()))?;
+
+                let resource = sqlx::query_scalar!(
+                    "SELECT value
+                    FROM resource
+                    WHERE path = $1 AND workspace_id = $2",
+                    &ai_resource.path,
+                    &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", ai_resource.provider, ai_resource.path
+                    ))
+                })?;
+
+                (resource, ai_resource.path, ai_resource.provider)
+            };
 
             if resource.is_none() {
-                return Err(Error::InternalErr(format!(
-                    "{} resource missing value",
-                    ai_resource.provider
+                return Err(Error::internal_err(format!(
+                    "{:?} resource missing value",
+                    ai_provider
                 )));
             }
 
             let resource = resource.unwrap();
 
-            let ai_cache = match ai_resource.provider.as_str() {
-                "openai" => openai::get_cached_value(&db, &w_id, resource).await,
-                "anthropic" => anthropic::get_cached_value(&db, &w_id, resource).await,
-                "mistral" => mistral::get_cached_value(&db, &w_id, resource).await,
-                provider => {
-                    return Err(Error::BadRequest(format!("{} is not supported", provider)))
+            let ai_cache = match ai_provider {
+                AIProvider::OpenAI => openai::get_cached_value(&db, &w_id, resource).await,
+                AIProvider::Anthropic => anthropic::get_cached_value(&db, &w_id, resource).await,
+                AIProvider::Mistral => mistral::get_cached_value(&db, &w_id, resource).await,
+                _ => {
+                    openai_api_compatible::get_cached_value(
+                        &db,
+                        &w_id,
+                        resource,
+                        ai_provider.get_openai_compatible_base_url()?,
+                    )
+                    .await
                 }
             };
             let ai_cache = ai_cache?;
-            AI_KEY_CACHE.insert(
-                w_id.clone(),
-                AiCache::new(ai_resource_path, ai_cache.clone()),
-            );
+            AI_KEY_CACHE.insert(w_id.clone(), AICache::new(resource_path, ai_cache.clone()));
             ai_cache
         }
     };
-    let (path, request) = match ai_cache {
-        KeyCache::Openai(cached) => ("openai_path", cached.prepare_request(&ai_path, body)),
-        KeyCache::Anthropic(cached) => ("anthropic_path", cached.prepare_request(&ai_path, body)),
-        KeyCache::Mistral(cached) => ("mistral_path", cached.prepare_request(&ai_path, body)),
+
+    let request = match ai_cache {
+        KeyCache::Openai(cached) => cached.prepare_request(&ai_path, body),
+        KeyCache::Anthropic(cached) => cached.prepare_request(&ai_path, body),
+        KeyCache::Mistral(cached) => cached.prepare_request(&ai_path, body),
+        KeyCache::OpenaiApiCompatible(cached) => cached.prepare_request(&ai_path, body),
     };
 
     let response = request?.send().await.map_err(to_anyhow)?;
@@ -463,7 +543,7 @@ async fn proxy(
         ActionKind::Execute,
         &w_id,
         Some(&authed.email),
-        Some([(path, &format!("{:?}", ai_path)[..])].into()),
+        Some([("ai_resource_path", &format!("{:?}", ai_path)[..])].into()),
     )
     .await?;
     tx.commit().await?;

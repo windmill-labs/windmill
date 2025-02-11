@@ -31,7 +31,6 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    jobs::QueuedJob,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
 };
@@ -262,7 +261,7 @@ async fn list_resources(
         sqlb.and_where_like_left("resource.path", path_start);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableResource>(&sql)
         .fetch_all(&mut *tx)
@@ -516,7 +515,7 @@ pub async fn transform_json_value<'c>(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(format!("Invalid resource path: {path}")));
+                return Err(Error::internal_err(format!("Invalid resource path: {path}")));
             }
             let mut tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;
@@ -537,21 +536,28 @@ pub async fn transform_json_value<'c>(
         }
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
             let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
-            let job = sqlx::query_as::<_, QueuedJob>(
-                "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
+            let job_id = job_id.unwrap();
+            let job = sqlx::query!(
+                "SELECT
+                    email AS \"email!\",
+                    created_by AS \"created_by!\",
+                    parent_job, permissioned_as AS \"permissioned_as!\",
+                    script_path, schedule_path, flow_step_id, root_job,
+                    scheduled_for AS \"scheduled_for!: chrono::DateTime<chrono::Utc>\"
+                FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                workspace
             )
-            .bind(job_id.unwrap())
-            .bind(workspace)
             .fetch_optional(&mut *tx)
             .await?;
             tx.commit().await?;
 
-            let job = not_found_if_none(job, "Job", job_id.unwrap().to_string())?;
+            let job = not_found_if_none(job, "Job", job_id.to_string())?;
 
             let flow_path = if let Some(uuid) = job.parent_job {
                 let mut tx: Transaction<'_, Postgres> =
                     authed_transaction_or_default(authed, user_db.clone(), db).await?;
-                let p = sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                let p = sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_optional(&mut *tx)
                     .await?
                     .flatten();
@@ -563,11 +569,11 @@ pub async fn transform_json_value<'c>(
 
             let variables = variables::get_reserved_variables(
                 db,
-                &job.workspace_id,
+                workspace,
                 token,
                 &job.email,
                 &job.created_by,
-                &job.id.to_string(),
+                &job_id.to_string(),
                 &job.permissioned_as,
                 job.script_path.clone(),
                 job.parent_job.map(|x| x.to_string()),
@@ -815,7 +821,7 @@ async fn update_resource(
         }
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
@@ -1165,7 +1171,7 @@ async fn update_resource_type(
         sqlb.set_str("description", ndesc);
     }
     sqlb.set_str("edited_at", "now()");
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query(&sql).execute(&mut *tx).await?;

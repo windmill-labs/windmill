@@ -8,7 +8,7 @@
 	import { generateRandomString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
-	import Menubar from '$lib/components/meltComponents/Menubar.svelte'
+	import { Menubar } from '$lib/components/meltComponents'
 
 	let itemPath: string | undefined = undefined
 	let itemKind: 'script' | 'flow' | 'app' = 'script'

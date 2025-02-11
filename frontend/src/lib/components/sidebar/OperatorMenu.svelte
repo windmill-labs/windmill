@@ -22,10 +22,9 @@
 	import { logout } from '$lib/logout'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
-	import Menu from '$lib/components/meltComponents/Menu.svelte'
-	import Menubar from '$lib/components/meltComponents/Menubar.svelte'
-	import MenuButtonMelt from './MenuButtonMelt.svelte'
-	import MenuLinkMelt from './MenuLinkMelt.svelte'
+	import { Menu, Menubar } from '$lib/components/meltComponents'
+	import MenuButton from './MenuButton.svelte'
+	import MenuLink from './MenuLink.svelte'
 	import { melt } from '@melt-ui/svelte'
 	let darkMode: boolean = false
 
@@ -116,9 +115,9 @@
 </script>
 
 <Menubar let:createMenu>
-	<Menu {createMenu} let:item>
+	<Menu {createMenu} let:item usePointerDownOutside>
 		<svelte:fragment slot="trigger" let:trigger>
-			<MenuButtonMelt
+			<MenuButton
 				class="!text-xs"
 				icon={MenuIcon}
 				{isCollapsed}
@@ -154,7 +153,7 @@
 		</div>
 
 		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-			<MenuLinkMelt class="!text-xs" {...menuLink} {isCollapsed} lightMode {item} />
+			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} lightMode {item} />
 		{/each}
 
 		<div class="divide-y" role="none">
@@ -283,7 +282,13 @@
 			</div>
 		</div>
 		{#if $enterpriseLicense}
-			<MultiplayerMenu />
+			<div
+				on:mouseenter={() => (moreOpen = true)}
+				on:mouseleave={() => (moreOpen = false)}
+				role="none"
+			>
+				<MultiplayerMenu />
+			</div>
 		{/if}
 	</Menu>
 </Menubar>

@@ -230,7 +230,11 @@
 
 	let oldDefaultValue = structuredClone(defaultValue)
 	function handleDefaultValueChange() {
-		if (deepEqual(value, oldDefaultValue)) {
+		if (
+			deepEqual(value, oldDefaultValue) &&
+			!deepEqual(value, defaultValue) &&
+			!deepEqual(defaultValue, oldDefaultValue)
+		) {
 			value = defaultValue
 		}
 		oldDefaultValue = structuredClone(defaultValue)
@@ -489,6 +493,7 @@
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
+								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
@@ -502,6 +507,7 @@
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
+								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}

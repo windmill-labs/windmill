@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
+	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
@@ -68,7 +68,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 					}
 				],
 				abortController,
-				aiProvider as AiProviderTypes
+				aiProvider
 			)
 
 			dispatch('setExpr', result)

@@ -1,21 +1,26 @@
 <script lang="ts">
 	import { melt } from '@melt-ui/svelte'
-	import { createEventDispatcher } from 'svelte'
 
 	export let href: string | undefined = undefined
 	export let disabled: boolean = false
-
+	export let target: string | undefined = undefined
 	export let item: any
-
-	const dispatch = createEventDispatcher()
 </script>
 
 {#if href}
-	<a {href} use:melt={item} {disabled} class={$$props.class}>
+	<a
+		use:melt={item}
+		{href}
+		class={$$props.class}
+		role="menuitem"
+		aria-disabled={disabled}
+		tabindex={disabled ? -1 : undefined}
+		{target}
+	>
 		<slot />
 	</a>
 {:else}
-	<button use:melt={item} on:click={(e) => dispatch('click', e)} {disabled} class={$$props.class}>
+	<button use:melt={item} on:click {disabled} class={$$props.class} role="menuitem">
 		<slot />
 	</button>
 {/if}

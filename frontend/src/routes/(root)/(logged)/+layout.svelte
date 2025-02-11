@@ -44,14 +44,14 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
-	import { initAllAiWorkspace } from '$lib/components/copilot/lib'
+	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
-	import Menubar from '$lib/components/meltComponents/Menubar.svelte'
+	import { Menubar } from '$lib/components/meltComponents'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -241,15 +241,19 @@
 	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
-		initAllAiWorkspace(workspace)
+		workspaceAIClients.init(workspace)
 		try {
-			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
-		} catch (err) {
-			console.log(err)
+			const info = await WorkspaceService.getCopilotInfo({ workspace })
 			copilotInfo.set({
-				ai_provider: '',
+				...info,
+				ai_provider: info.ai_provider ?? 'openai'
+			})
+		} catch (err) {
+			copilotInfo.set({
+				ai_provider: 'openai',
 				exists_ai_resource: false,
-				code_completion_enabled: false
+				code_completion_model: undefined,
+				ai_models: []
 			})
 			console.error('Could not get copilot info')
 		}
@@ -380,7 +384,7 @@
 							>
 								<div
 									class={classNames(
-										'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-300',
+										'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
 										menuOpen ? 'opacity-100' : 'opacity-0'
 									)}
 								>
@@ -389,10 +393,10 @@
 										on:click={() => {
 											menuOpen = !menuOpen
 										}}
-										class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 									>
 										<svg
-											class="h-6 w-6 text-white"
+											class="h-4 w-4 text-white"
 											xmlns="http://www.w3.org/2000/svg"
 											fill="none"
 											viewBox="0 0 24 24"
@@ -408,12 +412,12 @@
 										</svg>
 									</button>
 								</div>
-								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
+								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark flex flex-col">
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
+									<div class="px-2 py-4 border-y border-gray-500">
 										<Menubar let:createMenu>
 											<WorkspaceMenu {createMenu} />
 											<FavoriteMenu {createMenu} {favoriteLinks} />
@@ -468,8 +472,8 @@
 									{/if}
 								</div>
 							</button>
-							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
-								<Menubar let:createMenu>
+							<div class="px-2 py-4 border-y border-gray-700 flex flex-col gap-1">
+								<Menubar let:createMenu class="flex flex-col gap-1">
 									<WorkspaceMenu {createMenu} {isCollapsed} />
 									<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
 								</Menubar>
@@ -515,6 +519,7 @@
 				</div>
 			{/if}
 
+			<!-- Legacy menu -->
 			<div
 				class={classNames(
 					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',

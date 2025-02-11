@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { Code2, LayoutDashboard, Star } from 'lucide-svelte'
+	import { CodeXml, LayoutDashboard, Star } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { melt } from '@melt-ui/svelte'
-	import Menu from '$lib/components/meltComponents/Menu.svelte'
-	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
+	import { Menu, MenuItem } from '$lib/components/meltComponents'
+	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	export let lightMode: boolean = false
 
 	export let isCollapsed: boolean = false
@@ -15,9 +14,9 @@
 	export let createMenu: any
 </script>
 
-<Menu {createMenu} let:item>
+<Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
-		<MenuButtonMelt
+		<MenuButton
 			class="!text-xs"
 			icon={Star}
 			label={'Favorites'}
@@ -37,14 +36,14 @@
 		{:else}
 			<div class="py-1 w-full max-w-full">
 				{#each favoriteLinks ?? [] as favorite (favorite.href)}
-					<a
+					<MenuItem
 						href={favorite.href}
-						use:melt={item}
-						class="w-full inline-flex flex-row px-4 py-2 hover:bg-surface-hover data-[highlighted]:bg-surface-hover"
+						{item}
+						class="w-full inline-flex flex-row px-4 py-2 data-[highlighted]:bg-surface-hover"
 					>
 						<span class="center-center">
 							{#if favorite.kind == 'script'}
-								<Code2 size={16} />
+								<CodeXml size={16} />
 							{:else if favorite.kind == 'flow'}
 								<BarsStaggered size={16} />
 							{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
@@ -54,7 +53,7 @@
 						<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
 							{favorite.label}
 						</span>
-					</a>
+					</MenuItem>
 				{/each}
 			</div>
 		{/if}

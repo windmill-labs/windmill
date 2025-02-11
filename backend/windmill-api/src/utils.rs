@@ -76,7 +76,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
     let mut i = 1;
     while username_conflict {
         if i > 1000 {
-            return Err(Error::InternalErr(format!(
+            return Err(Error::internal_err(format!(
                 "too many username conflicts for {}",
                 email
             )));
@@ -168,7 +168,7 @@ pub async fn get_instance_username_or_create_pending<'c>(
             )
             .execute(&mut **tx)
             .await
-            .map_err(|e| Error::InternalErr(format!("creating pending user: {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("creating pending user: {e:#}")))?;
 
             Ok(username)
         }

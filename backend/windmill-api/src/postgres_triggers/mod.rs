@@ -16,7 +16,7 @@ use handler::{
     create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
     exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
     is_database_in_logical_level, list_database_publication, list_postgres_triggers,
-    list_slot_name, set_enabled, update_postgres_trigger, Database, PostgresTrigger,
+    list_slot_name, set_enabled, update_postgres_trigger, Database,
 };
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -30,6 +30,7 @@ mod relation;
 mod replication_message;
 mod trigger;
 
+pub use handler::PostgresTrigger;
 pub use trigger::start_database;
 
 pub async fn get_database_resource(
@@ -52,7 +53,7 @@ pub async fn get_database_resource(
     .map_err(|_| Error::NotFound("Database resource do not exist".to_string()))?;
 
     let resource = match resource {
-        Some(resource) => serde_json::from_value::<Database>(resource).map_err(Error::SerdeJson)?,
+        Some(resource) => serde_json::from_value::<Database>(resource)?,
         None => {
             return {
                 Err(Error::NotFound(

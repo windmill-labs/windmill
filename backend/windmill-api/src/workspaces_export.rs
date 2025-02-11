@@ -148,6 +148,7 @@ pub(crate) struct ArchiveQueryParams {
     skip_variables: Option<bool>,
     skip_resources: Option<bool>,
     include_schedules: Option<bool>,
+    include_triggers: Option<bool>,
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
@@ -185,6 +186,8 @@ where
                     "has_draft",
                     "draft_only",
                     "error",
+                    "last_server_ping",
+                    "server_id",
                 ],
                 ignore_keys.unwrap_or(vec![]),
             ]
@@ -221,6 +224,7 @@ struct SimplifiedUser {
 #[derive(Serialize)]
 struct SimplifiedGroup {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<String>,
     members: Vec<String>,
     admins: Vec<String>,
@@ -235,18 +239,35 @@ struct SimplifiedSettings {
     auto_invite_enabled: bool,
     auto_invite_as: String,
     auto_invite_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     deploy_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error_handler: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ai_resource: Option<serde_json::Value>,
-    code_completion_enabled: bool,
+    ai_models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code_completion_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     large_file_storage: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     git_sync: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     default_app: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     default_scripts: Option<Value>,
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operator_settings: Option<serde_json::Value>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -262,6 +283,7 @@ pub(crate) async fn tarball_workspace(
         skip_secrets,
         skip_variables,
         include_schedules,
+        include_triggers,
         include_users,
         include_groups,
         include_settings,
@@ -508,6 +530,113 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
+    if include_triggers.unwrap_or(false) {
+        #[cfg(feature = "http_trigger")]
+        {
+            let http_triggers = sqlx::query_as!(
+                crate::http_triggers::HttpTrigger,
+                "SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, edited_at, email, extra_perms, is_async, requires_auth, http_method as \"http_method: _\", static_asset_config as \"static_asset_config: _\", is_static_website FROM http_trigger
+                WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in http_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(&trigger_str, &format!("{}.http_trigger.json", trigger.path))
+                    .await?;
+            }
+        }
+
+        #[cfg(feature = "websocket")]
+        {
+            let websocket_triggers = sqlx::query_as!(
+                crate::websocket_triggers::WebsocketTrigger,
+                "SELECT workspace_id, path, url, script_path, is_flow, edited_by, email, edited_at, server_id, last_server_ping, extra_perms, error, enabled, filters as \"filters: _\", initial_messages as \"initial_messages: _\", url_runnable_args as \"url_runnable_args: _\", can_return_message FROM websocket_trigger
+                WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in websocket_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.websocket_trigger.json", trigger.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            let kafka_triggers = sqlx::query_as!(
+                crate::kafka_triggers_ee::KafkaTrigger,
+                "SELECT * FROM kafka_trigger
+                WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in kafka_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.kafka_trigger.json", trigger.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "nats"))]
+        {
+            let nats_triggers = sqlx::query_as!(
+                crate::nats_triggers_ee::NatsTrigger,
+                "SELECT * FROM nats_trigger
+                WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in nats_triggers {
+                let trigger_str: &String =
+                    &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(&trigger_str, &format!("{}.nats_trigger.json", trigger.path))
+                    .await?;
+            }
+        }
+
+        #[cfg(feature = "postgres_trigger")]
+        {
+            let postgres_triggers = sqlx::query_as!(
+                crate::postgres_triggers::PostgresTrigger,
+                "SELECT * FROM postgres_trigger
+                WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in postgres_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.postgres_trigger.json", trigger.path),
+                    )
+                    .await?;
+            }
+        }
+    }
+
     if include_users.unwrap_or(false) {
         let users = sqlx::query!(
             "SELECT * FROM usr
@@ -530,12 +659,7 @@ pub(crate) async fn tarball_workspace(
                 disabled: user.disabled,
                 email: user.email,
             };
-            let user_str = &to_string_without_metadata(
-                &user,
-                false,
-                Some(vec!["is_admin", "operator", "email"]),
-            )
-            .unwrap();
+            let user_str = &to_string_without_metadata(&user, false, Some(vec!["email"])).unwrap();
             archive
                 .write_to_archive(&user_str, &format!("users/{}.user.json", user.email))
                 .await?;
@@ -558,7 +682,7 @@ pub(crate) async fn tarball_workspace(
         for group in groups {
             let extra_perms: HashMap<String, bool> = serde_json::from_value(group.extra_perms)
                 .map_err(|e| {
-                    Error::InternalErr(format!(
+                    Error::internal_err(format!(
                         "Error parsing extra_perms for group {}: {}",
                         group.name, e
                     ))
@@ -617,14 +741,18 @@ pub(crate) async fn tarball_workspace(
                 deploy_to, 
                 error_handler, 
                 ai_resource, 
-                code_completion_enabled, 
+                ai_models,
+                code_completion_model,
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
                 large_file_storage, 
                 git_sync,
                 default_app,
                 default_scripts,
-                workspace.name
+                workspace.name,
+                mute_critical_alerts,
+                color,
+                operator_settings
             FROM workspace_settings
             LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
             WHERE workspace_id = $1"#,
@@ -635,7 +763,7 @@ pub(crate) async fn tarball_workspace(
             .map(|v| serde_json::to_string_pretty(&v).ok())
             .ok()
             .flatten()
-            .ok_or_else(|| Error::InternalErr("Error serializing settings".to_string()))?;
+            .ok_or_else(|| Error::internal_err("Error serializing settings".to_string()))?;
 
         archive
             .write_to_archive(&settings_str, "settings.json")
@@ -654,7 +782,7 @@ pub(crate) async fn tarball_workspace(
             .map(|v| serde_json::to_string_pretty(&v).ok())
             .ok()
             .flatten()
-            .ok_or_else(|| Error::InternalErr("Error serializing enryption key".to_string()))?;
+            .ok_or_else(|| Error::internal_err("Error serializing enryption key".to_string()))?;
         archive
             .write_to_archive(&key_json, "encryption_key.json")
             .await?;

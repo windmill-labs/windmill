@@ -84,7 +84,7 @@ impl Migrate for CustomMigrator {
                     })?
                     .unwrap_or(false);
                 if !r {
-                    tracing::info!("PG lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
+                    tracing::info!("PG migration lock already acquired by another server or worker, a migration is in progress, this may take a long time if you have many jobs and be normal, rechecking in 5s.");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
@@ -178,6 +178,24 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         .await
     {
         tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
+    }
+
+    // Remove the migration `v2_fix_no_runtime` in favor of `v2_fix_no_runtime_2`.
+    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250201145632")
+        .execute(db)
+        .await
+    {
+        tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
+    }
+
+    // New version of `v2_as_queue` and `v2_as_completed_job` VIEWs.
+    if let Err(err) = sqlx::query!(
+        "DELETE FROM _sqlx_migrations WHERE version=20250201145630 OR version=20250201145631"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::info!("Could not remove sqlx migration with version=[20250201145630, 20250201145631] : {err:#}");
     }
 
     match sqlx::migrate!("../migrations")
@@ -405,60 +423,60 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
-    run_windmill_migration!("fix_job_completed_index_4", &db, {
+    run_windmill_migration!("fix_job_index_1", &db, {
         let migration_job_name = "fix_job_completed_index_4";
         let mut i = 1;
         tracing::info!("step {i} of {migration_job_name} migration");
-        sqlx::query("create index concurrently  if not exists ix_completed_job_workspace_id_created_at_new_3 ON completed_job  (workspace_id,  created_at DESC)")
+        sqlx::query!("create index concurrently  if not exists ix_job_workspace_id_created_at_new_3 ON v2_job  (workspace_id,  created_at DESC)")
                 .execute(db)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_8 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('deploymentcallback') AND parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_8 ON v2_job  (workspace_id, created_at DESC) where kind in ('deploymentcallback') AND parent_job IS NULL")
             .execute(db)
             .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_9 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('dependencies', 'flowdependencies', 'appdependencies') AND parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_9 ON v2_job  (workspace_id, created_at DESC) where kind in ('dependencies', 'flowdependencies', 'appdependencies') AND parent_job IS NULL")
             .execute(db)
             .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_5 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('preview', 'flowpreview') AND parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_5 ON v2_job  (workspace_id, created_at DESC) where kind in ('preview', 'flowpreview') AND parent_job IS NULL")
                 .execute(db)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_6 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_6 ON v2_job  (workspace_id, created_at DESC) where kind in ('script', 'flow') AND parent_job IS NULL")
                 .execute(db)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_7 ON completed_job  (workspace_id, success, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_7 ON v2_job  (workspace_id, created_at DESC) where kind in ('script', 'flow') AND parent_job IS NULL")
                 .execute(db)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON completed_job  (workspace_id, started_at DESC)")
+        sqlx::query!("create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON v2_job_completed  (workspace_id, started_at DESC)")
                 .execute(db)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists root_job_index_by_path_2 ON completed_job (workspace_id, script_path, created_at desc) WHERE parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists root_job_index_by_path_2 ON v2_job (workspace_id, runnable_path, created_at desc) WHERE parent_job IS NULL")
                 .execute(db)
                 .await?;
 
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query("create index concurrently if not exists ix_completed_job_created_at ON completed_job  (created_at DESC)")
+        sqlx::query!("create index concurrently if not exists ix_job_created_at ON v2_job  (created_at DESC)")
                     .execute(db)
                     .await?;
 
@@ -492,8 +510,19 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .execute(db)
             .await?;
         sqlx::query!(
-        "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON completed_job USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_labels'"
+        "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON v2_job_completed USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_labels'"
         ).execute(db).await?;
+    });
+
+    run_windmill_migration!("v2_labeled_jobs_index", &db, {
+        tracing::info!("Special migration to add index concurrently on job labels");
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY ix_v2_job_labels ON v2_job
+                USING GIN (labels)
+                WHERE labels IS NOT NULL"
+        )
+        .execute(db)
+        .await?;
     });
 
     Ok(())

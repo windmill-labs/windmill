@@ -8,8 +8,8 @@
 		workspaceUsageStore
 	} from '$lib/stores'
 	import { Building, Plus, Settings } from 'lucide-svelte'
-	import MenuButtonMelt from '$lib/components/sidebar/MenuButtonMelt.svelte'
-	import Menu from '$lib/components/meltComponents/Menu.svelte'
+	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import { Menu } from '$lib/components/meltComponents'
 	import { melt } from '@melt-ui/svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
@@ -18,7 +18,7 @@
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import { initAllAiWorkspace } from '../copilot/lib'
+	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 
 	export let isCollapsed: boolean = false
@@ -31,7 +31,7 @@
 		if ($workspaceStore === id) {
 			return
 		}
-		initAllAiWorkspace(id, true)
+		workspaceAIClients.init(id)
 		const editPages = [
 			'/scripts/edit/',
 			'/flows/edit/',
@@ -54,9 +54,9 @@
 	}
 </script>
 
-<Menu {createMenu} let:item>
+<Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
-		<MenuButtonMelt
+		<MenuButton
 			class="!text-xs"
 			icon={Building}
 			label={$workspaceStore ?? ''}

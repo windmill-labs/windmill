@@ -105,6 +105,7 @@
 				on:close
 				on:open
 				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
+				usePointerDownOutside={true}
 			>
 				<svelte:fragment slot="trigger" let:trigger>
 					<div use:melt={trigger} class="w-full h-full">
@@ -145,7 +146,7 @@
 					</div>
 				</svelte:fragment>
 
-				<div class="flex flex-col w-full p-1 gap-2">
+				<div class="flex flex-col w-full p-1 gap-2 max-h-[50vh] overflow-y-auto">
 					{#if menuItems.length > 0}
 						{#each menuItems as actionButton, actionIndex (actionButton?.id)}
 							{#if actionButton.type == 'buttoncomponent'}
