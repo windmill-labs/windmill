@@ -36,6 +36,9 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	let selected = tabs[0]
 	let tabHeight: number = 0
 	let footerHeight: number = 0
@@ -155,23 +158,25 @@
 	bind:result
 	errorHandledByComponent={true}
 >
-	{#if render}
+	{#if everRender}
 		<div class="w-full overflow-auto">
-			<div bind:clientHeight={tabHeight}>
-				<Stepper
-					on:click={(e) => {
-						const index = e.detail.index
-						if (index <= maxReachedIndex || $mode === 'dnd') {
-							runStep(index)
-						}
-					}}
-					{tabs}
-					{selectedIndex}
-					{maxReachedIndex}
-					{statusByStep}
-					hasValidations={Boolean(runnableComponent)}
-				/>
-			</div>
+			{#if render}
+				<div bind:clientHeight={tabHeight}>
+					<Stepper
+						on:click={(e) => {
+							const index = e.detail.index
+							if (index <= maxReachedIndex || $mode === 'dnd') {
+								runStep(index)
+							}
+						}}
+						{tabs}
+						{selectedIndex}
+						{maxReachedIndex}
+						{statusByStep}
+						hasValidations={Boolean(runnableComponent)}
+					/>
+				</div>
+			{/if}
 
 			<div class="w-full">
 				{#if $app.subgrids}
@@ -194,60 +199,64 @@
 				{/if}
 			</div>
 
-			<div bind:clientHeight={footerHeight}>
-				<div class="flex justify-between h-10 p-2">
-					<div class="flex items-center gap-2">
-						<span class="text-sm font-medium text-tertiary">
-							Step {selectedIndex + 1} of {tabs.length}
-						</span>
-					</div>
-					<div class="flex items-center gap-2">
-						<Button
-							size="xs"
-							color="light"
-							variant="contained"
-							disabled={selectedIndex === 0}
-							on:click={(e) => {
-								e.preventDefault()
-								directionClicked = 'left'
-								onPrevious?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
-								runStep(selectedIndex - 1)
-							}}
-						>
-							<div class="flex flex-row gap-2">
-								{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'left'}
-									<Loader2 class="w-4 h-4 animate-spin" />
-								{:else}
-									<ArrowLeftIcon class="w-4 h-4" />
-								{/if}
-								Previous
-							</div>
-						</Button>
+			{#if render}
+				<div bind:clientHeight={footerHeight}>
+					<div class="flex justify-between h-10 p-2">
+						<div class="flex items-center gap-2">
+							<span class="text-sm font-medium text-tertiary">
+								Step {selectedIndex + 1} of {tabs.length}
+							</span>
+						</div>
+						<div class="flex items-center gap-2">
+							<Button
+								size="xs"
+								color="light"
+								variant="contained"
+								disabled={selectedIndex === 0}
+								on:click={(e) => {
+									e.preventDefault()
+									directionClicked = 'left'
+									onPrevious?.forEach((id) =>
+										$runnableComponents?.[id]?.cb?.forEach((cb) => cb?.())
+									)
+									runStep(selectedIndex - 1)
+								}}
+							>
+								<div class="flex flex-row gap-2">
+									{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'left'}
+										<Loader2 class="w-4 h-4 animate-spin" />
+									{:else}
+										<ArrowLeftIcon class="w-4 h-4" />
+									{/if}
+									Previous
+								</div>
+							</Button>
 
-						<Button
-							size="xs"
-							color="dark"
-							variant="contained"
-							disabled={lastStep}
-							on:click={(e) => {
-								e.preventDefault()
-								directionClicked = 'right'
-								onNext?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
-								runStep(selectedIndex + 1)
-							}}
-						>
-							<div class="flex flex-row gap-2">
-								Next
-								{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'right'}
-									<Loader2 class="w-4 h-4 animate-spin" />
-								{:else}
-									<ArrowRightIcon class="w-4 h-4" />
-								{/if}
-							</div>
-						</Button>
+							<Button
+								size="xs"
+								color="dark"
+								variant="contained"
+								disabled={lastStep}
+								on:click={(e) => {
+									e.preventDefault()
+									directionClicked = 'right'
+									onNext?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
+									runStep(selectedIndex + 1)
+								}}
+							>
+								<div class="flex flex-row gap-2">
+									Next
+									{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'right'}
+										<Loader2 class="w-4 h-4 animate-spin" />
+									{:else}
+										<ArrowRightIcon class="w-4 h-4" />
+									{/if}
+								</div>
+							</Button>
+						</div>
 					</div>
 				</div>
-			</div>
+			{/if}
 		</div>
 	{:else if $app.subgrids}
 		{#each tabs ?? [] as _res, i}
