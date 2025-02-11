@@ -29,6 +29,8 @@
 		components['tabscomponent'].initialData.configuration,
 		configuration
 	)
+	let everRender = render
+	$: render && !everRender && (everRender = true)
 
 	const {
 		app,
@@ -117,7 +119,7 @@
 	/>
 {/each}
 
-{#if render}
+{#if everRender}
 	<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full h-full' : 'w-full'}>
 		{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
 			<div bind:clientHeight={tabHeight}>

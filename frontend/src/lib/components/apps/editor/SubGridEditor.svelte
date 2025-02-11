@@ -53,6 +53,10 @@
 	let isActive = false
 	let sber = editorContext?.componentActive?.subscribe((x) => (isActive = x))
 
+	let everVisible = visible
+
+	$: visible && !everVisible && (everVisible = true)
+
 	onDestroy(() => {
 		sber?.()
 	})
@@ -173,9 +177,11 @@
 	}
 </script>
 
-{#if visible}
+{#if everVisible}
 	<div
-		class="translate-x-0 translate-y-0 w-full subgrid"
+		class="translate-x-0 translate-y-0 w-full subgrid {visible
+			? 'visible'
+			: 'invisible h-0 overflow-hidden'}"
 		bind:this={container}
 		on:pointerdown={onpointerdown}
 	>
@@ -191,10 +197,10 @@
 			{#if $mode !== 'preview'}
 				<div
 					class={highlight
-						? `animate-border border-dashed border-2 min-h-full ${
+						? `outline !outline-dashed outline-2 min-h-full ${
 								isActive && !$selectedComponent?.includes(id)
-									? 'border-orange-600'
-									: 'dark:border-gray-600 border-gray-400'
+									? 'outline-orange-600'
+									: 'outline-gray-400 dark:outline-gray-600'
 						  }`
 						: ''}
 				>
@@ -257,7 +263,7 @@
 								<Component
 									{overlapped}
 									fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-									render={true}
+									render={visible}
 									component={dataItem.data}
 									selected={Boolean($selectedComponent?.includes(dataItem.id))}
 									locked={isFixed(dataItem)}
@@ -323,14 +329,4 @@
 			{/if}
 		</div>
 	</div>
-{:else}
-	{#each $app.subgrids?.[subGridId] ?? [] as item}
-		<Component
-			render={false}
-			component={item.data}
-			selected={false}
-			locked={false}
-			fullHeight={false}
-		/>
-	{/each}
 {/if}

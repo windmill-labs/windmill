@@ -21,6 +21,9 @@
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	let groupContext = writable({})
 
 	let outputs = initOutput($worldStore, id, { group: $groupContext })
@@ -66,7 +69,7 @@
 	{/if}
 {/each}
 
-{#if render}
+{#if everRender}
 	<div class="w-full h-full">
 		{#if $app.subgrids?.[`${id}-0`]}
 			<GroupWrapper {id} context={groupContext}>

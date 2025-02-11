@@ -25,6 +25,10 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
+	let everRender = render
+
+	$: render && !everRender && (everRender = true)
+
 	function onFocus() {
 		$focusedGrid = {
 			parentComponentId: id,
@@ -82,7 +86,7 @@
 
 <InitializeComponent {id} />
 
-{#if render}
+{#if everRender}
 	<div class="h-full w-full border" on:pointerdown={onFocus}>
 		{#key sumedup}
 			<Splitpanes {horizontal}>

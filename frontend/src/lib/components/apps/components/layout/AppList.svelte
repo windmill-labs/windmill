@@ -26,6 +26,9 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	let page = 0
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
@@ -136,7 +139,7 @@
 	bind:result
 	bind:loading
 >
-	{#if render}
+	{#if everRender}
 		<div
 			class={twMerge('w-full h-full', css?.container?.class, 'wm-list')}
 			style={css?.container?.style}

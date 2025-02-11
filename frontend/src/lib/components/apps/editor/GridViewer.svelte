@@ -70,7 +70,7 @@
 					getComputedCols = getColumn(parentWidth ?? width, cols)
 				}
 
-				xPerPx = width / getComputedCols
+				xPerPx = width / getComputedCols!
 
 				if (!containerWidth) {
 					items = specifyUndefinedColumns(items, getComputedCols, cols)

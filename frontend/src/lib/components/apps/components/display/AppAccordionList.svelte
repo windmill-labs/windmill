@@ -29,6 +29,10 @@
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
+	let everRender = render
+
+	$: render && !everRender && (everRender = true)
+
 	let activeIndex: number = 0
 
 	const outputs = initOutput($worldStore, id, {
@@ -84,7 +88,7 @@
 	bind:initializing
 	bind:result
 >
-	{#if render}
+	{#if everRender}
 		<div class="w-full flex flex-col overflow-auto max-h-full">
 			{#if $app.subgrids?.[`${id}-0`]}
 				{#if Array.isArray(result) && result.length > 0}

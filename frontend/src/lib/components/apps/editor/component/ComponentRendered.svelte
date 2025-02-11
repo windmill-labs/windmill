@@ -20,6 +20,7 @@
 	export let overlapped: string | undefined = undefined
 	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
+	export let render: boolean = false
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -107,69 +108,71 @@
 	)}
 	data-connection-button
 >
-	{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && cachedAreOnTheSameSubgrid}
-		<div
-			class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
-		>
-			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
-				<Anchor size={24} class="text-primary " />
-				<div class="text-xs"> Anchored: The component cannot be moved. </div>
-			</div>
-		</div>
-	{:else if moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id && cachedComponentDraggedIsNotChild}
-		<div
-			class={twMerge(
-				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
-				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
-				overlapped === component?.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
-			)}
-		/>
-	{/if}
-	{#if $mode !== 'preview'}
-		<ComponentHeader
-			on:mouseover={() => {
-				outTimeout && clearTimeout(outTimeout)
-
-				if (component.id !== $hoverStore) {
-					$hoverStore = component.id
-				}
-			}}
-			hover={$hoverStore === component.id}
-			{component}
-			{selected}
-			{fullHeight}
-			connecting={$connectingInput.opened}
-			on:lock
-			on:expand
-			on:fillHeight
-			{locked}
-			{inlineEditorOpened}
-			hasInlineEditor={component.type === 'textcomponent' &&
-				component.componentInput &&
-				component.componentInput.type !== 'connected'}
-			on:triggerInlineEditor={() => {
-				inlineEditorOpened = !inlineEditorOpened
-			}}
-			{errorHandledByComponent}
-			{componentContainerWidth}
-		/>
-	{/if}
-
-	{#if ismoving}
-		<div class="absolute -top-8 w-40">
-			<button
-				class="border p-0.5 text-xs"
-				on:click={() => {
-					$movingcomponents = undefined
-				}}
+	{#if render}
+		{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && cachedAreOnTheSameSubgrid}
+			<div
+				class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
 			>
-				Cancel move
-			</button>
-		</div>
+				<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
+					<Anchor size={24} class="text-primary " />
+					<div class="text-xs"> Anchored: The component cannot be moved. </div>
+				</div>
+			</div>
+		{:else if moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id && cachedComponentDraggedIsNotChild}
+			<div
+				class={twMerge(
+					'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
+					'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
+					overlapped === component?.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
+				)}
+			/>
+		{/if}
+		{#if $mode !== 'preview'}
+			<ComponentHeader
+				on:mouseover={() => {
+					outTimeout && clearTimeout(outTimeout)
+
+					if (component.id !== $hoverStore) {
+						$hoverStore = component.id
+					}
+				}}
+				hover={$hoverStore === component.id}
+				{component}
+				{selected}
+				{fullHeight}
+				connecting={$connectingInput.opened}
+				on:lock
+				on:expand
+				on:fillHeight
+				{locked}
+				{inlineEditorOpened}
+				hasInlineEditor={component.type === 'textcomponent' &&
+					component.componentInput &&
+					component.componentInput.type !== 'connected'}
+				on:triggerInlineEditor={() => {
+					inlineEditorOpened = !inlineEditorOpened
+				}}
+				{errorHandledByComponent}
+				{componentContainerWidth}
+			/>
+		{/if}
+
+		{#if ismoving}
+			<div class="absolute -top-8 w-40">
+				<button
+					class="border p-0.5 text-xs"
+					on:click={() => {
+						$movingcomponents = undefined
+					}}
+				>
+					Cancel move
+				</button>
+			</div>
+		{/if}
 	{/if}
 	<div
 		class={twMerge(
-			'h-full outline-1',
+			render ? 'h-full outline-1' : 'h-0 overflow-hidden',
 			$mode === 'dnd' ? 'bg-surface/40' : '',
 			$hoverStore === component.id && $mode !== 'preview'
 				? $connectingInput.opened
@@ -189,7 +192,7 @@
 	>
 		<ComponentInner
 			{component}
-			render={true}
+			{render}
 			{componentContainerHeight}
 			bind:initializing
 			bind:errorHandledByComponent
@@ -197,7 +200,7 @@
 		/>
 	</div>
 </div>
-{#if initializing && showSkeleton}
+{#if initializing && render && showSkeleton}
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div

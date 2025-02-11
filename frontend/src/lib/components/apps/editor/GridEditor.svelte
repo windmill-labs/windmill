@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
+	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'

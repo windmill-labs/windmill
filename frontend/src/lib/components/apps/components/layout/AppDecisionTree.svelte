@@ -20,6 +20,9 @@
 	export let render: boolean
 	export let nodes: DecisionTreeNode[]
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	const {
 		app,
 		focusedGrid,
@@ -182,7 +185,7 @@
 
 <InitializeComponent {id} />
 
-{#if render}
+{#if everRender}
 	<div class="w-full overflow-auto">
 		<div class="w-full">
 			{#if $app.subgrids}
@@ -206,35 +209,37 @@
 		</div>
 	</div>
 
-	<div class="h-8 flex flex-row gap-2 justify-end items-center px-2 bg-surface-primary z-50">
-		{#if isDebugging($debuggingComponents, id)}
-			<Badge color="red" size="xs2">
-				{`Debugging. Actions are disabled.`}
-			</Badge>
-		{/if}
-		{#if getFirstNode(nodes)?.id !== currentNodeId}
+	{#if render}
+		<div class="h-8 flex flex-row gap-2 justify-end items-center px-2 bg-surface-primary z-50">
+			{#if isDebugging($debuggingComponents, id)}
+				<Badge color="red" size="xs2">
+					{`Debugging. Actions are disabled.`}
+				</Badge>
+			{/if}
+			{#if getFirstNode(nodes)?.id !== currentNodeId}
+				<Button
+					on:click={prev}
+					size="xs2"
+					color="light"
+					startIcon={{ icon: ArrowLeft }}
+					disabled={isDebugging($debuggingComponents, id)}
+				>
+					Prev
+				</Button>
+			{/if}
 			<Button
-				on:click={prev}
+				on:click={next}
 				size="xs2"
-				color="light"
-				startIcon={{ icon: ArrowLeft }}
-				disabled={isDebugging($debuggingComponents, id)}
+				color="dark"
+				endIcon={{ icon: ArrowRight }}
+				disabled={isNextDisabled ||
+					currentNodeId === lastNodeId ||
+					isDebugging($debuggingComponents, id)}
 			>
-				Prev
+				Next
 			</Button>
-		{/if}
-		<Button
-			on:click={next}
-			size="xs2"
-			color="dark"
-			endIcon={{ icon: ArrowRight }}
-			disabled={isNextDisabled ||
-				currentNodeId === lastNodeId ||
-				isDebugging($debuggingComponents, id)}
-		>
-			Next
-		</Button>
-	</div>
+		</div>
+	{/if}
 {:else if $app.subgrids}
 	{#each Object.values(nodes) ?? [] as _node, i}
 		<SubGridEditor visible={false} {id} subGridId={`${id}-${i}`} />

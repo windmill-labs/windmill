@@ -8,10 +8,14 @@
 	export let locked: boolean = false
 	export let render: boolean
 	export let fullHeight: boolean
+
+	let everRender = render
+
+	$: render && !everRender && (everRender = true)
 </script>
 
-{#if render}
-	<ComponentRendered {component} {selected} {locked} {fullHeight} />
+{#if everRender}
+	<ComponentRendered {render} {component} {selected} {locked} {fullHeight} />
 {:else}
 	<ComponentInner
 		{component}

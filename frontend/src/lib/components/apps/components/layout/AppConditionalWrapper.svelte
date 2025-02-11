@@ -31,6 +31,9 @@
 		selectedTabIndex: 0
 	})
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	function onFocus() {
 		$focusedGrid = {
 			parentComponentId: id,
@@ -97,7 +100,7 @@
 
 <InitializeComponent {id} />
 
-{#if render}
+{#if everRender}
 	<div class="w-full h-full">
 		{#if $app.subgrids}
 			{#each resolvedConditions ?? [] as _res, i}

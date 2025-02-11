@@ -40,6 +40,9 @@
 		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	//used so that we can count number of outputs setup for first refresh
 	const outputs = initOutput($worldStore, id, {
 		open: false
@@ -110,7 +113,7 @@
 	/>
 {/each}
 
-{#if render}
+{#if everRender}
 	<div class="h-full w-full">
 		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 			<Button

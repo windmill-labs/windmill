@@ -24,6 +24,9 @@
 	export let onOpenRecomputeIds: string[] | undefined = undefined
 	export let onCloseRecomputeIds: string[] | undefined = undefined
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	const {
 		app,
 		focusedGrid,
@@ -112,7 +115,9 @@
 			</Button>
 		</AlignWrapper>
 	</div>
+{/if}
 
+{#if everRender}
 	<Portal target="#app-editor-top-level-drawer" name="app-drawer">
 		<Drawer
 			let:open

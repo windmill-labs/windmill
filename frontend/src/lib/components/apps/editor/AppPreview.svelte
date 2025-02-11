@@ -15,7 +15,6 @@
 	import GridViewer from './GridViewer.svelte'
 	import Component from './component/Component.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { columnConfiguration } from '../gridUtils'
 	import { deepEqual } from 'fast-equals'
 	import { dfs, maxHeight } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
@@ -292,7 +291,6 @@
 					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
-					cols={columnConfiguration}
 					{maxRow}
 					breakpoint={$breakpoint}
 				>
