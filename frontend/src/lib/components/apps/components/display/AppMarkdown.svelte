@@ -62,32 +62,36 @@
 	/>
 {/each}
 
-<div
-	on:pointerdown={(e) => {
-		e?.preventDefault()
-	}}
-	class={classNames(
-		'h-full w-full overflow-y-auto prose max-w-full',
-		resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
-		css?.container?.class,
-		' dark:prose-invert',
-		'wm-markdown'
-	)}
-	style={css?.container?.style}
->
-	<RunnableWrapper
-		{outputs}
-		{render}
-		autoRefresh
-		{componentInput}
-		{id}
-		bind:initializing
-		bind:result
+{#if render}
+	<div
+		on:pointerdown={(e) => {
+			e?.preventDefault()
+		}}
+		class={classNames(
+			'h-full w-full overflow-y-auto prose max-w-full',
+			resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
+			css?.container?.class,
+			' dark:prose-invert',
+			'wm-markdown'
+		)}
+		style={css?.container?.style}
 	>
-		{#if result}
-			{#key result}
-				<Markdown md={result} plugins={[gfmPlugin()]} />
-			{/key}
-		{/if}
-	</RunnableWrapper>
-</div>
+		<RunnableWrapper
+			{outputs}
+			render={true}
+			autoRefresh
+			{componentInput}
+			{id}
+			bind:initializing
+			bind:result
+		>
+			{#if result}
+				{#key result}
+					<Markdown md={result} plugins={[gfmPlugin()]} />
+				{/key}
+			{/if}
+		</RunnableWrapper>
+	</div>
+{:else}
+	<RunnableWrapper {outputs} render={false} autoRefresh {componentInput} {id} />
+{/if}

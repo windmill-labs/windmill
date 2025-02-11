@@ -31,6 +31,9 @@
 		selectedTabIndex: 0
 	})
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	function onFocus() {
 		$focusedGrid = {
 			parentComponentId: id,
@@ -97,23 +100,29 @@
 
 <InitializeComponent {id} />
 
-<div class="w-full h-full">
-	{#if $app.subgrids}
-		{#each resolvedConditions ?? [] as _res, i}
-			<SubGridEditor
-				visible={render && i == selectedConditionIndex}
-				{id}
-				class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
-				style={css?.container?.style}
-				subGridId={`${id}-${i}`}
-				containerHeight={componentContainerHeight}
-				on:focus={(e) => {
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-					}
-					onFocus()
-				}}
-			/>
-		{/each}
-	{/if}
-</div>
+{#if everRender}
+	<div class="w-full h-full">
+		{#if $app.subgrids}
+			{#each resolvedConditions ?? [] as _res, i}
+				<SubGridEditor
+					visible={render && i == selectedConditionIndex}
+					{id}
+					class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
+					style={css?.container?.style}
+					subGridId={`${id}-${i}`}
+					containerHeight={componentContainerHeight}
+					on:focus={(e) => {
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+						}
+						onFocus()
+					}}
+				/>
+			{/each}
+		{/if}
+	</div>
+{:else if $app.subgrids}
+	{#each resolvedConditions ?? [] as _res, i}
+		<SubGridEditor visible={false} {id} subGridId={`${id}-${i}`} />
+	{/each}
+{/if}
