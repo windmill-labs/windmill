@@ -505,7 +505,7 @@
 		: trans
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px); position:absolute; transition: width 0.2s, height 0.2s;`
 		: `${
-				xPerPx > 0 && mounted ? 'transition: transform 0s, opacity 0.1s;' : ''
+				xPerPx > 0 && mounted ? 'transition: transform 0.1s, opacity 0.1s;' : ''
 		  } transform: translate(${left}px, ${top}px); `} "
 >
 	<slot />
