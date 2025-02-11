@@ -29,7 +29,8 @@
                 "websocket",
                 "kafka",
                 "email",
-                "nats"
+                "nats",
+                "sqs"
               ]
             }
           }

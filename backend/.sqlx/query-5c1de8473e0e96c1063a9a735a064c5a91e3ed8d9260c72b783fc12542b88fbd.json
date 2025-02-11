@@ -26,7 +26,8 @@
                 "websocket",
                 "kafka",
                 "email",
-                "nats"
+                "nats",
+                "sqs"
               ]
             }
           }
@@ -58,7 +59,8 @@
                 "websocket",
                 "kafka",
                 "email",
-                "nats"
+                "nats",
+                "sqs"
               ]
             }
           }
