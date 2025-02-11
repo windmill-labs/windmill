@@ -32,7 +32,7 @@
 	<div class="flex flex-col">
 		{#each computedItems ?? [] as item}
 			<MenuItem
-				on:click={(e) => item?.action?.(e.detail)}
+				on:click={(e) => item?.action?.(e)}
 				href={item?.href}
 				disabled={item?.disabled}
 				class={twMerge(
