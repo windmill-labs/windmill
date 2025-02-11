@@ -104,10 +104,9 @@ mount {
 iface_no_lo: true
 
 mount {
-    src: "{CACHE_DIR}"
-    dst: "/tmp/.cache/csharp"
+    src: "{CACHE_DIR}/{CACHE_HASH}"
+    dst: "/tmp/.cache/csharp/{CACHE_HASH}"
     is_bind: true
-    rw: true
     mandatory: false
 }
 
