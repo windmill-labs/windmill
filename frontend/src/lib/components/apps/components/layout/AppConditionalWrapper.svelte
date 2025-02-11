@@ -43,7 +43,7 @@
 
 	let css = initCss($app.css?.conditionalwrapper, customCss)
 
-	let resolvedConditions: boolean[] = []
+	let resolvedConditions: boolean[] = conditions.map((_x) => false)
 	let selectedConditionIndex = 0
 
 	function handleResolvedConditions() {
