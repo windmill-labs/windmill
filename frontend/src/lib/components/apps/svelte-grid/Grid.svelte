@@ -139,10 +139,10 @@
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]
 		if (isPointerUp) {
-			try {
-				citems = structuredClone(initItems ?? [])
-			} catch (e) {
+			if (initItems == undefined) {
 				citems = structuredClone(sortedItems)
+			} else {
+				citems = structuredClone(initItems)
 			}
 			initItems = undefined
 		} else {
@@ -215,10 +215,7 @@
 		}
 
 		if (isPointerUp && getComputedCols) {
-			dispatch(
-				'redraw',
-				sortGridItemsPosition(JSON.parse(JSON.stringify(sortedItems)), getComputedCols)
-			)
+			dispatch('redraw', sortGridItemsPosition(structuredClone(sortedItems), getComputedCols))
 		}
 	}
 
@@ -266,7 +263,7 @@
 	export function handleMove({ detail }) {
 		Object.entries(moveResizes).forEach(([id, moveResize]) => {
 			if (selectedIds?.includes(id)) {
-				moveResize?.updateMove(JSON.parse(JSON.stringify(detail.cordDiff)), detail.eventY)
+				moveResize?.updateMove(structuredClone(detail.cordDiff), detail.eventY)
 			}
 		})
 
