@@ -1,0 +1,211 @@
+<script lang="ts" context="module">
+	let outTimeout: NodeJS.Timeout | undefined = undefined
+</script>
+
+<script lang="ts">
+	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
+	import ComponentHeader from '../ComponentHeader.svelte'
+	import type { AppComponent } from './components'
+
+	import { Anchor } from 'lucide-svelte'
+	import { findGridItemParentGrid, isContainer } from '../appUtils'
+	import ComponentInner from './ComponentInner.svelte'
+
+	export let component: AppComponent
+	export let selected: boolean
+	export let locked: boolean = false
+	export let render: boolean
+	export let hidden: boolean
+	export let fullHeight: boolean
+	export let overlapped: string | undefined = undefined
+	export let moveMode: string | undefined = undefined
+	export let componentDraggedId: string | undefined = undefined
+	const { mode, app, hoverStore, connectingInput } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+	const componentActive = editorContext?.componentActive
+
+	const movingcomponents = editorContext?.movingcomponents
+	$: ismoving =
+		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
+
+	let initializing: boolean | undefined = undefined
+	let errorHandledByComponent: boolean = false
+	let componentContainerHeight: number = 0
+	let componentContainerWidth: number = 0
+
+	let inlineEditorOpened: boolean = false
+
+	function mouseOut() {
+		outTimeout && clearTimeout(outTimeout)
+		outTimeout = setTimeout(() => {
+			if ($hoverStore !== undefined) {
+				// In order to avoid flickering when hovering over table actions,
+				// we leave the actions to manage the hover state
+				if ($hoverStore.startsWith(`${component.id}_`)) {
+					return
+				}
+
+				$hoverStore = undefined
+			}
+		}, 50)
+	}
+
+	function componentDraggedIsNotChild(componentDraggedId: string, componentId: string) {
+		let parentGrid = findGridItemParentGrid($app, componentDraggedId)
+
+		return !parentGrid?.startsWith(`${componentId}-`)
+	}
+
+	function areOnTheSameSubgrid(componentDraggedId: string, componentId: string) {
+		return (
+			findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
+		)
+	}
+
+	let cachedComponentDraggedIsNotChild: boolean | undefined
+	let cachedAreOnTheSameSubgrid: boolean | undefined
+
+	function updateCache(componentDraggedId: string | undefined) {
+		if (componentDraggedId) {
+			cachedComponentDraggedIsNotChild = componentDraggedIsNotChild(
+				componentDraggedId,
+				component.id
+			)
+			cachedAreOnTheSameSubgrid = areOnTheSameSubgrid(componentDraggedId, component.id)
+		} else {
+			cachedComponentDraggedIsNotChild = undefined
+			cachedAreOnTheSameSubgrid = undefined
+		}
+	}
+
+	$: updateCache(componentDraggedId)
+</script>
+
+<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div
+	on:mouseover|stopPropagation={() => {
+		outTimeout && clearTimeout(outTimeout)
+		if (component.id !== $hoverStore) {
+			$hoverStore = component.id
+		}
+	}}
+	on:mouseout|stopPropagation={mouseOut}
+	class={twMerge(
+		'h-full flex flex-col w-full component relative',
+		initializing ? 'overflow-hidden h-0' : '',
+		hidden && $mode === 'preview' ? 'hidden' : ''
+	)}
+	data-connection-button
+>
+	{#if locked && componentActive && $componentActive && moveMode === 'move' && componentDraggedId && componentDraggedId !== component.id && cachedAreOnTheSameSubgrid}
+		<div
+			class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
+		>
+			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
+				<Anchor size={24} class="text-primary " />
+				<div class="text-xs"> Anchored: The component cannot be moved. </div>
+			</div>
+		</div>
+	{:else if moveMode === 'insert' && isContainer(component.type) && componentDraggedId && componentDraggedId !== component.id && cachedComponentDraggedIsNotChild}
+		<div
+			class={twMerge(
+				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
+				'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
+				overlapped === component?.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
+			)}
+		/>
+	{/if}
+	{#if $mode !== 'preview'}
+		<ComponentHeader
+			on:mouseover={() => {
+				outTimeout && clearTimeout(outTimeout)
+
+				if (component.id !== $hoverStore) {
+					$hoverStore = component.id
+				}
+			}}
+			hover={$hoverStore === component.id}
+			{component}
+			{selected}
+			{fullHeight}
+			connecting={$connectingInput.opened}
+			on:lock
+			on:expand
+			on:fillHeight
+			{locked}
+			{inlineEditorOpened}
+			hasInlineEditor={component.type === 'textcomponent' &&
+				component.componentInput &&
+				component.componentInput.type !== 'connected'}
+			on:triggerInlineEditor={() => {
+				inlineEditorOpened = !inlineEditorOpened
+			}}
+			{errorHandledByComponent}
+			{componentContainerWidth}
+		/>
+	{/if}
+
+	{#if ismoving}
+		<div class="absolute -top-8 w-40">
+			<button
+				class="border p-0.5 text-xs"
+				on:click={() => {
+					$movingcomponents = undefined
+				}}
+			>
+				Cancel move
+			</button>
+		</div>
+	{/if}
+	<div
+		class={twMerge(
+			'h-full outline-1',
+			$mode === 'dnd' ? 'bg-surface/40' : '',
+			$hoverStore === component.id && $mode !== 'preview'
+				? $connectingInput.opened
+					? 'outline outline-[#f8aa4b]'
+					: 'outline outline-blue-400'
+				: '',
+			selected && $mode !== 'preview' ? 'outline outline-blue-600' : '',
+			$mode != 'preview' ? 'cursor-pointer' : '',
+			'relative z-auto',
+			$app.css?.['app']?.['component']?.class,
+			'wm-app-component',
+			ismoving ? 'animate-pulse' : ''
+		)}
+		style={$app.css?.['app']?.['component']?.style}
+		bind:clientHeight={componentContainerHeight}
+		bind:clientWidth={componentContainerWidth}
+	>
+		<ComponentInner
+			{component}
+			{render}
+			{componentContainerHeight}
+			bind:initializing
+			bind:errorHandledByComponent
+			{inlineEditorOpened}
+		/>
+	</div>
+</div>
+{#if initializing && render && !hidden}
+	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div
+		on:mouseover|stopPropagation={() => {
+			if (component.id !== $hoverStore) {
+				$hoverStore = component.id
+			}
+		}}
+		on:mouseout|stopPropagation={() => {
+			if ($hoverStore !== undefined) {
+				$hoverStore = undefined
+			}
+		}}
+		class="absolute inset-0 center-center flex-col bg- border animate-skeleton"
+	/>
+{/if}
