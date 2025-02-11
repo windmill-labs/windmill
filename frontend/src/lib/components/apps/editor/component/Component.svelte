@@ -8,14 +8,14 @@
 	export let locked: boolean = false
 	export let render: boolean
 	export let fullHeight: boolean
-
+	export let overlapped: string | undefined = undefined
 	let everRender = render
 
 	$: render && !everRender && (everRender = true)
 </script>
 
 {#if everRender}
-	<ComponentRendered {render} {component} {selected} {locked} {fullHeight} />
+	<ComponentRendered {overlapped} {render} {component} {selected} {locked} {fullHeight} />
 {:else}
 	<ComponentInner
 		{component}
