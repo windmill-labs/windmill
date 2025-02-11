@@ -29,6 +29,7 @@
 		| 'kafka_trigger'
 		| 'nats_trigger'
 		| 'sqs_trigger'
+		| 'postgres_trigger'
 	let kind: Kind
 
 	let path: string = ''

@@ -68,6 +68,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'nats'
 		case 'sqs':
 			return 'sqs'
+		case 'postgres':
+			return  'postgres'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

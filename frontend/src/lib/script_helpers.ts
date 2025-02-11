@@ -735,7 +735,7 @@ class Sqs(TypeDict):
    message_attributes: dict[str, MessageAttribute] | None
 
 class WmTrigger(TypedDict):
-   kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "sqs"]
+   kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs"]
    http: Http | None
    websocket: Websocket | None
    kafka: Kafka | None

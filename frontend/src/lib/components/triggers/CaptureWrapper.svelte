@@ -15,6 +15,8 @@
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
+	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
+	import { invalidRelations } from './postgres/utils'
 
 	export let isFlow: boolean
 	export let path: string
@@ -27,16 +29,37 @@
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
-	export async function setConfig() {
-		await CaptureService.setCaptureConfig({
-			requestBody: {
-				trigger_kind: captureType,
-				path,
-				is_flow: isFlow,
-				trigger_config: args && Object.keys(args).length > 0 ? args : undefined
-			},
-			workspace: $workspaceStore!
-		})
+	export async function setConfig(): Promise<boolean> {
+		if (captureType === 'postgres') {
+			if (!args?.publication?.table_to_track) {
+				sendUserToast('Table to track must be set', true)
+				return false
+			}
+
+			if (
+				invalidRelations(args.publication.table_to_track, {
+					showError: true,
+					trackSchemaTableError: true
+				}) === true
+			) {
+				return false
+			}
+		}
+		try {
+			await CaptureService.setCaptureConfig({
+				requestBody: {
+					trigger_kind: captureType,
+					path,
+					is_flow: isFlow,
+					trigger_config: args && Object.keys(args).length > 0 ? args : undefined
+				},
+				workspace: $workspaceStore!
+			})
+			return true
+		} catch (error) {
+			sendUserToast(error.body, true)
+			return false
+		}
 	}
 
 	let captureActive = false
@@ -57,7 +80,7 @@
 		}, {})
 
 		if (
-			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'sqs') &&
+			(captureType === 'postgres' || captureType === 'websocket' || captureType === 'kafka' || captureType === 'sqs') &&
 			captureActive
 		) {
 			const config = captureConfigs[captureType]
@@ -118,8 +141,11 @@
 		if (captureActive || e.detail.disableOnly) {
 			captureActive = false
 		} else {
-			await setConfig()
-			capture()
+			const configSet = await setConfig()
+
+			if (configSet) {
+				capture()
+			}
 		}
 	}
 
@@ -172,6 +198,21 @@
 				bind:url_runnable_args={args.url_runnable_args}
 				{showCapture}
 				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'postgres'}
+			<PostgresEditorConfigSection
+				bind:postgres_resource_path={args.postgres_resource_path}
+				bind:publication={args.publication}
+				{showCapture}
+				{captureInfo}
+				can_write={true}
+				headless={true}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema
