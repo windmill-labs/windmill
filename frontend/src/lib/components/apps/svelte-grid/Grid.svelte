@@ -135,6 +135,19 @@
 
 	let initItems: FilledItem<T>[] | undefined = undefined
 
+	// function smartCopy(items: FilledItem<T>[]) {
+	// 	return getComputedCols != undefined
+	// 		? items.map((item) => {
+	// 				return {
+	// 					...item,
+	// 					[getComputedCols]: {
+	// 						...item[getComputedCols],
+	// 						...shadows[item.id]
+	// 					}
+	// 				}
+	// 		  })
+	// 		: []
+	// }
 	const updateMatrix = ({ detail }) => {
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]

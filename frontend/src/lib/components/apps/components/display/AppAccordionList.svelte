@@ -108,51 +108,49 @@
 								<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
 								{result[index]?.header || `Header ${index}`}
 							</button>
-							{#if activeIndex === index}
-								<div class="p-2 overflow-auto w-full">
-									<ListWrapper
-										onSet={(id, value) => {
-											if (!inputs[id]) {
-												inputs[id] = { [index]: value }
-											} else {
-												inputs[id] = { ...inputs[id], [index]: value }
+							<div class="overflow-auto w-full">
+								<ListWrapper
+									onSet={(id, value) => {
+										if (!inputs[id]) {
+											inputs[id] = { [index]: value }
+										} else {
+											inputs[id] = { ...inputs[id], [index]: value }
+										}
+										outputs?.inputs.set(inputs, true)
+									}}
+									onRemove={(id) => {
+										if (inputs?.[id] == undefined) {
+											return
+										}
+										if (index == 0) {
+											delete inputs[id]
+											inputs = { ...inputs }
+										} else {
+											delete inputs[id][index]
+											inputs[id] = { ...inputs[id] }
+										}
+										outputs?.inputs.set(inputs, true)
+									}}
+									{value}
+									{index}
+								>
+									<SubGridEditor
+										{id}
+										visible={render && index === activeIndex}
+										class={twMerge(css?.container?.class, 'wm-accordion p-2')}
+										style={css?.container?.style}
+										subGridId={`${id}-0`}
+										containerHeight={componentContainerHeight -
+											(30 * accordionInput?.value.length + 40)}
+										on:focus={() => {
+											if (!$connectingInput.opened) {
+												$selectedComponent = [id]
 											}
-											outputs?.inputs.set(inputs, true)
+											onFocus()
 										}}
-										onRemove={(id) => {
-											if (inputs?.[id] == undefined) {
-												return
-											}
-											if (index == 0) {
-												delete inputs[id]
-												inputs = { ...inputs }
-											} else {
-												delete inputs[id][index]
-												inputs[id] = { ...inputs[id] }
-											}
-											outputs?.inputs.set(inputs, true)
-										}}
-										{value}
-										{index}
-									>
-										<SubGridEditor
-											{id}
-											visible={render}
-											class={twMerge(css?.container?.class, 'wm-accordion')}
-											style={css?.container?.style}
-											subGridId={`${id}-0`}
-											containerHeight={componentContainerHeight -
-												(30 * accordionInput?.value.length + 40)}
-											on:focus={() => {
-												if (!$connectingInput.opened) {
-													$selectedComponent = [id]
-												}
-												onFocus()
-											}}
-										/>
-									</ListWrapper>
-								</div>
-							{/if}
+									/>
+								</ListWrapper>
+							</div>
 						</div>
 					{/each}
 				{:else}
