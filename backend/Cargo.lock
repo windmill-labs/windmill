@@ -5865,26 +5865,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "236e667b670a5cdf90c258f5a55794ec5ac5027e960c224bff8367a59e1e6426"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "pin-project-lite",
- "thiserror 2.0.11",
- "tracing",
-]
-
-[[package]]
 name = "opentelemetry-appender-tracing"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab5feffc321035ad94088a7e5333abb4d84a8726e54a802e736ce9dd7237e85b"
 dependencies = [
- "opentelemetry 0.27.1",
+ "opentelemetry",
  "tracing",
  "tracing-core",
  "tracing-subscriber",
@@ -5899,9 +5885,9 @@ dependencies = [
  "async-trait",
  "futures-core",
  "http 1.2.0",
- "opentelemetry 0.27.1",
+ "opentelemetry",
  "opentelemetry-proto",
- "opentelemetry_sdk 0.27.1",
+ "opentelemetry_sdk",
  "prost",
  "thiserror 1.0.69",
  "tokio",
@@ -5915,17 +5901,17 @@ version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6e05acbfada5ec79023c85368af14abd0b307c015e9064d249b2a950ef459a6"
 dependencies = [
- "opentelemetry 0.27.1",
- "opentelemetry_sdk 0.27.1",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "prost",
  "tonic",
 ]
 
 [[package]]
 name = "opentelemetry-semantic-conventions"
-version = "0.28.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fb3a2f78c2d55362cd6c313b8abedfbc0142ab3c2676822068fd2ab7d51f9b7"
+checksum = "bc1b6902ff63b32ef6c489e8048c5e253e2e4a803ea3ea7e783914536eb15c52"
 
 [[package]]
 name = "opentelemetry_sdk"
@@ -5938,29 +5924,11 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "glob",
- "opentelemetry 0.27.1",
+ "opentelemetry",
  "percent-encoding",
  "rand 0.8.5",
  "serde_json",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84dfad6042089c7fc1f6118b7040dc2eb4ab520abbf410b79dc481032af39570"
-dependencies = [
- "async-trait",
- "futures-channel",
- "futures-executor",
- "futures-util",
- "glob",
- "opentelemetry 0.28.0",
- "percent-encoding",
- "rand 0.8.5",
- "serde_json",
- "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -6630,9 +6598,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c0fef6c4230e4ccf618a35c59d7ede15dea37de8427500f50aff708806e42ec"
+checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -6640,12 +6608,12 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
+checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.98",
@@ -6653,9 +6621,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc2f1e56baa61e93533aebc21af4d2134b70f66275e0fcdf3cbe43d77ff7e8fc"
+checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
 dependencies = [
  "prost",
 ]
@@ -10111,8 +10079,8 @@ checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry 0.27.1",
- "opentelemetry_sdk 0.27.1",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "smallvec",
  "tracing",
  "tracing-core",
@@ -10913,7 +10881,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -10956,7 +10924,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -11051,7 +11019,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -11069,7 +11037,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "chrono",
  "serde",
@@ -11082,7 +11050,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -11096,7 +11064,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -11123,11 +11091,11 @@ dependencies = [
  "magic-crypt",
  "mail-send",
  "object_store",
- "opentelemetry 0.27.1",
+ "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
- "opentelemetry_sdk 0.28.0",
+ "opentelemetry_sdk",
  "pin-project-lite",
  "prometheus",
  "quick_cache",
@@ -11155,7 +11123,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "regex",
  "serde",
@@ -11169,7 +11137,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -11192,7 +11160,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -11204,7 +11172,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -11213,7 +11181,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11225,7 +11193,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11237,7 +11205,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -11249,7 +11217,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11261,7 +11229,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -11272,7 +11240,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -11283,7 +11251,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11303,7 +11271,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -11320,7 +11288,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11332,7 +11300,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11350,7 +11318,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -11372,7 +11340,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11382,7 +11350,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11415,7 +11383,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -11425,7 +11393,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.460.0"
+version = "1.460.1"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -11462,7 +11430,7 @@ dependencies = [
  "nix",
  "object_store",
  "once_cell",
- "opentelemetry 0.27.1",
+ "opentelemetry",
  "oracle",
  "pem 3.0.4",
  "postgres-native-tls 0.5.1",
