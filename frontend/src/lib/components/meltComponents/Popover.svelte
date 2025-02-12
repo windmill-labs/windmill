@@ -13,10 +13,12 @@
 	export let openOnHover: boolean = false
 	export let floatingConfig: any | undefined = undefined
 	export let usePointerDownOutside: boolean = false
+	export let closeOnOutsideClick: boolean = true
 
 	const {
 		elements: { trigger, content, arrow, close: closeElement },
-		states
+		states,
+		options: { closeOnOutsideClick: closeOnOutsideClickOption }
 	} = createPopover({
 		forceVisible: true,
 		positioning: floatingConfig ?? {
@@ -27,6 +29,9 @@
 	let isOpen = false
 	const sync = createSync(states)
 	$: sync.open(isOpen, (v) => (isOpen = v))
+
+	// Allow for dynamic closeOnOutsideClick
+	$: $closeOnOutsideClickOption = closeOnOutsideClick
 
 	export function close() {
 		isOpen = false
@@ -61,14 +66,14 @@
 	}}
 	data-popover
 >
-	<slot name="trigger" />
+	<slot name="trigger" {isOpen} />
 </div>
 
 {#if isOpen && !disablePopup}
 	<div
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
-		class="z-[{zIndex}] w-fit border rounded-md bg-surface overflow-hidden shadow-lg"
+		class="z-[{zIndex}] w-fit border rounded-md bg-surface shadow-lg"
 		data-popover
 	>
 		{#if displayArrow}
