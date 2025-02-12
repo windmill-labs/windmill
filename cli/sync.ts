@@ -1725,6 +1725,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".sqs_trigger.json"),
+                  });
                   break;
                 case "variable":
                   await wmill.deleteVariable({
