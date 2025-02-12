@@ -1235,7 +1235,7 @@ where
 
     let resource = match resource {
         Some(resource) => serde_json::from_value::<T>(resource)
-            .map_err(|e| Error::SerdeJson { error: e, location: "variable.rs".to_string() })?,
+            .map_err(|e| Error::SerdeJson { error: e, location: "resources.rs".to_string() })?,
         None => {
             return {
                 Err(Error::NotFound(format!(
