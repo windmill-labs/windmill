@@ -1,7 +1,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
-    variables::get_resource,
+    resources::try_get_resource_from_db_as,
     users::fetch_api_authed,
 };
 use chrono::Utc;
@@ -54,7 +54,7 @@ pub async fn get_database_connection(
     postgres_resource_path: &str,
     w_id: &str,
 ) -> std::result::Result<PgConnection, windmill_common::error::Error> {
-    let database = get_resource::<Postgres>(authed, user_db, db, postgres_resource_path, w_id).await?;
+    let database = try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id).await?;
 
     Ok(get_raw_postgres_connection(&database).await?)
 }

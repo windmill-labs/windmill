@@ -1207,3 +1207,44 @@ async fn update_resource_type(
 
     Ok(format!("resource_type {} updated", name))
 }
+
+#[cfg(any(
+    feature = "postgres_trigger",
+    all(feature = "sqs_trigger", feature = "enterprise")
+))]
+pub async fn try_get_resource_from_db_as<T>(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    resource_path: &str,
+    w_id: &str,
+) -> Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let resource = get_resource_value_interpolated_internal(
+        &authed,
+        user_db,
+        &db,
+        &w_id,
+        &resource_path,
+        None,
+        "",
+    )
+    .await?;
+
+    let resource = match resource {
+        Some(resource) => serde_json::from_value::<T>(resource)
+            .map_err(|e| Error::SerdeJson { error: e, location: "variable.rs".to_string() })?,
+        None => {
+            return {
+                Err(Error::NotFound(format!(
+                    "resource at path :{} do not exist",
+                    &resource_path
+                )))
+            }
+        }
+    };
+
+    Ok(resource)
+}

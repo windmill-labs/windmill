@@ -11,7 +11,7 @@ use crate::{
         },
         run_job,
     },
-    users::fetch_api_authed, variables::get_resource,
+    users::fetch_api_authed, resources::try_get_resource_from_db_as,
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -450,7 +450,7 @@ impl PostgresConfig {
             PostgresConfig::Capture(capture) => capture.fetch_authed(db).await?,
         };
 
-        let database = get_resource::<Postgres>(
+        let database = try_get_resource_from_db_as::<Postgres>(
             authed,
             Some(UserDB::new(db.clone())),
             &db,
