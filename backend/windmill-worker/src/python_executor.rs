@@ -36,7 +36,7 @@ use windmill_common::{
 use windmill_common::variables::get_secret_value_as_admin;
 
 use std::env::var;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
@@ -335,7 +335,6 @@ impl PyVersion {
             job_id,
             db,
             mem_peak,
-            &mut None,
             child_process,
             false,
             worker_name,
@@ -442,7 +441,6 @@ pub async fn uv_pip_compile(
     job_id: &Uuid,
     requirements: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &Pool<Postgres>,
     worker_name: &str,
@@ -587,7 +585,6 @@ pub async fn uv_pip_compile(
             job_id,
             db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -698,7 +695,6 @@ pub async fn uv_pip_compile(
             job_id,
             db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -876,7 +872,6 @@ pub async fn handle_python_job(
     worker_name: &str,
     job: &QueuedJob,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     inner_content: &String,
@@ -899,7 +894,6 @@ pub async fn handle_python_job(
         worker_name,
         worker_dir,
         mem_peak,
-        canceled_by,
         &mut Some(occupancy_metrics),
     )
     .await?;
@@ -1201,7 +1195,6 @@ mount {{
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -1473,7 +1466,6 @@ async fn handle_python_deps(
     worker_name: &str,
     worker_dir: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<(PyVersion, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
@@ -1515,7 +1507,6 @@ async fn handle_python_deps(
                     job_id,
                     &requirements,
                     mem_peak,
-                    canceled_by,
                     job_dir,
                     db,
                     worker_name,
@@ -1578,7 +1569,6 @@ async fn handle_python_deps(
             job_id,
             w_id,
             mem_peak,
-            canceled_by,
             db,
             worker_name,
             job_dir,
@@ -1844,7 +1834,6 @@ pub async fn handle_python_reqs(
     job_id: &Uuid,
     w_id: &str,
     mem_peak: &mut i32,
-    _canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
     _worker_name: &str,
     job_dir: &str,
@@ -2433,7 +2422,6 @@ pub async fn start_worker(
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
     let mut mem_peak: i32 = 0;
-    let mut canceled_by: Option<CanceledBy> = None;
     let context = variables::get_reserved_variables(
         db,
         w_id,
@@ -2466,7 +2454,6 @@ pub async fn start_worker(
         worker_name,
         job_dir,
         &mut mem_peak,
-        &mut canceled_by,
         &mut None,
     )
     .await?;

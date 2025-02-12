@@ -66,7 +66,7 @@ use windmill_common::{
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
     SERVICE_LOG_RETENTION_SECS,
 };
-use windmill_queue::cancel_job;
+use windmill_queue::cancel;
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
     SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
@@ -1698,7 +1698,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             &client,
             &job,
             0,
-            None,
             error::Error::ExecutionErr(format!(
                 "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, same_worker: {})",
                 last_ping
@@ -1836,24 +1835,12 @@ async fn cancel_zombie_flow_job(
     workspace_id: &str,
     message: String,
 ) -> Result<(), error::Error> {
-    let mut tx = db.begin().await?;
     tracing::error!(
         "zombie flow detected: {} in workspace {}. Cancelling it.",
         id,
         workspace_id
     );
-    (tx, _) = cancel_job(
-        "monitor",
-        Some(message),
-        id,
-        workspace_id,
-        tx,
-        db,
-        true,
-        false,
-    )
-    .await?;
-    tx.commit().await?;
+    let _ = cancel(db, &[id], workspace_id, "monitor", &message, true, true).await?;
     Ok(())
 }
 

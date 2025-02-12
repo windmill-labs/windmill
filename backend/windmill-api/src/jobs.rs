@@ -87,8 +87,8 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
-    PushArgsOwned, PushIsolationLevel,
+    cancel, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs, PushArgsOwned,
+    PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -363,8 +363,6 @@ async fn cancel_job_api(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
-    let tx = db.begin().await?;
-
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
         Some(authed) => (authed).into(),
         None => AuditAuthor {
@@ -374,17 +372,16 @@ async fn cancel_job_api(
         },
     };
 
-    let (mut tx, job_option) = tokio::time::timeout(
+    let canceled = tokio::time::timeout(
         std::time::Duration::from_secs(120),
-        windmill_queue::cancel_job(
-            &audit_author.username,
-            reason,
-            id,
-            &w_id,
-            tx,
+        cancel(
             &db,
+            &[id],
+            &w_id,
+            &audit_author.username,
+            &reason.unwrap_or_else(|| "unknown reason".into()),
             false,
-            opt_authed.is_none(),
+            opt_authed.is_some(),
         ),
     )
     .await
@@ -394,9 +391,9 @@ async fn cancel_job_api(
         ))
     })??;
 
-    if let Some(id) = job_option {
+    if let Some(id) = canceled.into_iter().next() {
         audit_log(
-            &mut *tx,
+            &db,
             &audit_author,
             "jobs.cancel",
             ActionKind::Delete,
@@ -405,10 +402,8 @@ async fn cancel_job_api(
             None,
         )
         .await?;
-        tx.commit().await?;
         Ok(id.to_string())
     } else {
-        tx.commit().await?;
         if job_is_complete(&db, id, &w_id).await.unwrap_or(false) {
             return Ok(format!("queued job id {} is already completed", id));
         } else {
@@ -474,8 +469,6 @@ async fn force_cancel(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
-    let tx = db.begin().await?;
-
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
         Some(authed) => (authed).into(),
         None => AuditAuthor {
@@ -485,17 +478,16 @@ async fn force_cancel(
         },
     };
 
-    let (mut tx, job_option) = tokio::time::timeout(
+    let canceled = tokio::time::timeout(
         std::time::Duration::from_secs(120),
-        windmill_queue::cancel_job(
-            &audit_author.username,
-            reason,
-            id,
-            &w_id,
-            tx,
+        cancel(
             &db,
+            &[id],
+            &w_id,
+            &audit_author.username,
+            &reason.unwrap_or_else(|| "unknown reason".into()),
             true,
-            opt_authed.is_none(),
+            opt_authed.is_some(),
         ),
     )
     .await
@@ -505,9 +497,9 @@ async fn force_cancel(
         ))
     })??;
 
-    if let Some(id) = job_option {
+    if let Some(id) = canceled.into_iter().next() {
         audit_log(
-            &mut *tx,
+            &db,
             &audit_author,
             "jobs.force_cancel",
             ActionKind::Delete,
@@ -516,10 +508,8 @@ async fn force_cancel(
             None,
         )
         .await?;
-        tx.commit().await?;
         Ok(id.to_string())
     } else {
-        tx.commit().await?;
         if job_is_complete(&db, id, &w_id).await.unwrap_or(false) {
             return Ok(format!("queued job id {} is already completed", id));
         } else {
@@ -1485,101 +1475,6 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
-async fn cancel_jobs(
-    jobs: Vec<Uuid>,
-    db: &DB,
-    username: &str,
-    w_id: &str,
-) -> error::JsonResult<Vec<Uuid>> {
-    let mut uuids = vec![];
-    let mut tx = db.begin().await?;
-    let trivial_jobs =  sqlx::query!("INSERT INTO v2_job_completed AS cj
-                   ( workspace_id
-                   , id
-                   , duration_ms
-                   , result
-                   , canceled_by
-                   , canceled_reason
-                   , flow_status
-                   , status
-                   , worker
-                )
-                SELECT  q.workspace_id
-                   , q.id
-                   , 0
-                   , $4
-                   , $1
-                   , 'cancel all'
-                   , (SELECT flow_status FROM v2_job_status WHERE id = q.id)
-                   , 'canceled'::job_status
-                   , worker
-        FROM v2_job_queue q
-            JOIN v2_job USING (id)
-        WHERE q.id = any($2) AND running = false AND parent_job IS NULL AND q.workspace_id = $3 AND trigger IS NULL
-            FOR UPDATE SKIP LOCKED
-        ON CONFLICT (id) DO NOTHING RETURNING id AS \"id!\"", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
-        .fetch_all(&mut *tx)
-        .await?.into_iter().map(|x| x.id).collect::<Vec<Uuid>>();
-
-    sqlx::query!(
-        "DELETE FROM v2_job_queue WHERE id = any($1) AND workspace_id = $2",
-        &trivial_jobs,
-        w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    // sqlx::query!(
-    //     "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = 'cancelled all by user' WHERE id IN (SELECT id FROM queue where id = any($2) AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED) RETURNING id",
-    //     username,
-    //     &jobs,
-    //     w_id
-    // ).execute(db).await?;
-    for job_id in jobs.into_iter() {
-        if trivial_jobs.contains(&job_id) {
-            continue;
-        }
-        match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
-            let tx = db.begin().await?;
-            let (tx, _) = windmill_queue::cancel_job(
-                username,
-                None,
-                job_id.clone(),
-                w_id,
-                tx,
-                db,
-                false,
-                false,
-            )
-            .await?;
-            tx.commit().await?;
-            Ok::<_, anyhow::Error>(())
-        })
-        .await
-        {
-            Ok(result) => match result {
-                Ok(_) => {
-                    uuids.push(job_id);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
-                }
-            },
-            Err(_) => {
-                tracing::error!(
-                    "Timeout while trying to cancel job {:?} after 5 seconds",
-                    job_id
-                );
-            }
-        }
-    }
-
-    uuids.extend(trivial_jobs);
-
-    Ok(Json(uuids))
-}
-
 async fn cancel_selection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1598,7 +1493,17 @@ async fn cancel_selection(
     .await?;
     tx.commit().await?;
 
-    cancel_jobs(jobs_to_cancel, &db, authed.username.as_str(), w_id.as_str()).await
+    cancel(
+        &db,
+        &jobs_to_cancel,
+        w_id.as_str(),
+        authed.username.as_str(),
+        "cancel selection",
+        false,
+        true,
+    )
+    .await
+    .map(Json)
 }
 
 async fn list_filtered_uuids(
@@ -3487,24 +3392,17 @@ impl Drop for Guard {
 
             tracing::info!("http connection broke, marking job {id} as canceled");
             tokio::spawn(async move {
-                let cancel_f = async {
-                    let tx = db.begin().await?;
-                    let (tx, _) = cancel_job(
-                        &username,
-                        Some("http connection broke".to_string()),
-                        id,
-                        &w_id,
-                        tx,
-                        &db,
-                        false,
-                        false,
-                    )
-                    .await?;
-                    tx.commit().await?;
-                    Ok::<_, anyhow::Error>(())
-                };
-
-                if let Err(e) = cancel_f.await {
+                let jobs = &[id];
+                let cancel_fut = cancel(
+                    &db,
+                    jobs,
+                    &w_id,
+                    &username,
+                    "http connection broke",
+                    false,
+                    true,
+                );
+                if let Err(e) = cancel_fut.await {
                     tracing::error!(
                         "Error marking job as canceled after http connection broke: {e}"
                     );

@@ -28,7 +28,7 @@ use windmill_common::{
 #[cfg(feature = "benchmark")]
 use crate::bench::{BenchmarkInfo, BenchmarkIter};
 
-use windmill_queue::{append_logs, get_queued_job, CanceledBy, WrappedError};
+use windmill_queue::{append_logs, get_queued_job, WrappedError};
 
 use serde_json::{json, value::RawValue};
 
@@ -234,7 +234,6 @@ async fn send_job_completed(
     result: Arc<Box<RawValue>>,
     result_columns: Option<Vec<String>>,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     success: bool,
     cached_res_path: Option<String>,
     token: String,
@@ -245,12 +244,7 @@ async fn send_job_completed(
         result,
         result_columns,
         mem_peak,
-        canceled_by,
-        success,
-        cached_res_path,
-        token,
-        duration,
-    };
+         success, cached_res_path, token, duration };
     job_completed_tx
         .send(jc)
         .with_context(windmill_common::otel_ee::otel_ctx())
@@ -264,7 +258,6 @@ pub async fn process_result(
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
     token: String,
     column_order: Option<Vec<String>>,
@@ -291,7 +284,6 @@ pub async fn process_result(
                 r,
                 column_order,
                 mem_peak,
-                canceled_by,
                 true,
                 cached_res_path,
                 token,
@@ -337,7 +329,6 @@ pub async fn process_result(
                 Arc::new(to_raw_value(&error_value)),
                 None,
                 mem_peak,
-                canceled_by,
                 false,
                 cached_res_path,
                 token,
@@ -370,7 +361,6 @@ pub async fn handle_receive_completed_job(
     };
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
-    let canceled_by = jc.canceled_by.clone();
     match process_completed_job(
         jc,
         &client,
@@ -390,7 +380,6 @@ pub async fn handle_receive_completed_job(
                 &client,
                 job.as_ref(),
                 mem_peak,
-                canceled_by,
                 err,
                 false,
                 same_worker_tx.clone(),
@@ -414,7 +403,7 @@ pub async fn process_completed_job(
         mem_peak,
         success,
         cached_res_path,
-        canceled_by,
+        
         duration,
         result_columns,
         ..
@@ -465,7 +454,6 @@ pub async fn process_completed_job(
             Json(&result),
             result_columns,
             mem_peak.to_owned(),
-            canceled_by,
             false,
             duration,
         )
@@ -505,13 +493,11 @@ pub async fn process_completed_job(
             db,
             &job,
             mem_peak.to_owned(),
-            canceled_by,
             serde_json::from_str(result.get()).unwrap_or_else(
                 |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
             ),
             worker_name,
             false,
-            None,
         )
         .await?;
         if job.is_flow_step {
@@ -549,7 +535,6 @@ pub async fn handle_job_error(
     client: &AuthedClient,
     job: &QueuedJob,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     err: Error,
     unrecoverable: bool,
     same_worker_tx: SameWorkerSender,
@@ -571,17 +556,7 @@ pub async fn handle_job_error(
             db,
         )
         .await;
-        add_completed_job_error(
-            db,
-            job,
-            mem_peak,
-            canceled_by.clone(),
-            err.clone(),
-            worker_name,
-            false,
-            None,
-        )
-        .await
+        add_completed_job_error(db, job, mem_peak, err.clone(), worker_name, false).await
     };
 
     let update_job_future = if job.is_flow_step || job.is_flow() {
@@ -631,17 +606,9 @@ pub async fn handle_job_error(
                         db,
                     )
                     .await;
-                    let _ = add_completed_job_error(
-                        db,
-                        &parent_job,
-                        mem_peak,
-                        canceled_by.clone(),
-                        e,
-                        worker_name,
-                        false,
-                        None,
-                    )
-                    .await;
+                    let _ =
+                        add_completed_job_error(db, &parent_job, mem_peak, e, worker_name, false)
+                            .await;
                 }
             }
         }

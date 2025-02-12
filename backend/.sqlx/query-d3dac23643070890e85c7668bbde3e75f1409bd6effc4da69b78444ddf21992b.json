@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT flow_innermost_root_job AS \"root!\" FROM v2_job\n            WHERE id = ANY($1) AND flow_innermost_root_job IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "root!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d3dac23643070890e85c7668bbde3e75f1409bd6effc4da69b78444ddf21992b"
+}

@@ -6,12 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{borrow::Borrow, collections::HashMap, sync::Arc, vec};
+use std::{borrow::Borrow, collections::HashMap, collections::HashSet, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Duration, Utc};
-use futures::future::TryFutureExt;
+use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
@@ -19,14 +19,13 @@ use regex::Regex;
 use reqwest::Client;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
-use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
+use sqlx::{types::Json, FromRow, PgExecutor, Pool, Postgres, Transaction};
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
-use windmill_common::utils::now_from_db;
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
@@ -121,174 +120,169 @@ const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill
 #[cfg(any(feature = "enterprise", feature = "cloud"))]
 const SCHEDULE_RECOVERY_HANDLER_USER_EMAIL: &str = "schedule_recovery_handler@windmill.dev";
 
-#[derive(Clone, Debug)]
-pub struct CanceledBy {
-    pub username: Option<String>,
-    pub reason: Option<String>,
-}
-
-pub async fn cancel_single_job<'c>(
+pub async fn cancel(
+    db: &DB,
+    jobs: &[Uuid],
+    workspace_id: &str,
     username: &str,
-    reason: Option<String>,
-    job_running: Arc<QueuedJob>,
-    w_id: &str,
-    mut tx: Transaction<'c, Postgres>,
-    db: &Pool<Postgres>,
-    force_cancel: bool,
-) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
-        let username = username.to_string();
-        let w_id = w_id.to_string();
-        let db = db.clone();
-        let job_running = job_running.clone();
-        tokio::task::spawn(async move {
-            let reason: String = reason
-                .clone()
-                .unwrap_or_else(|| "unexplicited reasons".to_string());
-            let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
-            append_logs(
-                &job_running.id,
-                w_id.to_string(),
-                format!("canceled by {username}: (force cancel: {force_cancel})"),
-                &db,
-            )
-            .await;
-            let add_job = add_completed_job_error(
-                &db,
-                &job_running,
-                job_running.mem_peak.unwrap_or(0),
-                Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
-                e,
-                "server",
-                false,
-                None,
-            )
-            .await;
-
-            if let Err(e) = add_job {
-                tracing::error!("Failed to add canceled job: {}", e);
-            }
-        });
+    reason: &str,
+    force: bool,
+    authed: bool,
+) -> error::Result<Vec<Uuid>> {
+    let mut roots;
+    // On force cancel, prepend flow root jobs to the list:
+    let jobs = if !force {
+        jobs
     } else {
-        let id: Option<Uuid> = sqlx::query_scalar!(
-            "UPDATE v2_job_queue SET canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND (canceled_by IS NULL OR canceled_reason != $2) RETURNING id",
-            username,
-            reason,
-            job_running.id,
-            w_id
+        roots = sqlx::query_scalar!(
+            "SELECT flow_innermost_root_job AS \"root!\" FROM v2_job
+            WHERE id = ANY($1) AND flow_innermost_root_job IS NOT NULL",
+            jobs
         )
-        .fetch_optional(&mut *tx)
+        .fetch_all(db)
         .await?;
-        if let Some(id) = id {
-            tracing::info!("Soft cancelling job {}", id);
-        }
-    }
-
-    Ok((tx, Some(job_running.id)))
-}
-
-pub async fn cancel_job<'c>(
-    username: &str,
-    reason: Option<String>,
-    id: Uuid,
-    w_id: &str,
-    mut tx: Transaction<'c, Postgres>,
-    db: &Pool<Postgres>,
-    force_cancel: bool,
-    require_anonymous: bool,
-) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
-
-    if job.is_none() {
-        return Ok((tx, None));
-    }
-
-    if require_anonymous && job.as_ref().unwrap().created_by != "anonymous" {
-        return Err(Error::BadRequest(
-            "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
-        ));
-    }
-
-    let mut job = job.unwrap();
-    if force_cancel {
-        // if force canceling a flow step, make sure we force cancel from the highest parent
-        loop {
-            if job.parent_job.is_none() {
-                break;
-            }
-            match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {
-                Some(j) => {
-                    job = j;
-                }
-                None => break,
-            }
-        }
-    }
-
-    // prevent cancelling a future tick of a schedule
-    if let Some(schedule_path) = job.schedule_path.as_ref() {
-        let now = now_from_db(&mut *tx).await?;
-        if job.scheduled_for > now {
-            return Err(Error::BadRequest(
-                format!(
-                    "Cannot cancel a future tick of a schedule, cancel the schedule direcly ({})",
-                    schedule_path
-                )
-                .to_string(),
+        roots.extend(jobs.iter().cloned());
+        &roots
+    };
+    // Check if the user is authorized to cancel authed jobs:
+    if !authed {
+        let authed_jobs = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM v2_job WHERE id = ANY($1) AND created_by != 'anonymous'",
+            jobs
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or_default();
+        if authed_jobs > 0 {
+            return Err(Error::NotAuthorized(
+                "Only authenticated users can cancel authed jobs".into(),
             ));
         }
     }
-
-    let job = Arc::new(job);
-
-    // get all children
-    let mut jobs = vec![job.id];
-    let mut jobs_to_cancel = vec![];
-    while !jobs.is_empty() {
-        let p_job = jobs.pop();
-        let new_jobs = sqlx::query_scalar!(
-            "SELECT id AS \"id!\" FROM v2_job WHERE parent_job = $1 AND workspace_id = $2",
-            p_job,
-            w_id
-        )
-        .fetch_all(&mut *tx)
+    let batches = jobs.chunks(5000).map(|batch| batch.to_vec()).collect_vec();
+    let batches = stream::iter(batches.into_iter())
+        .map(|batch| cancel_inner(db, batch, workspace_id, username, reason, force, authed))
+        .buffer_unordered(32)
+        .try_collect::<Vec<_>>()
         .await?;
-        jobs.extend(new_jobs.clone());
-        jobs_to_cancel.extend(new_jobs);
-    }
-    jobs.reverse();
+    Ok(batches.into_iter().flatten().collect())
+}
 
-    let (ntx, _) = cancel_single_job(
+async fn cancel_inner(
+    db: &DB,
+    jobs: Vec<Uuid>,
+    workspace_id: &str,
+    username: &str,
+    reason: &str,
+    force: bool,
+    authed: bool,
+) -> error::Result<Vec<Uuid>> {
+    // 1. Lock & soft cancel all queued jobs:
+    // This query both acquires an exclusive row-level lock on the job and soft cancels it.
+    // It also returns whenever the job is trivial (i.e. not running, no parent, no trigger).
+    // NOTE:
+    // - The `canceled_by` field is used to prevent the job from being canceled multiple times.
+    // - Schedule next ticks aren't cancelable.
+    let mut tx = db.begin().await?;
+    let mut st = sqlx::query!(
+        "UPDATE v2_job_queue q SET
+            canceled_by = $1,
+            canceled_reason = $2,
+            scheduled_for = NOW(),
+            suspend = 0
+        FROM v2_job j
+        WHERE q.id = ANY($3) AND j.id = q.id AND q.workspace_id = $4
+            AND canceled_by IS NULL
+            AND (j.trigger IS DISTINCT FROM 'schedule' OR running = true)
+        RETURNING q.id, (q.running = false AND parent_job IS NULL AND trigger IS NULL) AS trivial",
         username,
-        reason.clone(),
-        job.clone(),
-        w_id,
-        tx,
-        db,
-        force_cancel,
+        reason,
+        &jobs,
+        workspace_id
     )
-    .await?;
-    tx = ntx;
-
-    // cancel children
-    for job_id in jobs_to_cancel {
-        let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
-
-        if let Some(job) = job {
-            let (ntx, _) = cancel_single_job(
-                username,
-                reason.clone(),
-                Arc::new(job),
-                w_id,
-                tx,
-                db,
-                force_cancel,
-            )
-            .await?;
-            tx = ntx;
+    .fetch(&mut *tx)
+    .map(|result| result.map(|row| (row.id, row.trivial)));
+    let (mut jobs, mut trivial_jobs) = (
+        Vec::with_capacity(jobs.len()),
+        Vec::with_capacity(jobs.len()),
+    );
+    while let Some((id, trivial)) = st.try_next().await? {
+        jobs.push(id);
+        if trivial.unwrap_or(false) {
+            trivial_jobs.push(id);
         }
     }
-    Ok((tx, Some(id)))
+    if jobs.is_empty() {
+        return Ok(jobs);
+    }
+    drop(st);
+    // 2. Terminate trivial jobs in batch:
+    let error = json!({
+        "error": {
+            "message": format!("Job canceled by {username}"),
+            "name": "Canceled",
+            "reason": reason,
+            "canceler": username
+        }
+    });
+    let result = Json(&error);
+    let trivial_jobs = terminate(
+        &mut *tx,
+        &trivial_jobs,
+        None,
+        false,
+        false,
+        result,
+        None,
+        None,
+    )
+    .map_ok(|status| status.id)
+    .try_collect::<HashSet<_>>()
+    .await?;
+    // 3. Commit:
+    tx.commit().await?;
+    // 4. Complete non-trivial jobs in parallel:
+    // This help workers draining out canceled jobs faster.
+    let cancel = |id: Uuid| async move {
+        // 4.1. Cancel children jobs:
+        let children = sqlx::query_scalar!("SELECT id FROM v2_job WHERE parent_job = $1", id)
+            .fetch_all(db)
+            .await?;
+        if !children.is_empty() {
+            let _ = cancel(db, &children, workspace_id, username, reason, force, authed).await?;
+        }
+        if !force {
+            // 4.2. Wait for the job to complete:
+            use tokio::time;
+            let wait_completed_fut = async move {
+                while !job_is_complete(db, id, workspace_id).await? {
+                    sleep(time::Duration::from_millis(100)).await;
+                }
+                Ok::<_, Error>(())
+            };
+            match time::timeout(time::Duration::from_secs(2), wait_completed_fut).await {
+                Ok(Ok(_)) => return Ok::<_, Error>(()),
+                Ok(Err(err)) => return Err(err),
+                Err(_) => { /* ignore timeout */ }
+            }
+        }
+        // 4.2. Force complete the job:
+        if let Some(job) = get_queued_job(&id, workspace_id, db).await? {
+            add_completed_job(&db, &job, false, false, result, None, 0, false, None).await?;
+        }
+        Ok::<_, Error>(())
+    };
+    let _ = stream::iter(jobs.iter().cloned().filter(|id| !trivial_jobs.contains(id)))
+        .map(|id| async move {
+            if let Err(err) = cancel(id).await {
+                tracing::error!("Failed to complete job {id}: {err:#}");
+            }
+        })
+        .buffer_unordered(64)
+        .collect::<()>()
+        .await;
+    // 5. Return successfully canceled jobs:
+    Ok(jobs)
 }
 
 /* TODO retry this? */
@@ -355,35 +349,17 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     w_id: &str,
     db: &Pool<Postgres>,
 ) -> error::Result<Vec<Uuid>> {
-    let mut tx = db.begin().await?;
-
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
-    let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM v2_as_queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+    let jobs_to_cancel = sqlx::query_scalar!(
+        "SELECT id as \"id!\" FROM v2_as_queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+        w_id,
+        script_path
     )
-    .bind(w_id)
-    .bind(script_path)
-    .fetch_all(&mut *tx)
+    .fetch_all(db)
     .await?;
 
-    // Then we cancel all the jobs currently in the queue, one by one
-    for queued_job_id in jobs_to_cancel.clone() {
-        let (new_tx, _) = cancel_job(
-            username,
-            reason.clone(),
-            queued_job_id,
-            w_id,
-            tx,
-            db,
-            false,
-            false,
-        )
-        .await?;
-        tx = new_tx;
-    }
-    tx.commit().await?;
-
-    return Ok(jobs_to_cancel);
+    let reason = reason.unwrap_or_else(|| "cancel persistent scripts".into());
+    cancel(db, &jobs_to_cancel, w_id, username, &reason, false, true).await
 }
 
 #[derive(Serialize, Debug)]
@@ -489,11 +465,9 @@ pub async fn add_completed_job_error(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     e: serde_json::Value,
     _worker_name: &str,
     flow_is_done: bool,
-    duration: Option<i64>,
 ) -> Result<WrappedError, Error> {
     #[cfg(feature = "prometheus")]
     register_metric(
@@ -529,9 +503,8 @@ pub async fn add_completed_job_error(
         Json(&result),
         None,
         mem_peak,
-        canceled_by,
         flow_is_done,
-        duration,
+        None,
     )
     .await?;
     Ok(result)
@@ -539,6 +512,66 @@ pub async fn add_completed_job_error(
 
 lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
+}
+
+struct TerminationStatus {
+    pub id: Uuid,
+    pub canceled: bool,
+    pub duration_ms: i64,
+}
+
+fn terminate<'c, T: Serialize + ValidableJson>(
+    e: impl PgExecutor<'c> + 'c,
+    id: &[Uuid],
+    duration: Option<i64>,
+    skipped: bool,
+    success: bool,
+    result: Json<&T>,
+    result_columns: Option<&[String]>,
+    memory_peak: Option<i32>,
+) -> impl Stream<Item = Result<TerminationStatus, sqlx::Error>> + 'c {
+    sqlx::query_as!(
+        TerminationStatus,
+        "WITH queued AS (
+            DELETE FROM v2_job_queue
+            WHERE id = ANY($1::UUID[])
+            RETURNING
+                id, workspace_id, started_at, worker, canceled_by, canceled_reason, extras
+        ), queued_and_runtime AS (
+            SELECT queued.*, GREATEST($7, memory_peak) AS memory_peak, flow_status,
+                workflow_as_code_status
+            FROM queued
+                LEFT JOIN v2_job_runtime USING (id)
+                LEFT JOIN v2_job_status USING (id)
+        ) INSERT INTO v2_job_completed (
+            id, workspace_id, started_at, worker, memory_peak, flow_status, workflow_as_code_status,
+            result, result_columns, canceled_by, canceled_reason, extras,
+            duration_ms,
+            status
+        ) SELECT
+            id, workspace_id, started_at, worker, memory_peak, flow_status, workflow_as_code_status,
+            $5, $6, canceled_by, canceled_reason, extras,
+            COALESCE($2::BIGINT, CASE
+                WHEN started_at IS NULL THEN 0
+                ELSE (EXTRACT('epoch' FROM NOW()) - EXTRACT('epoch' FROM started_at)) * 1000
+            END) AS duration_ms,
+            CASE
+                WHEN canceled_by IS NOT NULL THEN 'canceled'::job_status
+                WHEN $3::BOOLEAN THEN 'skipped'::job_status
+                WHEN $4::BOOLEAN THEN 'success'::job_status
+                ELSE 'failure'::job_status
+            END AS status
+        FROM queued_and_runtime
+        RETURNING id, status = 'canceled' AS \"canceled!\", duration_ms",
+        /* $1 */ id,
+        /* $2 */ duration,
+        /* $3 */ skipped,
+        /* $4 */ success,
+        /* $5 */ result as Json<&T>,
+        /* $6 */ result_columns as Option<&[String]>,
+        /* $7 */ memory_peak,
+    )
+    .fetch(e)
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -549,7 +582,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     result: Json<&T>,
     result_columns: Option<Vec<String>>,
     mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
 ) -> Result<Uuid, Error> {
@@ -564,11 +596,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     let result_columns = result_columns.as_ref();
-    let _job_id = queued_job.id;
-    let (opt_uuid, _duration, _skip_downstream_error_handlers) = (|| async {
+    let job_id = queued_job.id;
+    let (opt_uuid, canceled, _duration, _skip_downstream_error_handlers) = (|| async {
         let mut tx = db.begin().await?;
-
-        let job_id = queued_job.id;
         // tracing::error!("1 {:?}", start.elapsed());
 
         tracing::debug!(
@@ -577,47 +607,36 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
         );
 
-        let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
         // add_time!(bench, "add_completed_job query START");
-
-        let _duration =  sqlx::query_scalar!(
-            "INSERT INTO v2_job_completed AS cj
-                    ( workspace_id
-                    , id
-                    , started_at
-                    , duration_ms
-                    , result
-                    , result_columns
-                    , canceled_by
-                    , canceled_reason
-                    , flow_status
-                    , workflow_as_code_status
-                    , memory_peak
-                    , status
-                    , worker
-                    )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
-                        flow_status, workflow_as_code_status,
-                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
-                        WHEN $7::BOOL THEN 'skipped'::job_status
-                        WHEN $2::BOOL THEN 'success'::job_status
-                        ELSE 'failure'::job_status END AS status,
-                        q.worker
-                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
-            /* $1 */ queued_job.id,
-            /* $2 */ success,
-            /* $3 */ result as Json<&T>,
-            /* $4 */ canceled_by.is_some(),
-            /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
-            /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
-            /* $7 */ skipped,
-            /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
-            /* $9 */ duration,
-            /* $10 */ result_columns as Option<&Vec<String>>,
+        // acquire an exclusive row-level lock for this job:
+        let lock = sqlx::query_scalar!(
+            "SELECT NULL AS \"lock!: ()\" FROM v2_job_queue WHERE id = $1 FOR UPDATE",
+            job_id
         )
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let None = lock {
+            tracing::warn!(
+                "Job {} already completed, discarding result `{}`",
+                job_id,
+                serde_json::to_string(&result).unwrap_or_default()
+            );
+            return Ok((None, false, 0, false));
+        }
+
+        let TerminationStatus { canceled, duration_ms: _duration, .. } = terminate(
+            &mut *tx,
+            &[job_id],
+            duration,
+            skipped,
+            success,
+            result,
+            result_columns.map(Vec::as_slice),
+            if mem_peak > 0 { Some(mem_peak) } else { None },
+        )
+        .next()
         .await
+        .ok_or_else(|| Error::NotFound(format!("Job {job_id}")))?
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
 
         if let Some(labels) = result.wm_labels() {
@@ -634,20 +653,19 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
         }
 
+        // `workflow_as_code`:
         if !queued_job.is_flow_step {
             if let Some(parent_job) = queued_job.parent_job {
                 let _ = sqlx::query_scalar!(
-                    "UPDATE v2_job_status SET
-                        workflow_as_code_status = jsonb_set(
-                            jsonb_set(
-                                COALESCE(workflow_as_code_status, '{}'::jsonb),
-                                array[$1],
-                                COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
-                            ),
-                            array[$1, 'duration_ms'],
-                            to_jsonb($2::bigint)
-                        )
-                    WHERE id = $3",
+                    "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                        jsonb_set(
+                            COALESCE(workflow_as_code_status, '{}'::jsonb),
+                            array[$1],
+                            COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
+                        ),
+                        array[$1, 'duration_ms'],
+                        to_jsonb($2::bigint)
+                    ) WHERE id = $3",
                     &queued_job.id.to_string(),
                     _duration,
                     parent_job
@@ -663,7 +681,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         // tracing::error!("Added completed job {:#?}", queued_job);
 
         let mut _skip_downstream_error_handlers = false;
-        tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
         // tracing::error!("3 {:?}", start.elapsed());
 
         if queued_job.is_flow_step {
@@ -728,10 +745,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                                         AND flow_status->'modules'->0->>'job' = $1
                                     )
                                 )
-                            FROM v2_job_completed WHERE id = $2 AND workspace_id = $3",
+                            FROM v2_job_status WHERE id = $2",
                             Uuid::nil().to_string(),
-                            &queued_job.id,
-                            &queued_job.workspace_id
+                            &queued_job.id
                         ).fetch_optional(&mut *tx).await?.flatten().unwrap_or(false);
 
                     if schedule_next_tick {
@@ -747,7 +763,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                             match err {
                                 Error::QuotaExceeded(_) => (),
                                 // scheduling next job failed and could not disable schedule => make zombie job to retry
-                                _ => return Ok((Some(job_id), 0, true)),
+                                _ => return Ok((Some(job_id), canceled, 0, true)),
                             }
                         };
                     }
@@ -858,7 +874,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             "inserted completed job: {} (success: {success})",
             queued_job.id
         );
-        Ok((None, _duration, _skip_downstream_error_handlers)) as windmill_common::error::Result<(Option<Uuid>, i64, bool)>
+        Result::Ok((None, canceled, _duration, _skip_downstream_error_handlers))
     })
     .retry(
         ConstantBuilder::default()
@@ -996,13 +1012,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 );
             }
 
-            if let Err(err) = send_error_to_workspace_handler(
-                &queued_job,
-                canceled_by.is_some(),
-                db,
-                Json(&result),
-            )
-            .await
+            if let Err(err) =
+                send_error_to_workspace_handler(&queued_job, canceled, db, Json(&result)).await
             {
                 match err {
                     Error::QuotaExceeded(_) => {}
@@ -1021,7 +1032,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
     }
 
-    if !queued_job.is_flow_step && queued_job.job_kind == JobKind::Script && canceled_by.is_none() {
+    if !queued_job.is_flow_step && queued_job.job_kind == JobKind::Script && !canceled {
         if let Some(hash) = queued_job.script_hash {
             let p = sqlx::query_scalar!(
                 "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -2592,39 +2603,6 @@ async fn extract_result_from_job_result(
     }
 }
 
-pub async fn delete_job<'c>(
-    mut tx: Transaction<'c, Postgres>,
-    w_id: &str,
-    job_id: Uuid,
-) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
-    #[cfg(feature = "prometheus")]
-    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        QUEUE_DELETE_COUNT.inc();
-    }
-
-    let job_removed = sqlx::query_scalar!(
-        "DELETE FROM v2_job_queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
-        w_id,
-        job_id
-    )
-    .fetch_optional(&mut *tx)
-    .await;
-
-    if let Err(job_removed) = job_removed {
-        tracing::error!(
-            "Job {job_id} could not be deleted: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling"
-        );
-    } else {
-        let job_removed = job_removed.unwrap().flatten().unwrap_or(0);
-        if job_removed != 1 {
-            tracing::error!("Job {job_id} could not be deleted, returned not 1: {job_removed}. This is not necessarily an error, as the job might have been deleted by another process such as in the case of cancelling");
-        }
-    }
-
-    tracing::debug!("Job {job_id} deleted");
-    Ok(tx)
-}
-
 pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<bool> {
     Ok(sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1 AND workspace_id = $2)",
@@ -2634,22 +2612,6 @@ pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<boo
     .fetch_one(db)
     .await?
     .unwrap_or(false))
-}
-
-async fn get_queued_job_tx<'c>(
-    id: Uuid,
-    w_id: &str,
-    tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<Option<QueuedJob>> {
-    sqlx::query_as::<_, QueuedJob>(
-        "SELECT *
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(Into::into)
 }
 
 pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {

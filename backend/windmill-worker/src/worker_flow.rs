@@ -56,8 +56,8 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, handle_maybe_scheduled_job,
-    CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
+    add_completed_job, add_completed_job_error, append_logs, handle_maybe_scheduled_job, PushArgs,
+    PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -1082,14 +1082,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                 db,
                 &flow_job,
                 0,
-                Some(CanceledBy {
-                    username: flow_job.canceled_by.clone(),
-                    reason: flow_job.canceled_reason.clone(),
-                }),
                 canceled_job_to_result(&flow_job),
                 worker_name,
                 true,
-                None,
             )
             .await?;
         } else {
@@ -1117,7 +1112,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     Json(&nresult),
                     None,
                     0,
-                    None,
                     true,
                     None,
                 )
@@ -1135,7 +1129,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     ),
                     None,
                     0,
-                    None,
                     true,
                     None,
                 )
@@ -1168,8 +1161,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     db,
                 )
                 .await;
-                let _ = add_completed_job_error(db, &flow_job, 0, None, e, worker_name, true, None)
-                    .await;
+                let _ = add_completed_job_error(db, &flow_job, 0, e, worker_name, true).await;
                 true
             }
             Ok(_) => false,

@@ -17,7 +17,7 @@ use windmill_common::error::{self, Error};
 
 use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED};
 
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::process::ExitStatusExt;
@@ -94,7 +94,6 @@ pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
     mem_peak: &mut i32,
-    canceled_by_ref: &mut Option<CanceledBy>,
     mut child: Child,
     nsjail: bool,
     worker: &str,
@@ -138,7 +137,6 @@ pub async fn handle_child(
         job_id,
         db,
         mem_peak,
-        canceled_by_ref,
         Box::pin(stream::unfold((), move |_| async move {
             Some((get_mem_peak(pid, nsjail).await, ()))
         })),
@@ -492,7 +490,6 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     timeout: Option<i32>,
     db: &DB,
     mem_peak: &mut i32,
-    canceled_by_ref: &mut Option<CanceledBy>,
     result_f: Fut,
     worker_name: &str,
     w_id: &str,
@@ -509,7 +506,6 @@ where
         job_id,
         db,
         mem_peak,
-        canceled_by_ref,
         get_mem,
         worker_name,
         w_id,
@@ -546,6 +542,11 @@ where
     Ok(rows)
 }
 
+pub struct CanceledBy {
+    pub username: Option<String>,
+    pub reason: Option<String>,
+}
+
 pub enum UpdateJobPollingExit {
     Done(Option<CanceledBy>),
     AlreadyCompleted,
@@ -555,7 +556,6 @@ pub async fn update_job_poller<S>(
     job_id: Uuid,
     db: &DB,
     mem_peak: &mut i32,
-    canceled_by_ref: &mut Option<CanceledBy>,
     mut get_mem: S,
     worker_name: &str,
     w_id: &str,
@@ -566,6 +566,7 @@ where
     S: stream::Stream<Item = i32> + Unpin,
 {
     let update_job_interval = Duration::from_millis(500);
+    let mut cancellation = None;
 
     let db = db.clone();
 
@@ -666,9 +667,9 @@ where
                         return UpdateJobPollingExit::AlreadyCompleted
                     }
                     if canceled_by.is_some() {
-                        canceled_by_ref.replace(CanceledBy {
-                            username: canceled_by.clone(),
-                            reason: canceled_reason.clone(),
+                        cancellation = Some(CanceledBy {
+                            username: canceled_by,
+                            reason: canceled_reason,
                         });
                         break
                     }
@@ -679,7 +680,7 @@ where
     }
     tracing::info!("job {job_id} finished");
 
-    UpdateJobPollingExit::Done(canceled_by_ref.clone())
+    UpdateJobPollingExit::Done(cancellation)
 }
 
 /// takes stdout and stderr from Child, panics if either are not present

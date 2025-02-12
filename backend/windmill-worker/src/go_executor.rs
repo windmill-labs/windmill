@@ -12,7 +12,7 @@ use windmill_common::{
     worker::{save_cache, write_file},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 use crate::{
     common::{
@@ -35,7 +35,6 @@ pub const GO_OBJECT_STORE_PREFIX: &str = "gobin/";
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -83,7 +82,6 @@ pub async fn handle_go_job(
             &job.id,
             inner_content,
             mem_peak,
-            canceled_by,
             job_dir,
             db,
             true,
@@ -203,7 +201,6 @@ func Run(req Req) (interface{{}}, error){{
             &job.id,
             db,
             mem_peak,
-            canceled_by,
             build_go_process,
             false,
             worker_name,
@@ -306,7 +303,6 @@ func Run(req Req) (interface{{}}, error){{
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -346,7 +342,6 @@ pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     non_dep_job: bool,
@@ -370,7 +365,6 @@ pub async fn install_go_dependencies(
             job_id,
             db,
             mem_peak,
-            canceled_by,
             child_process,
             false,
             worker_name,
@@ -436,7 +430,6 @@ pub async fn install_go_dependencies(
         job_id,
         db,
         mem_peak,
-        canceled_by,
         child_process,
         false,
         worker_name,

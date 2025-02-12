@@ -25,7 +25,7 @@ use windmill_common::DB;
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::append_logs;
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -62,7 +62,6 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -206,7 +205,6 @@ exit $exit_status
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
@@ -226,7 +224,6 @@ exit $exit_status
             db,
             job.timeout,
             mem_peak,
-            canceled_by,
             worker_name,
             occupancy_metrics,
             _killpill_rx,
@@ -271,7 +268,6 @@ async fn handle_docker_job(
     db: &DB,
     job_timeout: Option<i32>,
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
@@ -361,7 +357,6 @@ async fn handle_docker_job(
         job_timeout,
         db,
         mem_peak,
-        canceled_by,
         wait_f,
         worker_name,
         workspace_id,
@@ -458,7 +453,6 @@ fn raw_to_string(x: &str) -> String {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -548,7 +542,6 @@ pub async fn handle_powershell_job(
             &job.id,
             db,
             mem_peak,
-            canceled_by,
             child,
             false,
             worker_name,
@@ -759,7 +752,6 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         &job.id,
         db,
         mem_peak,
-        canceled_by,
         child,
         !*DISABLE_NSJAIL,
         worker_name,
