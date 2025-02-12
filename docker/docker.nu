@@ -1,0 +1,111 @@
+#! /usr/bin/env nu
+# ------------------------------------ #
+# Build and Test docker images locally #
+#                run:                  #
+#        docker/docker.nu --help       #
+# ------------------------------------ #
+
+let branch = git branch --show-current;
+# TODO: Use podman
+let use_podman = false;
+
+# Build and Test docker images
+#
+# For more info run:
+# docker.nu up --help
+# docker.nu build --help
+#
+# Should be invoked in repo root
+def main [] {
+  ./docker/docker.nu --help;
+}
+
+# Run and Build (if not yet) docker image
+def "main up" [
+  custom_dockerfile?: path  # Any dockerfile that depends on root Dockerfile
+  --features(-f): string = "deno_core" # Features that will be passed to base Dockerfile to compile windmill
+  --yes(-y) # Say yes for every confirmation (TODO)
+] {
+  let ident = get_ident $custom_dockerfile -f $features;
+  if not (sudo docker images | into string | str contains $ident) {
+    print $"($ident) is not found, building..."
+    main build $custom_dockerfile -f $features 
+  } else {
+    print $"($ident) was found"
+  }
+  print $"Running: ($ident)"
+  sudo WM_IMAGE=($ident) docker compose up --pull never
+}
+
+# Build docker image
+def "main build" [
+  custom_dockerfile?: path  # Any dockerfile that depends on root Dockerfile
+  --features(-f): string = "deno_core" # Features that will be passed to base Dockerfile to compile windmill
+  --mock(-m) # Ignore building base image
+  --yes(-y) # Say yes for every confirmation (TODO)
+  --podman(-p) # Use podman (TODO)
+] {
+  if not $mock {
+    build_base -f $features 
+  }
+  if $custom_dockerfile != null {
+    let ident = get_ident $custom_dockerfile -f $features;
+    let tmpfile = patch $custom_dockerfile -f $features;
+    print $"Building image by path ($custom_dockerfile) with ident: ($ident)"
+    sudo docker build -f $tmpfile -t $ident ./
+  }
+}
+
+def build_base [
+  --features(-f): string
+] {
+  if not ($features | str contains "deno_core") {
+    print "Warning! deno_core feature not enabled"
+    print "Compilation may fail"
+  }
+
+  if ($features | str contains "enterprise") {
+    print "Building in EE mode"
+    print "Is windmill ee private repo mounted? [Y/n]"; 
+    let inp = input listen --types [key]
+
+    if ($inp.code != "y") {
+      # print "You can use --auto-substitute(-s) to automatically mount ee private repo (TODO)"
+      print "Aborted"
+      return;
+    }
+  }
+
+  let ident = get_ident -f $features;
+  print $"Building base image with ident: ($ident)"
+  sudo docker build -t ($ident) . --build-arg features=($features)
+}
+
+# TODO
+def clone_ee_private [] {
+  let rev = open backend/ee-repo-ref.txt
+  git clone --depth 1 git@github.com:windmill-labs/windmill-ee-private.git .docker.nu/private-ee-repo-rev-($rev)
+  # git checkout ddcfdfc18a9833a5fc4e62ad62a265ef1e06a0aa)
+}
+
+def get_ident [
+  custom_dockerfile?: path  # Any dockerfile that depends on root Dockerfile
+  --features(-f): string = "deno_core" # Features that will be passed to base Dockerfile to compile windmill
+] {
+    let feat_postfix = $features |  split row ',' | each { |e| $e | str trim --left --right } | sort | str join "-";
+    if $custom_dockerfile != null {
+      let df_postfix = $"($custom_dockerfile)" | split row "Dockerfile" | get 1 | str downcase;
+      return ($branch | append $df_postfix | append $feat_postfix | str join "__");
+    } else {
+      return ($branch | append $feat_postfix | str join "-");
+    }
+}
+
+def patch [
+  file: path
+  --features(-f): string
+] {
+  let tmpfile = $"(mktemp -d)/Dockerfile";
+  open $file | str replace 'ghcr.io/windmill-labs/windmill-ee:dev' (get_ident -f $features) | save $tmpfile;
+  return $tmpfile;
+}
