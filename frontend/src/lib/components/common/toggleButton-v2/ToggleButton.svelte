@@ -3,7 +3,7 @@
 	import { Tab } from '@rgossiaux/svelte-headlessui'
 	import type { ToggleButtonContext } from './ToggleButtonGroup.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import Popover from '$lib/components/Popover.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	import { Info } from 'lucide-svelte'
 
@@ -24,8 +24,7 @@
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
 
-<Popover
-	notClickable
+<Tooltip
 	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
 	disablePopup={tooltip === undefined}
 	disappearTimeout={0}
@@ -64,4 +63,4 @@
 	<svelte:fragment slot="text">
 		{tooltip}
 	</svelte:fragment>
-</Popover>
+</Tooltip>
