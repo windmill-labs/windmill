@@ -32,7 +32,7 @@
 		kafka: '+ New Kafka trigger',
 		email: 'Email trigger',
 		nats: '+ New NATS trigger',
-		mqtt: '+ New Mqtt trigger',
+		mqtt: '+ New MQTT trigger',
 		postgres: '+ New Postgres trigger'
 	}
 

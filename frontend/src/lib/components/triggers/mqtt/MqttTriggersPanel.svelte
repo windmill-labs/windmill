@@ -67,7 +67,7 @@
 
 {#if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		Mqtt triggers are disabled in the multi-tenant cloud.
+		MQTT triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
@@ -77,7 +77,7 @@
 		</Description>
 
 		{#if !newItem && mqttTriggers && mqttTriggers.length > 0}
-			<Section label="Mqtt">
+			<Section label="MQTT">
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-col divide-y pt-2">
 						{#each mqttTriggers as mqttTriggers (mqttTriggers.path)}

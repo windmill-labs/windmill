@@ -30,7 +30,7 @@
 			bind:captureTable
 		/>
 	{/if}
-	<Section label="Mqtt" {headless}>
+	<Section label="MQTT" {headless}>
 		<Section label="topics">
 			<p class="text-xs text-tertiary mb-2"
 				>Enter which topics you want to subscribe to<Required required={true} />

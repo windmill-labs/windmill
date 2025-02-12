@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'Mqtt triggers' }
+		stuff: { title: 'MQTT triggers' }
 	}
 }

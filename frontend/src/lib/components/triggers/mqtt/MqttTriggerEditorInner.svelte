@@ -104,7 +104,7 @@
 					is_flow
 				}
 			})
-			sendUserToast(`Mqtt trigger ${path} updated`)
+			sendUserToast(`MQTT trigger ${path} updated`)
 		} else {
 			await MqttTriggerService.createMqttTrigger({
 				workspace: $workspaceStore!,
@@ -116,7 +116,7 @@
 					is_flow
 				}
 			})
-			sendUserToast(`Mqtt trigger ${path} created`)
+			sendUserToast(`MQTT trigger ${path} created`)
 		}
 
 		if (!$usedTriggerKinds.includes('mqtt')) {
@@ -131,9 +131,9 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit Mqtt trigger ${initialPath}`
-				: `Mqtt trigger ${initialPath}`
-			: 'New Mqtt trigger'}
+				? `Edit MQTT trigger ${initialPath}`
+				: `MQTT trigger ${initialPath}`
+			: 'New MQTT trigger'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">

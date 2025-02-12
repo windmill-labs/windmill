@@ -163,7 +163,7 @@
 								<ToggleButtonGroup bind:selected={eventStreamType}>
 									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
 									<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
-									<ToggleButton value="mqtt" label="Mqtt" icon={MqttIcon} />
+									<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} />
 								</ToggleButtonGroup>
 								{#if eventStreamType === 'kafka'}
 									<KafkaTriggersPanel

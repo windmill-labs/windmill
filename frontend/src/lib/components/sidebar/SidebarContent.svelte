@@ -110,7 +110,7 @@
 			kind: 'postgres'
 		},
 		{
-			label: 'Mqtt',
+			label: 'MQTT',
 			href: '/mqtt_triggers',
 			icon: MqttIcon,
 			disabled: $userStore?.operator,

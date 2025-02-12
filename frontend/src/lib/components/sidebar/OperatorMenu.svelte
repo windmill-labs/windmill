@@ -87,7 +87,7 @@
 			href: `${base}/nats_triggers`
 		},
 		{
-			label: 'Mqtt triggers',
+			label: 'MQTT triggers',
 			id: 'triggers',
 			href: `${base}/mqtt_triggers`
 		},

@@ -127,7 +127,7 @@
 			>
 				<div class="flex flex-row items-center gap-2">
 					<MqttIcon size={16} />
-					<p class="text-xs text-secondary">Mqtt</p>
+					<p class="text-xs text-secondary">MQTT</p>
 				</div>
 			</button>
 		</div>

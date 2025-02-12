@@ -209,27 +209,27 @@
 
 <CenteredPage>
 	<PageHeader
-		title="Mqtt triggers"
-		tooltip="Windmill can listen to Mqtt events and trigger scripts or flows based on them."
+		title="MQTT triggers"
+		tooltip="Windmill can listen to MQTT events and trigger scripts or flows based on them."
 	>
 		<Button size="md" startIcon={{ icon: Plus }} on:click={() => mqttTriggerEditor.openNew(false)}>
-			New&nbsp;Mqtt trigger
+			New&nbsp;MQTT trigger
 		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			Mqtt triggers are disabled in the multi-tenant cloud.
+			MQTT triggers are disabled in the multi-tenant cloud.
 		</Alert>
 		<div class="py-4" />
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
-			<input type="text" placeholder="Search Mqtt triggers" bind:value={filter} class="search-item" />
+			<input type="text" placeholder="Search MQTT triggers" bind:value={filter} class="search-item" />
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Mqtt trigger" icon={Unplug} />
+					<ToggleButton small value="trigger" label="MQTT trigger" icon={Unplug} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -297,12 +297,12 @@
 										<div slot="text">
 											{#if enabled}
 												{#if !server_id}
-													Mqtt is starting...
+													MQTT is starting...
 												{:else}
-													Mqtt is not connected{error ? ': ' + error : ''}
+													MQTT is not connected{error ? ': ' + error : ''}
 												{/if}
 											{:else}
-												Mqtt was disabled because of an error: {error}
+												MQTT was disabled because of an error: {error}
 											{/if}
 										</div>
 									</Popover>
@@ -312,7 +312,7 @@
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
 										<div slot="text">
-											Mqtt is connected{!server_id ? ' (shutting down...)' : ''}
+											MQTT is connected{!server_id ? ' (shutting down...)' : ''}
 										</div>
 									</Popover>
 								{/if}
