@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.458.4
+  version: 1.460.1
   title: Windmill API
 
   contact:
@@ -8760,6 +8760,34 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/postgres_triggers/test:
+    post:
+      summary: test postgres connection
+      operationId: testPostgresConnection
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test postgres connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                database:
+                  type: string
+              required:
+                - database
+      responses:
+        "200":
+          description: successfuly connected to postgres
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /groups/list:
     get:
       summary: list instance groups
@@ -13323,7 +13351,7 @@ components:
             type: string
       required:
         - transaction_to_track
-
+    
     TableToTrack:
       type: array
       items:
@@ -14644,7 +14672,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats]
+      enum: [webhook, http, websocket, kafka, email, nats, postgres]
 
     Capture:
       type: object
