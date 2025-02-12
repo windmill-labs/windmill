@@ -150,6 +150,7 @@ pub fn global_service() -> Router {
             "/create_workspace_require_superadmin",
             get(create_workspace_require_superadmin),
         )
+        .route("/get_github_app_token", post(crate::workspaces_ee::get_github_app_token))
 }
 
 #[derive(FromRow, Serialize)]
@@ -1380,9 +1381,15 @@ async fn list_workspaces_as_super_admin(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
-         FROM workspace
-         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+        "SELECT
+            workspace.id AS \"id!\",
+            workspace.name AS \"name!\",
+            workspace.owner AS \"owner!\",
+            workspace.deleted AS \"deleted!\",
+            workspace.premium AS \"premium!\",
+            workspace_settings.color AS \"color!\"
+        FROM workspace
+        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
         per_page as i32,
         offset as i32
