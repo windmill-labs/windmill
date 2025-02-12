@@ -1711,11 +1711,23 @@ async fn push_next_flow_job(
             .await?;
             if no_flow_overlap {
                 let overlapping = sqlx::query_scalar!(
-                    "SELECT id AS \"id!\" FROM v2_as_queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
+                    // Query plan:
+                    // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL`
+                    //   clause.
+                    // - select from `v2_job` first, then join with `v2_job_queue` to avoid a full
+                    //   table scan on `running = true`.
+                    "SELECT id
+                    FROM v2_job j JOIN v2_job_queue USING (id)
+                    WHERE j.workspace_id = $2 AND trigger_kind = 'schedule' AND trigger = $1
+                        AND parent_job IS NULL
+                        AND j.id != $3
+                        AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
                     flow_job.id
-                ).fetch_all(db).await?;
+                )
+                .fetch_all(db)
+                .await?;
                 if overlapping.len() > 0 {
                     let overlapping_str = overlapping
                         .iter()

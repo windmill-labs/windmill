@@ -407,9 +407,27 @@ async fn list_schedule_with_jobs(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
     let rows = sqlx::query_as!(ScheduleWJobs,
-        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM v2_as_completed_job WHERE
-        v2_as_completed_job.schedule_path = schedule.path AND v2_as_completed_job.workspace_id = $1 AND parent_job IS NULL AND is_skipped = False ORDER BY started_at DESC LIMIT 20) AS jobs ) t
-        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
+        // Query plan:
+        // - use of the `ix_completed_job_workspace_id_started_at_new_2` index first, then;
+        // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
+        // - both `workspace_id = $1` checks are required to hit both indexes.
+        "SELECT
+            schedule.*, t.jobs FROM schedule,
+            LATERAL(SELECT ARRAY(
+                SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
+                FROM v2_job_completed c JOIN v2_job j USING (id)
+                WHERE trigger_kind = 'schedule'
+                    AND trigger = schedule.path
+                    AND c.workspace_id = $1
+                    AND j.workspace_id = $1
+                    AND parent_job IS NULL
+                    AND status <> 'skipped'
+                ORDER BY started_at DESC
+                LIMIT 20
+            ) AS jobs) t
+        WHERE workspace_id = $1
+        ORDER BY edited_at DESC
+        LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
