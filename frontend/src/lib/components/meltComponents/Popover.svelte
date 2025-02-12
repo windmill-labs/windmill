@@ -48,7 +48,7 @@
 	<div
 		use:melt={$content}
 		transition:fade={{ duration: 100 }}
-		class="w-fit rounded-md bg-surface overflow-hidden shadow-md"
+		class="w-fit border rounded-md bg-surface overflow-hidden shadow-lg"
 		style="z-index: {zIndexes.popover}"
 	>
 		{#if displayArrow}
