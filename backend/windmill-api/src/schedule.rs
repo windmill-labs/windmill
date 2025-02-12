@@ -420,9 +420,9 @@ async fn list_schedule_with_jobs(
                     AND trigger = schedule.path
                     AND c.workspace_id = $1
                     AND j.workspace_id = $1
-                    AND parent_job IS NULL
+                    AND parent_job IS NULL AND runnable_path = trigger
                     AND status <> 'skipped'
-                ORDER BY started_at DESC
+                ORDER BY created_at DESC
                 LIMIT 20
             ) AS jobs) t
         WHERE workspace_id = $1

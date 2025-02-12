@@ -507,7 +507,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     run_windmill_migration!("add_ix_v2_job_root_by_path", &db, {
         sqlx::query!(
             "create index concurrently if not exists ix_v2_job_root_by_path
-                on v2_job (workspace_id, trigger_kind, trigger, runnable_path, created_at DESC)
+                on v2_job (workspace_id, runnable_path, created_at DESC)
                 where parent_job is null"
         )
         .execute(db)
