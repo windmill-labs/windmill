@@ -8,5 +8,6 @@ export const zIndexes = {
 	contextMenu: 6000,
 	draggingComponent: 10000,
 	monacoEditor: 10000,
-	monacoEditorSuggestions: 10001
+	monacoEditorSuggestions: 10001,
+	tooltip: 20000
 }
