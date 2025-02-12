@@ -504,6 +504,81 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
+    run_windmill_migration!("add_ix_v2_II", &db, {
+        sqlx::query!(
+            "create index concurrently if not exists ix_v2_job_root_by_path
+                on v2_job (workspace_id, runnable_path, created_at DESC)
+                where parent_job is null"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_3"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_5"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_6"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_7"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_8"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_9"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_created_at")
+            .execute(db)
+            .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_2"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_started_at_new"
+        )
+        .execute(db)
+        .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path_2")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS scheduled_root_job")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS concurrency_limit_stats_completed_job")
+            .execute(db)
+            .await?;
+        tracing::info!("Finished adding ix_v2_II migration");
+    });
+
     run_windmill_migration!("fix_labeled_jobs_index", &db, {
         tracing::info!("Special migration to add index concurrently on job labels 2");
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs")

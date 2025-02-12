@@ -604,6 +604,9 @@ export async function preprocessor(
 			status?: number
 			description?: string
 			length: number
+		},
+		mqtt?: {
+			topics: string[]
 		}
 	},
 	/* your other args */ 
@@ -641,6 +644,9 @@ export async function preprocessor(
 			status?: number
 			description?: string
 			length: number
+		},
+		mqtt?: {
+			topics: string[]
 		}
 	},
 	/* your other args */ 
@@ -705,10 +711,10 @@ class Nats(TypedDict):
 	length: int
 
 class Mqtt(TypeDict):
-
+	topics: list[str]
 
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "mqtt"]
+	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "mqtt"]
 	http: Http | None
 	websocket: Websocket | None
 	kafka: Kafka | None

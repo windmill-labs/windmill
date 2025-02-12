@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM kafka_trigger\n                WHERE workspace_id = $1",
+  "query": "SELECT * FROM kafka_trigger\n                 WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -102,5 +102,5 @@
       false
     ]
   },
-  "hash": "a79b1d0884c02f92fd40b23c6181717ffa5e01250020cfb24e4bad276397dee2"
+  "hash": "8b784784fe63d91cc5ebe27022f803caf85d5916960308cff512047d4f0dcba4"
 }

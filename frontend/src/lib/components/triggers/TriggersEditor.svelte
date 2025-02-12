@@ -145,7 +145,18 @@
 							</div>
 						{:else if $selectedTrigger === 'postgres'}
 							<div class="p-4">
-								<PostgresTriggersPanel {newItem} path={currentPath} {isFlow} />
+								<PostgresTriggersPanel
+									on:applyArgs
+									on:addPreprocessor
+									on:updateSchema
+									on:testWithArgs
+									{newItem}
+									path={currentPath}
+									{isFlow}
+									{canHavePreprocessor}
+									{hasPreprocessor}
+									isEditor={true}
+								/>
 							</div>
 						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats' || $selectedTrigger === 'mqtt'}
 							<div class="p-4 flex flex-col gap-2">

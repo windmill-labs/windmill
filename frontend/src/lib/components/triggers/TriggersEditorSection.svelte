@@ -32,7 +32,8 @@
 		kafka: '+ New Kafka trigger',
 		email: 'Email trigger',
 		nats: '+ New NATS trigger',
-		mqtt: '+ New Mqtt trigger'
+		mqtt: '+ New Mqtt trigger',
+		postgres: '+ New Postgres trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')

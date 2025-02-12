@@ -6,24 +6,40 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(feature = "http_trigger")]
+use http::HeaderMap;
+#[cfg(feature = "http_trigger")]
+use serde::de::DeserializeOwned;
+#[cfg(feature = "http_trigger")]
+use std::collections::HashMap;
+#[cfg(feature = "http_trigger")]
+use windmill_common::error::Error;
+#[cfg(feature = "http_trigger")]
+use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
+#[cfg(all(feature = "enterprise", feature = "kafka"))]
+use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+#[cfg(all(feature = "enterprise", feature = "nats"))]
+use crate::nats_triggers_ee::NatsTriggerConfigConnection;
+#[cfg(feature = "postgres_trigger")]
+use crate::postgres_triggers::{
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection, PublicationData,
+};
+#[cfg(feature = "postgres_trigger")]
+use itertools::Itertools;
+#[cfg(feature = "postgres_trigger")]
+use pg_escape::quote_literal;
+
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, head, post},
     Json, Router,
 };
-#[cfg(feature = "http_trigger")]
-use http::HeaderMap;
 use hyper::StatusCode;
-#[cfg(feature = "http_trigger")]
-use serde::de::DeserializeOwned;
+use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
-#[cfg(feature = "http_trigger")]
-use std::collections::HashMap;
-use std::fmt;
-#[cfg(feature = "http_trigger")]
-use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
@@ -31,13 +47,6 @@ use windmill_common::{
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 use windmill_queue::{PushArgs, PushArgsOwned};
-
-#[cfg(feature = "http_trigger")]
-use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
@@ -78,7 +87,7 @@ pub fn workspaced_unauthed_service() -> Router {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TriggerKind {
@@ -88,7 +97,8 @@ pub enum TriggerKind {
     Kafka,
     Email,
     Nats,
-    Mqtt
+    Mqtt,
+    Postgres
 }
 
 impl fmt::Display for TriggerKind {
@@ -100,7 +110,8 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
-            TriggerKind::Mqtt => "mqtt"
+            TriggerKind::Mqtt => "mqtt",
+            TriggerKind::Postgres => "postgres",
         };
         write!(f, "{}", s)
     }
@@ -137,7 +148,17 @@ pub struct NatsTriggerConfig {
 
 #[cfg(feature = "mqtt_trigger")]
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MqttTriggerConfig;
+pub struct MqttTriggerConfig {
+    topics: Vec<String>
+}
+#[cfg(feature = "postgres_trigger")]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PostgresTriggerConfig {
+    pub postgres_resource_path: String,
+    pub publication_name: Option<String>,
+    pub replication_slot_name: Option<String>,
+    pub publication: PublicationData,
+}
 
 #[cfg(feature = "websocket")]
 #[derive(Serialize, Deserialize, Debug)]
@@ -152,6 +173,8 @@ pub struct WebsocketTriggerConfig {
 enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
+    #[cfg(feature = "postgres_trigger")]
+    Postgres(PostgresTriggerConfig),
     #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -196,18 +219,88 @@ async fn get_configs(
     )
     .fetch_all(&mut *tx)
     .await?;
-
     tx.commit().await?;
 
     Ok(Json(configs))
 }
 
+#[cfg(feature = "postgres_trigger")]
+async fn set_postgres_trigger_config(
+    w_id: &str,
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    mut capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    let Some(TriggerConfig::Postgres(mut postgres_config)) = capture_config.trigger_config else {
+        return Err(windmill_common::error::Error::BadRequest(
+            "Invalid postgres config".to_string(),
+        ));
+    };
+
+    let mut connection = get_database_connection(
+        authed,
+        Some(user_db),
+        &db,
+        &postgres_config.postgres_resource_path,
+        &w_id,
+    )
+    .await?;
+
+    let publication_name = postgres_config
+        .publication_name
+        .get_or_insert(format!("windmill_capture_{}", generate_random_string()));
+    let replication_slot_name = postgres_config
+        .replication_slot_name
+        .get_or_insert(publication_name.clone());
+
+    let query = drop_publication_query(&publication_name);
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    let query = create_publication_query(
+        &publication_name,
+        postgres_config.publication.table_to_track.as_deref(),
+        &postgres_config
+            .publication
+            .transaction_to_track
+            .iter()
+            .map(AsRef::as_ref)
+            .collect_vec(),
+    );
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    let query = format!(
+        "SELECT 1 from pg_replication_slots WHERE slot_name = {}",
+        quote_literal(replication_slot_name)
+    );
+
+    let row = sqlx::query(&query).fetch_optional(&mut connection).await?;
+
+    if row.is_none() {
+        let query = create_logical_replication_slot_query(&replication_slot_name);
+        sqlx::query(&query).execute(&mut connection).await?;
+    }
+    capture_config.trigger_config = Some(TriggerConfig::Postgres(postgres_config));
+    Ok(capture_config)
+}
+
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    #[cfg(feature = "postgres_trigger")] Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
+    #[cfg(feature = "postgres_trigger")]
+    let nc = if let TriggerKind::Postgres = nc.trigger_kind {
+        set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
+    }
+    else {
+        nc
+    };
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(

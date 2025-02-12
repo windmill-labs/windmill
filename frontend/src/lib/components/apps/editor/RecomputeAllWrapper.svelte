@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
-	import { dfs } from './appUtils'
-	import { deepEqual } from 'fast-equals'
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -11,16 +9,8 @@
 	export let containerClass: string | undefined = undefined
 	export let containerStyle: string | undefined = undefined
 
-	const { selectedComponent, app, connectingInput, allIdsInPath, bgRuns, recomputeAllContext } =
+	const { connectingInput, bgRuns, recomputeAllContext } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	let previousSelectedIds: string[] | undefined = undefined
-	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
-		previousSelectedIds = $selectedComponent
-		$allIdsInPath = ($selectedComponent ?? [])
-			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
-			.filter((x) => x != undefined) as string[]
-	}
 </script>
 
 <div
