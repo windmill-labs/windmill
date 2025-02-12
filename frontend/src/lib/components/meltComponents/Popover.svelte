@@ -4,19 +4,22 @@
 	import { X } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { zIndexes } from '$lib/zIndexes'
+	import { pointerDownOutside } from '$lib/utils'
 
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
 	export let placement: Placement = 'bottom'
 	export let disablePopup: boolean = false
 	export let openOnHover: boolean = false
+	export let floatingConfig: any | undefined = undefined
+	export let usePointerDownOutside: boolean = false
 
 	const {
 		elements: { trigger, content, arrow, close: closeElement },
 		states
 	} = createPopover({
 		forceVisible: true,
-		positioning: {
+		positioning: floatingConfig ?? {
 			placement
 		}
 	})
@@ -32,6 +35,10 @@
 	export function open() {
 		isOpen = true
 	}
+
+	async function getMenuElements(): Promise<HTMLElement[]> {
+		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
+	}
 </script>
 
 <div
@@ -40,6 +47,17 @@
 	aria-label="Popup button"
 	on:mouseenter={() => (openOnHover ? open() : null)}
 	on:mouseleave={() => (openOnHover ? close() : null)}
+	use:pointerDownOutside={{
+		capture: true,
+		stopPropagation: false,
+		exclude: getMenuElements
+	}}
+	on:pointerdown_outside={() => {
+		if (usePointerDownOutside) {
+			close()
+		}
+	}}
+	data-popover
 >
 	<slot name="trigger" />
 </div>
@@ -50,6 +68,7 @@
 		transition:fade={{ duration: 100 }}
 		class="w-fit border rounded-md bg-surface overflow-hidden shadow-lg"
 		style="z-index: {zIndexes.popover}"
+		data-popover
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow} />
