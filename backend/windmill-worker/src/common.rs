@@ -333,7 +333,8 @@ pub fn unsafe_raw(json: String) -> Box<RawValue> {
 fn check_result_too_big(size: usize) -> error::Result<()> {
     if *CLOUD_HOSTED && size > MAX_RESULT_SIZE {
         return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
-        If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
+We highly recommend using object to store and pass heavy data (https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#read-a-file-from-s3-within-a-script)
+Alternatively, if using this script as part of a flow, activate shared folder and use the shared folder to pass heavy data between steps.".to_owned()));
     };
     Ok(())
 }
