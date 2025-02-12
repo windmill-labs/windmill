@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.460.0](https://github.com/windmill-labs/windmill/compare/v1.459.0...v1.460.0) (2025-02-11)
+
+
+### Features
+
+* add postgres trigger captures ([#5165](https://github.com/windmill-labs/windmill/issues/5165)) ([57cfa40](https://github.com/windmill-labs/windmill/commit/57cfa4045bf9aa7c2ef625cf3b24067567466aff))
+* improve large apps performances ([#5265](https://github.com/windmill-labs/windmill/issues/5265)) ([aae3683](https://github.com/windmill-labs/windmill/commit/aae3683fe90adc0eea055238f7776b96140706bd))
+* lazy mode ([7c4b8a7](https://github.com/windmill-labs/windmill/commit/7c4b8a7e1dca870b51b60f33a352d344ef34218f))
+
+
+### Bug Fixes
+
+* Remove cache dir mount and mount only the cache executable (Rust, C#) ([#5270](https://github.com/windmill-labs/windmill/issues/5270)) ([6357ed3](https://github.com/windmill-labs/windmill/commit/6357ed3d5e1188bb92ccaf4710e526ab2ec7e874))
+
 ## [1.459.0](https://github.com/windmill-labs/windmill/compare/v1.458.4...v1.459.0) (2025-02-10)
 
 

@@ -31,7 +31,8 @@
 		FileClock,
 		Sun,
 		Moon,
-		SunMoon
+		SunMoon,
+		Zap
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -91,6 +92,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 
 	async function hash(message) {
 		try {
@@ -174,6 +176,7 @@
 	let inputsDrawerOpen = fromHub
 	let historyBrowserDrawerOpen = false
 	let debugAppDrawerOpen = false
+	let lazyDrawerOpen = false
 	let deploymentMsg: string | undefined = undefined
 
 	function closeSaveDrawer() {
@@ -870,6 +873,13 @@
 			action: () => {
 				debugAppDrawerOpen = true
 			}
+		},
+		{
+			displayName: 'Lazy mode',
+			icon: Zap,
+			action: () => {
+				lazyDrawerOpen = true
+			}
 		}
 	]
 
@@ -1266,6 +1276,11 @@
 	</DrawerContent>
 </Drawer>
 
+<Drawer bind:open={lazyDrawerOpen} size="800px">
+	<DrawerContent title="Lazy Mode" on:close={() => (lazyDrawerOpen = false)}>
+		<LazyModePanel />
+	</DrawerContent>
+</Drawer>
 <Drawer bind:open={$jobsDrawerOpen} size="900px">
 	<DrawerContent
 		noPadding
