@@ -71,10 +71,9 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
-		<Description
-			link="https://mqtt.org/"
-		>
-			
+		<Description link="https://mqtt.org/">
+			Windmill can connect to an MQTT broker and subscribes to specific topics thus allowing the
+			execution of script/flows based on the event triggered by those subscribed topics
 		</Description>
 
 		{#if !newItem && mqttTriggers && mqttTriggers.length > 0}

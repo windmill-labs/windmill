@@ -13,6 +13,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { MqttTriggerService } from '$lib/gen'
+	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -28,6 +29,7 @@
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
+	let topics: string[] = []
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -61,6 +63,7 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
+			topics = defaultValues?.topics ?? []
 			path = ''
 			initialPath = ''
 			edit = false
@@ -76,6 +79,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
+			topics = s.topics
 			script_path = s.script_path
 			initialScriptPath = s.script_path
 			is_flow = s.is_flow
@@ -93,6 +97,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
+					topics,
 					path,
 					script_path,
 					enabled,
@@ -104,6 +109,7 @@
 			await MqttTriggerService.createMqttTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
+					topics,
 					enabled: true,
 					path,
 					script_path,
@@ -164,7 +170,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New postgres triggers can take up to 30 seconds to start listening.
+						New mqtt triggers can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>
@@ -184,9 +190,11 @@
 					</Label>
 				</div>
 
+				<MqttEditorConfigSection bind:topics bind:can_write headless={true} />
+
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered <Required required={true} />
+						Pick a script or flow to be triggered<Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker

@@ -555,6 +555,8 @@ export type EditSchedule = {
 };
 
 export type TriggerExtraProperty = {
+    path: string;
+    script_path: string;
     email: string;
     extra_perms: {
         [key: string]: (boolean);
@@ -562,18 +564,16 @@ export type TriggerExtraProperty = {
     workspace_id: string;
     edited_by: string;
     edited_at: string;
+    is_flow: boolean;
 };
 
 export type HttpTrigger = TriggerExtraProperty & {
-    path: string;
-    script_path: string;
     route_path: string;
     static_asset_config?: {
         s3: string;
         storage?: string;
         filename?: string;
     };
-    is_flow: boolean;
     http_method: 'get' | 'post' | 'put' | 'delete' | 'patch';
     is_async: boolean;
     requires_auth: boolean;
@@ -626,13 +626,11 @@ export type TriggersCount = {
     postgres_count?: number;
     kafka_count?: number;
     nats_count?: number;
+    mqtt_count?: number;
 };
 
 export type WebsocketTrigger = TriggerExtraProperty & {
-    path: string;
-    script_path: string;
     url: string;
-    is_flow: boolean;
     server_id?: string;
     last_server_ping?: string;
     error?: string;
@@ -685,6 +683,30 @@ export type WebsocketTriggerInitialMessage = {
     };
 };
 
+export type MqttTrigger = TriggerExtraProperty & {
+    topics: Array<(string)>;
+    server_id?: string;
+    last_server_ping?: string;
+    error?: string;
+    enabled: boolean;
+};
+
+export type NewMqttTrigger = {
+    topics: Array<(string)>;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled?: boolean;
+};
+
+export type EditMqttTrigger = {
+    topics: Array<(string)>;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled: boolean;
+};
+
 export type Slot = {
     name?: string;
 };
@@ -719,9 +741,6 @@ export type TemplateScript = {
 };
 
 export type PostgresTrigger = TriggerExtraProperty & {
-    path: string;
-    script_path: string;
-    is_flow: boolean;
     enabled: boolean;
     postgres_resource_path: string;
     publication_name: string;
@@ -753,20 +772,10 @@ export type EditPostgresTrigger = {
     publication?: PublicationData;
 };
 
-export type KafkaTrigger = {
-    path: string;
-    edited_by: string;
-    edited_at: string;
-    script_path: string;
+export type KafkaTrigger = TriggerExtraProperty & {
     kafka_resource_path: string;
     group_id: string;
     topics: Array<(string)>;
-    is_flow: boolean;
-    extra_perms: {
-        [key: string]: (boolean);
-    };
-    email: string;
-    workspace_id: string;
     server_id?: string;
     last_server_ping?: string;
     error?: string;
@@ -792,22 +801,12 @@ export type EditKafkaTrigger = {
     is_flow: boolean;
 };
 
-export type NatsTrigger = {
-    path: string;
-    edited_by: string;
-    edited_at: string;
-    script_path: string;
+export type NatsTrigger = TriggerExtraProperty & {
     nats_resource_path: string;
     use_jetstream: boolean;
     stream_name?: string;
     consumer_name?: string;
     subjects: Array<(string)>;
-    is_flow: boolean;
-    extra_perms: {
-        [key: string]: (boolean);
-    };
-    email: string;
-    workspace_id: string;
     server_id?: string;
     last_server_ping?: string;
     error?: string;
@@ -1282,7 +1281,7 @@ export type CriticalAlert = {
     workspace_id?: (string) | null;
 };
 
-export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats';
+export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats' | 'postgres' | 'mqtt';
 
 export type Capture = {
     trigger_kind: CaptureTriggerKind;
@@ -2751,6 +2750,7 @@ export type GetUsedTriggersResponse = ({
     kafka_used: boolean;
     nats_used: boolean;
     postgres_used: boolean;
+    mqtt_used: boolean;
 });
 
 export type ListUsersData = {
@@ -5850,6 +5850,95 @@ export type TestNatsConnectionData = {
 
 export type TestNatsConnectionResponse = (string);
 
+export type CreateMqttTriggerData = {
+    /**
+     * new mqtt trigger
+     */
+    requestBody: NewMqttTrigger;
+    workspace: string;
+};
+
+export type CreateMqttTriggerResponse = (string);
+
+export type UpdateMqttTriggerData = {
+    path: string;
+    /**
+     * updated trigger
+     */
+    requestBody: EditMqttTrigger;
+    workspace: string;
+};
+
+export type UpdateMqttTriggerResponse = (string);
+
+export type DeleteMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type DeleteMqttTriggerResponse = (string);
+
+export type GetMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetMqttTriggerResponse = (MqttTrigger);
+
+export type ListMqttTriggersData = {
+    isFlow?: boolean;
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    /**
+     * filter by path
+     */
+    path?: string;
+    pathStart?: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    workspace: string;
+};
+
+export type ListMqttTriggersResponse = (Array<MqttTrigger>);
+
+export type ExistsMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type ExistsMqttTriggerResponse = (boolean);
+
+export type SetMqttTriggerEnabledData = {
+    path: string;
+    /**
+     * updated mqtt trigger enable
+     */
+    requestBody: {
+        enabled: boolean;
+    };
+    workspace: string;
+};
+
+export type SetMqttTriggerEnabledResponse = (string);
+
+export type TestMqttConnectionData = {
+    /**
+     * test mqtt connection
+     */
+    requestBody: {
+        connection: {
+            [key: string]: unknown;
+        };
+    };
+    workspace: string;
+};
+
+export type TestMqttConnectionResponse = (string);
+
 export type IsValidPostgresConfigurationData = {
     path: string;
     workspace: string;
@@ -6024,6 +6113,18 @@ export type SetPostgresTriggerEnabledData = {
 };
 
 export type SetPostgresTriggerEnabledResponse = (string);
+
+export type TestPostgresConnectionData = {
+    /**
+     * test postgres connection
+     */
+    requestBody: {
+        database: string;
+    };
+    workspace: string;
+};
+
+export type TestPostgresConnectionResponse = (string);
 
 export type ListInstanceGroupsResponse = (Array<InstanceGroup>);
 
@@ -6372,7 +6473,7 @@ export type ListAutoscalingEventsData = {
 export type ListAutoscalingEventsResponse = (Array<AutoscalingEvent>);
 
 export type GetGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger';
     path: string;
     workspace: string;
 };
@@ -6382,7 +6483,7 @@ export type GetGranularAclsResponse = ({
 });
 
 export type AddGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger';
     path: string;
     /**
      * acl to add
@@ -6397,7 +6498,7 @@ export type AddGranularAclsData = {
 export type AddGranularAclsResponse = (string);
 
 export type RemoveGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger';
     path: string;
     /**
      * acl to add

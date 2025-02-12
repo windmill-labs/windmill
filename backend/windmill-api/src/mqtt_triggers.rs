@@ -95,6 +95,7 @@ async fn run_job(
 
 #[derive(Deserialize)]
 pub struct EditMqttTrigger {
+    topics: Vec<String>,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -103,6 +104,7 @@ pub struct EditMqttTrigger {
 #[derive(Deserialize, Serialize, Debug)]
 
 pub struct NewMqttTrigger {
+    topics: Vec<String>,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -111,6 +113,7 @@ pub struct NewMqttTrigger {
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]
 pub struct MqttTrigger {
+    pub topics: Vec<String>,
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
@@ -157,13 +160,14 @@ pub async fn create_mqtt_trigger(
         ));
     }
 
-    let NewMqttTrigger { path, script_path, enabled, is_flow } = new_mqtt_trigger;
+    let NewMqttTrigger {topics, path, script_path, enabled, is_flow } = new_mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         r#"
         INSERT INTO mqtt_trigger (
+            topics,
             workspace_id, 
             path, 
             script_path, 
@@ -179,8 +183,10 @@ pub async fn create_mqtt_trigger(
             $4, 
             $5, 
             $6, 
-            $7
+            $7,
+            $8
         )"#,
+        topics.as_slice(),
         &w_id,
         &path,
         script_path,
@@ -218,6 +224,7 @@ pub async fn list_mqtt_triggers(
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
     let mut sqlb = SqlBuilder::select_from("mqtt_trigger")
         .fields(&[
+            "topics",
             "workspace_id",
             "path",
             "script_path",
@@ -274,6 +281,7 @@ pub async fn get_mqtt_trigger(
         MqttTrigger,
         r#"
         SELECT
+            topics,
             workspace_id,
             path,
             script_path,
@@ -311,7 +319,7 @@ pub async fn update_mqtt_trigger(
     Json(mqtt_trigger): Json<EditMqttTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    let EditMqttTrigger { script_path, path, is_flow } = mqtt_trigger;
+    let EditMqttTrigger { topics,script_path, path, is_flow } = mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -319,19 +327,21 @@ pub async fn update_mqtt_trigger(
         r#"
             UPDATE 
                 mqtt_trigger 
-            SET 
-                is_flow = $1, 
-                edited_by = $2, 
-                email = $3,
-                script_path = $4,
-                path = $5,
+            SET
+                topics = $1, 
+                is_flow = $2, 
+                edited_by = $3, 
+                email = $4,
+                script_path = $5,
+                path = $6,
                 edited_at = now(), 
                 error = NULL,
                 server_id = NULL
             WHERE 
-                workspace_id = $6 AND 
-                path = $7
+                workspace_id = $7 AND 
+                path = $8
             "#,
+        topics.as_slice(),
         is_flow,
         &authed.username,
         &authed.email,
@@ -969,6 +979,7 @@ async fn listen_to_unlistened_mqtt_events(
         MqttTrigger,
         r#"
             SELECT
+                topics,
                 workspace_id,
                 path,
                 script_path,

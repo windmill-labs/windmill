@@ -122,7 +122,6 @@
 				</div>
 			</button>
 			<button
-				disabled={!$enterpriseLicense}
 				class="hover:bg-surface-hover p-2 transition-colors duration-150"
 				on:click={() => handleClick('mqtt')}
 			>

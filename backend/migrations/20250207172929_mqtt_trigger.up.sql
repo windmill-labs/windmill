@@ -1,6 +1,7 @@
 -- Add up migration script here
 
 CREATE TABLE mqtt_trigger (
+    topics TEXT[] NOT NULL,
     path VARCHAR(255) NOT NULL,
     script_path VARCHAR(255) NOT NULL,
     is_flow BOOLEAN NOT NULL,
