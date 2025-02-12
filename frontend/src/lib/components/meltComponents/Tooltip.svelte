@@ -37,18 +37,19 @@
 	})
 </script>
 
-<div use:melt={$trigger}>
+<span class={$$props.class} use:melt={$trigger}>
 	<slot />
-	{#if !$$slots.default}
-		<div
-			class="inline-flex w-3 mx-0.5 h-3 {light
-				? 'text-tertiary-inverse'
-				: 'text-tertiary'} {$$props.class} "
-		>
-			<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
-		</div>
-	{/if}
-</div>
+</span>
+{#if !$$slots.default}
+	<div
+		class="inline-flex w-3 mx-0.5 h-3 {light
+			? 'text-tertiary-inverse'
+			: 'text-tertiary'} {$$props.class} "
+		use:melt={$trigger}
+	>
+		<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
+	</div>
+{/if}
 
 {#if $open && !disablePopup}
 	<div
