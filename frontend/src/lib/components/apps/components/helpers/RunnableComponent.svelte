@@ -769,6 +769,7 @@
 		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
 				<SchemaForm
+					noVariablePicker
 					onlyMaskPassword
 					schema={schemaStripped}
 					appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
