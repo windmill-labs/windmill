@@ -2,16 +2,17 @@
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
 	import { fade } from 'svelte/transition'
 	import { X } from 'lucide-svelte'
+	import type { Placement } from '@floating-ui/core'
+	import { zIndexes } from '$lib/zIndexes'
 
-	export let open = false
-	export let closeButton: boolean = true
+	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
-	export let placement: any = 'bottom'
+	export let placement: Placement = 'bottom'
 	export let disablePopup: boolean = false
 	export let openOnHover: boolean = false
 
 	const {
-		elements: { trigger, content, arrow, close },
+		elements: { trigger, content, arrow, close: closeElement },
 		states
 	} = createPopover({
 		forceVisible: true,
@@ -20,29 +21,42 @@
 		}
 	})
 
+	let isOpen = false
 	const sync = createSync(states)
-	$: sync.open(open, (v) => (open = v))
+	$: sync.open(isOpen, (v) => (isOpen = v))
+
+	export function close() {
+		isOpen = false
+	}
+
+	export function open() {
+		isOpen = true
+	}
 </script>
 
-<button
-	class="w-full h-full"
-	type="button"
+<div
+	class={$$props.class}
 	use:melt={$trigger}
 	aria-label="Popup button"
-	on:mouseenter={() => (openOnHover ? (open = true) : null)}
-	on:mouseleave={() => (openOnHover ? (open = false) : null)}
+	on:mouseenter={() => (openOnHover ? open() : null)}
+	on:mouseleave={() => (openOnHover ? close() : null)}
 >
 	<slot name="trigger" />
-</button>
+</div>
 
-{#if open}
-	<div use:melt={$content} transition:fade={{ duration: 100 }} class="content z-[9999]">
+{#if isOpen && !disablePopup}
+	<div
+		use:melt={$content}
+		transition:fade={{ duration: 100 }}
+		class="w-fit rounded-md bg-surface overflow-hidden shadow-md"
+		style="z-index: {zIndexes.popover}"
+	>
 		{#if displayArrow}
 			<div use:melt={$arrow} />
 		{/if}
-		<slot name="content" />
+		<slot name="content" {open} {close} />
 		{#if closeButton}
-			<button class="close" use:melt={$close}>
+			<button class="close" use:melt={$closeElement}>
 				<X class="size-3" />
 			</button>
 		{/if}
@@ -55,9 +69,5 @@
 		@apply text-primary  transition-colors hover:bg-surface-hover;
 		@apply focus-visible:ring focus-visible:ring-gray-400 focus-visible:ring-offset-2;
 		@apply bg-surface p-0 text-sm font-medium;
-	}
-
-	.content {
-		@apply w-fit rounded-[4px] bg-surface p-0 overflow-hidden shadow-md;
 	}
 </style>

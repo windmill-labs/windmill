@@ -5,6 +5,7 @@ export const zIndexes = {
 	colorInput: 1002,
 	disposables: 1100, // Modals and Drawers
 	svelteSelectOptions: 5000,
+	popover: 5001,
 	contextMenu: 6000,
 	draggingComponent: 10000,
 	monacoEditor: 10000,
