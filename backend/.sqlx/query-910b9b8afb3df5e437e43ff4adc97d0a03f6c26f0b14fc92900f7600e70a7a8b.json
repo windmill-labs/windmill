@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status = 'success' AS \"success!\"\n                    FROM v2_job j JOIN v2_job_completed USING (id)\n                    WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2\n                        AND parent_job IS NULL\n                        AND runnable_path = $3\n                        AND j.id != $4\n                    ORDER BY created_at DESC\n                    LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "success!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "910b9b8afb3df5e437e43ff4adc97d0a03f6c26f0b14fc92900f7600e70a7a8b"
+}

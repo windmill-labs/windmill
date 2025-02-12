@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_9",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d949e8b91fbdf4c50c1c2cbc608cf0b385bff14faab495e049f2029790f76d25"
+}

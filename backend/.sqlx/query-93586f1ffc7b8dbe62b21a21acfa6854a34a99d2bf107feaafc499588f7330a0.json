@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DROP INDEX CONCURRENTLY IF EXISTS scheduled_root_job",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "93586f1ffc7b8dbe62b21a21acfa6854a34a99d2bf107feaafc499588f7330a0"
+}
