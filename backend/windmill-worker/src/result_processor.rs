@@ -451,7 +451,7 @@ pub async fn process_completed_job(
             .execute(db)
             .await
             .map_err(|e| {
-                Error::InternalErr(format!(
+                Error::internal_err(format!(
                     "error while deleting args of preprocessing step: {e:#}"
                 ))
             })?;
