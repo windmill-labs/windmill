@@ -16,7 +16,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { deepEqual } from 'fast-equals'
 
 	export let format: string | undefined = undefined
@@ -139,36 +139,36 @@
 	$: schemaUpdate(schema)
 
 	let variantName = ''
-	function createVariant(name: string) {
+	function createVariant() {
 		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === name)) {
+			if (schema.oneOf.some((obj) => obj.title === variantName)) {
 				throw new Error('Variant name already exists')
 			}
-			const idx = schema.oneOf.findIndex((obj) => obj.title === name)
+			const idx = schema.oneOf.findIndex((obj) => obj.title === variantName)
 			if (idx === -1) {
 				schema.oneOf = [
 					...schema.oneOf,
 					{
-						title: name,
+						title: variantName,
 						type: 'object',
 						properties: {}
 					}
 				]
-				oneOfSelected = name
+				oneOfSelected = variantName
 			}
 			variantName = ''
 		}
 	}
 
-	function renameVariant(name: string, selected: string) {
+	function renameVariant(selected: string) {
 		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === name)) {
+			if (schema.oneOf.some((obj) => obj.title === variantName)) {
 				throw new Error('Variant name already exists')
 			}
 			const idx = schema.oneOf.findIndex((obj) => obj.title === selected)
 			if (idx !== -1) {
-				schema.oneOf[idx].title = name
-				oneOfSelected = name
+				schema.oneOf[idx].title = variantName
+				oneOfSelected = variantName
 			}
 			variantName = ''
 		}
@@ -176,63 +176,69 @@
 
 	let initialObjectSelected =
 		Object.keys(schema?.properties ?? {}).length == 0 ? 'resource' : 'custom-object'
+
+	let disabledVariantName = true
+	// The purpose of this function is to avoid a re-render of the popover when the variant name changes.
+	// When the popover content is re-rendered, the popover glitches.
+	function updateVariantName(value: string) {
+		variantName = value
+		disabledVariantName = value.length === 0
+	}
 </script>
 
 <div class="flex flex-col gap-2">
 	{#if type === 'object' && schema.oneOf && schema.oneOf.length >= 2}
-		<div class="flex flex-row gap-2 items-center justify-start">
-			<ToggleButtonGroup bind:selected={oneOfSelected} class="w-auto">
+		<div class="flex flex-row gap-1 items-center justify-start">
+			<ToggleButtonGroup bind:selected={oneOfSelected} class="h-auto" tabListClass="flex-wrap">
 				{#each schema.oneOf as obj}
 					<ToggleButton value={obj.title} label={obj.title} />
 				{/each}
 			</ToggleButtonGroup>
 
-			<Popup
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				let:close
-			>
-				<svelte:fragment slot="button">
+			<div id="popper-portal" />
+
+			<Popover placement="bottom-end" closeButton>
+				<svelte:fragment slot="trigger">
 					<Button size="xs2" color="light" nonCaptureEvent startIcon={{ icon: Plus }} />
 				</svelte:fragment>
-				<Label label="Label">
-					<div class="flex flex-col gap-2">
+				<svelte:fragment slot="content" let:close>
+					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
 							class="w-full !bg-surface"
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
-									createVariant(variantName)
-									close(null)
+									createVariant()
+									close()
 								}
 							}}
-							bind:value={variantName}
+							on:input={(e) => updateVariantName(e.currentTarget.value)}
 						/>
 						<Button
 							variant="border"
 							color="light"
 							size="xs"
 							on:click={() => {
-								createVariant(variantName)
-								close(null)
+								createVariant()
+								close()
 							}}
-							disabled={!variantName}
+							disabled={disabledVariantName}
 						>
 							Add
 						</Button>
-					</div>
-				</Label>
-			</Popup>
+					</Label>
+				</svelte:fragment>
+			</Popover>
 		</div>
 		<div class="flex flex-row gap-2 items-center">
 			<span class="font-semibold text-sm">{oneOfSelected}</span>
 
-			<Popup
+			<Popover
 				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				let:close
+				closeButton
 			>
-				<svelte:fragment slot="button">
+				<svelte:fragment slot="trigger">
 					<Button
 						size="xs2"
 						color="light"
@@ -241,25 +247,25 @@
 						iconOnly={false}
 						on:click={() => {
 							if (oneOfSelected) {
-								variantName = oneOfSelected
+								updateVariantName(oneOfSelected)
 							}
 						}}
 					/>
 				</svelte:fragment>
-				<Label label="Label">
-					<div class="flex flex-col gap-2">
+				<svelte:fragment slot="content" let:close>
+					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
 							class="w-full !bg-surface"
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
 									if (oneOfSelected) {
-										renameVariant(variantName, oneOfSelected)
-										close(null)
+										renameVariant(oneOfSelected)
+										close()
 									}
 								}
 							}}
-							bind:value={variantName}
+							on:input={(e) => updateVariantName(e.currentTarget.value)}
 						/>
 						<Button
 							variant="border"
@@ -267,17 +273,17 @@
 							size="xs"
 							on:click={() => {
 								if (oneOfSelected) {
-									renameVariant(variantName, oneOfSelected)
-									close(null)
+									renameVariant(oneOfSelected)
+									close()
 								}
 							}}
-							disabled={!variantName}
+							disabled={disabledVariantName}
 						>
 							Rename
 						</Button>
-					</div>
-				</Label>
-			</Popup>
+					</Label>
+				</svelte:fragment>
+			</Popover>
 			<Button
 				size="xs2"
 				color="red"
