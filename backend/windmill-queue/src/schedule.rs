@@ -77,13 +77,14 @@ pub async fn push_scheduled_job<'c>(
         //   on `scheduled_for = $3`.
         "SELECT EXISTS (
             SELECT 1 FROM v2_job j JOIN v2_job_queue USING (id)
-            WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+            WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2 AND runnable_path = $4
                 AND parent_job IS NULL
                 AND scheduled_for = $3
         )",
         &schedule.workspace_id,
         &schedule.path,
-        next
+        next,
+        &schedule.script_path
     )
     .fetch_one(&mut *tx)
     .await?

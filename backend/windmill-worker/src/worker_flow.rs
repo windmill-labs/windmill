@@ -1718,13 +1718,14 @@ async fn push_next_flow_job(
                     //   table scan on `running = true`.
                     "SELECT id
                     FROM v2_job j JOIN v2_job_queue USING (id)
-                    WHERE j.workspace_id = $2 AND trigger_kind = 'schedule' AND trigger = $1
+                    WHERE j.workspace_id = $2 AND trigger_kind = 'schedule' AND trigger = $1 AND runnable_path = $4
                         AND parent_job IS NULL
                         AND j.id != $3
                         AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
-                    flow_job.id
+                    flow_job.id,
+                    flow_job.script_path.as_ref().unwrap()
                 )
                 .fetch_all(db)
                 .await?;
