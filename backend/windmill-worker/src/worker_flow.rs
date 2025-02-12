@@ -408,10 +408,27 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if matches!(module_step, Step::PreprocessorStep) {
             sqlx::query!(
-                "UPDATE v2_job SET
-                    args = (SELECT result FROM v2_job_completed WHERE id = $1),
-                    preprocessed = TRUE
-                WHERE id = $2",
+                "WITH job_result AS (
+                SELECT result 
+                FROM v2_job_completed 
+                WHERE id = $1
+            )
+            UPDATE v2_job 
+            SET args = COALESCE(
+                    CASE 
+                        WHEN job_result.result IS NULL THEN NULL
+                        WHEN jsonb_typeof(job_result.result) = 'object' 
+                        THEN job_result.result
+                        WHEN jsonb_typeof(job_result.result) = 'null'
+                        THEN NULL
+                        ELSE jsonb_build_object('value', job_result.result)
+                    END, 
+                    '{}'::jsonb
+                ),
+                preprocessed = TRUE
+            FROM job_result
+            WHERE v2_job.id = $2;
+            ",
                 job_id_for_status,
                 flow
             )

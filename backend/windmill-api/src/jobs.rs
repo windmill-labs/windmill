@@ -717,7 +717,12 @@ macro_rules! get_job_query {
         const_format::formatcp!(
             "SELECT \
             id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, \
-            CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, \
+            CASE WHEN args is null THEN NULL
+            WHEN pg_column_size(args) < 90000 THEN 
+                CASE WHEN jsonb_typeof(args) = 'object' THEN args
+                ELSE jsonb_build_object('value', args)
+                END
+            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, \
             {logs} as logs, {code} as raw_code, canceled, canceled_by, canceled_reason, job_kind, \
             schedule_path, permissioned_as, flow_status, {flow} as raw_flow, is_flow_step, language, \
             {lock} as raw_lock, email, visible_to_owner, mem_peak, tag, priority, preprocessed, {additional_fields} \
