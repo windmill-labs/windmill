@@ -504,7 +504,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
-    run_windmill_migration!("add_ix_v2_1", &db, {
+    run_windmill_migration!("add_ix_v2_II", &db, {
         sqlx::query!(
             "create index concurrently if not exists ix_v2_job_root_by_path
                 on v2_job (workspace_id, runnable_path, created_at DESC)
@@ -564,6 +564,19 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         )
         .execute(db)
         .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path_2")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS scheduled_root_job")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS concurrency_limit_stats_completed_job")
+            .execute(db)
+            .await?;
+        tracing::info!("Finished adding ix_v2_II migration");
     });
 
     run_windmill_migration!("fix_labeled_jobs_index", &db, {
