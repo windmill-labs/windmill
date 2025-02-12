@@ -2147,7 +2147,7 @@ async fn handle_queued_job(
         #[cfg(not(feature = "enterprise"))]
         if job.concurrent_limit.is_some() {
             logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are going to become an Enterprise Edition feature in the near future.\n");
+            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
             logs.push_str("---\n");
         }
 
