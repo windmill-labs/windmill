@@ -2,19 +2,17 @@
 	import { Settings } from 'lucide-svelte'
 	import FormatOnSave from './FormatOnSave.svelte'
 	import VimMode from './VimMode.svelte'
-	import { Button, Popup } from './common'
+	import { Button } from './common'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import type { EditorBarUi } from './custom_ui'
+	import Popover from './meltComponents/Popover.svelte'
 
 	export let customUi: EditorBarUi = {}
 </script>
 
 {#if customUi?.autoformatting != false || customUi?.vimMode != false || customUi?.aiCompletion != false}
-	<Popup
-		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-	>
-		<svelte:fragment slot="button">
+	<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }} usePointerDownOutside>
+		<svelte:fragment slot="trigger">
 			<Button
 				btnClasses="text-tertiary"
 				color="light"
@@ -26,22 +24,24 @@
 			/>
 		</svelte:fragment>
 
-		<div class="flex flex-col gap-y-2">
-			{#if customUi?.autoformatting != false}
-				<div>
-					<FormatOnSave />
-				</div>
-			{/if}
-			{#if customUi?.vimMode != false}
-				<div>
-					<VimMode />
-				</div>
-			{/if}
-			{#if customUi?.aiCompletion != false}
-				<div>
-					<CodeCompletionStatus />
-				</div>
-			{/if}
-		</div>
-	</Popup>
+		<svelte:fragment slot="content">
+			<div class="flex flex-col gap-y-2 p-4">
+				{#if customUi?.autoformatting != false}
+					<div>
+						<FormatOnSave />
+					</div>
+				{/if}
+				{#if customUi?.vimMode != false}
+					<div>
+						<VimMode />
+					</div>
+				{/if}
+				{#if customUi?.aiCompletion != false}
+					<div>
+						<CodeCompletionStatus />
+					</div>
+				{/if}
+			</div>
+		</svelte:fragment>
+	</Popover>
 {/if}
