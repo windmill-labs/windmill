@@ -331,6 +331,6 @@
 	</div>
 {:else if $app.lazyInitRequire == undefined}
 	{#each $app?.subgrids?.[subGridId] ?? [] as item}
-		<Component render={false} component={item.data} />
+		<Component selected={false} fullHeight={false} render={false} component={item.data} />
 	{/each}
 {/if}

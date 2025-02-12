@@ -1377,12 +1377,17 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
             let exact = schedule.on_failure_exact.unwrap_or(false);
             if times > 1 || exact {
                 let past_jobs = sqlx::query!(
-                    "SELECT
-                        success AS \"success!\",
-                        result AS \"result: Json<Box<RawValue>>\",
-                        started_at AS \"started_at!\"
-                    FROM v2_as_completed_job
-                    WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                    // Query plan:
+                    // - use of the  `ix_v2_job_root_by_path` index;
+                    //   hence the `parent_job IS NULL` clause.
+                    // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
+                    //   table scan.
+                    "SELECT status = 'success' AS \"success!\"
+                    FROM v2_job j JOIN v2_job_completed USING (id)
+                    WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+                        AND parent_job IS NULL
+                        AND runnable_path = $3
+                        AND j.id != $4
                     ORDER BY created_at DESC
                     LIMIT $5",
                     &schedule.workspace_id,
@@ -1448,11 +1453,19 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
             let tx = db.begin().await?;
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
             let past_jobs = sqlx::query!(
-                "SELECT
-                    success AS \"success!\",
+                // Query plan:
+                // - use of the  `ix_v2_job_root_by_path` index;
+                //   hence the `parent_job IS NULL` clause.
+                // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
+                //   table scan.
+                "SELECT status = 'success' AS \"success!\",
                     result AS \"result: Json<Box<RawValue>>\",
                     started_at AS \"started_at!\"\
-                FROM v2_as_completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                FROM v2_job j JOIN v2_job_completed USING (id)
+                WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+                    AND parent_job IS NULL
+                    AND runnable_path = $3
+                    AND j.id != $4
                 ORDER BY created_at DESC
                 LIMIT $5",
                 &schedule.workspace_id,
