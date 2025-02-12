@@ -39,6 +39,8 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
 	}
+
+	const zIndex = zIndexes.popover
 </script>
 
 <div
@@ -65,9 +67,8 @@
 {#if isOpen && !disablePopup}
 	<div
 		use:melt={$content}
-		transition:fade={{ duration: 100 }}
-		class="w-fit border rounded-md bg-surface overflow-hidden shadow-lg"
-		style="z-index: {zIndexes.popover}"
+		transition:fade={{ duration: 0 }}
+		class="z-[{zIndex}] w-fit border rounded-md bg-surface overflow-hidden shadow-lg"
 		data-popover
 	>
 		{#if displayArrow}
