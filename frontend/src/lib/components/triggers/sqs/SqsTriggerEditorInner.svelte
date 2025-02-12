@@ -69,7 +69,7 @@
 			aws_resource_path = defaultValues?.aws_resource_path ?? ''
 			queue_url = defaultValues?.queue_url ?? ''
 			path = ''
-			message_attributes = []
+			message_attributes = defaultValues?.message_attributes ?? []
 			initialPath = ''
 			edit = false
 			dirtyPath = false
@@ -205,6 +205,7 @@
 					bind:isValid
 					bind:queue_url
 					bind:message_attributes
+					bind:aws_resource_path
 					{can_write}
 					headless={true}
 				/>
