@@ -139,36 +139,36 @@
 	$: schemaUpdate(schema)
 
 	let variantName = ''
-	function createVariant() {
+	function createVariant(name: string) {
 		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === variantName)) {
+			if (schema.oneOf.some((obj) => obj.title === name)) {
 				throw new Error('Variant name already exists')
 			}
-			const idx = schema.oneOf.findIndex((obj) => obj.title === variantName)
+			const idx = schema.oneOf.findIndex((obj) => obj.title === name)
 			if (idx === -1) {
 				schema.oneOf = [
 					...schema.oneOf,
 					{
-						title: variantName,
+						title: name,
 						type: 'object',
 						properties: {}
 					}
 				]
-				oneOfSelected = variantName
+				oneOfSelected = name
 			}
 			variantName = ''
 		}
 	}
 
-	function renameVariant(selected: string) {
+	function renameVariant(selected: string, name: string) {
 		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === variantName)) {
+			if (schema.oneOf.some((obj) => obj.title === name)) {
 				throw new Error('Variant name already exists')
 			}
 			const idx = schema.oneOf.findIndex((obj) => obj.title === selected)
 			if (idx !== -1) {
-				schema.oneOf[idx].title = variantName
-				oneOfSelected = variantName
+				schema.oneOf[idx].title = name
+				oneOfSelected = name
 			}
 			variantName = ''
 		}
@@ -176,14 +176,6 @@
 
 	let initialObjectSelected =
 		Object.keys(schema?.properties ?? {}).length == 0 ? 'resource' : 'custom-object'
-
-	let disabledVariantName = true
-	// The purpose of this function is to avoid a re-render of the popover when the variant name changes.
-	// When the popover content is re-rendered, the popover glitches.
-	function updateVariantName(value: string) {
-		variantName = value
-		disabledVariantName = value.length === 0
-	}
 </script>
 
 <div class="flex flex-col gap-2">
@@ -208,21 +200,21 @@
 							class="w-full !bg-surface"
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
-									createVariant()
+									createVariant(variantName)
 									close()
 								}
 							}}
-							on:input={(e) => updateVariantName(e.currentTarget.value)}
+							bind:value={variantName}
 						/>
 						<Button
 							variant="border"
 							color="light"
 							size="xs"
 							on:click={() => {
-								createVariant()
+								createVariant(variantName)
 								close()
 							}}
-							disabled={disabledVariantName}
+							disabled={variantName.length === 0}
 						>
 							Add
 						</Button>
@@ -247,7 +239,7 @@
 						iconOnly={false}
 						on:click={() => {
 							if (oneOfSelected) {
-								updateVariantName(oneOfSelected)
+								variantName = oneOfSelected
 							}
 						}}
 					/>
@@ -260,12 +252,12 @@
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
 									if (oneOfSelected) {
-										renameVariant(oneOfSelected)
+										renameVariant(oneOfSelected, variantName)
 										close()
 									}
 								}
 							}}
-							on:input={(e) => updateVariantName(e.currentTarget.value)}
+							bind:value={variantName}
 						/>
 						<Button
 							variant="border"
@@ -273,11 +265,11 @@
 							size="xs"
 							on:click={() => {
 								if (oneOfSelected) {
-									renameVariant(oneOfSelected)
+									renameVariant(oneOfSelected, variantName)
 									close()
 								}
 							}}
-							disabled={disabledVariantName}
+							disabled={variantName.length === 0}
 						>
 							Rename
 						</Button>
