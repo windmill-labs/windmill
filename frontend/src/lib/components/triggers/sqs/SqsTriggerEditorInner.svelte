@@ -3,18 +3,17 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SqsTriggerService } from '$lib/gen'
-	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import QueueSetup from './QueueSetup.svelte'
+	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
+	import Section from '$lib/components/Section.svelte'
+	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import Required from '$lib/components/Required.svelte'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -33,6 +32,7 @@
 	let aws_resource_path: string = ''
 	let queue_url = ''
 	let message_attributes: string[] = []
+	let isValid = false
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -163,11 +163,7 @@
 				{/if}
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' ||
-						emptyString(script_path) ||
-						emptyString(aws_resource_path) ||
-						emptyString(queue_url) ||
-						!can_write}
+					disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
 					on:click={updateTrigger}
 				>
 					Save
@@ -205,6 +201,14 @@
 					</Label>
 				</div>
 
+				<SqsTriggerEditorConfigSection
+					bind:isValid
+					bind:queue_url
+					bind:message_attributes
+					{can_write}
+					headless={true}
+				/>
+
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
@@ -224,25 +228,12 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								href={itemKind === 'flow'
-									? '/flows/add?hub=59'
-									: '/scripts/add?hub=hub%2F11604'}
+								href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F11604'}
 								target="_blank">Create from template</Button
 							>
 						{/if}
 					</div>
 				</Section>
-
-				<Section label="AWS connection setup">
-					<p class="text-xs mb-1 text-tertiary">
-						Select an AWS resource with credentials to authenticate your account. <Required
-							required={true}
-						/>
-					</p>
-					<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
-				</Section>
-
-				<QueueSetup bind:can_write bind:queue_url bind:message_attributes />
 			</div>
 		{/if}
 	</DrawerContent>

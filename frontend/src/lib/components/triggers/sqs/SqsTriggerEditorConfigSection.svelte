@@ -37,7 +37,7 @@
 			bind:captureTable
 		/>
 	{/if}
-	<Section label="Amazon SQS" {headless}>
+	<Section label="SQS" {headless}>
 		<div class="flex flex-col w-full gap-4">
 			<Section small label="AWS connection setup">
 				<div class="flex flex-col gap-1">
