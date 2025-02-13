@@ -45,6 +45,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       if (changesTimeouts[key]) {
         clearTimeout(changesTimeouts[key]);
       }
+      // @ts-ignore
       changesTimeouts[key] = setTimeout(async () => {
         delete changesTimeouts[key];
         await loadPaths(event.paths);
