@@ -341,6 +341,7 @@ pub struct ScheduleLight {
     pub script_path: String,
     pub is_flow: bool,
     pub summary: Option<String>,
+    pub extra_perms: serde_json::Value,
 }
 async fn list_schedule(
     authed: ApiAuthed,
@@ -351,7 +352,7 @@ async fn list_schedule(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lsq.per_page, page: lsq.page });
     let mut sqlb = SqlBuilder::select_from("schedule")
-        .field("workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, summary")
+        .field("workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, summary, extra_perms")
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)

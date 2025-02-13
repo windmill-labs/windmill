@@ -58,6 +58,11 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::utils::not_found_if_none;
 
+use crate::teams_ee::{
+    connect_teams, edit_teams_command, run_teams_message_test_job,
+    workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
+};
+
 lazy_static::lazy_static! {
     static ref WORKSPACE_KEY_REGEXP: Regex = Regex::new("^[a-zA-Z0-9]{64}$").unwrap();
 }
@@ -73,9 +78,23 @@ pub fn workspaced_service() -> Router {
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
+        .route("/edit_teams_command", post(edit_teams_command))
+        .route(
+            "/available_teams_ids",
+            get(workspaces_list_available_teams_ids),
+        )
+        .route(
+            "/available_teams_channels",
+            get(workspaces_list_available_teams_channels),
+        )
+        .route("/connect_teams", post(connect_teams))
         .route(
             "/run_slack_message_test_job",
             post(run_slack_message_test_job),
+        )
+        .route(
+            "/run_teams_message_test_job",
+            post(run_teams_message_test_job),
         )
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
@@ -169,9 +188,14 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_team_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_command_script: Option<String>,
+    pub teams_command_script: Option<String>,
     pub slack_email: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_invite_domain: Option<String>,
@@ -1381,9 +1405,15 @@ async fn list_workspaces_as_super_admin(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
-         FROM workspace
-         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+        "SELECT
+            workspace.id AS \"id!\",
+            workspace.name AS \"name!\",
+            workspace.owner AS \"owner!\",
+            workspace.deleted AS \"deleted!\",
+            workspace.premium AS \"premium!\",
+            workspace_settings.color AS \"color\"
+        FROM workspace
+        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
         per_page as i32,
         offset as i32

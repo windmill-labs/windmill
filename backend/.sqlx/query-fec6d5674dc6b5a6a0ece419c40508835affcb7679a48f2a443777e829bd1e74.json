@@ -1,31 +1,31 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color\n         FROM workspace\n         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id\n         LIMIT $1 OFFSET $2",
+  "query": "SELECT\n            workspace.id AS \"id!\",\n            workspace.name AS \"name!\",\n            workspace.owner AS \"owner!\",\n            workspace.deleted AS \"deleted!\",\n            workspace.premium AS \"premium!\",\n            workspace_settings.color AS \"color\"\n        FROM workspace\n        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id\n         LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "id!",
         "type_info": "Varchar"
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "name!",
         "type_info": "Varchar"
       },
       {
         "ordinal": 2,
-        "name": "owner",
+        "name": "owner!",
         "type_info": "Varchar"
       },
       {
         "ordinal": 3,
-        "name": "deleted",
+        "name": "deleted!",
         "type_info": "Bool"
       },
       {
         "ordinal": 4,
-        "name": "premium",
+        "name": "premium!",
         "type_info": "Bool"
       },
       {
@@ -49,5 +49,5 @@
       true
     ]
   },
-  "hash": "eed16e356f3f36183c3db13fcc1950295e0d0fbdabb38434534fb3430eeddc25"
+  "hash": "fec6d5674dc6b5a6a0ece419c40508835affcb7679a48f2a443777e829bd1e74"
 }

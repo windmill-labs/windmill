@@ -106,7 +106,6 @@ mod slack_approvals;
 mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
-#[cfg(feature = "enterprise")]
 mod teams_ee;
 mod tracing_init;
 mod triggers;
