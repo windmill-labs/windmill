@@ -422,6 +422,9 @@
 														[e.target['value']]: ''
 													}
 												}
+												if (e.target?.['value'] === 'teams_channel') {
+													fetchTeams()
+												}
 											}}
 											value={(() => {
 												if (!v) return 'email'
@@ -456,15 +459,17 @@
 														selected={!$values['critical_error_channels'][i]?.teams_channel
 															?.team_id}>Select team</option
 													>
-													{#each $values['teams'] as team}
-														<option
-															value={team.team_id}
-															selected={$values['critical_error_channels'][i]?.teams_channel
-																?.team_id === team.team_id}
-														>
-															{team.team_name}
-														</option>
-													{/each}
+													{#if $values['teams']}
+														{#each $values['teams'] as team}
+															<option
+																value={team.team_id}
+																selected={$values['critical_error_channels'][i]?.teams_channel
+																	?.team_id === team.team_id}
+															>
+																{team.team_name}
+															</option>
+														{/each}
+													{/if}
 												</select>
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
 													<select
