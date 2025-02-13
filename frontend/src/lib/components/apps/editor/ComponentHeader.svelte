@@ -3,8 +3,8 @@
 	import type { AppViewerContext } from '../types'
 	import { Anchor, ArrowDownFromLine, Bug, Network, Pen, Plug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import Popover from '$lib/components/Popover.svelte'
-	import { Button, Popup } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { Button } from '$lib/components/common'
 	import type { AppComponent } from './component'
 	import { twMerge } from 'tailwind-merge'
 	import { connectOutput } from './appUtils'
@@ -69,11 +69,8 @@
 		style="left: {id_width}px;"
 		data-connection-button
 	>
-		<Popup
-			floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
-			bind:popupHover={connectingPopupHover}
-		>
-			<svelte:fragment slot="button">
+		<Popover floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
+			<svelte:fragment slot="trigger">
 				<AnimatedButton
 					animate={true}
 					baseRadius="9999px"
@@ -89,13 +86,17 @@
 					>
 				</AnimatedButton>
 			</svelte:fragment>
-			<ComponentOutputViewer
-				suffix="connect"
-				on:select={({ detail }) =>
-					connectOutput(connectingInput, component.type, component.id, detail)}
-				componentId={component.id}
-			/>
-		</Popup>
+			<svelte:fragment slot="content">
+				<div class="p-4">
+					<ComponentOutputViewer
+						suffix="connect"
+						on:select={({ detail }) =>
+							connectOutput(connectingInput, component.type, component.id, detail)}
+						componentId={component.id}
+					/>
+				</div>
+			</svelte:fragment>
+		</Popover>
 	</div>
 {/if}
 
@@ -258,21 +259,25 @@
 			'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-1  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer'
 		)}
 	>
-		<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
-			<Bug size={14} />
-			<span slot="text">
-				<div class="bg-surface">
-					<pre class=" whitespace-pre-wrap text-red-600 bg-surface border w-full p-4 text-xs mb-2"
-						>{error ?? ''}	
-								</pre>
+		<Popover notClickable placement="bottom" class="!bg-surface border w-96">
+			<svelte:fragment slot="trigger">
+				<Bug size={14} />
+			</svelte:fragment>
+			<svelte:fragment slot="content">
+				<div class="p-4">
+					<div class="bg-surface">
+						<pre class="whitespace-pre-wrap text-red-600 bg-surface border w-full p-4 text-xs mb-2"
+							>{error ?? ''}	
+						</pre>
+					</div>
+					<Button
+						color="red"
+						variant="border"
+						on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
+						>Open Debug Runs</Button
+					>
 				</div>
-				<Button
-					color="red"
-					variant="border"
-					on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
-					>Open Debug Runs</Button
-				>
-			</span>
+			</svelte:fragment>
 		</Popover>
 	</span>
 {/if}
