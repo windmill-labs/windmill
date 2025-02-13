@@ -27,8 +27,8 @@
                 "kafka",
                 "email",
                 "nats",
-                "sqs",
-                "postgres"
+                "postgres",
+                "sqs"
               ]
             }
           }
@@ -61,8 +61,8 @@
                 "kafka",
                 "email",
                 "nats",
-                "sqs",
-                "postgres"
+                "postgres",
+                "sqs"
               ]
             }
           }

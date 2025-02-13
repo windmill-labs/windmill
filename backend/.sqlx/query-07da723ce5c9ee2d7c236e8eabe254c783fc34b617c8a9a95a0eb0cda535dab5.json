@@ -19,8 +19,8 @@
                 "kafka",
                 "email",
                 "nats",
-                "sqs",
-                "postgres"
+                "postgres",
+                "sqs"
               ]
             }
           }
