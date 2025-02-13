@@ -408,10 +408,27 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if matches!(module_step, Step::PreprocessorStep) {
             sqlx::query!(
-                "UPDATE v2_job SET
-                    args = (SELECT result FROM v2_job_completed WHERE id = $1),
-                    preprocessed = TRUE
-                WHERE id = $2",
+                "WITH job_result AS (
+                SELECT result 
+                FROM v2_job_completed 
+                WHERE id = $1
+            )
+            UPDATE v2_job 
+            SET args = COALESCE(
+                    CASE 
+                        WHEN job_result.result IS NULL THEN NULL
+                        WHEN jsonb_typeof(job_result.result) = 'object' 
+                        THEN job_result.result
+                        WHEN jsonb_typeof(job_result.result) = 'null'
+                        THEN NULL
+                        ELSE jsonb_build_object('value', job_result.result)
+                    END, 
+                    '{}'::jsonb
+                ),
+                preprocessed = TRUE
+            FROM job_result
+            WHERE v2_job.id = $2;
+            ",
                 job_id_for_status,
                 flow
             )
@@ -1711,11 +1728,24 @@ async fn push_next_flow_job(
             .await?;
             if no_flow_overlap {
                 let overlapping = sqlx::query_scalar!(
-                    "SELECT id AS \"id!\" FROM v2_as_queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
+                    // Query plan:
+                    // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL`
+                    //   clause.
+                    // - select from `v2_job` first, then join with `v2_job_queue` to avoid a full
+                    //   table scan on `running = true`.
+                    "SELECT id
+                    FROM v2_job j JOIN v2_job_queue USING (id)
+                    WHERE j.workspace_id = $2 AND trigger_kind = 'schedule' AND trigger = $1 AND runnable_path = $4
+                        AND parent_job IS NULL
+                        AND j.id != $3
+                        AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
-                    flow_job.id
-                ).fetch_all(db).await?;
+                    flow_job.id,
+                    flow_job.script_path.as_ref().unwrap()
+                )
+                .fetch_all(db)
+                .await?;
                 if overlapping.len() > 0 {
                     let overlapping_str = overlapping
                         .iter()

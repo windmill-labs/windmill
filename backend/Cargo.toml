@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.458.4"
+version = "1.461.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.458.4"
+version = "1.461.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -315,10 +315,10 @@ async-stream = "^0"
 
 opentelemetry = "0.27.0"
 tracing-opentelemetry = "0.28.0"
-opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
+opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
-opentelemetry-semantic-conventions = { version = "*", features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
 
 bollard = "0.18.1"
 

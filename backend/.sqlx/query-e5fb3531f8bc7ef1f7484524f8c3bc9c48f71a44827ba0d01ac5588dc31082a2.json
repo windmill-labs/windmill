@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM usr\n            WHERE workspace_id = $1",
+  "query": "SELECT * FROM usr\n             WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -60,5 +60,5 @@
       true
     ]
   },
-  "hash": "f96dd1dd944506c07ad58d178e9b6a09259fedca329d790c34e58703bf26f34c"
+  "hash": "e5fb3531f8bc7ef1f7484524f8c3bc9c48f71a44827ba0d01ac5588dc31082a2"
 }
