@@ -40,7 +40,7 @@ pub struct Postgres {
     pub user: String,
     pub password: String,
     pub host: String,
-    pub port: u16,
+    pub port: Option<u16>,
     pub dbname: String,
     #[serde(default)]
     pub sslmode: String,

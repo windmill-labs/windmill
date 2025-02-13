@@ -54,7 +54,9 @@ pub async fn get_database_connection(
     postgres_resource_path: &str,
     w_id: &str,
 ) -> std::result::Result<PgConnection, windmill_common::error::Error> {
-    let database = try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id).await?;
+    let database =
+        try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id)
+            .await?;
 
     Ok(get_raw_postgres_connection(&database).await?)
 }
@@ -68,12 +70,19 @@ pub async fn get_raw_postgres_connection(
         } else {
             PgSslMode::Prefer
         };
-        let options = PgConnectOptions::new()
-            .host(&db.host)
-            .database(&db.dbname)
-            .port(db.port)
-            .ssl_mode(sslmode)
-            .username(&db.user);
+        let options = {
+            let inner_options = PgConnectOptions::new()
+                .host(&db.host)
+                .database(&db.dbname)
+                .ssl_mode(sslmode)
+                .username(&db.user);
+
+            if let Some(port) = db.port {
+                inner_options.port(port)
+            } else {
+                inner_options
+            }
+        };
 
         let options = if !db.root_certificate_pem.is_empty() {
             options.ssl_root_cert_from_pem(db.root_certificate_pem.as_bytes().to_vec())

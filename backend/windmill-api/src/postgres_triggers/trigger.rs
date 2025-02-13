@@ -97,10 +97,13 @@ impl PostgresSimpleClient {
         config
             .dbname(&database.dbname)
             .host(&database.host)
-            .port(database.port)
             .user(&database.user)
             .ssl_mode(ssl_mode)
             .replication_mode(rust_postgres::config::ReplicationMode::Logical);
+
+        if let Some(port) = database.port {
+            config.port(port);
+        };
 
         if !database.password.is_empty() {
             config.password(&database.password);
