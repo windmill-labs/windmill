@@ -647,6 +647,12 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         .await?;
     });
 
+    run_windmill_migration!("v2_jobs_rls", &db, |tx| {
+        sqlx::query!("ALTER TABLE v2_job ENABLE ROW LEVEL SECURITY")
+            .execute(db)
+            .await?;
+    });
+
     Ok(())
 }
 
