@@ -1,14 +1,12 @@
 #[cfg(feature = "deno_core")]
 use std::time::Instant;
-use std::{collections::HashMap, fs, path::Path, process::Stdio};
+use std::{collections::HashMap, fs, process::Stdio};
 
-use anyhow::Context;
 use base64::Engine;
 use itertools::Itertools;
 
 use serde_json::value::RawValue;
 
-use sha2::Digest;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
 use windmill_queue::{append_logs, CanceledBy};
@@ -23,8 +21,8 @@ use crate::{
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
-    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
+    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -637,51 +635,6 @@ pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()>
     ));
 }
 
-#[cfg(unix)]
-pub fn copy_recursively(
-    source: impl AsRef<Path>,
-    destination: impl AsRef<Path>,
-    skip: Option<&Vec<String>>,
-) -> Result<()> {
-    let mut stack = Vec::new();
-    stack.push((
-        source.as_ref().to_path_buf(),
-        destination.as_ref().to_path_buf(),
-        0,
-    ));
-    while let Some((current_source, current_destination, level)) = stack.pop() {
-        for entry in fs::read_dir(&current_source)
-            .context(format!("reading directory {current_source:?}"))?
-        {
-            let entry = entry?;
-            let filetype = entry.file_type()?;
-            let destination = current_destination.join(entry.file_name());
-            if level == 0 {
-                if let Some(skip) = skip {
-                    if skip.contains(&entry.file_name().to_string_lossy().to_string()) {
-                        continue;
-                    }
-                }
-            }
-
-            let original = entry.path();
-
-            if filetype.is_dir() {
-                fs::create_dir_all(&destination)?;
-                stack.push((entry.path(), destination, level + 1));
-            } else {
-                fs::hard_link(&original, &destination).map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "hard linking from {original:?} to {destination:?}: {e:#}"
-                    ))
-                })?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn prebundle_bun_script(
     inner_content: &str,
     lockfile: Option<&String>,
@@ -889,7 +842,6 @@ pub async fn handle_bun_job(
         ));
     }
 
-    let mut gbuntar_name: Option<String> = None;
     if has_bundle_cache {
         let target;
         let symlink;
@@ -924,67 +876,23 @@ pub async fn handle_bun_job(
         let _ = write_file(job_dir, "package.json", pkg)?;
         let lock = if annotation.npm { "" } else { lock.unwrap() };
         if !empty {
-            let mut skip_install = false;
-            let mut create_buntar = false;
-            let mut buntar_path = "".to_string();
-
             if !annotation.npm {
                 let _ = write_lock(lock, job_dir, is_binary).await?;
-
-                let mut sha_path = sha2::Sha256::new();
-                sha_path.update(lock.as_bytes());
-
-                let buntar_name =
-                    base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
-                buntar_path = format!("{BUN_DEPSTAR_CACHE_DIR}/{buntar_name}");
-
-                #[cfg(unix)]
-                if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                    if let Err(e) = copy_recursively(&buntar_path, job_dir, None) {
-                        tracing::error!("Could not extract buntar: {e:#}");
-                    } else {
-                        gbuntar_name = Some(buntar_name.clone());
-                        skip_install = true;
-                    }
-                } else {
-                    create_buntar = true;
-                }
             }
 
-            if !skip_install {
-                install_bun_lockfile(
-                    mem_peak,
-                    canceled_by,
-                    &job.id,
-                    &job.workspace_id,
-                    Some(db),
-                    job_dir,
-                    worker_name,
-                    common_bun_proc_envs.clone(),
-                    annotation.npm,
-                    &mut Some(occupancy_metrics),
-                )
-                .await?;
-
-                #[cfg(unix)]
-                if create_buntar {
-                    fs::create_dir_all(&buntar_path)?;
-                    if let Err(e) = copy_recursively(
-                        job_dir,
-                        &buntar_path,
-                        Some(&vec![
-                            "main.ts".to_string(),
-                            "package.json".to_string(),
-                            if is_binary { "bun.lockb" } else { "bun.lock" }.to_string(),
-                            "shared".to_string(),
-                            "bunfig.toml".to_string(),
-                        ]),
-                    ) {
-                        fs::remove_dir_all(&buntar_path).context("deleting buntar directory")?;
-                        tracing::error!("Could not create buntar: {e}");
-                    }
-                }
-            }
+            install_bun_lockfile(
+                mem_peak,
+                canceled_by,
+                &job.id,
+                &job.workspace_id,
+                Some(db),
+                job_dir,
+                worker_name,
+                common_bun_proc_envs.clone(),
+                annotation.npm,
+                &mut Some(occupancy_metrics),
+            )
+            .await?;
         }
     } else {
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
@@ -1030,13 +938,6 @@ pub async fn handle_bun_job(
         write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
-
-    if let Some(gbuntar_name) = gbuntar_name {
-        init_logs = format!(
-            "\nskipping install, using cached buntar based on lockfile hash: {gbuntar_name}{}",
-            init_logs
-        );
-    }
 
     if has_bundle_cache {
         init_logs = format!("\n{}{}", cache_logs, init_logs);

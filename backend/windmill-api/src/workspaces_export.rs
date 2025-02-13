@@ -148,6 +148,7 @@ pub(crate) struct ArchiveQueryParams {
     skip_variables: Option<bool>,
     skip_resources: Option<bool>,
     include_schedules: Option<bool>,
+    include_triggers: Option<bool>,
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
@@ -185,6 +186,8 @@ where
                     "has_draft",
                     "draft_only",
                     "error",
+                    "last_server_ping",
+                    "server_id",
                 ],
                 ignore_keys.unwrap_or(vec![]),
             ]
@@ -221,6 +224,7 @@ struct SimplifiedUser {
 #[derive(Serialize)]
 struct SimplifiedGroup {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<String>,
     members: Vec<String>,
     admins: Vec<String>,
@@ -235,20 +239,35 @@ struct SimplifiedSettings {
     auto_invite_enabled: bool,
     auto_invite_as: String,
     auto_invite_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     deploy_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error_handler: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ai_resource: Option<serde_json::Value>,
     ai_models: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     code_completion_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     large_file_storage: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     git_sync: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     default_app: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     default_scripts: Option<Value>,
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operator_settings: Option<serde_json::Value>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -264,6 +283,7 @@ pub(crate) async fn tarball_workspace(
         skip_secrets,
         skip_variables,
         include_schedules,
+        include_triggers,
         include_users,
         include_groups,
         include_settings,
@@ -316,8 +336,8 @@ pub(crate) async fn tarball_workspace(
     {
         let scripts = sqlx::query_as::<_, Script>(
             "SELECT * FROM script as o WHERE workspace_id = $1 AND archived = false
-            AND created_at = (select max(created_at) from script where path = o.path AND \
-             workspace_id = $1)",
+             AND created_at = (select max(created_at) from script where path = o.path AND \
+              workspace_id = $1)",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
@@ -393,12 +413,12 @@ pub(crate) async fn tarball_workspace(
 
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
-            Resource,
-            "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
-            &w_id
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+             Resource,
+             "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
+             &w_id
+         )
+         .fetch_all(&mut *tx)
+         .await?;
 
         for resource in resources {
             let resource_str = &to_string_without_metadata(&resource, false, None).unwrap();
@@ -430,14 +450,14 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
-            FROM flow
-            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.workspace_id = $1 AND flow.archived = false",
-        )
-        .bind(&w_id)
-        .fetch_all(&mut *tx)
-        .await?;
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             FROM flow
+             LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+             WHERE flow.workspace_id = $1 AND flow.archived = false",
+         )
+         .bind(&w_id)
+         .fetch_all(&mut *tx)
+         .await?;
 
         for flow in flows {
             let flow_str = &to_string_without_metadata(&flow, false, None).unwrap();
@@ -449,14 +469,14 @@ pub(crate) async fn tarball_workspace(
 
     if !skip_variables.unwrap_or(false) {
         let variables =
-            sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
-            } else {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
-            })
-            .bind(&w_id)
-            .fetch_all(&mut *tx)
-            .await?;
+             sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
+                 "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
+             } else {
+                 "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
+             })
+             .bind(&w_id)
+             .fetch_all(&mut *tx)
+             .await?;
 
         let mc = build_crypt(&db, &w_id).await?;
 
@@ -476,14 +496,14 @@ pub(crate) async fn tarball_workspace(
 
     {
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
-            "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by from app, app_version 
-            WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
-        )
-        .bind(&w_id)
-        .fetch_all(&mut *tx)
-        .await?;
+             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
+             app.extra_perms, app_version.value, 
+             app_version.created_at, app_version.created_by from app, app_version 
+             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
+         )
+         .bind(&w_id)
+         .fetch_all(&mut *tx)
+         .await?;
 
         for app in apps {
             let app_str = &to_string_without_metadata(&app, false, None).unwrap();
@@ -496,7 +516,7 @@ pub(crate) async fn tarball_workspace(
     if include_schedules.unwrap_or(false) {
         let schedules = sqlx::query_as::<_, Schedule>(
             "SELECT * FROM schedule
-            WHERE workspace_id = $1",
+             WHERE workspace_id = $1",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
@@ -510,10 +530,117 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
+    if include_triggers.unwrap_or(false) {
+        #[cfg(feature = "http_trigger")]
+        {
+            let http_triggers = sqlx::query_as!(
+                 crate::http_triggers::HttpTrigger,
+                 "SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, edited_at, email, extra_perms, is_async, requires_auth, http_method as \"http_method: _\", static_asset_config as \"static_asset_config: _\", is_static_website FROM http_trigger
+                 WHERE workspace_id = $1",
+                 &w_id
+             )
+             .fetch_all(&mut *tx)
+             .await?;
+
+            for trigger in http_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(&trigger_str, &format!("{}.http_trigger.json", trigger.path))
+                    .await?;
+            }
+        }
+
+        #[cfg(feature = "websocket")]
+        {
+            let websocket_triggers = sqlx::query_as!(
+                 crate::websocket_triggers::WebsocketTrigger,
+                 "SELECT workspace_id, path, url, script_path, is_flow, edited_by, email, edited_at, server_id, last_server_ping, extra_perms, error, enabled, filters as \"filters: _\", initial_messages as \"initial_messages: _\", url_runnable_args as \"url_runnable_args: _\", can_return_message FROM websocket_trigger
+                 WHERE workspace_id = $1",
+                 &w_id
+             )
+             .fetch_all(&mut *tx)
+             .await?;
+
+            for trigger in websocket_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.websocket_trigger.json", trigger.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "kafka"))]
+        {
+            let kafka_triggers = sqlx::query_as!(
+                crate::kafka_triggers_ee::KafkaTrigger,
+                "SELECT * FROM kafka_trigger
+                 WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in kafka_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.kafka_trigger.json", trigger.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "nats"))]
+        {
+            let nats_triggers = sqlx::query_as!(
+                crate::nats_triggers_ee::NatsTrigger,
+                "SELECT * FROM nats_trigger
+                 WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in nats_triggers {
+                let trigger_str: &String =
+                    &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(&trigger_str, &format!("{}.nats_trigger.json", trigger.path))
+                    .await?;
+            }
+        }
+
+        #[cfg(feature = "postgres_trigger")]
+        {
+            let postgres_triggers = sqlx::query_as!(
+                crate::postgres_triggers::PostgresTrigger,
+                "SELECT * FROM postgres_trigger
+                 WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in postgres_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.postgres_trigger.json", trigger.path),
+                    )
+                    .await?;
+            }
+        }
+    }
+
     if include_users.unwrap_or(false) {
         let users = sqlx::query!(
             "SELECT * FROM usr
-            WHERE workspace_id = $1",
+             WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
@@ -532,12 +659,7 @@ pub(crate) async fn tarball_workspace(
                 disabled: user.disabled,
                 email: user.email,
             };
-            let user_str = &to_string_without_metadata(
-                &user,
-                false,
-                Some(vec!["is_admin", "operator", "email"]),
-            )
-            .unwrap();
+            let user_str = &to_string_without_metadata(&user, false, Some(vec!["email"])).unwrap();
             archive
                 .write_to_archive(&user_str, &format!("users/{}.user.json", user.email))
                 .await?;
@@ -546,16 +668,16 @@ pub(crate) async fn tarball_workspace(
 
     if include_groups.unwrap_or(false) {
         let groups = sqlx::query!(
-            r#"SELECT g_.workspace_id, name, summary, extra_perms, array_agg(u2g.usr) filter (where u2g.usr is not null) as members 
-            FROM usr u
-            JOIN usr_to_group u2g ON u2g.usr = u.username AND u2g.workspace_id = u.workspace_id
-            RIGHT JOIN group_ g_ ON g_.workspace_id = u.workspace_id AND g_.name = u2g.group_
-            WHERE g_.workspace_id = $1 AND g_.name != 'all'
-            GROUP BY g_.workspace_id, name, summary, extra_perms"#,
-            &w_id
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+             r#"SELECT g_.workspace_id, name, summary, extra_perms, array_agg(u2g.usr) filter (where u2g.usr is not null) as members 
+             FROM usr u
+             JOIN usr_to_group u2g ON u2g.usr = u.username AND u2g.workspace_id = u.workspace_id
+             RIGHT JOIN group_ g_ ON g_.workspace_id = u.workspace_id AND g_.name = u2g.group_
+             WHERE g_.workspace_id = $1 AND g_.name != 'all'
+             GROUP BY g_.workspace_id, name, summary, extra_perms"#,
+             &w_id
+         )
+         .fetch_all(&mut *tx)
+         .await?;
 
         for group in groups {
             let extra_perms: HashMap<String, bool> = serde_json::from_value(group.extra_perms)
@@ -606,33 +728,36 @@ pub(crate) async fn tarball_workspace(
 
     if include_settings.unwrap_or(false) {
         let settings = sqlx::query_as!(
-            SimplifiedSettings,
-            r#"SELECT
-                -- slack_team_id, 
-                -- slack_name, 
-                -- slack_command_script, 
-                -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,
-                auto_invite_domain IS NOT NULL AS "auto_invite_enabled!",
-                CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS "auto_invite_as!", 
-                CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS "auto_invite_mode!", 
-                webhook, 
-                deploy_to, 
-                error_handler, 
-                ai_resource, 
-                ai_models,
-                code_completion_model,
-                error_handler_extra_args, 
-                error_handler_muted_on_cancel, 
-                large_file_storage, 
-                git_sync,
-                default_app,
-                default_scripts,
-                workspace.name
-            FROM workspace_settings
-            LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
-            WHERE workspace_id = $1"#,
-            &w_id
-        ).fetch_one(&mut *tx).await?;
+             SimplifiedSettings,
+             r#"SELECT
+                 -- slack_team_id, 
+                 -- slack_name, 
+                 -- slack_command_script, 
+                 -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,
+                 auto_invite_domain IS NOT NULL AS "auto_invite_enabled!",
+                 CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS "auto_invite_as!", 
+                 CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS "auto_invite_mode!", 
+                 webhook, 
+                 deploy_to, 
+                 error_handler, 
+                 ai_resource, 
+                 ai_models,
+                 code_completion_model,
+                 error_handler_extra_args, 
+                 error_handler_muted_on_cancel, 
+                 large_file_storage, 
+                 git_sync,
+                 default_app,
+                 default_scripts,
+                 workspace.name,
+                 mute_critical_alerts,
+                 color,
+                 operator_settings
+             FROM workspace_settings
+             LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
+             WHERE workspace_id = $1"#,
+             &w_id
+         ).fetch_one(&mut *tx).await?;
 
         let settings_str = serde_json::to_value(settings)
             .map(|v| serde_json::to_string_pretty(&v).ok())

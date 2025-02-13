@@ -72,6 +72,7 @@ pub struct NewGroup {
 pub struct GroupInfo {
     pub workspace_id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub members: Vec<String>,
     pub extra_perms: serde_json::Value,

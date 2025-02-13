@@ -75,7 +75,7 @@ pub fn workspaced_service() -> Router {
         .route("/route_exists", post(exists_route))
 }
 
-#[derive(Serialize, Deserialize, sqlx::Type)]
+#[derive(Serialize, Deserialize, sqlx::Type, Debug)]
 #[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum HttpMethod {
@@ -114,22 +114,23 @@ struct NewTrigger {
 }
 
 #[derive(FromRow, Serialize)]
-struct HttpTrigger {
-    workspace_id: String,
-    path: String,
-    route_path: String,
-    route_path_key: String,
-    script_path: String,
-    is_flow: bool,
-    edited_by: String,
-    email: String,
-    edited_at: chrono::DateTime<chrono::Utc>,
-    extra_perms: serde_json::Value,
-    is_async: bool,
-    requires_auth: bool,
-    http_method: HttpMethod,
-    static_asset_config: Option<sqlx::types::Json<S3Object>>,
-    is_static_website: bool,
+pub struct HttpTrigger {
+    pub workspace_id: String,
+    pub path: String,
+    pub route_path: String,
+    pub route_path_key: String,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub edited_by: String,
+    pub email: String,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub extra_perms: serde_json::Value,
+    pub is_async: bool,
+    pub requires_auth: bool,
+    pub http_method: HttpMethod,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
+    pub is_static_website: bool,
 }
 
 #[derive(Deserialize)]
