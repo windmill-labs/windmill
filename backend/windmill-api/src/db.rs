@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use futures::FutureExt;
@@ -17,11 +16,11 @@ use sqlx::{
 };
 
 use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
-use windmill_common::utils::generate_lock_id;
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
 };
+use windmill_common::{utils::generate_lock_id, worker::MIN_VERSION_IS_AT_LEAST_1_461};
 
 pub type DB = Pool<Postgres>;
 
@@ -226,23 +225,27 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         }
     });
 
-    let db2 = db.clone();
-    let _ = tokio::task::spawn(async move {
-        use windmill_common::worker::MIN_VERSION_IS_LATEST;
-        loop {
-            if !MIN_VERSION_IS_LATEST.load(Ordering::Relaxed) {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
+    if !has_done_migration(db, "v2_finalize_disable_sync").await {
+        let db2 = db.clone();
+        let _ = tokio::task::spawn(async move {
+            loop {
+                if !*MIN_VERSION_IS_AT_LEAST_1_461.read().await {
+                    tracing::info!("Waiting for all workers to be at least version 1.461 before applying v2 finalize migration, sleeping for 5s...");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+                if let Err(err) = v2_finalize(&db2).await {
+                    tracing::error!(
+                        "{err:#}: Could not apply v2 finalize migration, retry in 30s.."
+                    );
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    continue;
+                }
+                tracing::info!("v2 finalization step successfully applied.");
+                break;
             }
-            if let Err(err) = v2_finalize(&db2).await {
-                tracing::error!("{err:#}: Could not apply v2 finalize migration, retry in 30s..");
-                tokio::time::sleep(Duration::from_secs(30)).await;
-                continue;
-            }
-            tracing::info!("v2 finalization step successfully applied.");
-            break;
-        }
-    });
+        });
+    }
 
     Ok(())
 }
@@ -294,20 +297,26 @@ async fn fix_flow_versioning_migration(
     Ok(())
 }
 
+async fn has_done_migration(db: &DB, migration_job_name: &str) -> bool {
+    sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
+        migration_job_name
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+
 macro_rules! run_windmill_migration {
     ($migration_job_name:expr, $db:expr, |$tx:ident| $code:block) => {
         {
             let migration_job_name = $migration_job_name;
             let db: &Pool<Postgres> = $db;
 
-            let has_done_migration = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
-                migration_job_name
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false);
-            if !has_done_migration {
+            let has_done = has_done_migration(db, migration_job_name).await;
+            if !has_done {
                 tracing::info!("Applying {migration_job_name} migration");
                 let mut $tx = db.begin().await?;
                 let mut r = false;
@@ -327,15 +336,9 @@ macro_rules! run_windmill_migration {
                 }
                 tracing::info!("acquired lock for {migration_job_name}");
 
-                let has_done_migration = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
-                    migration_job_name
-                )
-                .fetch_one(db)
-                .await?
-                .unwrap_or(false);
+                let has_done = has_done_migration(db, migration_job_name).await;
 
-                if !has_done_migration {
+                if !has_done {
 
                     $code
 
