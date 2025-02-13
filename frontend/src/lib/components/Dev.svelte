@@ -207,7 +207,6 @@
 			runTest()
 			event.preventDefault()
 		} else if (event.data.type == 'replaceScript') {
-			mode = 'script'
 			replaceScript(event.data)
 		} else if (event.data.type == 'testBundle') {
 			if (event.data.id == lastCommandId) {
@@ -235,7 +234,6 @@
 				true
 			)
 		} else if (event.data.type == 'replaceFlow') {
-			mode = 'flow'
 			lockChanges = true
 			replaceFlow(event.data)
 			timeout && clearTimeout(timeout)
@@ -333,6 +331,13 @@
 	})
 
 	function connectWs() {
+		try {
+			if (socket) {
+				socket.close()
+			}
+		} catch (e) {
+			console.error('Failed to close websocket', e)
+		}
 		const port = searchParams?.get('port') || '3001'
 		try {
 			socket = new WebSocket(`ws://localhost:${port}/ws`)
@@ -350,7 +355,13 @@
 					console.log('Received invalid JSON: ' + msg)
 					return
 				}
-				replaceScript(data)
+				if (data.type == 'script') {
+					replaceScript(data)
+				} else if (data.type == 'flow') {
+					replaceFlow(data)
+				} else {
+					sendUserToast(`Received invalid message type ${data.type}`, true)
+				}
 			}
 		} catch (e) {
 			sendUserToast('Failed to connect to local server', true)
@@ -419,6 +430,7 @@
 	let relativePaths: any[] = []
 	let lastPath: string | undefined = undefined
 	async function replaceScript(lastEdit: LastEditScript) {
+		mode = 'script'
 		currentScript = lastEdit
 		if (lastPath !== lastEdit.path) {
 			schema = emptySchema()
@@ -455,6 +467,7 @@
 	}
 	let lastUriPath: string | undefined = undefined
 	async function replaceFlow(lastEdit: LastEditFlow) {
+		mode = 'flow'
 		lastUriPath = lastEdit.uriPath
 		// sendUserToast(JSON.stringify(lastEdit.flow), true)
 		// return
@@ -715,6 +728,7 @@
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
 						{#if $flowStore?.value?.modules}
+							<div id="flow-editor" />
 							<FlowModuleSchemaMap
 								bind:modules={$flowStore.value.modules}
 								disableAi
