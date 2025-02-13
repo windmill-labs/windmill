@@ -278,13 +278,16 @@
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
-								<li>version of your instance</li>
-								<li>number and total duration of jobs</li>
-								<li>accounts usage</li>
-								<li>login type usage</li>
-								<li>workers usage</li>
-								<li>vCPUs usage</li>
+								<li>version of your instances</li>
+								<li>instance base URL</li>
+								<li>job usage (language, total duration, count)</li>
+								<li>login type usage (login type, count)</li>
+								<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+								<li>user usage (author count, operator count)</li>
+								<li>superadmin email addresses</li>
+								<li>vCPU usage</li>
 								<li>memory usage</li>
+								<li>development instance status</li>
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
