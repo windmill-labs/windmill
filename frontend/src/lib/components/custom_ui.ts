@@ -39,6 +39,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 export type EditorBarUi = {
 	contextVar?: boolean
 	variable?: boolean
+	resource?: boolean
 	type?: boolean
 	assistants?: boolean
 	multiplayer?: boolean

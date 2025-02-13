@@ -593,7 +593,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
-			{#if showResourcePicker}
+			{#if showResourcePicker && customUi?.resource != false}
 				<Button
 					title="Add resource"
 					btnClasses="!font-medium text-tertiary"

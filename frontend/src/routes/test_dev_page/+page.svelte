@@ -1,70 +1,83 @@
 <script lang="ts">
-	// import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
+	import type { ScriptBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 
-	// import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	// import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
-	// import type { OpenFlow } from '$lib/gen'
-	// import { writable, type Writable } from 'svelte/store'
+	let showWhiteLabelUI: 'no' | 'old' | 'new' = 'new'
+	const showWhiteLabelOptions = [
+		{ value: 'no', label: 'No whitelabel' },
+		{ value: 'old', label: 'Old whitelabel' },
+		{ value: 'new', label: 'New whitelabel' }
+	]
 
-	// let schema = {
-	// 	type: 'object',
-	// 	properties: {
-	// 		foo: {
-	// 			type: 'string',
-	// 			description: '',
-	// 			required: [],
-	// 			nullable: false,
-	// 			default: '',
-	// 			disableVariablePicker: false,
-	// 			disableCreate: false,
-	// 			password: false
-	// 		}
-	// 	},
-	// 	order: ['foo']
-	// }
+	const noWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {}
+	const oldWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {
+		topBar: {
+			path: false,
+			settings: false,
+			extraDeployOptions: false,
+			editableSummary: true,
+			diff: false
+		},
+		editorBar: {
+			contextVar: false,
+			variable: false,
+			type: false,
+			assistants: false,
+			multiplayer: false,
+			autoformatting: false,
+			vimMode: true,
+			aiGen: false,
+			aiCompletion: false,
+			library: false,
+			useVsCode: false
+		}
+	}
+	const newWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {
+		topBar: {
+			path: true,
+			settings: false,
+			extraDeployOptions: false,
+			editableSummary: true,
+			diff: true
+		},
+		editorBar: {
+			contextVar: false,
+			variable: false,
+			resource: false,
+			type: false,
+			assistants: false,
+			multiplayer: false,
+			autoformatting: false,
+			vimMode: true,
+			aiGen: false,
+			aiCompletion: false,
+			library: false,
+			useVsCode: false
+		}
+	}
 
-	// let flowStore: Writable<OpenFlow> = writable({
-	// 	summary: 'foo',
-	// 	value: {
-	// 		modules: []
-	// 	}
-	// })
-	// let flowStateStore: Writable<Record<string, any>> = writable({})
+	$: customUI =
+		showWhiteLabelUI === 'old'
+			? oldWhiteLabelUIConfig
+			: showWhiteLabelUI === 'new'
+			? newWhiteLabelUIConfig
+			: noWhiteLabelUIConfig
 </script>
 
-<!-- <EditableSchemaWrapper on:change={() => console.log('FOO')} {schema} /> -->
-<!-- <FlowBuilder
-	newFlow={false}
-	initialPath="u/admin/foo"
-	selectedId={undefined}
-	{flowStore}
-	{flowStateStore}
-	customUi={{
-		topBar: {
-			extraDeployOptions: false
-		},
-		settingsTabs: {
-			workerGroup: false
-		},
-		settingsPanel: false
-	}}
-/> -->
+<select bind:value={showWhiteLabelUI} placeholder="Select UI Type">
+	{#each showWhiteLabelOptions as option}
+		<option value={option.value}>{option.label}</option>
+	{/each}
+</select>
 
-<!-- <ScriptBuilder
+<ScriptBuilder
 	script={{
 		summary: 'foo',
 		path: 'u/admin/foo',
 		description: 'foo',
 		language: 'python3',
-		content: 'print("foo")'
+		content: 'def main():\n\tprint("Hello, World!")'
 	}}
-/> -->
-
-<!-- path: "/path/to/script",
-code: "console.log('Hello, world!');",
-lang: "bun",
-tag: "", -->
-<div class="h-screen">
-	<ScriptEditor path="/path/to/script" code="console.log('Hello, world!');" lang="bun" tag="" />
-</div>
+	neverShowMeta={true}
+	customUi={customUI}
+/>
