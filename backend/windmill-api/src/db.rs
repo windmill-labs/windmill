@@ -225,27 +225,27 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         }
     });
 
-    if !has_done_migration(db, "v2_finalize_disable_sync").await {
-        let db2 = db.clone();
-        let _ = tokio::task::spawn(async move {
-            loop {
-                if !*MIN_VERSION_IS_AT_LEAST_1_461.read().await {
-                    tracing::info!("Waiting for all workers to be at least version 1.461 before applying v2 finalize migration, sleeping for 5s...");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
-                if let Err(err) = v2_finalize(&db2).await {
-                    tracing::error!(
-                        "{err:#}: Could not apply v2 finalize migration, retry in 30s.."
-                    );
-                    tokio::time::sleep(Duration::from_secs(30)).await;
-                    continue;
-                }
-                tracing::info!("v2 finalization step successfully applied.");
-                break;
-            }
-        });
-    }
+    // if !has_done_migration(db, "v2_finalize_disable_sync").await {
+    //     let db2 = db.clone();
+    //     let _ = tokio::task::spawn(async move {
+    //         loop {
+    //             if !*MIN_VERSION_IS_AT_LEAST_1_461.read().await {
+    //                 tracing::info!("Waiting for all workers to be at least version 1.461 before applying v2 finalize migration, sleeping for 5s...");
+    //                 tokio::time::sleep(Duration::from_secs(5)).await;
+    //                 continue;
+    //             }
+    //             if let Err(err) = v2_finalize(&db2).await {
+    //                 tracing::error!(
+    //                     "{err:#}: Could not apply v2 finalize migration, retry in 30s.."
+    //                 );
+    //                 tokio::time::sleep(Duration::from_secs(30)).await;
+    //                 continue;
+    //             }
+    //             tracing::info!("v2 finalization step successfully applied.");
+    //             break;
+    //         }
+    //     });
+    // }
 
     Ok(())
 }
