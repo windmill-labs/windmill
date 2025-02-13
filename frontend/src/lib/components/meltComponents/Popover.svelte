@@ -14,6 +14,8 @@
 	export let floatingConfig: any | undefined = undefined
 	export let usePointerDownOutside: boolean = false
 	export let closeOnOutsideClick: boolean = true
+	export let contentClasses: string = ''
+	export let portal: string | HTMLElement | undefined = undefined
 
 	const {
 		elements: { trigger, content, arrow, close: closeElement },
@@ -23,7 +25,8 @@
 		forceVisible: true,
 		positioning: floatingConfig ?? {
 			placement
-		}
+		},
+		portal
 	})
 
 	let isOpen = false
@@ -79,7 +82,7 @@
 		{#if displayArrow}
 			<div use:melt={$arrow} />
 		{/if}
-		<slot name="content" {open} {close} />
+		<slot name="content" {open} {close} class={contentClasses} />
 		{#if closeButton}
 			<button class="close" use:melt={$closeElement}>
 				<X class="size-3" />
