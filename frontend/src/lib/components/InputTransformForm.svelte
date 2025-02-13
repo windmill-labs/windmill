@@ -196,10 +196,26 @@
 	}
 
 	function connectProperty(rawValue: string) {
-		arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
-		arg.type = 'javascript'
-		propertyType = 'javascript'
-		monaco?.setCode(arg.expr)
+		// Extract path from variable('x') or resource('x') format
+		const varMatch = rawValue.match(/^variable\('([^']+)'\)$/)
+		const resourceMatch = rawValue.match(/^resource\('([^']+)'\)$/)
+
+		if (varMatch) {
+			arg.type = 'static'
+			propertyType = 'static'
+			arg.value = '$var:' + varMatch[1]
+			monacoTemplate?.setCode(arg.value)
+		} else if (resourceMatch) {
+			arg.type = 'static'
+			propertyType = 'static'
+			arg.value = '$res:' + resourceMatch[1]
+			monacoTemplate?.setCode(arg.value)
+		} else {
+			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
+			arg.type = 'javascript'
+			propertyType = 'javascript'
+			monaco?.setCode(arg.expr)
+		}
 	}
 
 	function onFocus() {

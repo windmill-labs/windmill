@@ -343,7 +343,6 @@
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
 							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
 						>
-
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
