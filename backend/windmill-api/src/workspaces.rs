@@ -1382,8 +1382,8 @@ async fn list_workspaces_as_super_admin(
     let workspaces = sqlx::query_as!(
         Workspace,
         "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
-        FROM workspace
-        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+         FROM workspace
+         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
         per_page as i32,
         offset as i32
