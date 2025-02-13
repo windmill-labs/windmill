@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::time::Duration;
+
 use futures::FutureExt;
 use sqlx::{
     migrate::{Migrate, MigrateError},
@@ -14,11 +16,11 @@ use sqlx::{
 };
 
 use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
-use windmill_common::utils::generate_lock_id;
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
 };
+use windmill_common::{utils::generate_lock_id, worker::MIN_VERSION_IS_AT_LEAST_1_461};
 
 pub type DB = Pool<Postgres>;
 
@@ -364,98 +366,98 @@ macro_rules! run_windmill_migration {
     };
 }
 
-// async fn v2_finalize(db: &DB) -> Result<(), Error> {
-//     run_windmill_migration!("v2_finalize_disable_sync", db, |tx| {
-//         tx.execute(
-//             r#"
-//             DROP FUNCTION v2_job_after_update CASCADE;
-//             DROP FUNCTION v2_job_completed_before_insert CASCADE;
-//             DROP FUNCTION v2_job_completed_before_update CASCADE;
-//             DROP FUNCTION v2_job_queue_after_insert CASCADE;
-//             DROP FUNCTION v2_job_queue_before_insert CASCADE;
-//             DROP FUNCTION v2_job_queue_before_update CASCADE;
-//             DROP FUNCTION v2_job_runtime_before_insert CASCADE;
-//             DROP FUNCTION v2_job_runtime_before_update CASCADE;
-//             DROP FUNCTION v2_job_status_before_insert CASCADE;
-//             DROP FUNCTION v2_job_status_before_update CASCADE;
+async fn v2_finalize(db: &DB) -> Result<(), Error> {
+    run_windmill_migration!("v2_finalize_disable_sync", db, |tx| {
+        tx.execute(
+            r#"
+            DROP FUNCTION v2_job_after_update CASCADE;
+            DROP FUNCTION v2_job_completed_before_insert CASCADE;
+            DROP FUNCTION v2_job_completed_before_update CASCADE;
+            DROP FUNCTION v2_job_queue_after_insert CASCADE;
+            DROP FUNCTION v2_job_queue_before_insert CASCADE;
+            DROP FUNCTION v2_job_queue_before_update CASCADE;
+            DROP FUNCTION v2_job_runtime_before_insert CASCADE;
+            DROP FUNCTION v2_job_runtime_before_update CASCADE;
+            DROP FUNCTION v2_job_status_before_insert CASCADE;
+            DROP FUNCTION v2_job_status_before_update CASCADE;
 
-//             DROP VIEW completed_job, completed_job_view, job, queue, queue_view CASCADE;
-//             "#,
-//         )
-//         .await?;
-//     });
-//     run_windmill_migration!("v2_finalize_job_queue", db, |tx| {
-//         tx.execute(
-//             r#"
-//             ALTER TABLE v2_job_queue
-//                 DROP COLUMN __parent_job CASCADE,
-//                 DROP COLUMN __created_by CASCADE,
-//                 DROP COLUMN __script_hash CASCADE,
-//                 DROP COLUMN __script_path CASCADE,
-//                 DROP COLUMN __args CASCADE,
-//                 DROP COLUMN __logs CASCADE,
-//                 DROP COLUMN __raw_code CASCADE,
-//                 DROP COLUMN __canceled CASCADE,
-//                 DROP COLUMN __last_ping CASCADE,
-//                 DROP COLUMN __job_kind CASCADE,
-//                 DROP COLUMN __env_id CASCADE,
-//                 DROP COLUMN __schedule_path CASCADE,
-//                 DROP COLUMN __permissioned_as CASCADE,
-//                 DROP COLUMN __flow_status CASCADE,
-//                 DROP COLUMN __raw_flow CASCADE,
-//                 DROP COLUMN __is_flow_step CASCADE,
-//                 DROP COLUMN __language CASCADE,
-//                 DROP COLUMN __same_worker CASCADE,
-//                 DROP COLUMN __raw_lock CASCADE,
-//                 DROP COLUMN __pre_run_error CASCADE,
-//                 DROP COLUMN __email CASCADE,
-//                 DROP COLUMN __visible_to_owner CASCADE,
-//                 DROP COLUMN __mem_peak CASCADE,
-//                 DROP COLUMN __root_job CASCADE,
-//                 DROP COLUMN __leaf_jobs CASCADE,
-//                 DROP COLUMN __concurrent_limit CASCADE,
-//                 DROP COLUMN __concurrency_time_window_s CASCADE,
-//                 DROP COLUMN __timeout CASCADE,
-//                 DROP COLUMN __flow_step_id CASCADE,
-//                 DROP COLUMN __cache_ttl CASCADE;
-//             "#,
-//         )
-//         .await?;
-//     });
-//     run_windmill_migration!("v2_finalize_job_completed", db, |tx| {
-//         tx.execute(
-//             r#"
-//             LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
-//             ALTER TABLE v2_job_completed
-//                 DROP COLUMN __parent_job CASCADE,
-//                 DROP COLUMN __created_by CASCADE,
-//                 DROP COLUMN __created_at CASCADE,
-//                 DROP COLUMN __success CASCADE,
-//                 DROP COLUMN __script_hash CASCADE,
-//                 DROP COLUMN __script_path CASCADE,
-//                 DROP COLUMN __args CASCADE,
-//                 DROP COLUMN __logs CASCADE,
-//                 DROP COLUMN __raw_code CASCADE,
-//                 DROP COLUMN __canceled CASCADE,
-//                 DROP COLUMN __job_kind CASCADE,
-//                 DROP COLUMN __env_id CASCADE,
-//                 DROP COLUMN __schedule_path CASCADE,
-//                 DROP COLUMN __permissioned_as CASCADE,
-//                 DROP COLUMN __raw_flow CASCADE,
-//                 DROP COLUMN __is_flow_step CASCADE,
-//                 DROP COLUMN __language CASCADE,
-//                 DROP COLUMN __is_skipped CASCADE,
-//                 DROP COLUMN __raw_lock CASCADE,
-//                 DROP COLUMN __email CASCADE,
-//                 DROP COLUMN __visible_to_owner CASCADE,
-//                 DROP COLUMN __tag CASCADE,
-//                 DROP COLUMN __priority CASCADE;
-//             "#,
-//         )
-//         .await?;
-//     });
-//     Ok(())
-// }
+            DROP VIEW completed_job, completed_job_view, job, queue, queue_view CASCADE;
+            "#,
+        )
+        .await?;
+    });
+    run_windmill_migration!("v2_finalize_job_queue", db, |tx| {
+        tx.execute(
+            r#"
+            ALTER TABLE v2_job_queue
+                DROP COLUMN __parent_job CASCADE,
+                DROP COLUMN __created_by CASCADE,
+                DROP COLUMN __script_hash CASCADE,
+                DROP COLUMN __script_path CASCADE,
+                DROP COLUMN __args CASCADE,
+                DROP COLUMN __logs CASCADE,
+                DROP COLUMN __raw_code CASCADE,
+                DROP COLUMN __canceled CASCADE,
+                DROP COLUMN __last_ping CASCADE,
+                DROP COLUMN __job_kind CASCADE,
+                DROP COLUMN __env_id CASCADE,
+                DROP COLUMN __schedule_path CASCADE,
+                DROP COLUMN __permissioned_as CASCADE,
+                DROP COLUMN __flow_status CASCADE,
+                DROP COLUMN __raw_flow CASCADE,
+                DROP COLUMN __is_flow_step CASCADE,
+                DROP COLUMN __language CASCADE,
+                DROP COLUMN __same_worker CASCADE,
+                DROP COLUMN __raw_lock CASCADE,
+                DROP COLUMN __pre_run_error CASCADE,
+                DROP COLUMN __email CASCADE,
+                DROP COLUMN __visible_to_owner CASCADE,
+                DROP COLUMN __mem_peak CASCADE,
+                DROP COLUMN __root_job CASCADE,
+                DROP COLUMN __leaf_jobs CASCADE,
+                DROP COLUMN __concurrent_limit CASCADE,
+                DROP COLUMN __concurrency_time_window_s CASCADE,
+                DROP COLUMN __timeout CASCADE,
+                DROP COLUMN __flow_step_id CASCADE,
+                DROP COLUMN __cache_ttl CASCADE;
+            "#,
+        )
+        .await?;
+    });
+    run_windmill_migration!("v2_finalize_job_completed", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
+            ALTER TABLE v2_job_completed
+                DROP COLUMN __parent_job CASCADE,
+                DROP COLUMN __created_by CASCADE,
+                DROP COLUMN __created_at CASCADE,
+                DROP COLUMN __success CASCADE,
+                DROP COLUMN __script_hash CASCADE,
+                DROP COLUMN __script_path CASCADE,
+                DROP COLUMN __args CASCADE,
+                DROP COLUMN __logs CASCADE,
+                DROP COLUMN __raw_code CASCADE,
+                DROP COLUMN __canceled CASCADE,
+                DROP COLUMN __job_kind CASCADE,
+                DROP COLUMN __env_id CASCADE,
+                DROP COLUMN __schedule_path CASCADE,
+                DROP COLUMN __permissioned_as CASCADE,
+                DROP COLUMN __raw_flow CASCADE,
+                DROP COLUMN __is_flow_step CASCADE,
+                DROP COLUMN __language CASCADE,
+                DROP COLUMN __is_skipped CASCADE,
+                DROP COLUMN __raw_lock CASCADE,
+                DROP COLUMN __email CASCADE,
+                DROP COLUMN __visible_to_owner CASCADE,
+                DROP COLUMN __tag CASCADE,
+                DROP COLUMN __priority CASCADE;
+            "#,
+        )
+        .await?;
+    });
+    Ok(())
+}
 
 async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     // let has_done_migration = sqlx::query_scalar!(
