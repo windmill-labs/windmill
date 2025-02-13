@@ -1410,7 +1410,7 @@ async fn list_workspaces_as_super_admin(
             workspace.owner AS \"owner!\",
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
-            workspace_settings.color AS \"color!\"
+            workspace_settings.color AS \"color\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
