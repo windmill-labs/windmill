@@ -6,20 +6,21 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use futures::FutureExt;
-use sqlx::Executor;
+use std::time::Duration;
 
+use futures::FutureExt;
 use sqlx::{
     migrate::{Migrate, MigrateError},
     pool::PoolConnection,
-    PgConnection, Pool, Postgres,
+    Executor, PgConnection, Pool, Postgres,
 };
+
 use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
-use windmill_common::utils::generate_lock_id;
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
 };
+use windmill_common::{utils::generate_lock_id, worker::MIN_VERSION_IS_AT_LEAST_1_461};
 
 pub type DB = Pool<Postgres>;
 
@@ -224,6 +225,28 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         }
     });
 
+    // if !has_done_migration(db, "v2_finalize_disable_sync").await {
+    //     let db2 = db.clone();
+    //     let _ = tokio::task::spawn(async move {
+    //         loop {
+    //             if !*MIN_VERSION_IS_AT_LEAST_1_461.read().await {
+    //                 tracing::info!("Waiting for all workers to be at least version 1.461 before applying v2 finalize migration, sleeping for 5s...");
+    //                 tokio::time::sleep(Duration::from_secs(5)).await;
+    //                 continue;
+    //             }
+    //             if let Err(err) = v2_finalize(&db2).await {
+    //                 tracing::error!(
+    //                     "{err:#}: Could not apply v2 finalize migration, retry in 30s.."
+    //                 );
+    //                 tokio::time::sleep(Duration::from_secs(30)).await;
+    //                 continue;
+    //             }
+    //             tracing::info!("v2 finalization step successfully applied.");
+    //             break;
+    //         }
+    //     });
+    // }
+
     Ok(())
 }
 
@@ -274,26 +297,32 @@ async fn fix_flow_versioning_migration(
     Ok(())
 }
 
+async fn has_done_migration(db: &DB, migration_job_name: &str) -> bool {
+    sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
+        migration_job_name
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+
 macro_rules! run_windmill_migration {
-    ($migration_job_name:expr, $db:expr, $code:block) => {
+    ($migration_job_name:expr, $db:expr, |$tx:ident| $code:block) => {
         {
             let migration_job_name = $migration_job_name;
             let db: &Pool<Postgres> = $db;
 
-            let has_done_migration = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
-                migration_job_name
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false);
-            if !has_done_migration {
+            let has_done = has_done_migration(db, migration_job_name).await;
+            if !has_done {
                 tracing::info!("Applying {migration_job_name} migration");
-                let mut tx = db.begin().await?;
+                let mut $tx = db.begin().await?;
                 let mut r = false;
                 while !r {
                     r = sqlx::query_scalar!("SELECT pg_try_advisory_lock(4242)")
-                        .fetch_one(&mut *tx)
+                        .fetch_one(&mut *$tx)
                         .await
                         .map_err(|e| {
                             tracing::error!("Error acquiring {migration_job_name} lock: {e:#}");
@@ -307,15 +336,9 @@ macro_rules! run_windmill_migration {
                 }
                 tracing::info!("acquired lock for {migration_job_name}");
 
-                let has_done_migration = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
-                    migration_job_name
-                )
-                .fetch_one(db)
-                .await?
-                .unwrap_or(false);
+                let has_done = has_done_migration(db, migration_job_name).await;
 
-                if !has_done_migration {
+                if !has_done {
 
                     $code
 
@@ -323,7 +346,7 @@ macro_rules! run_windmill_migration {
                         "INSERT INTO windmill_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING",
                         migration_job_name
                     )
-                    .execute(&mut *tx)
+                    .execute(&mut *$tx)
                     .await?;
                     tracing::info!("Finished applying {migration_job_name} migration");
                 } else {
@@ -331,9 +354,9 @@ macro_rules! run_windmill_migration {
                 }
 
                 let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
-                    .execute(&mut *tx)
+                    .execute(&mut *$tx)
                     .await?;
-                tx.commit().await?;
+                $tx.commit().await?;
                 tracing::info!("released lock for {migration_job_name}");
             } else {
                 tracing::debug!("migration {migration_job_name} already done");
@@ -341,6 +364,99 @@ macro_rules! run_windmill_migration {
             }
         }
     };
+}
+
+async fn v2_finalize(db: &DB) -> Result<(), Error> {
+    run_windmill_migration!("v2_finalize_disable_sync", db, |tx| {
+        tx.execute(
+            r#"
+            DROP FUNCTION v2_job_after_update CASCADE;
+            DROP FUNCTION v2_job_completed_before_insert CASCADE;
+            DROP FUNCTION v2_job_completed_before_update CASCADE;
+            DROP FUNCTION v2_job_queue_after_insert CASCADE;
+            DROP FUNCTION v2_job_queue_before_insert CASCADE;
+            DROP FUNCTION v2_job_queue_before_update CASCADE;
+            DROP FUNCTION v2_job_runtime_before_insert CASCADE;
+            DROP FUNCTION v2_job_runtime_before_update CASCADE;
+            DROP FUNCTION v2_job_status_before_insert CASCADE;
+            DROP FUNCTION v2_job_status_before_update CASCADE;
+
+            DROP VIEW completed_job, completed_job_view, job, queue, queue_view CASCADE;
+            "#,
+        )
+        .await?;
+    });
+    run_windmill_migration!("v2_finalize_job_queue", db, |tx| {
+        tx.execute(
+            r#"
+            ALTER TABLE v2_job_queue
+                DROP COLUMN __parent_job CASCADE,
+                DROP COLUMN __created_by CASCADE,
+                DROP COLUMN __script_hash CASCADE,
+                DROP COLUMN __script_path CASCADE,
+                DROP COLUMN __args CASCADE,
+                DROP COLUMN __logs CASCADE,
+                DROP COLUMN __raw_code CASCADE,
+                DROP COLUMN __canceled CASCADE,
+                DROP COLUMN __last_ping CASCADE,
+                DROP COLUMN __job_kind CASCADE,
+                DROP COLUMN __env_id CASCADE,
+                DROP COLUMN __schedule_path CASCADE,
+                DROP COLUMN __permissioned_as CASCADE,
+                DROP COLUMN __flow_status CASCADE,
+                DROP COLUMN __raw_flow CASCADE,
+                DROP COLUMN __is_flow_step CASCADE,
+                DROP COLUMN __language CASCADE,
+                DROP COLUMN __same_worker CASCADE,
+                DROP COLUMN __raw_lock CASCADE,
+                DROP COLUMN __pre_run_error CASCADE,
+                DROP COLUMN __email CASCADE,
+                DROP COLUMN __visible_to_owner CASCADE,
+                DROP COLUMN __mem_peak CASCADE,
+                DROP COLUMN __root_job CASCADE,
+                DROP COLUMN __leaf_jobs CASCADE,
+                DROP COLUMN __concurrent_limit CASCADE,
+                DROP COLUMN __concurrency_time_window_s CASCADE,
+                DROP COLUMN __timeout CASCADE,
+                DROP COLUMN __flow_step_id CASCADE,
+                DROP COLUMN __cache_ttl CASCADE;
+            "#,
+        )
+        .await?;
+    });
+    run_windmill_migration!("v2_finalize_job_completed", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
+            ALTER TABLE v2_job_completed
+                DROP COLUMN __parent_job CASCADE,
+                DROP COLUMN __created_by CASCADE,
+                DROP COLUMN __created_at CASCADE,
+                DROP COLUMN __success CASCADE,
+                DROP COLUMN __script_hash CASCADE,
+                DROP COLUMN __script_path CASCADE,
+                DROP COLUMN __args CASCADE,
+                DROP COLUMN __logs CASCADE,
+                DROP COLUMN __raw_code CASCADE,
+                DROP COLUMN __canceled CASCADE,
+                DROP COLUMN __job_kind CASCADE,
+                DROP COLUMN __env_id CASCADE,
+                DROP COLUMN __schedule_path CASCADE,
+                DROP COLUMN __permissioned_as CASCADE,
+                DROP COLUMN __raw_flow CASCADE,
+                DROP COLUMN __is_flow_step CASCADE,
+                DROP COLUMN __language CASCADE,
+                DROP COLUMN __is_skipped CASCADE,
+                DROP COLUMN __raw_lock CASCADE,
+                DROP COLUMN __email CASCADE,
+                DROP COLUMN __visible_to_owner CASCADE,
+                DROP COLUMN __tag CASCADE,
+                DROP COLUMN __priority CASCADE;
+            "#,
+        )
+        .await?;
+    });
+    Ok(())
 }
 
 async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
@@ -385,7 +501,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     //     tx.commit().await?;
     // }
 
-    run_windmill_migration!("fix_job_completed_index_2", &db, {
+    run_windmill_migration!("fix_job_completed_index_2", &db, |tx| {
         //     sqlx::query(
         //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_created_at_new_2 ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, created_at DESC)"
         // ).execute(db).await?;
@@ -405,7 +521,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         .await?;
     });
 
-    run_windmill_migration!("fix_job_completed_index_3", &db, {
+    run_windmill_migration!("fix_job_completed_index_3", &db, |tx| {
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_job_on_schedule_path")
             .execute(db)
             .await?;
@@ -423,7 +539,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
-    run_windmill_migration!("fix_job_index_1", &db, {
+    run_windmill_migration!("fix_job_index_1", &db, |tx| {
         let migration_job_name = "fix_job_completed_index_4";
         let mut i = 1;
         tracing::info!("step {i} of {migration_job_name} migration");
@@ -504,82 +620,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
-    run_windmill_migration!("add_ix_v2_II", &db, {
-        sqlx::query!(
-            "create index concurrently if not exists ix_v2_job_root_by_path
-                on v2_job (workspace_id, runnable_path, created_at DESC)
-                where parent_job is null"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_3"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_5"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_6"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_7"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_8"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_9"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_created_at")
-            .execute(db)
-            .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_2"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_started_at_new"
-        )
-        .execute(db)
-        .await?;
-
-        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path_2")
-            .execute(db)
-            .await?;
-
-        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS scheduled_root_job")
-            .execute(db)
-            .await?;
-
-        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS concurrency_limit_stats_completed_job")
-            .execute(db)
-            .await?;
-        tracing::info!("Finished adding ix_v2_II migration");
-    });
-
-    run_windmill_migration!("fix_labeled_jobs_index", &db, {
+    run_windmill_migration!("fix_labeled_jobs_index", &db, |tx| {
         tracing::info!("Special migration to add index concurrently on job labels 2");
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs")
             .execute(db)
@@ -589,7 +630,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         ).execute(db).await?;
     });
 
-    run_windmill_migration!("v2_labeled_jobs_index", &db, {
+    run_windmill_migration!("v2_labeled_jobs_index", &db, |tx| {
         tracing::info!("Special migration to add index concurrently on job labels");
         sqlx::query!(
             "CREATE INDEX CONCURRENTLY ix_v2_job_labels ON v2_job
