@@ -18,10 +18,11 @@ import {
   mergeConfigWithConfigFile,
   readConfigFile,
 } from "./conf.ts";
-import { exts } from "./script.ts";
+import { exts, findGlobalDeps, removeExtensionToPath } from "./script.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { OpenFlow } from "./gen/types.gen.ts";
 import { FlowFile, replaceInlineScripts } from "./flow.ts";
+import { parseMetadataFile } from "./metadata.ts";
 
 const PORT = 3001;
 async function dev(opts: GlobalOptions & SyncOptions) {
@@ -55,9 +56,10 @@ async function dev(opts: GlobalOptions & SyncOptions) {
 
   const DOT_FLOW_SEP = ".flow" + SEP;
   async function loadPaths(pathsToLoad: string[]) {
-    const paths = pathsToLoad.filter(
-      (path) =>
-        exts.some((ext) => path.endsWith(ext)) || path.includes(DOT_FLOW_SEP)
+    const paths = pathsToLoad.filter((path) =>
+      exts.some(
+        (ext) => path.endsWith(ext) || path.endsWith(DOT_FLOW_SEP + "flow.yaml")
+      )
     );
     if (paths.length == 0) {
       return;
@@ -84,11 +86,24 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
         const lang = inferContentTypeFromFilePath(cpath, conf.defaultTs);
+        const globalDeps = await findGlobalDeps();
+        const typed =
+          (await parseMetadataFile(
+            removeExtensionToPath(cpath),
+            undefined,
+            globalDeps,
+            []
+          )
+          )?.payload
+
+
         currentLastEdit = {
           type: "script",
           content,
           path: wmPath,
           language: lang,
+          tag: typed?.tag,
+          lock: typed?.lock,
         };
         log.info("Updated " + wmPath);
         broadcastChanges(currentLastEdit);
@@ -100,6 +115,9 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     content: string;
     path: string;
     language: string;
+    tag?: string;
+    lock?: string;
+
   };
 
   type LastEditFlow = {
