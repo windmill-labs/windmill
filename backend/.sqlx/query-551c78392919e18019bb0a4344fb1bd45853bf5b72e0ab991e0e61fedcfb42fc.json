@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET teams_team_id = $1, teams_team_name = $2\n        WHERE workspace_id = $3\n        AND NOT EXISTS (\n            SELECT 1 FROM workspace_settings\n            WHERE teams_team_id = $1 AND workspace_id <> $2\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "551c78392919e18019bb0a4344fb1bd45853bf5b72e0ab991e0e61fedcfb42fc"
+}

@@ -172,7 +172,7 @@
 		<div class="py-1" />
 		<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 		<div class="py-1" />
-		<OAuthSetting login={false} name="teams" bind:value={oauths['teams']} />
+		<OAuthSetting login={false} name="teams" eeOnly={true} bind:value={oauths['teams']} />
 		<div class="py-1" />
 
 		{#each Object.keys(oauths) as k}
