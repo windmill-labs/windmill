@@ -20,17 +20,7 @@ export async function onRequest(context) {
       headers: request.headers,
       redirect: "manual",
     });
-    const newResponse = new Response(res.body, res);
-    newResponse.headers.set(
-      "set-cookie",
-      "token" +
-        newResponse.headers
-          .get("set-cookie")
-          ?.replace("Domain=windmill.dev;", "")
-          ?.split("token")
-          .pop() ?? ""
-    );
-    return newResponse;
+    
   } catch (e) {
     return new Response(e.message, { status: 500 });
   }
