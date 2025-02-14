@@ -69,7 +69,7 @@
 			aws_resource_path = defaultValues?.aws_resource_path ?? ''
 			queue_url = defaultValues?.queue_url ?? ''
 			path = ''
-			message_attributes = defaultValues?.message_attributes ?? []
+			message_attributes = defaultValues?.message_attributes ?? ['All']
 			initialPath = ''
 			edit = false
 			dirtyPath = false
@@ -201,15 +201,6 @@
 					</Label>
 				</div>
 
-				<SqsTriggerEditorConfigSection
-					bind:isValid
-					bind:queue_url
-					bind:message_attributes
-					bind:aws_resource_path
-					{can_write}
-					headless={true}
-				/>
-
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
@@ -235,6 +226,15 @@
 						{/if}
 					</div>
 				</Section>
+
+				<SqsTriggerEditorConfigSection
+					bind:isValid
+					bind:queue_url
+					bind:message_attributes
+					bind:aws_resource_path
+					{can_write}
+					headless={true}
+				/>
 			</div>
 		{/if}
 	</DrawerContent>
