@@ -58,6 +58,8 @@
 
 	const dispatch = createEventDispatcher()
 
+	const noVariablePickerOnPreview = noVariablePicker || customUi?.variablePicker?.disabled
+
 	let clazz: string = ''
 	export { clazz as class }
 
@@ -309,6 +311,7 @@
 							}}
 							{shouldDispatchChanges}
 							bind:isValid
+							noVariablePicker={noVariablePickerOnPreview}
 						/>
 
 						<slot name="runButton" />

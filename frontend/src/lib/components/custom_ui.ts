@@ -52,6 +52,7 @@ export type PreviewPanelUi = {
 		disabled?: boolean
 	}
 	displayResult?: DisplayResultUi
+	variablePicker?: { disabled?: boolean }
 }
 
 export type EditorBarUi = {
@@ -76,6 +77,7 @@ export type GlobalUiConfig = {
 
 export type EditableSchemaFormUi = {
 	jsonOnly?: boolean
+	variablePicker?: { disabled: boolean }
 }
 
 export type SettingsPanelMetadataUi = {

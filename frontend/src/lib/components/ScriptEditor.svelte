@@ -470,6 +470,7 @@
 										{schema}
 										bind:args
 										bind:isValid
+										noVariablePicker={customUi?.previewPanel?.variablePicker?.disabled}
 										showSchemaExplorer
 									/>
 								{/key}

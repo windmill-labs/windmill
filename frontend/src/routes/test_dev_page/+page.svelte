@@ -43,7 +43,7 @@
 		},
 		editorBar: {
 			contextVar: false,
-			variable: true,
+			variable: false,
 			resource: false,
 			type: false,
 			assistants: true,
@@ -60,7 +60,7 @@
 			metadata: {
 				languages: ['python3'],
 				scriptKind: { disabled: true },
-				editableSchemaForm: { jsonOnly: true },
+				editableSchemaForm: { jsonOnly: true, variablePicker: { disabled: true } },
 				mute: { disabled: true }
 			},
 			runtime: {
@@ -75,7 +75,8 @@
 			triggerButton: { disabled: true },
 			displayResult: { aiFix: { disabled: true } },
 			triggerCaptures: { disabled: true },
-			history: { disabled: true }
+			history: { disabled: true },
+			variablePicker: { disabled: true }
 		},
 		tooltips: { disabled: true }
 	}
