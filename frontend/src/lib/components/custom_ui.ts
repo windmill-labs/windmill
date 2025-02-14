@@ -36,10 +36,27 @@ export type FlowBuilderWhitelabelCustomUi = {
 	downloadLogs?: boolean
 }
 
+export type PreviewPanelUi = {
+	disabled?: boolean
+	logsAndResult?: {
+		disabled?: boolean
+		aiFix?: boolean
+	}
+	history?: {
+		disabled?: boolean
+	}
+	triggerCaptures?: {
+		disabled?: boolean
+	}
+	triggerButton?: {
+		disabled?: boolean
+	}
+}
 export type EditorBarUi = {
 	contextVar?: boolean
 	variable?: boolean
 	resource?: boolean
+	reset?: boolean
 	type?: boolean
 	assistants?: boolean
 	multiplayer?: boolean
@@ -51,17 +68,49 @@ export type EditorBarUi = {
 	useVsCode?: boolean
 }
 
+export type EditableSchemaFormUi = {
+	jsonOnly?: boolean
+}
+
+export type SettingsPanelMetadataUi = {
+	disabled?: boolean
+	languages?: SupportedLanguage[]
+	scriptKind?: {
+		disabled?: boolean
+	}
+	editableSchemaForm?: EditableSchemaFormUi
+}
+
+export type SettingsPanelUi = {
+	disabled?: boolean
+	metadata?: SettingsPanelMetadataUi
+	runtime?: {
+		disabled?: boolean
+	}
+	generatedUi?: {
+		disabled?: boolean
+		fields?: 'file'[]
+	}
+	triggers?: {
+		disabled?: boolean
+	}
+}
+
 export type ScriptEditorWhitelabelCustomUi = {
 	editorBar?: EditorBarUi
+	previewPanel?: PreviewPanelUi
 }
 
 export type ScriptBuilderWhitelabelCustomUi = {
 	topBar?: {
 		path?: boolean
+		editablePath?: boolean
 		settings?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		diff?: boolean
 	}
 	editorBar?: EditorBarUi
+	settingsPanel?: SettingsPanelUi
+	previewPanel?: PreviewPanelUi
 }

@@ -407,7 +407,7 @@
 							/>
 							Cancel
 						</Button>
-					{:else}
+					{:else if !customUi?.previewPanel?.triggerButton?.disabled}
 						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
 							<Button
 								color="dark"
@@ -429,6 +429,28 @@
 								{/if}
 							</Button>
 							<CaptureButton on:openTriggers />
+						</div>
+					{:else}
+						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
+							<Button
+								color="dark"
+								on:click={() => {
+									runTest()
+								}}
+								btnClasses="w-full"
+								size="xs"
+								startIcon={{
+									icon: Play,
+									classes: 'animate-none'
+								}}
+								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+							>
+								{#if testIsLoading}
+									Running
+								{:else}
+									Test
+								{/if}
+							</Button>
 						</div>
 					{/if}
 				</div>

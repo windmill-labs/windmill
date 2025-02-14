@@ -623,18 +623,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
-			<Button
-				title="Reset Content"
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={clearContent}
-				{iconOnly}
-				startIcon={{ icon: RotateCw }}
-			>
-				Reset
-			</Button>
+			{#if customUi?.reset != false}
+				<Button
+					title="Reset Content"
+					btnClasses="!font-medium text-tertiary"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={clearContent}
+					{iconOnly}
+					startIcon={{ icon: RotateCw }}
+				>
+					Reset
+				</Button>
+			{/if}
 
 			{#if customUi?.assistants != false}
 				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}

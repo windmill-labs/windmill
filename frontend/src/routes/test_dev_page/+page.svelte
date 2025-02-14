@@ -9,7 +9,7 @@
 		{ value: 'new', label: 'New whitelabel' }
 	]
 
-	const noWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {}
+	const noWhiteLabelUIConfig: undefined = undefined
 	const oldWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {
 		topBar: {
 			path: false,
@@ -35,7 +35,8 @@
 	const newWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {
 		topBar: {
 			path: true,
-			settings: false,
+			editablePath: false,
+			settings: true,
 			extraDeployOptions: false,
 			editableSummary: true,
 			diff: true
@@ -46,6 +47,7 @@
 			resource: false,
 			type: false,
 			assistants: false,
+			reset: false,
 			multiplayer: false,
 			autoformatting: false,
 			vimMode: true,
@@ -53,7 +55,23 @@
 			aiCompletion: false,
 			library: false,
 			useVsCode: false
-		}
+		},
+		settingsPanel: {
+			metadata: {
+				disabled: false,
+				languages: ['python3'],
+				scriptKind: { disabled: true },
+				editableSchemaForm: { jsonOnly: true }
+			},
+			runtime: {
+				disabled: true
+			},
+
+			triggers: {
+				disabled: true
+			}
+		},
+		previewPanel: { triggerButton: { disabled: true } }
 	}
 
 	$: customUI =
