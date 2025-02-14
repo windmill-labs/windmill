@@ -313,10 +313,16 @@ export async function updateScriptSchema(
     path
   );
   metadataContent.schema = result.schema;
-  if (result.has_preprocessor == true)
+  if (result.has_preprocessor) {
     metadataContent.has_preprocessor = result.has_preprocessor;
-  if (result.no_main_func === true)
+  } else {
+    delete metadataContent.has_preprocessor;
+  }
+  if (result.no_main_func) {
     metadataContent.no_main_func = result.no_main_func;
+  } else {
+    delete metadataContent.no_main_func;
+  }
 }
 
 async function updateScriptLock(
@@ -441,7 +447,11 @@ export function inferSchema(
   content: string,
   currentSchema: any,
   path: string
-) {
+): {
+  schema: any;
+  has_preprocessor: boolean | undefined;
+  no_main_func: boolean | undefined;
+} {
   let inferedSchema: any;
   if (language === "python3") {
     inferedSchema = JSON.parse(parse_python(content));

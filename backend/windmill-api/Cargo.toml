@@ -36,6 +36,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
+windmill-parser-py.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 tokio.workspace = true

@@ -10988,6 +10988,7 @@ dependencies = [
  "windmill-git-sync",
  "windmill-indexer",
  "windmill-parser",
+ "windmill-parser-py",
  "windmill-parser-ts",
  "windmill-queue",
 ]

@@ -17,9 +17,10 @@ fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
 
 #[cfg(feature = "ts-parser")]
 #[wasm_bindgen]
-pub fn parse_deno(code: &str, main_override: Option<String>) -> String {
+pub fn parse_deno(code: &str, main_override: Option<String>, skip_params: Option<bool>) -> String {
     wrap_sig(windmill_parser_ts::parse_deno_signature(
         code,
+        false,
         false,
         main_override,
     ))
@@ -73,6 +74,7 @@ pub fn parse_python(code: &str, main_override: Option<String>) -> String {
     wrap_sig(windmill_parser_py::parse_python_signature(
         code,
         main_override,
+        false,
     ))
 }
 
