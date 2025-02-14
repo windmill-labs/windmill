@@ -35,7 +35,7 @@
 		isFetching = false
 	}
 
-	$: workspaceStore && platform && $enterpriseLicense === 'teams' && loadTeams()
+	$: workspaceStore && platform && $enterpriseLicense && loadTeams()
 
 	async function connectTeams() {
 		const selectedTeam = teams.find((team) => team.team_id === selected_teams_team)
