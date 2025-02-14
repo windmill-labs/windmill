@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { globalUiConfig } from '$lib/stores'
 	import type { ScriptBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 
@@ -8,7 +9,6 @@
 		{ value: 'old', label: 'Old whitelabel' },
 		{ value: 'new', label: 'New whitelabel' }
 	]
-
 	const noWhiteLabelUIConfig: undefined = undefined
 	const oldWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {
 		topBar: {
@@ -43,10 +43,10 @@
 		},
 		editorBar: {
 			contextVar: false,
-			variable: false,
+			variable: true,
 			resource: false,
 			type: false,
-			assistants: false,
+			assistants: true,
 			reset: false,
 			multiplayer: false,
 			autoformatting: false,
@@ -58,10 +58,10 @@
 		},
 		settingsPanel: {
 			metadata: {
-				disabled: false,
 				languages: ['python3'],
 				scriptKind: { disabled: true },
-				editableSchemaForm: { jsonOnly: true }
+				editableSchemaForm: { jsonOnly: true },
+				mute: { disabled: true }
 			},
 			runtime: {
 				disabled: true
@@ -71,15 +71,32 @@
 				disabled: true
 			}
 		},
-		previewPanel: { triggerButton: { disabled: true } }
+		previewPanel: {
+			triggerButton: { disabled: true },
+			displayResult: { aiFix: { disabled: true } },
+			triggerCaptures: { disabled: true },
+			history: { disabled: true }
+		},
+		tooltips: { disabled: true }
 	}
 
-	$: customUI =
+	$: customUi =
 		showWhiteLabelUI === 'old'
 			? oldWhiteLabelUIConfig
 			: showWhiteLabelUI === 'new'
 			? newWhiteLabelUIConfig
 			: noWhiteLabelUIConfig
+
+	$: if (customUi?.tooltips?.disabled) {
+		globalUiConfig.set({
+			...$globalUiConfig,
+			tooltips: {
+				disabled: true
+			}
+		})
+	} else {
+		globalUiConfig.set({ ...$globalUiConfig, tooltips: undefined })
+	}
 </script>
 
 <select bind:value={showWhiteLabelUI} placeholder="Select UI Type">
@@ -97,5 +114,5 @@
 		content: 'def main():\n\tprint("Hello, World!")'
 	}}
 	neverShowMeta={true}
-	customUi={customUI}
+	{customUi}
 />

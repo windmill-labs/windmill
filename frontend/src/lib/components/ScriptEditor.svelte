@@ -50,7 +50,7 @@
 	export let noHistory = false
 	export let saveToWorkspace = false
 	export let watchChanges = false
-	export let customUi: ScriptEditorWhitelabelCustomUi = {}
+	export let customUi: ScriptEditorWhitelabelCustomUi | undefined = undefined
 	export let args: Record<string, any> = initialArgs
 	export let selectedTab: 'main' | 'preprocessor' = 'main'
 	export let hasPreprocessor = false
@@ -487,6 +487,7 @@
 							{diffEditor}
 							{args}
 							showCaptures={true}
+							customUi={customUi?.previewPanel}
 						>
 							{#if scriptProgress}
 								<!-- Put to the slot in logpanel -->

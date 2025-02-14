@@ -771,14 +771,16 @@
 								<div class="flex flex-col gap-8 px-4 py-2">
 									<Section label="Metadata">
 										<svelte:fragment slot="action">
-											<div class="flex flex-row items-center gap-2">
-												<ErrorHandlerToggleButton
-													kind="script"
-													scriptOrFlowPath={script.path}
-													bind:errorHandlerMuted={script.ws_error_handler_muted}
-													iconOnly={false}
-												/>
-											</div>
+											{#if !customUi?.settingsPanel?.metadata?.mute?.disabled}
+												<div class="flex flex-row items-center gap-2">
+													<ErrorHandlerToggleButton
+														kind="script"
+														scriptOrFlowPath={script.path}
+														bind:errorHandlerMuted={script.ws_error_handler_muted}
+														iconOnly={false}
+													/>
+												</div>
+											{/if}
 										</svelte:fragment>
 										<div class="flex flex-col gap-4">
 											<Label label="Summary">

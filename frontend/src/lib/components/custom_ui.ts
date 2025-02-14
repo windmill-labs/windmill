@@ -36,12 +36,12 @@ export type FlowBuilderWhitelabelCustomUi = {
 	downloadLogs?: boolean
 }
 
+export type DisplayResultUi = {
+	aiFix?: { disabled?: boolean }
+}
+
 export type PreviewPanelUi = {
 	disabled?: boolean
-	logsAndResult?: {
-		disabled?: boolean
-		aiFix?: boolean
-	}
 	history?: {
 		disabled?: boolean
 	}
@@ -51,7 +51,9 @@ export type PreviewPanelUi = {
 	triggerButton?: {
 		disabled?: boolean
 	}
+	displayResult?: DisplayResultUi
 }
+
 export type EditorBarUi = {
 	contextVar?: boolean
 	variable?: boolean
@@ -68,6 +70,10 @@ export type EditorBarUi = {
 	useVsCode?: boolean
 }
 
+export type GlobalUiConfig = {
+	tooltips?: { disabled?: boolean }
+}
+
 export type EditableSchemaFormUi = {
 	jsonOnly?: boolean
 }
@@ -79,6 +85,7 @@ export type SettingsPanelMetadataUi = {
 		disabled?: boolean
 	}
 	editableSchemaForm?: EditableSchemaFormUi
+	mute?: { disabled?: boolean }
 }
 
 export type SettingsPanelUi = {
@@ -110,7 +117,9 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		editableSummary?: boolean
 		diff?: boolean
 	}
-	editorBar?: EditorBarUi
 	settingsPanel?: SettingsPanelUi
+	tooltips?: { disabled?: boolean }
+
+	editorBar?: EditorBarUi
 	previewPanel?: PreviewPanelUi
 }

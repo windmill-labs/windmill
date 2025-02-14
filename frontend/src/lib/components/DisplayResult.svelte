@@ -2,6 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
+	import { globalUiConfig } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
@@ -35,6 +36,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import PdfViewer from './display/PdfViewer.svelte'
+	import type { DisplayResultUi } from './custom_ui'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -48,6 +50,7 @@
 	export let nodeId: string | undefined = undefined
 	export let language: string | undefined = undefined
 	export let appPath: string | undefined = undefined
+	export let customUi: DisplayResultUi | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -426,7 +429,9 @@
 					{/if}
 				</div>
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
-					<slot name="copilot-fix" />
+					{#if !customUi?.aiFix?.disabled}
+						<slot name="copilot-fix" />
+					{/if}
 					{#if !disableExpand && !noControls}
 						<a
 							download="{filename ?? 'result'}.json"
@@ -439,17 +444,19 @@
 						>
 							<Download size={14} />
 						</a>
-						<Popover
-							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-						>
-							<svelte:fragment slot="text">
-								The result renderer in Windmill supports rich display rendering, allowing you to
-								customize the display format of your results.
-							</svelte:fragment>
-							<div class="-mt-1">
-								<InfoIcon size={14} />
-							</div>
-						</Popover>
+						{#if !$globalUiConfig?.tooltips?.disabled}
+							<Popover
+								documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+							>
+								<svelte:fragment slot="text">
+									The result renderer in Windmill supports rich display rendering, allowing you to
+									customize the display format of your results.
+								</svelte:fragment>
+								<div class="-mt-1">
+									<InfoIcon size={14} />
+								</div>
+							</Popover>
+						{/if}
 						<button on:click={() => copyToClipboard(toJsonStr(result))} class="-mt-1">
 							<ClipboardCopy size={14} />
 						</button>
