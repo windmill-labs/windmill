@@ -263,7 +263,7 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "chrono",
- "chrono-tz 0.9.0",
+ "chrono-tz",
  "half",
  "hashbrown 0.14.5",
  "num",
@@ -1610,18 +1610,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
 dependencies = [
  "chrono",
- "chrono-tz-build 0.3.0",
- "phf",
-]
-
-[[package]]
-name = "chrono-tz"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c6ac4f2c0bf0f44e9161aec9675e1050aa4a530663c4a9e37e108fa948bca9f"
-dependencies = [
- "chrono",
- "chrono-tz-build 0.4.0",
+ "chrono-tz-build",
  "phf",
 ]
 
@@ -1633,16 +1622,6 @@ checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
 dependencies = [
  "parse-zoneinfo",
  "phf",
- "phf_codegen",
-]
-
-[[package]]
-name = "chrono-tz-build"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e94fea34d77a245229e7746bd2beb786cd2a896f306ff491fb8cecb3074b10a7"
-dependencies = [
- "parse-zoneinfo",
  "phf_codegen",
 ]
 
@@ -10858,7 +10837,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -10901,7 +10880,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10913,14 +10892,14 @@ dependencies = [
  "async_zip",
  "axum",
  "base32",
- "base64 0.22.1",
+ "base64 0.13.1",
  "byteorder",
  "bytes",
  "candle-core",
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz 0.10.1",
+ "chrono-tz",
  "const_format",
  "cookie 0.17.0",
  "cron",
@@ -10932,7 +10911,7 @@ dependencies = [
  "hmac",
  "http 1.2.0",
  "hyper 1.6.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
@@ -10949,7 +10928,7 @@ dependencies = [
  "postgres-native-tls 0.5.0",
  "prometheus",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.7.3",
  "rdkafka",
  "regex",
  "reqwest 0.12.9",
@@ -10974,7 +10953,7 @@ dependencies = [
  "tokio-tar",
  "tokio-tungstenite",
  "tokio-util",
- "tower 0.5.2",
+ "tower 0.4.13",
  "tower-cookies",
  "tower-http",
  "tracing",
@@ -10994,15 +10973,15 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.13.1",
  "chrono",
  "openapiv3",
  "prettyplease 0.1.25",
  "progenitor",
  "progenitor-client",
- "rand 0.9.0",
+ "rand 0.7.3",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
@@ -11012,7 +10991,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "chrono",
  "serde",
@@ -11025,7 +11004,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "serde",
@@ -11039,7 +11018,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -11048,7 +11027,7 @@ dependencies = [
  "axum",
  "bytes",
  "chrono",
- "chrono-tz 0.10.1",
+ "chrono-tz",
  "const_format",
  "crc",
  "cron",
@@ -11061,7 +11040,7 @@ dependencies = [
  "hmac",
  "hyper 1.6.0",
  "indexmap 2.7.1",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -11074,7 +11053,7 @@ dependencies = [
  "pin-project-lite",
  "prometheus",
  "quick_cache",
- "rand 0.9.0",
+ "rand 0.7.3",
  "regex",
  "reqwest 0.12.9",
  "semver 1.0.25",
@@ -11098,7 +11077,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "regex",
  "serde",
@@ -11112,7 +11091,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "bytes",
@@ -11135,9 +11114,9 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "lazy_static",
  "proc-macro2",
  "quote",
@@ -11147,7 +11126,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -11156,7 +11135,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11168,7 +11147,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11180,11 +11159,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -11192,7 +11171,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11204,10 +11183,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "php-parser-rs",
  "serde_json",
  "windmill-parser",
@@ -11215,10 +11194,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -11226,11 +11205,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "lazy_static",
  "malachite",
  "malachite-bigint",
@@ -11246,11 +11225,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "lazy_static",
  "pulldown-cmark",
  "quote",
@@ -11263,7 +11242,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11275,7 +11254,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -11293,7 +11272,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -11315,7 +11294,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -11325,20 +11304,20 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "async-recursion",
  "axum",
  "backon",
  "chrono",
- "chrono-tz 0.10.1",
+ "chrono-tz",
  "cron",
  "futures",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "lazy_static",
  "prometheus",
  "regex",
@@ -11358,7 +11337,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -11368,12 +11347,12 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.462.2"
+version = "1.462.3"
 dependencies = [
  "anyhow",
  "async-recursion",
  "backon",
- "base64 0.22.1",
+ "base64 0.13.1",
  "bit-vec",
  "bollard",
  "bytes",
@@ -11396,7 +11375,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "jsonwebtoken",
  "lazy_static",
  "mappable-rc",
@@ -11410,7 +11389,7 @@ dependencies = [
  "pem 3.0.4",
  "postgres-native-tls 0.5.1",
  "prometheus",
- "rand 0.9.0",
+ "rand 0.7.3",
  "regex",
  "reqwest 0.12.9",
  "rust_decimal",
