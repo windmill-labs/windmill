@@ -2419,7 +2419,7 @@ async fn push_next_flow_job(
 
     let (job_payloads, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
-        NextFlowTransform::EmptyInnerFlows => {
+        NextFlowTransform::EmptyInnerFlows { branch_chosen } => {
             let raw_status = sqlx::query_scalar!(
                 "UPDATE v2_job_status
                 SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)
@@ -2431,7 +2431,7 @@ async fn push_next_flow_job(
                     job: Uuid::nil(),
                     flow_jobs: Some(vec![]),
                     flow_jobs_success: Some(vec![]),
-                    branch_chosen: None,
+                    branch_chosen: branch_chosen,
                     approvers: vec![],
                     failed_retries: vec![],
                     skipped: false,
@@ -3064,7 +3064,7 @@ enum ContinuePayload {
 }
 
 enum NextFlowTransform {
-    EmptyInnerFlows,
+    EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),
 }
 
@@ -3330,7 +3330,9 @@ async fn compute_next_flow_transform(
             .await?;
 
             match next_loop_status {
-                ForLoopStatus::EmptyIterator => Ok(NextFlowTransform::EmptyInnerFlows),
+                ForLoopStatus::EmptyIterator => {
+                    Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None })
+                }
                 ForLoopStatus::NextIteration(ns) => {
                     next_loop_iteration(
                         flow,
@@ -3382,7 +3384,7 @@ async fn compute_next_flow_transform(
                         })
                         .collect::<Vec<_>>();
                     if payloads.is_empty() {
-                        return Ok(NextFlowTransform::EmptyInnerFlows);
+                        return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
                     }
                     Ok(NextFlowTransform::Continue(
                         ContinuePayload::ParallelJobs(payloads),
@@ -3438,12 +3440,12 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let (modules, modules_node) = match branch {
-                BranchChosen::Default => (default, default_node),
+            let (modules, modules_node, branch_idx) = match branch {
+                BranchChosen::Default => (default, default_node, 0),
                 BranchChosen::Branch { branch } => branches
                     .into_iter()
                     .nth(branch)
-                    .map(|Branch { modules, modules_node, .. }| (modules, modules_node))
+                    .map(|Branch { modules, modules_node, .. }| (modules, modules_node, branch + 1))
                     .ok_or_else(|| {
                         Error::BadRequest(format!(
                             "Unrecognized branch for BranchOne {status_module:?}"
@@ -3457,10 +3459,10 @@ async fn compute_next_flow_transform(
                 flow.failure_module.as_ref(),
                 flow.same_worker,
                 || status.step.to_string(),
-                || format!("{}/branchone-{}", flow_job.script_path(), status.step),
+                || format!("{}/branchone-{}", flow_job.script_path(), branch_idx),
                 true,
             ) else {
-                return Ok(NextFlowTransform::EmptyInnerFlows);
+                return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: Some(branch) });
             };
 
             Ok(NextFlowTransform::Continue(
@@ -3480,7 +3482,7 @@ async fn compute_next_flow_transform(
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     if branches.is_empty() {
-                        return Ok(NextFlowTransform::EmptyInnerFlows);
+                        return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
                     } else if parallel {
                         let len = branches.len();
                         let payloads: Vec<JobPayloadWithTag> = branches
@@ -3508,7 +3510,7 @@ async fn compute_next_flow_transform(
                             })
                             .collect::<Vec<_>>();
                         if payloads.is_empty() {
-                            return Ok(NextFlowTransform::EmptyInnerFlows);
+                            return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
                         }
                         return Ok(NextFlowTransform::Continue(
                             ContinuePayload::ParallelJobs(payloads),
@@ -3566,7 +3568,9 @@ async fn compute_next_flow_transform(
                 },
                 false,
             ) else {
-                return Ok(NextFlowTransform::EmptyInnerFlows);
+                return Ok(NextFlowTransform::EmptyInnerFlows {
+                    branch_chosen: Some(BranchChosen::Default),
+                });
             };
 
             Ok(NextFlowTransform::Continue(
@@ -3628,7 +3632,7 @@ async fn next_loop_iteration(
         inner_path,
         true,
     ) else {
-        return Ok(NextFlowTransform::EmptyInnerFlows);
+        return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
     };
 
     Ok(NextFlowTransform::Continue(
