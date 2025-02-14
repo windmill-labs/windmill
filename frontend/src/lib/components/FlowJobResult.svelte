@@ -43,7 +43,6 @@
 	}
 
 	async function getLogs() {
-		console.log('getLogs', iteration, jobId)
 		iteration += 1
 		if (jobId) {
 			const getUpdate = await JobService.getJobUpdates({
