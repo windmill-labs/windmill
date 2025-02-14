@@ -234,12 +234,16 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore && $page.params.run && testJobLoader) {
-			forceCancel = false
-			getJob()
-		}
+	function onRunsPageChangeWithLoader() {
+		forceCancel = false
+		getJob()
 	}
+
+	function onRunsPageChange() {
+		job = undefined
+	}
+	$: $workspaceStore && $page.params.run && onRunsPageChange()
+	$: $workspaceStore && $page.params.run && testJobLoader && onRunsPageChangeWithLoader()
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 	$: job && onJobLoaded()
@@ -342,7 +346,6 @@
 						path: job.script_path!
 					})
 				}
-				job = undefined
 
 				await goto('/run/' + id + '?workspace=' + $workspaceStore)
 			} else {
@@ -389,7 +392,7 @@
 		</DrawerContent>
 	</Drawer>
 {/if}
-{#if job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview'}
+{#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
 	<TestJobLoader
 		lazyLogs
 		bind:scriptProgress
