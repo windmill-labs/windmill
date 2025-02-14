@@ -95,20 +95,7 @@
 			return jobKinds
 		}
 		if (jobKindsCat == 'all') {
-			let kinds: CompletedJob['job_kind'][] = [
-				'script',
-				'flow',
-				'dependencies',
-				'flowdependencies',
-				'appdependencies',
-				'preview',
-				'flowpreview',
-				'script_hub',
-				'flowscript',
-				'flownode',
-				'appscript'
-			]
-			return kinds.join(',')
+			return ''
 		} else if (jobKindsCat == 'dependencies') {
 			let kinds: CompletedJob['job_kind'][] = [
 				'dependencies',
@@ -121,6 +108,9 @@
 			return kinds.join(',')
 		} else if (jobKindsCat == 'deploymentcallbacks') {
 			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
+			return kinds.join(',')
+		} else if (jobKindsCat == 'runs') {
+			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlescriptflow']
 			return kinds.join(',')
 		} else {
 			let kinds: CompletedJob['job_kind'][] = [
@@ -170,7 +160,7 @@
 				createdBefore,
 				createdBy: user === null || user === '' ? undefined : user,
 				scriptPathStart: scriptPathStart,
-				jobKinds,
+				jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
 				running:
 					success == 'running' || success == 'suspended'
@@ -228,7 +218,7 @@
 				scriptPathExact: path === null || path === '' ? undefined : path,
 				createdBy: user === null || user === '' ? undefined : user,
 				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
-				jobKinds,
+				jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
 				running: success == 'running' ? true : undefined,
 				isSkipped: isSkipped ? undefined : false,

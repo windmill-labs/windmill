@@ -573,18 +573,6 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_6 ON v2_job  (workspace_id, created_at DESC) where kind in ('script', 'flow') AND parent_job IS NULL")
-                .execute(db)
-                .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_7 ON v2_job  (workspace_id, created_at DESC) where kind in ('script', 'flow') AND parent_job IS NULL")
-                .execute(db)
-                .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
         sqlx::query!("create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON v2_job_completed  (workspace_id, started_at DESC)")
                 .execute(db)
                 .await?;
@@ -649,6 +637,20 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
 
     run_windmill_migration!("v2_jobs_rls", &db, |tx| {
         sqlx::query!("ALTER TABLE v2_job ENABLE ROW LEVEL SECURITY")
+            .execute(db)
+            .await?;
+    });
+
+    run_windmill_migration!("v2_improve_v2_job_indices_ii", &db, |tx| {
+        sqlx::query!("create index concurrently if not exists ix_v2_job_workspace_id_created_at ON v2_job  (workspace_id, created_at DESC) where kind in ('script', 'flow', 'singlescriptflow') AND parent_job IS NULL")
+                .execute(db)
+                .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS ix_job_workspace_id_created_at_new_6")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS ix_job_workspace_id_created_at_new_7")
             .execute(db)
             .await?;
     });
