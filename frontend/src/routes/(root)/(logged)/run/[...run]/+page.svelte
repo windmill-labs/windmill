@@ -342,6 +342,7 @@
 						path: job.script_path!
 					})
 				}
+				job = undefined
 
 				await goto('/run/' + id + '?workspace=' + $workspaceStore)
 			} else {
