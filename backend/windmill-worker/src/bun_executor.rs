@@ -951,6 +951,7 @@ pub async fn handle_bun_job(
         let args = windmill_parser_ts::parse_deno_signature(
             inner_content,
             true,
+            false,
             main_override.map(ToString::to_string),
         )?
         .args;
@@ -960,6 +961,7 @@ pub async fn handle_bun_job(
                 windmill_parser_ts::parse_deno_signature(
                     inner_content,
                     true,
+                    false,
                     Some("preprocessor".to_string()),
                 )?
                 .args,
@@ -1573,7 +1575,7 @@ pub async fn start_worker(
 
     {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, None)?.args;
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
         let dates = args
             .iter()
             .filter_map(|x| {
