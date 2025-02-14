@@ -927,6 +927,9 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					on:done={(e) => {
+						job = e.detail
+					}}
 					initialJob={job}
 					workspaceId={$workspaceStore}
 					bind:selectedJobStep
