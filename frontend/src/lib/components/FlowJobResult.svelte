@@ -29,17 +29,22 @@
 
 	$: jobId != lastJobId && diffJobId()
 
+	let iteration = 0
+	let logOffset = 0
+
 	async function diffJobId() {
 		if (jobId != lastJobId) {
 			lastJobId = jobId
 			logs = undefined
 			logOffset = 0
+			iteration = 0
 			getLogs()
 		}
 	}
 
-	let logOffset = 0
 	async function getLogs() {
+		console.log('getLogs', iteration, jobId)
+		iteration += 1
 		if (jobId) {
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspaceId ?? $workspaceStore!,
@@ -51,11 +56,14 @@
 			logOffset = getUpdate.log_offset ?? 0
 		}
 		if (refreshLog) {
-			setTimeout(() => {
-				if (refreshLog) {
-					getLogs()
-				}
-			}, 1000)
+			setTimeout(
+				() => {
+					if (refreshLog) {
+						getLogs()
+					}
+				},
+				iteration < 10 ? 1000 : iteration < 20 ? 2000 : 5000
+			)
 		}
 	}
 </script>

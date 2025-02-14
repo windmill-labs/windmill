@@ -388,19 +388,20 @@
 		</DrawerContent>
 	</Drawer>
 {/if}
-
-<TestJobLoader
-	lazyLogs
-	bind:scriptProgress
-	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
-	bind:this={testJobLoader}
-	bind:getLogs
-	bind:isLoading={testIsLoading}
-	bind:job
-	bind:jobUpdateLastFetch
-	workspaceOverride={$workspaceStore}
-	bind:notfound
-/>
+{#if job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview'}
+	<TestJobLoader
+		lazyLogs
+		bind:scriptProgress
+		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
+		bind:this={testJobLoader}
+		bind:getLogs
+		bind:isLoading={testIsLoading}
+		bind:job
+		bind:jobUpdateLastFetch
+		workspaceOverride={$workspaceStore}
+		bind:notfound
+	/>
+{/if}
 
 <Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
