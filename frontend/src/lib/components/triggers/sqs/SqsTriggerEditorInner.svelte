@@ -69,7 +69,7 @@
 			aws_resource_path = defaultValues?.aws_resource_path ?? ''
 			queue_url = defaultValues?.queue_url ?? ''
 			path = ''
-			message_attributes = defaultValues?.message_attributes ?? ['All']
+			message_attributes = defaultValues?.message_attributes ?? []
 			initialPath = ''
 			edit = false
 			dirtyPath = false
