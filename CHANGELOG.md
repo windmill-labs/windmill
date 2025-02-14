@@ -7,6 +7,15 @@
 
 * display branch chosen even if emoty branch ([77a8eed](https://github.com/windmill-labs/windmill/commit/77a8eedc96171e9f84463407bdc5aec9b7b10d62))
 * improve handling of empty branches and loops ([e7d4582](https://github.com/windmill-labs/windmill/commit/e7d458278969897aa7312dcd20a8091aaad772d7))
+* users should be able to see their own jobs ([9ccadb6](https://github.com/windmill-labs/windmill/commit/9ccadb6085498119bdfcc172d52c7fce1eb3336e))
+
+## [1.462.2](https://github.com/windmill-labs/windmill/compare/v1.462.1...v1.462.2) (2025-02-14)
+
+
+### Bug Fixes
+
+* display branch chosen even if emoty branch ([77a8eed](https://github.com/windmill-labs/windmill/commit/77a8eedc96171e9f84463407bdc5aec9b7b10d62))
+* improve handling of empty branches and loops ([e7d4582](https://github.com/windmill-labs/windmill/commit/e7d458278969897aa7312dcd20a8091aaad772d7))
 
 ## [1.462.1](https://github.com/windmill-labs/windmill/compare/v1.462.0...v1.462.1) (2025-02-14)
 
