@@ -5,6 +5,7 @@ x-logging: &default-logging
   options:
     max-size: "${LOG_MAX_SIZE:-20m}"
     max-file: "${LOG_MAX_FILE:-10}"
+    compress: "true"
 
 services:
   db:
