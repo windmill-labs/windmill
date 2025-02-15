@@ -1319,7 +1319,7 @@ pub fn filter_list_queue_query(
     }
     if let Some(p) = &lq.schedule_path {
         sqlb.and_where_eq("trigger", "?".bind(p));
-        sqlb.and_where_eq("trigger_kind", "schedule");
+        sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("runnable_id", "?".bind(h));
