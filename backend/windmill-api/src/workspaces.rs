@@ -1362,6 +1362,7 @@ struct UsedTriggers {
     pub kafka_used: bool,
     pub nats_used: bool,
     pub postgres_used: bool,
+    pub mqtt_used: bool
 }
 
 async fn get_used_triggers(
@@ -1380,7 +1381,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
-            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!"
+            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
+            EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!"
         "#,
         w_id
     )

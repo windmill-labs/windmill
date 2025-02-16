@@ -12,9 +12,10 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { MqttTriggerService } from '$lib/gen'
+	import { MqttTriggerService, type SubscribeTopic } from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 
+	let mqtt_resource_path: string = ''
 	let drawer: Drawer
 	let is_flow: boolean = false
 	let initialPath = ''
@@ -29,7 +30,7 @@
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
-	let topics: string[] = []
+	let subscribe_topics: SubscribeTopic[] = []
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -57,13 +58,14 @@
 	) {
 		drawerLoading = true
 		try {
+			mqtt_resource_path = ''
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			topics = defaultValues?.topics ?? []
+			subscribe_topics = defaultValues?.topics ?? []
 			path = ''
 			initialPath = ''
 			edit = false
@@ -79,7 +81,9 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-			topics = s.topics
+			console.log({ s })
+			mqtt_resource_path = s.mqtt_resource_path
+			subscribe_topics = s.subscribe_topics
 			script_path = s.script_path
 			initialScriptPath = s.script_path
 			is_flow = s.is_flow
@@ -97,7 +101,8 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
-					topics,
+					mqtt_resource_path,
+					subscribe_topics,
 					path,
 					script_path,
 					enabled,
@@ -109,7 +114,8 @@
 			await MqttTriggerService.createMqttTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
-					topics,
+					mqtt_resource_path,
+					subscribe_topics,
 					enabled: true,
 					path,
 					script_path,
@@ -190,8 +196,6 @@
 					</Label>
 				</div>
 
-				<MqttEditorConfigSection bind:topics bind:can_write headless={true} />
-
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered<Required required={true} />
@@ -208,6 +212,13 @@
 						/>
 					</div>
 				</Section>
+
+				<MqttEditorConfigSection
+					bind:mqtt_resource_path
+					bind:subscribe_topics
+					bind:can_write
+					headless={true}
+				/>
 			</div>
 		{/if}
 	</DrawerContent>

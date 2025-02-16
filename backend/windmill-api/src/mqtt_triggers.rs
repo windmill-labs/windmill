@@ -2,6 +2,7 @@ use crate::{
     capture::{insert_capture_payload, MqttTriggerConfig, TriggerKind},
     db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
+    resources::try_get_resource_from_db_as,
     users::fetch_api_authed,
 };
 use axum::{
@@ -13,12 +14,19 @@ use axum::{
     Router,
 };
 use http::StatusCode;
+use itertools::Itertools;
+use rumqttc::MqttOptions;
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::FromRow;
+use sqlx::{
+    error::BoxDynError,
+    postgres::{PgHasArrayType, PgTypeInfo, PgValueRef},
+    Decode, Encode, FromRow, Postgres, Type,
+};
 use std::collections::HashMap;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
+    auth,
     db::UserDB,
     error::{self, JsonResult},
     utils::{not_found_if_none, paginate, report_critical_error, Pagination, StripPath},
@@ -27,7 +35,7 @@ use windmill_common::{
 };
 
 use rand::seq::SliceRandom;
-use serde_json::value::RawValue;
+use serde_json::{to_value, value::RawValue, Value};
 use sqlx::types::Json as SqlxJson;
 
 use windmill_queue::PushArgsOwned;
@@ -93,27 +101,44 @@ async fn run_job(
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub struct EditMqttTrigger {
-    topics: Vec<String>,
-    path: String,
-    script_path: String,
-    is_flow: bool,
+#[derive(Debug, Deserialize)]
+pub struct MqttResource {
+    username: Option<String>,
+    password: Option<String>,
+    port: u16,
+    host: String,
+    ca_certificate: Option<Vec<u8>>,
+}
+#[derive(FromRow, Debug, Serialize, Deserialize)]
+pub struct SubscribeTopic {
+    qos: u8,
+    topic: String,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 
 pub struct NewMqttTrigger {
-    topics: Vec<String>,
+    mqtt_resource_path: String,
+    subscribe_topics: Vec<sqlx::types::Json<SubscribeTopic>>,
     path: String,
     script_path: String,
     is_flow: bool,
     enabled: bool,
 }
 
-#[derive(FromRow, Deserialize, Serialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EditMqttTrigger {
+    mqtt_resource_path: String,
+    subscribe_topics: Vec<sqlx::types::Json<SubscribeTopic>>,
+    path: String,
+    script_path: String,
+    is_flow: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct MqttTrigger {
-    pub topics: Vec<String>,
+    pub mqtt_resource_path: String,
+    pub subscribe_topics: Vec<sqlx::types::Json<SubscribeTopic>>,
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
@@ -160,14 +185,27 @@ pub async fn create_mqtt_trigger(
         ));
     }
 
-    let NewMqttTrigger {topics, path, script_path, enabled, is_flow } = new_mqtt_trigger;
+    let NewMqttTrigger {
+        mqtt_resource_path,
+        subscribe_topics,
+        path,
+        script_path,
+        enabled,
+        is_flow,
+    } = new_mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    let subscribe_topics = subscribe_topics
+        .into_iter()
+        .map(|topic| to_value(topic).unwrap())
+        .collect_vec();
 
     sqlx::query!(
         r#"
         INSERT INTO mqtt_trigger (
-            topics,
+            mqtt_resource_path,
+            subscribe_topics,
             workspace_id, 
             path, 
             script_path, 
@@ -184,9 +222,11 @@ pub async fn create_mqtt_trigger(
             $5, 
             $6, 
             $7,
-            $8
+            $8,
+            $9
         )"#,
-        topics.as_slice(),
+        mqtt_resource_path,
+        subscribe_topics.as_slice(),
         &w_id,
         &path,
         script_path,
@@ -224,7 +264,8 @@ pub async fn list_mqtt_triggers(
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
     let mut sqlb = SqlBuilder::select_from("mqtt_trigger")
         .fields(&[
-            "topics",
+            "mqtt_resource_path",
+            "subscribe_topics",
             "workspace_id",
             "path",
             "script_path",
@@ -281,7 +322,8 @@ pub async fn get_mqtt_trigger(
         MqttTrigger,
         r#"
         SELECT
-            topics,
+            mqtt_resource_path,
+            subscribe_topics as "subscribe_topics!: Vec<sqlx::types::Json<SubscribeTopic>>",
             workspace_id,
             path,
             script_path,
@@ -319,29 +361,37 @@ pub async fn update_mqtt_trigger(
     Json(mqtt_trigger): Json<EditMqttTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    let EditMqttTrigger { topics,script_path, path, is_flow } = mqtt_trigger;
+    let EditMqttTrigger { mqtt_resource_path, subscribe_topics, script_path, path, is_flow } =
+        mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    let subscribe_topics = subscribe_topics
+        .into_iter()
+        .map(|topic| to_value(topic).unwrap())
+        .collect_vec();
 
     sqlx::query!(
         r#"
             UPDATE 
                 mqtt_trigger 
             SET
-                topics = $1, 
-                is_flow = $2, 
-                edited_by = $3, 
-                email = $4,
-                script_path = $5,
-                path = $6,
+                mqtt_resource_path =  $1,
+                subscribe_topics = $2, 
+                is_flow = $3, 
+                edited_by = $4, 
+                email = $5,
+                script_path = $6,
+                path = $7,
                 edited_at = now(), 
                 error = NULL,
                 server_id = NULL
             WHERE 
-                workspace_id = $7 AND 
-                path = $8
+                workspace_id = $8 AND 
+                path = $9
             "#,
-        topics.as_slice(),
+        mqtt_resource_path,
+        subscribe_topics.as_slice(),
         is_flow,
         &authed.username,
         &authed.email,
@@ -706,6 +756,47 @@ impl MqttConfig {
     }
 
     async fn start_consuming_messages(&self, db: &DB) -> std::result::Result<(), Error> {
+        let mqtt_resource_path;
+        let topics;
+        let workspace_id;
+        let authed;
+
+        match self {
+            MqttConfig::Capture(capture) => {
+                mqtt_resource_path = &capture.trigger_config.0.mqtt_resource_path;
+                topics = capture
+                    .trigger_config
+                    .0
+                    .subscribe_topics
+                    .iter()
+                    .collect_vec()
+                    .as_slice();
+                workspace_id = &capture.trigger_config.0.mqtt_resource_path;
+                authed = capture.fetch_authed(&db).await?;
+            }
+            MqttConfig::Trigger(trigger) => {
+                mqtt_resource_path = &trigger.mqtt_resource_path;
+                topics = trigger
+                    .subscribe_topics
+                    .iter()
+                    .map(|topic| &topic.0)
+                    .collect_vec()
+                    .as_slice();
+                workspace_id = &trigger.workspace_id;
+                authed = trigger.fetch_authed(&db).await?;
+            }
+        }
+
+        let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
+            authed,
+            Some(UserDB::new(db.clone())),
+            db,
+            mqtt_resource_path,
+            workspace_id,
+        )
+        .await?;
+
+        //let options = MqttOptions::new(, host, port);
         Ok(())
     }
 
@@ -979,7 +1070,8 @@ async fn listen_to_unlistened_mqtt_events(
         MqttTrigger,
         r#"
             SELECT
-                topics,
+                mqtt_resource_path,
+                subscribe_topics as "subscribe_topics!: Vec<sqlx::types::Json<SubscribeTopic>>",
                 workspace_id,
                 path,
                 script_path,

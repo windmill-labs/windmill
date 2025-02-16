@@ -7,14 +7,6 @@
  */
 
 #[cfg(feature = "http_trigger")]
-use http::HeaderMap;
-#[cfg(feature = "http_trigger")]
-use serde::de::DeserializeOwned;
-#[cfg(feature = "http_trigger")]
-use std::collections::HashMap;
-#[cfg(feature = "http_trigger")]
-use windmill_common::error::Error;
-#[cfg(feature = "http_trigger")]
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
@@ -25,21 +17,35 @@ use crate::postgres_triggers::{
     create_logical_replication_slot_query, create_publication_query, drop_publication_query,
     generate_random_string, get_database_connection, PublicationData,
 };
+#[cfg(feature = "http_trigger")]
+use http::HeaderMap;
 #[cfg(feature = "postgres_trigger")]
 use itertools::Itertools;
 #[cfg(feature = "postgres_trigger")]
 use pg_escape::quote_literal;
+#[cfg(feature = "http_trigger")]
+use serde::de::DeserializeOwned;
+#[cfg(feature = "http_trigger")]
+use std::collections::HashMap;
+#[cfg(feature = "http_trigger")]
+use windmill_common::error::Error;
 
+use crate::{
+    args::WebhookArgs,
+    db::{ApiAuthed, DB},
+    mqtt_triggers::SubscribeTopic,
+    users::fetch_api_authed,
+};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, head, post},
     Json, Router,
 };
 use hyper::StatusCode;
-use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
+use std::fmt;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
@@ -47,11 +53,6 @@ use windmill_common::{
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 use windmill_queue::{PushArgs, PushArgsOwned};
-use crate::{
-    args::WebhookArgs,
-    db::{ApiAuthed, DB},
-    users::fetch_api_authed,
-};
 
 const KEEP_LAST: i64 = 20;
 
@@ -98,7 +99,7 @@ pub enum TriggerKind {
     Email,
     Nats,
     Mqtt,
-    Postgres
+    Postgres,
 }
 
 impl fmt::Display for TriggerKind {
@@ -149,7 +150,9 @@ pub struct NatsTriggerConfig {
 #[cfg(feature = "mqtt_trigger")]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MqttTriggerConfig {
-    topics: Vec<String>
+    pub mqtt_resource_path: String,
+    pub subscribe_topics: Vec<SubscribeTopic>,
+    pub ca_certificate: Option<Vec<u8>>
 }
 #[cfg(feature = "postgres_trigger")]
 #[derive(Serialize, Deserialize, Debug)]
@@ -182,7 +185,7 @@ enum TriggerConfig {
     #[cfg(all(feature = "enterprise", feature = "nats"))]
     Nats(NatsTriggerConfig),
     #[cfg(feature = "mqtt_trigger")]
-    Mqtt(MqttTriggerConfig)
+    Mqtt(MqttTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -296,8 +299,7 @@ async fn set_config(
     #[cfg(feature = "postgres_trigger")]
     let nc = if let TriggerKind::Postgres = nc.trigger_kind {
         set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
-    }
-    else {
+    } else {
         nc
     };
 

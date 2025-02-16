@@ -13697,16 +13697,30 @@ components:
                 - is_flow
           required:
             - runnable_result
-    
+
+    SubscribeTopic:
+      type: object
+      properties:
+        qos:
+          type: number
+          enum: [0, 1, 2]
+        topic:
+          type: string
+      required:
+        - qos
+        - topic
+  
     MqttTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        topics:
+        mqtt_resource_path:
+          type: string
+        subscribe_topics:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/SubscribeTopic"
         server_id:
           type: string
         last_server_ping:
@@ -13719,15 +13733,18 @@ components:
 
       required:
         - enabled
-        - topics
+        - subscribe_topics
+        - mqtt_resource_path
 
     NewMqttTrigger:
       type: object
       properties:
-        topics:
+        mqtt_resource_path:
+          type: string      
+        subscribe_topics:
           type: array
           items:
-            type: string        
+            $ref: "#/components/schemas/SubscribeTopic"
         path:
           type: string
         script_path:
@@ -13740,15 +13757,18 @@ components:
         - path
         - script_path
         - is_flow
-        - topics
+        - subscribe_topics
+        - mqtt_resource_path
 
     EditMqttTrigger:
       type: object
       properties:
-        topics:
+        mqtt_resource_path:
+          type: string
+        subscribe_topics:
           type: array
           items:
-            type: string        
+            $ref: "#/components/schemas/SubscribeTopic"
         path:
           type: string
         script_path:
@@ -13762,8 +13782,9 @@ components:
         - script_path
         - is_flow
         - enabled
-        - topics
-  
+        - subscribe_topics  
+        - mqtt_resource_path
+
     Slot:
       type: object
       properties:

@@ -1,7 +1,19 @@
--- Add up migration script here
+ -- Add up migration script here
+
+CREATE TYPE MQTT_CLIENT_VERSION AS ENUM ('v3', 'v5');
 
 CREATE TABLE mqtt_trigger (
-    topics TEXT[] NOT NULL,
+    mqtt_resource_path VARCHAR(255) NOT NULL,
+    subscribe_topics JSONB[] NOT NULL,
+    -- compact in jsonb
+    started_client_session TIMESTAMPTZ NULL,
+    client_version MQTT_CLIENT_VERSION DEFAULT v5,
+    client_id VARCHAR(65535) NULL,
+    clean_start BOOLEAN DEFAULT true,
+    clean_session BOOLEAN DEFAULT true,
+    keep_alive SMALLINT DEFAULT 60,
+    session_expiration BIGINT 7200,
+    --
     path VARCHAR(255) NOT NULL,
     script_path VARCHAR(255) NOT NULL,
     is_flow BOOLEAN NOT NULL,
