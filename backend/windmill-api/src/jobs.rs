@@ -1319,7 +1319,7 @@ pub fn filter_list_queue_query(
     }
     if let Some(p) = &lq.schedule_path {
         sqlb.and_where_eq("trigger", "?".bind(p));
-        sqlb.and_where_eq("trigger_kind", "schedule");
+        sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("runnable_id", "?".bind(h));
@@ -2681,7 +2681,7 @@ const CJ_FIELDS: &[&str] = &[
     "v2_job.runnable_path as script_path",
     "null as args",
     "v2_job_completed.duration_ms",
-    "v2_job_completed.status = 'success' as success",
+    "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
     "false as deleted",
     "v2_job_completed.status = 'canceled' as canceled",
     "v2_job_completed.canceled_by",
@@ -5472,7 +5472,7 @@ async fn list_completed_jobs(
             "v2_job.created_at",
             "v2_job_completed.started_at",
             "v2_job_completed.duration_ms",
-            "v2_job_completed.status = 'success' as success",
+            "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
             "v2_job.runnable_id as script_hash",
             "v2_job.runnable_path as script_path",
             "false as deleted",
