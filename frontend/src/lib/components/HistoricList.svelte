@@ -77,7 +77,7 @@
 				// We cannot apply potential items right after fetch,
 				// because that would trigger expansion in list
 				// and old items will be loading by 10 every reload
-				if (perPageBind != perPage) items.push(...potentialItems), (perPageBind = perPage)
+				if (perPageBind != perPage) { items.push(...potentialItems); perPageBind = perPage; }
 				return items
 			} else {
 				// Save discovered items to buffer and apply later
