@@ -1800,13 +1800,13 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
     #[cfg(feature = "prometheus")]
-    if _api_list_jobs_query_duration.is_some() {
+    if _api_list_jobs_query_duration.is_some() || true {
         tracing::info!("list_jobs query: {}", sql);
     }
 
@@ -4695,6 +4695,7 @@ struct BatchInfo {
     flow_value: Option<FlowValue>,
     path: Option<String>,
     rawscript: Option<BatchRawScript>,
+    tag: Option<String>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -4863,6 +4864,8 @@ async fn add_batch_jobs(
         } else {
             format!("{}", language.as_str())
         }
+    } else if let Some(tag) = batch_info.tag {
+        tag
     } else {
         format!("{}", language.as_str())
     };
