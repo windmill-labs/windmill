@@ -152,7 +152,6 @@ export async function main({
     await createBenchScript(kind, workspace);
   }
 
-  pastJobs = await getCompletedJobsCount();
 
   const jobsSent = jobs;
   console.log(`Bulk creating ${jobsSent} jobs`);
@@ -208,11 +207,43 @@ export async function main({
     throw new Error("Unknown script pattern " + kind);
   }
 
-  const response = await fetch(
-    config.server +
+  let testOtherTag = false;
+  const otherTagTodo = 500000;
+  if (testOtherTag) {
+    let parsed = JSON.parse(body);
+    parsed.tag = "test";
+    let nbody = JSON.stringify(parsed);
+    let response2 = await fetch(
+      config.server +
       "/api/w/" +
       config.workspace_id +
-      `/jobs/add_batch_jobs/${jobsSent}`,
+      `/jobs/add_batch_jobs/${otherTagTodo}`,
+      {
+        method: "POST",
+        headers: {
+          ["Authorization"]: "Bearer " + config.token,
+          "Content-Type": "application/json",
+        },
+        body: nbody,
+      }
+    );
+    if (!response2.ok) {
+      throw new Error(
+        "Failed to create jobs: " +
+        response2.statusText +
+        " " +
+        (await response2.text())
+      );
+    }
+  }
+
+  pastJobs = await getCompletedJobsCount();
+
+  const response = await fetch(
+    config.server +
+    "/api/w/" +
+    config.workspace_id +
+    `/jobs/add_batch_jobs/${jobsSent}`,
     {
       method: "POST",
       headers: {
@@ -222,20 +253,24 @@ export async function main({
       body,
     }
   );
+
+
+
+
+
   if (!response.ok) {
     throw new Error(
       "Failed to create jobs: " +
-        response.statusText +
-        " " +
-        (await response.text())
+      response.statusText +
+      " " +
+      (await response.text())
     );
   }
   const uuids = await response.json();
   const end_create = Date.now();
   const create_duration = end_create - start_create;
   console.log(
-    `Jobs successfully added to the queue in ${
-      create_duration / 1000
+    `Jobs successfully added to the queue in ${create_duration / 1000
     }s. Windmill will start pulling them\n`
   );
   let start = Date.now();
@@ -249,7 +284,7 @@ export async function main({
     const loopStart = Date.now();
     if (!didStart) {
       const actual_queue = await getQueueCount();
-      if (actual_queue < jobsSent) {
+      if (actual_queue < jobsSent + otherTagTodo) {
         start = Date.now();
         didStart = true;
       }
@@ -263,9 +298,9 @@ export async function main({
       const instThr =
         lastElapsed > 0
           ? (
-              ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
-              1000
-            ).toFixed(2)
+            ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
+            1000
+          ).toFixed(2)
           : 0;
 
       lastElapsed = elapsed;
@@ -275,8 +310,7 @@ export async function main({
         enc(
           `elapsed: ${(elapsed / 1000).toFixed(
             2
-          )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${
-            jobsSent - completedJobs
+          )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${jobsSent - completedJobs
           }                          \r`
         )
       );

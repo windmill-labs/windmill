@@ -660,9 +660,9 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .execute(db)
             .await?;
 
-        sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_2_v2 ON v2_job_queue (tag, priority DESC NULLS LAST, scheduled_for) WHERE running = false")
-            .execute(db)
-            .await?;
+        // sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_2_v2 ON v2_job_queue (tag, priority DESC NULLS LAST, scheduled_for) WHERE running = false")
+        //     .execute(db)
+        //     .await?;
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort")
             .execute(db)
