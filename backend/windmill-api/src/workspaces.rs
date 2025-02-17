@@ -213,7 +213,7 @@ pub struct WorkspaceSettings {
     pub deploy_to: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_resource: Option<serde_json::Value>,
-    pub ai_models: Vec<String>,
+    pub ai_models: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -454,7 +454,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_resource, ai_models, code_completion_model, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, automatic_billing, default_scripts, mute_critical_alerts, color, operator_settings FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)

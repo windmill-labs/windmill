@@ -82,9 +82,9 @@ impl RunnableType {
 
     fn column_name(&self) -> &'static str {
         match self {
-            RunnableType::ScriptHash => "script_hash",
-            RunnableType::ScriptPath => "script_path",
-            RunnableType::FlowPath => "script_path",
+            RunnableType::ScriptHash => "runnable_id",
+            RunnableType::ScriptPath => "runnable_path",
+            RunnableType::FlowPath => "runnable_path",
         }
     }
 }
@@ -133,9 +133,9 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = &format!(
-        "select id, created_at, created_by, 'null'::jsonb as args, success from v2_as_completed_job \
-        where {} = $1 and job_kind = any($2) and workspace_id = $3 \
-        order by created_at desc limit $4 offset $5",
+        "select id, v2_job.created_at, created_by, 'null'::jsonb as args, status = 'success' as success from v2_job JOIN v2_job_completed USING (id) \
+        where {} = $1 and kind = any($2) and v2_job.workspace_id = $3 AND v2_job_completed.status != 'skipped' \
+        order by v2_job.created_at desc limit $4 offset $5",
         r.runnable_type.column_name()
     );
 

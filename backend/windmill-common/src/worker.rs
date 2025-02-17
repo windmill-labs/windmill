@@ -657,7 +657,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
     let min_version = pings
         .iter()
         .filter(|x| !x.is_empty())
-        .filter_map(|x| semver::Version::parse(x.split_at(1).1).ok())
+        .filter_map(|x| semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok())
         .min()
         .unwrap_or_else(|| cur_version.clone());
 

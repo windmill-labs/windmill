@@ -60,6 +60,7 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
 pub fn parse_python_signature(
     code: &str,
     override_main: Option<String>,
+    skip_params: bool,
 ) -> anyhow::Result<MainArgSignature> {
     let main_name = override_main.unwrap_or("main".to_string());
 
@@ -78,11 +79,13 @@ pub fn parse_python_signature(
     let ast = Suite::parse(&filtered_code, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
-    let param = ast.into_iter().find_map(|x| match x {
+    let params = ast.into_iter().find_map(|x| match x {
         Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => Some(*args),
         _ => None,
     });
-    if let Some(params) = param {
+
+    if !skip_params && params.is_some() {
+        let params = params.unwrap();
         //println!("{:?}", params);
         let def_arg_start = params.args.len() - params.defaults().count();
         Ok(MainArgSignature {
@@ -149,7 +152,7 @@ pub fn parse_python_signature(
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            no_main_func: Some(params.is_none()),
             has_preprocessor: Some(has_preprocessor),
         })
     }
@@ -287,7 +290,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -376,7 +379,7 @@ def main(test1: str,
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -436,7 +439,7 @@ def main(test1: str,
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -493,7 +496,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -537,7 +540,7 @@ def main(test1: DynSelect_foo): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -568,7 +571,7 @@ def hello(): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -596,7 +599,7 @@ def main(): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -617,10 +620,10 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
 "#;
         println!(
             "{}",
-            serde_json::to_string(&parse_python_signature(code, None)?)?
+            serde_json::to_string(&parse_python_signature(code, None, false)?)?
         );
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
