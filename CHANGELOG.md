@@ -5,6 +5,16 @@
 
 ### Bug Fixes
 
+* improve que job indices for faster performances ([9530826](https://github.com/windmill-labs/windmill/commit/953082681e2c4fd71d5ac1acf372265ccc72297b))
+* improve que job indices for faster performances ([85c56e9](https://github.com/windmill-labs/windmill/commit/85c56e9450773c03a44a4c99821717de5aef287f))
+* improve que job indices for faster performances ([5e22690](https://github.com/windmill-labs/windmill/commit/5e22690bd9257d6c515c07b9357f955c2fcbb298))
+* improve teams settings in workspace settings ([#5316](https://github.com/windmill-labs/windmill/issues/5316)) ([935b5b7](https://github.com/windmill-labs/windmill/commit/935b5b799636c0f02597315837268d4a76f6709a))
+
+## [1.463.4](https://github.com/windmill-labs/windmill/compare/v1.463.3...v1.463.4) (2025-02-17)
+
+
+### Bug Fixes
+
 * improve queue job indices for faster performances ([9530826](https://github.com/windmill-labs/windmill/commit/953082681e2c4fd71d5ac1acf372265ccc72297b))
 * improve teams settings in workspace settings ([#5316](https://github.com/windmill-labs/windmill/issues/5316)) ([935b5b7](https://github.com/windmill-labs/windmill/commit/935b5b799636c0f02597315837268d4a76f6709a))
 
