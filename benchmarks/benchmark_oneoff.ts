@@ -37,6 +37,7 @@ async function verifyOutputs(uuids: string[], workspace: string) {
   console.log(`Incorrect results: ${incorrectResults}`);
 }
 
+export const NON_TEST_TAGS = ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "flow"]
 export async function main({
   host,
   email,
@@ -96,11 +97,11 @@ export async function main({
   windmill.setClient(final_token, host);
   const enc = (s: string) => new TextEncoder().encode(s);
 
-  async function getQueueCount() {
+  async function getQueueCount(tags?: string[]) {
     return (
       await (
         await fetch(
-          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count" + (tags && tags.length > 0 ? "?tags=" + tags.join(",") : ""),
           { headers: { ["Authorization"]: "Bearer " + config.token } }
         )
       ).json()
@@ -132,11 +133,11 @@ export async function main({
   }
 
   let pastJobs = 0;
-  async function getCompletedJobsCount(): Promise<number> {
+  async function getCompletedJobsCount(tags?: string[]): Promise<number> {
     const completedJobs = (
       await (
         await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/completed/count",
+          host + "/api/w/" + config.workspace_id + "/jobs/completed/count" + (tags && tags.length > 0 ? "?tags=" + tags.join(",") : ""),
           { headers: { ["Authorization"]: "Bearer " + config.token } }
         )
       ).json()
@@ -208,8 +209,9 @@ export async function main({
   }
 
   let testOtherTag = false;
-  const otherTagTodo = 500000;
   if (testOtherTag) {
+    const otherTagTodo = 2000000;
+
     let parsed = JSON.parse(body);
     parsed.tag = "test";
     let nbody = JSON.stringify(parsed);
@@ -237,7 +239,7 @@ export async function main({
     }
   }
 
-  pastJobs = await getCompletedJobsCount();
+  pastJobs = await getCompletedJobsCount(NON_TEST_TAGS);
 
   const response = await fetch(
     config.server +
@@ -283,14 +285,14 @@ export async function main({
   while (completedJobs < jobsSent) {
     const loopStart = Date.now();
     if (!didStart) {
-      const actual_queue = await getQueueCount();
-      if (actual_queue < jobsSent + (testOtherTag ? otherTagTodo : 0)) {
+      const actual_queue = await getQueueCount(NON_TEST_TAGS);
+      if (actual_queue < jobsSent) {
         start = Date.now();
         didStart = true;
       }
     } else {
       const elapsed = start ? Date.now() - start : 0;
-      completedJobs = await getCompletedJobsCount();
+      completedJobs = await getCompletedJobsCount(NON_TEST_TAGS);
       if (nStepsFlow > 0) {
         completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
       }
@@ -328,7 +330,7 @@ export async function main({
   console.log(`avg. throughput (jobs/time): ${jobsSent / total_duration_sec}`);
 
   console.log("completed jobs", completedJobs);
-  console.log("queue length:", await getQueueCount());
+  console.log("queue length:", await getQueueCount(NON_TEST_TAGS));
 
   if (
     !noVerify &&

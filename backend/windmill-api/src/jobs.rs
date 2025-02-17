@@ -1647,6 +1647,7 @@ struct QueueStats {
 #[derive(Deserialize)]
 pub struct CountQueueJobsQuery {
     all_workspaces: Option<bool>,
+    tags: Option<String>,
 }
 
 async fn count_queue_jobs(
@@ -1654,12 +1655,16 @@ async fn count_queue_jobs(
     Path(w_id): Path<String>,
     Query(cq): Query<CountQueueJobsQuery>,
 ) -> error::JsonResult<QueueStats> {
+    let tags = cq
+        .tags
+        .map(|t| t.split(',').map(|s| s.to_string()).collect::<Vec<_>>());
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now()",
+            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
+            tags.as_ref().map(|v| v.as_slice())
         )
         .fetch_one(&db)
         .await?,
