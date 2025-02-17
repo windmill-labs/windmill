@@ -655,6 +655,23 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
+    run_windmill_migration!("v2_improve_v2_queued_jobs_indices", &db, |tx| {
+        sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) WHERE running = false")
+            .execute(db)
+            .await?;
+
+        // sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_2_v2 ON v2_job_queue (tag, priority DESC NULLS LAST, scheduled_for) WHERE running = false")
+        //     .execute(db)
+        //     .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort_2")
+            .execute(db)
+            .await?;
+    });
     Ok(())
 }
 
