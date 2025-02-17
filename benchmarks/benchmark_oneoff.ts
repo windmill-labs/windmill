@@ -284,7 +284,7 @@ export async function main({
     const loopStart = Date.now();
     if (!didStart) {
       const actual_queue = await getQueueCount();
-      if (actual_queue < jobsSent + otherTagTodo) {
+      if (actual_queue < jobsSent + (testOtherTag ? otherTagTodo : 0)) {
         start = Date.now();
         didStart = true;
       }
