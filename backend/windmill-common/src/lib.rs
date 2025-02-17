@@ -281,7 +281,7 @@ pub async fn connect_db(
 pub async fn connect(
     database_url: &str,
     max_connections: u32,
-    worker_mode: bool,
+    _worker_mode: bool,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
     use std::time::Duration;
 
@@ -289,18 +289,18 @@ pub async fn connect(
         .min_connections((max_connections / 5).clamp(3, max_connections))
         .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
-        .after_connect(move |conn, _| {
-            if worker_mode {
-                Box::pin(async move {
-                    sqlx::query("SET enable_seqscan = OFF;")
-                        .execute(conn)
-                        .await?;
-                    Ok(())
-                })
-            } else {
-                Box::pin(async move { Ok(()) })
-            }
-        })
+        // .after_connect(move |conn, _| {
+        //     if worker_mode {
+        //         Box::pin(async move {
+        //             sqlx::query("SET enable_seqscan = OFF;")
+        //                 .execute(conn)
+        //                 .await?;
+        //             Ok(())
+        //         })
+        //     } else {
+        //         Box::pin(async move { Ok(()) })
+        //     }
+        // })
         .connect_with(
             sqlx::postgres::PgConnectOptions::from_str(database_url)?.statement_cache_capacity(400),
         )
