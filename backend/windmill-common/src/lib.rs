@@ -292,9 +292,9 @@ pub async fn connect(
         // .after_connect(move |conn, _| {
         //     if worker_mode {
         //         Box::pin(async move {
-        //             sqlx::query("SET enable_seqscan = OFF;")
-        //                 .execute(conn)
-        //                 .await?;
+        //             // sqlx::query("SET enable_seqscan = OFF;")
+        //             //     .execute(conn)
+        //             //     .await?;
         //             Ok(())
         //         })
         //     } else {
