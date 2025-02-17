@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE INDEX CONCURRENTLY queue_sort_2_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for) WHERE running = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8263fe28097e094cbdbdcd16668d9347206d2deaa99f9a4541101e610f84a50a"
+}
