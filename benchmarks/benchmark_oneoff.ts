@@ -26,7 +26,7 @@ async function verifyOutputs(uuids: string[], workspace: string) {
         incorrectResults++;
       }
       if (job.result !== uuid) {
-        console.log(`Job ${uuid} did not output the correct value: ${JSON.stringify(job.result)}`);
+        console.log(`Job ${uuid} did not output the correct value: ${JSON.stringify(job)}`);
         incorrectResults++;
       }
     } catch (_) {
