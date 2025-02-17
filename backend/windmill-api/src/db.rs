@@ -545,8 +545,8 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
-    run_windmill_migration!("fix_job_index_1", &db, |tx| {
-        let migration_job_name = "fix_job_completed_index_4";
+    run_windmill_migration!("fix_job_index_1_II", &db, |tx| {
+        let migration_job_name = "fix_job_index_1_II";
         let mut i = 1;
         tracing::info!("step {i} of {migration_job_name} migration");
         sqlx::query!("create index concurrently  if not exists ix_job_workspace_id_created_at_new_3 ON v2_job  (workspace_id,  created_at DESC)")
@@ -579,9 +579,16 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query!("create index concurrently if not exists root_job_index_by_path_2 ON v2_job (workspace_id, runnable_path, created_at desc) WHERE parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists ix_job_root_job_index_by_path_2 ON v2_job (workspace_id, runnable_path, created_at desc) WHERE parent_job IS NULL")
                 .execute(db)
                 .await?;
+
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path_2")
+            .execute(db)
+            .await?;
 
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
