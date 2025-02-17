@@ -10,7 +10,9 @@
 	export let selected: string | undefined = undefined
 
 	let infiniteList: InfiniteList | undefined = undefined
-	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
+	let loadInputsPageFn:
+		| ((page: number, perPage: number, discovery: boolean) => Promise<any>)
+		| undefined = undefined
 
 	export function refresh() {
 		if (infiniteList) {
@@ -18,6 +20,10 @@
 		}
 	}
 	let cachedArgs: Record<string, any> = {}
+	let items: any[] = []
+	let potentialItems: any[] = []
+	let perPageBind = 0
+	let lastChecked: string | undefined = undefined
 
 	let interval: NodeJS.Timeout | undefined = undefined
 	function initLoadInputs() {
@@ -25,15 +31,19 @@
 		interval = setInterval(() => {
 			refresh()
 		}, 10000)
-		loadInputsPageFn = async (page: number, perPage: number) => {
-			const inputs = await InputService.getInputHistory({
+		loadInputsPageFn = async (page: number, perPage: number, discovery: boolean) => {
+			const request = InputService.getInputHistory({
 				workspace: $workspaceStore!,
 				runnableId,
 				runnableType,
 				page,
 				perPage,
-				includePreview: true
+				includePreview: true,
+				// If it is discovery, then we would like to fetch all values
+				since: !discovery ? lastChecked : undefined
 			})
+			if (!discovery) lastChecked = new Date().toJSON()
+			const inputs = await request
 
 			const inputsWithPayload = await Promise.all(
 				inputs.map(async (input) => {
@@ -58,7 +68,22 @@
 					}
 				})
 			)
-			return inputsWithPayload
+			if (!discovery) {
+				// Add new items to beginning
+				items.unshift(...inputsWithPayload)
+				// We need to know when to apply potential items,
+				// it only happens when InfiniteList decides to expand list
+				//
+				// We cannot apply potential items right after fetch,
+				// because that would trigger expansion in list
+				// and old items will be loading by 10 every reload
+				if (perPageBind != perPage) items.push(...potentialItems), (perPageBind = perPage)
+				return items
+			} else {
+				// Save discovered items to buffer and apply later
+				potentialItems = inputsWithPayload
+				return potentialItems
+			}
 		}
 		infiniteList?.setLoader(loadInputsPageFn)
 	}
