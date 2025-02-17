@@ -77,7 +77,7 @@
 	const zIndex = zIndexes.popover
 </script>
 
-<div
+<button
 	class={$$props.class}
 	use:melt={$trigger}
 	aria-label="Popup button"
@@ -96,7 +96,7 @@
 	data-popover
 >
 	<slot name="trigger" {isOpen} />
-</div>
+</button>
 
 {#if isOpen && !disablePopup}
 	<div
