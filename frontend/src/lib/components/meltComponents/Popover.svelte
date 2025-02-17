@@ -1,3 +1,11 @@
+<script context="module" lang="ts">
+	import { writable } from 'svelte/store'
+	const activePopover = writable<{ id: string | null; close: (() => void) | null }>({
+		id: null,
+		close: null
+	})
+</script>
+
 <script lang="ts">
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
 	import { fade } from 'svelte/transition'
@@ -5,6 +13,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { zIndexes } from '$lib/zIndexes'
 	import { pointerDownOutside } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
@@ -16,17 +25,34 @@
 	export let closeOnOutsideClick: boolean = true
 	export let contentClasses: string = ''
 	export let portal: string | HTMLElement | undefined = undefined
+	export let closeOnOtherPopoverOpen: boolean = false
 
 	const {
 		elements: { trigger, content, arrow, close: closeElement },
 		states,
-		options: { closeOnOutsideClick: closeOnOutsideClickOption }
+		options: { closeOnOutsideClick: closeOnOutsideClickOption },
+		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
 		positioning: floatingConfig ?? {
 			placement
 		},
-		portal
+		portal,
+		onOpenChange: ({ next }) => {
+			if (closeOnOtherPopoverOpen) {
+				if (next) {
+					// Close previous popover if exists
+					if ($activePopover.close && $activePopover.id !== $popoverId) {
+						$activePopover.close()
+					}
+					// Set this popover as active
+					activePopover.set({ id: $popoverId, close })
+				} else if ($activePopover.id === $popoverId) {
+					activePopover.set({ id: null, close: null })
+				}
+			}
+			return next
+		}
 	})
 
 	let isOpen = false
@@ -76,13 +102,17 @@
 	<div
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
-		class="z-[{zIndex}] w-fit border rounded-md bg-surface shadow-lg"
+		class={twMerge(
+			' w-fit border rounded-md bg-surface shadow-lg',
+			contentClasses,
+			`z-[${zIndex}]`
+		)}
 		data-popover
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow} />
 		{/if}
-		<slot name="content" {open} {close} class={contentClasses} />
+		<slot name="content" {open} {close} />
 		{#if closeButton}
 			<button class="close" use:melt={$closeElement}>
 				<X class="size-3" />

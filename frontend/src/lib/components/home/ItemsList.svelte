@@ -42,7 +42,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import { Popup } from '../common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext } from 'svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
@@ -421,11 +421,8 @@
 		{/if}
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
-				<Popup
-					floatingConfig={{ placement: 'bottom-end' }}
-					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				>
-					<svelte:fragment slot="button">
+				<Popover floatingConfig={{ placement: 'bottom-end' }}>
+					<svelte:fragment slot="trigger">
 						<Button
 							startIcon={{
 								icon: SlidersHorizontal
@@ -438,20 +435,22 @@
 							spacingSize="xs2"
 						/>
 					</svelte:fragment>
-					<div>
-						<span class="text-sm font-semibold">Filters</span>
-						<div class="flex flex-col gap-2 mt-2">
-							<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
-							{#if $userStore && !$userStore.operator}
-								<Toggle
-									size="xs"
-									bind:checked={includeWithoutMain}
-									options={{ right: 'Include without main function' }}
-								/>
-							{/if}
+					<svelte:fragment slot="content">
+						<div class="p-4">
+							<span class="text-sm font-semibold">Filters</span>
+							<div class="flex flex-col gap-2 mt-2">
+								<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
+								{#if $userStore && !$userStore.operator}
+									<Toggle
+										size="xs"
+										bind:checked={includeWithoutMain}
+										options={{ right: 'Include without main function' }}
+									/>
+								{/if}
+							</div>
 						</div>
-					</div>
-				</Popup>
+					</svelte:fragment>
+				</Popover>
 				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
 				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
