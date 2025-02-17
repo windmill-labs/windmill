@@ -34,7 +34,7 @@
 		{usePointerDownOutside}
 	>
 		<svelte:fragment slot="trigger" let:trigger>
-			<div use:melt={trigger}>
+			<button use:melt={trigger} on:click={(e) => e?.stopPropagation()}>
 				{#if $$slots.buttonReplacement}
 					<slot name="buttonReplacement" />
 				{:else}
@@ -43,7 +43,7 @@
 						class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
 					/>
 				{/if}
-			</div>
+			</button>
 		</svelte:fragment>
 
 		<DropdownV2Inner items={computeItems} meltItem={item} />
