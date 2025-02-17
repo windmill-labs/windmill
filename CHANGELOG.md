@@ -1,5 +1,94 @@
 # Changelog
 
+## [1.463.2](https://github.com/windmill-labs/windmill/compare/v1.463.1...v1.463.2) (2025-02-16)
+
+
+### Bug Fixes
+
+* show skipped flows as success ([#5304](https://github.com/windmill-labs/windmill/issues/5304)) ([062e6bc](https://github.com/windmill-labs/windmill/commit/062e6bc161b56215cb081209d37ad8e0cbd1dd99))
+
+## [1.463.1](https://github.com/windmill-labs/windmill/compare/v1.463.0...v1.463.1) (2025-02-15)
+
+
+### Bug Fixes
+
+* not able to filter runs by schedule ([#5302](https://github.com/windmill-labs/windmill/issues/5302)) ([53f47bc](https://github.com/windmill-labs/windmill/commit/53f47bcfc84ed747b55d3a7d84ccf13ff1c43c97))
+
+## [1.463.0](https://github.com/windmill-labs/windmill/compare/v1.462.1...v1.463.0) (2025-02-14)
+
+
+### Features
+
+* adding docker log rotation by default in docker compose ([#5295](https://github.com/windmill-labs/windmill/issues/5295)) ([dad829a](https://github.com/windmill-labs/windmill/commit/dad829adf4bff97e998f7d18e0bbafb8497d4198))
+* parse script for preprocessor/no_main_func on deploy ([#5292](https://github.com/windmill-labs/windmill/issues/5292)) ([28558e6](https://github.com/windmill-labs/windmill/commit/28558e674f60fef1b165a79c039b1b450759d500))
+
+
+### Bug Fixes
+
+* display branch chosen even if emoty branch ([77a8eed](https://github.com/windmill-labs/windmill/commit/77a8eedc96171e9f84463407bdc5aec9b7b10d62))
+* improve handling of empty branches and loops ([e7d4582](https://github.com/windmill-labs/windmill/commit/e7d458278969897aa7312dcd20a8091aaad772d7))
+* improve runs page load time ([266f820](https://github.com/windmill-labs/windmill/commit/266f82046ad287163d24910902393cd63156ca1d))
+* static website serving ([#5298](https://github.com/windmill-labs/windmill/issues/5298)) ([41eecc1](https://github.com/windmill-labs/windmill/commit/41eecc1437301bea557fb467cc48b502162de419))
+* users should be able to see their own jobs ([9ccadb6](https://github.com/windmill-labs/windmill/commit/9ccadb6085498119bdfcc172d52c7fce1eb3336e))
+
+## [1.462.3](https://github.com/windmill-labs/windmill/compare/v1.462.1...v1.462.2) (2025-02-14)
+
+
+### Bug Fixes
+
+* users should be able to see their own jobs ([9ccadb6](https://github.com/windmill-labs/windmill/commit/9ccadb6085498119bdfcc172d52c7fce1eb3336e))
+
+## [1.462.2](https://github.com/windmill-labs/windmill/compare/v1.462.1...v1.462.2) (2025-02-14)
+
+
+### Bug Fixes
+
+* display branch chosen even if emoty branch ([77a8eed](https://github.com/windmill-labs/windmill/commit/77a8eedc96171e9f84463407bdc5aec9b7b10d62))
+* improve handling of empty branches and loops ([e7d4582](https://github.com/windmill-labs/windmill/commit/e7d458278969897aa7312dcd20a8091aaad772d7))
+
+## [1.462.1](https://github.com/windmill-labs/windmill/compare/v1.462.0...v1.462.1) (2025-02-14)
+
+
+### Bug Fixes
+
+* ai_models in workspace_settings is now optional ([470d80e](https://github.com/windmill-labs/windmill/commit/470d80e219f3b8a3fc3f56802d0eaeffbb1d415f))
+
+## [1.462.0](https://github.com/windmill-labs/windmill/compare/v1.461.1...v1.462.0) (2025-02-13)
+
+
+### Features
+
+* teams workspace scripts ([#5238](https://github.com/windmill-labs/windmill/issues/5238)) ([149d5fb](https://github.com/windmill-labs/windmill/commit/149d5fb3e1d7c89a6005aa34ef34fa57657f507b))
+
+
+### Bug Fixes
+
+* **bun:** remove unecessary buntar in a bun bundle world ([1be335f](https://github.com/windmill-labs/windmill/commit/1be335f042727bbb33b5f515433b65c54bf841fe))
+* **bun:** remove unecessary buntar in a bun bundle world ([fe92211](https://github.com/windmill-labs/windmill/commit/fe922114a74b1757c37f7f7b76adb3aed1ffccc4))
+* **cli:** support lock in wmill dev ([dd695b4](https://github.com/windmill-labs/windmill/commit/dd695b40f41decdf9f2f3d6918d860249661fb36))
+* populate teams channel on initial load ([#5284](https://github.com/windmill-labs/windmill/issues/5284)) ([2ea3bde](https://github.com/windmill-labs/windmill/commit/2ea3bdec2d7a65f8ceeea84f9e677fb4d2c5e0f3))
+
+## [1.461.1](https://github.com/windmill-labs/windmill/compare/v1.461.0...v1.461.1) (2025-02-13)
+
+
+### Bug Fixes
+
+* **cli:** fix nits preventing release ([6fb8f7b](https://github.com/windmill-labs/windmill/commit/6fb8f7b45dd85fdf5edc5ca3948f767eb0a39629))
+
+## [1.461.0](https://github.com/windmill-labs/windmill/compare/v1.460.1...v1.461.0) (2025-02-13)
+
+
+### Features
+
+* **cli:** wmill dev works with flows ([956a5ac](https://github.com/windmill-labs/windmill/commit/956a5ac68236df1c1f9ea4facd7ad237457427cf))
+
+
+### Bug Fixes
+
+* **backend:** improve schedule queries plan to leverage indices better for performance ([#5273](https://github.com/windmill-labs/windmill/issues/5273)) ([bf20651](https://github.com/windmill-labs/windmill/commit/bf206515e8653bbe431e106277b72082e0c9e388))
+* better handling of null pre-processor return values ([2015e79](https://github.com/windmill-labs/windmill/commit/2015e79ff09293cafb799f4049de35f786059831))
+* remove variable pickers in app forms ([055c336](https://github.com/windmill-labs/windmill/commit/055c3367b7afd06a9c789d17fb29bf1d195055bc))
+
 ## [1.460.1](https://github.com/windmill-labs/windmill/compare/v1.460.0...v1.460.1) (2025-02-12)
 
 

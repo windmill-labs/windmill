@@ -291,7 +291,6 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
-pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
 
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
@@ -2147,7 +2146,7 @@ async fn handle_queued_job(
         #[cfg(not(feature = "enterprise"))]
         if job.concurrent_limit.is_some() {
             logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are going to become an Enterprise Edition feature in the near future.\n");
+            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
             logs.push_str("---\n");
         }
 

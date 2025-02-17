@@ -82,9 +82,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-					day: 'numeric',
-					month: 'numeric'
-			  }
+				day: 'numeric',
+				month: 'numeric'
+			}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -706,7 +706,7 @@ export function canWrite(
 	if (user?.is_admin || user?.is_super_admin) {
 		return true
 	}
-	let keys = Object.keys(extra_perms)
+	let keys = Object.keys(extra_perms ?? {})
 	if (!user) {
 		return false
 	}
@@ -714,10 +714,10 @@ export function canWrite(
 		return true
 	}
 	let userOwner = `u/${user.username}`
-	if (keys.includes(userOwner) && extra_perms[userOwner]) {
+	if (keys.includes(userOwner) && extra_perms?.[userOwner]) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1) {
+	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms?.[x]) != -1) {
 		return true
 	}
 	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/') && user.folders[x]) != -1) {
@@ -847,7 +847,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
