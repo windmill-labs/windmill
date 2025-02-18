@@ -96,8 +96,10 @@ cleanup() {{
     # Ignore SIGTERM and SIGINT
     trap '' SIGTERM SIGINT
 
+    rm -f bp 2>/dev/null
+
     # Kill the process group of the script (negative PID value)
-    pkill -P $$
+    pkill -P $$ 2>/dev/null || true
     exit
 }}
 
@@ -110,15 +112,18 @@ mkfifo bp
 
 # Start background processes
 cat bp | tail -1 >> ./result2.out &
+tail_pid=$!
 
 # Run main.sh in the same process group
 {bash} ./main.sh "$@" 2>&1 | tee bp &
-
 pid=$!
 
 # Wait for main.sh to finish and capture its exit status
 wait $pid
 exit_status=$?
+
+# Ensure tail has finished before cleanup
+wait $tail_pid 2>/dev/null || true
 
 # Clean up the named pipe and background processes
 rm -f bp

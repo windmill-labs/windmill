@@ -155,8 +155,6 @@ pub async fn shutdown_signal(
 }
 
 use tokio::sync::RwLock;
-#[cfg(feature = "prometheus")]
-use tokio::task::JoinHandle;
 use utils::rd_string;
 
 #[cfg(feature = "prometheus")]
@@ -164,23 +162,31 @@ pub async fn serve_metrics(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     ready_worker_endpoint: bool,
-) -> JoinHandle<()> {
-    use std::sync::atomic::Ordering;
-
+    metrics_endpoint: bool,
+) -> anyhow::Result<()> {
+    if !metrics_endpoint && !ready_worker_endpoint {
+        return Ok(());
+    }
     use axum::{
         routing::{get, post},
         Router,
     };
     use hyper::StatusCode;
-    let router = Router::new()
-        .route("/metrics", get(metrics))
-        .route("/reset", post(reset));
+    let router = Router::new();
+
+    let router = if metrics_endpoint {
+        router
+            .route("/metrics", get(metrics))
+            .route("/reset", post(reset))
+    } else {
+        router
+    };
 
     let router = if ready_worker_endpoint {
         router.route(
             "/ready",
             get(|| async {
-                if IS_READY.load(Ordering::Relaxed) {
+                if IS_READY.load(std::sync::atomic::Ordering::Relaxed) {
                     (StatusCode::OK, "ready")
                 } else {
                     (StatusCode::INTERNAL_SERVER_ERROR, "not ready")
@@ -193,8 +199,12 @@ pub async fn serve_metrics(
 
     tokio::spawn(async move {
         tracing::info!("Serving metrics at: {addr}");
-        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-        if let Err(e) = axum::serve(listener, router.into_make_service())
+        let listener = tokio::net::TcpListener::bind(addr).await;
+        if let Err(e) = listener {
+            tracing::error!("Error binding to metrics address: {}", e);
+            return;
+        }
+        if let Err(e) = axum::serve(listener.unwrap(), router.into_make_service())
             .with_graceful_shutdown(async move {
                 rx.recv().await.ok();
                 tracing::info!("Graceful shutdown of metrics");
@@ -204,6 +214,8 @@ pub async fn serve_metrics(
             tracing::error!("Error serving metrics: {}", e);
         }
     })
+    .await?;
+    Ok(())
 }
 
 #[cfg(feature = "prometheus")]
@@ -281,7 +293,7 @@ pub async fn connect_db(
 pub async fn connect(
     database_url: &str,
     max_connections: u32,
-    _worker_mode: bool,
+    worker_mode: bool,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
     use std::time::Duration;
 
@@ -289,18 +301,18 @@ pub async fn connect(
         .min_connections((max_connections / 5).clamp(3, max_connections))
         .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
-        // .after_connect(move |conn, _| {
-        //     if worker_mode {
-        //         Box::pin(async move {
-        //             // sqlx::query("SET enable_seqscan = OFF;")
-        //             //     .execute(conn)
-        //             //     .await?;
-        //             Ok(())
-        //         })
-        //     } else {
-        //         Box::pin(async move { Ok(()) })
-        //     }
-        // })
+        .after_connect(move |conn, _| {
+            if worker_mode {
+                Box::pin(async move {
+                    sqlx::query("SET enable_seqscan = OFF;")
+                        .execute(conn)
+                        .await?;
+                    Ok(())
+                })
+            } else {
+                Box::pin(async move { Ok(()) })
+            }
+        })
         .connect_with(
             sqlx::postgres::PgConnectOptions::from_str(database_url)?.statement_cache_capacity(400),
         )
