@@ -15,7 +15,7 @@
 	}
 </script>
 
-<Popover closeButton={false}>
+<Popover closeButton={false} class="w-full">
 	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
