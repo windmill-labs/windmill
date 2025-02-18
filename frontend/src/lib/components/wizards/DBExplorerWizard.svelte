@@ -257,7 +257,7 @@
 				</Label>
 			</Section>
 
-			<Section label="AG Grid configurations">
+			<Section label="AG Grid configuration">
 				<div
 					class={twMerge('flex flex-col gap-4', value.ignored ? 'opacity-50 cursor-none ' : '')}
 					on:pointerdown={(e) => {
