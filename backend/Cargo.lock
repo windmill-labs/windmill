@@ -263,7 +263,7 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.9.0",
  "half",
  "hashbrown 0.14.5",
  "num",
@@ -713,7 +713,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -1222,15 +1222,16 @@ dependencies = [
 
 [[package]]
 name = "blake3"
-version = "1.5.5"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8ee0c1824c4dea5b5f81736aff91bae041d2c07ee1192bec91054e10e3e601e"
+checksum = "1230237285e3e10cde447185e8975408ae24deaa67205ce684805c25bc0c7937"
 dependencies = [
  "arrayref",
  "arrayvec",
  "cc",
  "cfg-if",
  "constant_time_eq",
+ "memmap2",
 ]
 
 [[package]]
@@ -1610,7 +1611,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
 dependencies = [
  "chrono",
- "chrono-tz-build",
+ "chrono-tz-build 0.3.0",
+ "phf",
+]
+
+[[package]]
+name = "chrono-tz"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c6ac4f2c0bf0f44e9161aec9675e1050aa4a530663c4a9e37e108fa948bca9f"
+dependencies = [
+ "chrono",
+ "chrono-tz-build 0.4.0",
  "phf",
 ]
 
@@ -1622,6 +1634,16 @@ checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
 dependencies = [
  "parse-zoneinfo",
  "phf",
+ "phf_codegen",
+]
+
+[[package]]
+name = "chrono-tz-build"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e94fea34d77a245229e7746bd2beb786cd2a896f306ff491fb8cecb3074b10a7"
+dependencies = [
+ "parse-zoneinfo",
  "phf_codegen",
 ]
 
@@ -2242,7 +2264,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "xz2",
  "zstd",
 ]
@@ -2342,7 +2364,7 @@ dependencies = [
  "regex",
  "sha2 0.10.8",
  "unicode-segmentation",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -2509,7 +2531,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
  "serde",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -2804,7 +2826,7 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "tokio",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -5384,7 +5406,7 @@ dependencies = [
  "sha2 0.10.8",
  "subprocess",
  "thiserror 1.0.69",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "zstd",
 ]
 
@@ -6345,7 +6367,7 @@ dependencies = [
  "postgres-protocol 0.6.8",
  "serde",
  "serde_json",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -7201,7 +7223,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -7592,7 +7614,7 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "url",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -7630,7 +7652,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -8365,7 +8387,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "webpki-roots",
 ]
 
@@ -8449,7 +8471,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.11",
  "tracing",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "whoami",
 ]
 
@@ -8490,7 +8512,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.11",
  "tracing",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "whoami",
 ]
 
@@ -8516,7 +8538,7 @@ dependencies = [
  "sqlx-core",
  "tracing",
  "url",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -9163,7 +9185,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "time",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "winapi",
 ]
 
@@ -9393,7 +9415,7 @@ dependencies = [
  "tokio-rustls 0.24.1",
  "tokio-util",
  "tracing",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -10100,9 +10122,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-language"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38eee4db33814de3d004de9d8d825627ed3320d0989cce0dea30efaf5be4736c"
+checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
 
 [[package]]
 name = "triomphe"
@@ -10174,9 +10196,9 @@ checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
 
 [[package]]
 name = "typenum"
-version = "1.17.0"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
+checksum = "1dccffe3ce07af9386bfd29e80c0ab1a8205a2fc34e4bcd40364df902cfa8f3f"
 
 [[package]]
 name = "typify"
@@ -10229,7 +10251,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab82fc73182c29b02e2926a6df32f2241dbadb5cfc111fd595515b3598f46bb3"
 dependencies = [
  "rand 0.9.0",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "web-time",
 ]
 
@@ -10511,9 +10533,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.13.1"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ced87ca4be083373936a67f8de945faa23b6b42384bd5b64434850802c6dccd0"
+checksum = "8c1f41ffb7cf259f1ecc2876861a17e7142e63ead296f671f81f6ae85903e0d6"
 dependencies = [
  "getrandom 0.3.1",
  "serde",
@@ -10866,7 +10888,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "v8",
  "windmill-api",
  "windmill-api-client",
@@ -10892,14 +10914,14 @@ dependencies = [
  "async_zip",
  "axum",
  "base32",
- "base64 0.13.1",
+ "base64 0.22.1",
  "byteorder",
  "bytes",
  "candle-core",
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.1",
  "const_format",
  "cookie 0.17.0",
  "cron",
@@ -10911,7 +10933,7 @@ dependencies = [
  "hmac",
  "http 1.2.0",
  "hyper 1.6.0",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
@@ -10953,7 +10975,7 @@ dependencies = [
  "tokio-tar",
  "tokio-tungstenite",
  "tokio-util",
- "tower 0.4.13",
+ "tower 0.5.2",
  "tower-cookies",
  "tower-http",
  "tracing",
@@ -10961,7 +10983,7 @@ dependencies = [
  "ulid",
  "url",
  "urlencoding",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
@@ -10976,7 +10998,7 @@ dependencies = [
 name = "windmill-api-client"
 version = "1.463.5"
 dependencies = [
- "base64 0.13.1",
+ "base64 0.22.1",
  "chrono",
  "openapiv3",
  "prettyplease 0.1.25",
@@ -10987,7 +11009,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 1.0.109",
- "uuid 1.13.1",
+ "uuid 1.13.2",
 ]
 
 [[package]]
@@ -11012,7 +11034,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "windmill-common",
  "windmill-queue",
 ]
@@ -11028,7 +11050,7 @@ dependencies = [
  "axum",
  "bytes",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.1",
  "const_format",
  "crc",
  "cron",
@@ -11041,7 +11063,7 @@ dependencies = [
  "hmac",
  "hyper 1.6.0",
  "indexmap 2.7.1",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -11072,7 +11094,7 @@ dependencies = [
  "tracing-loki",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "windmill-macros",
 ]
 
@@ -11085,7 +11107,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "windmill-common",
  "windmill-queue",
 ]
@@ -11109,7 +11131,7 @@ dependencies = [
  "tokio",
  "tokio-tar",
  "tracing",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "windmill-common",
 ]
 
@@ -11117,7 +11139,7 @@ dependencies = [
 name = "windmill-macros"
 version = "1.463.5"
 dependencies = [
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "lazy_static",
  "proc-macro2",
  "quote",
@@ -11164,7 +11186,7 @@ version = "1.463.5"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -11187,7 +11209,7 @@ name = "windmill-parser-php"
 version = "1.463.5"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "php-parser-rs",
  "serde_json",
  "windmill-parser",
@@ -11198,7 +11220,7 @@ name = "windmill-parser-py"
 version = "1.463.5"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -11210,7 +11232,7 @@ version = "1.463.5"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "lazy_static",
  "malachite",
  "malachite-bigint",
@@ -11230,7 +11252,7 @@ version = "1.463.5"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "lazy_static",
  "pulldown-cmark",
  "quote",
@@ -11312,13 +11334,13 @@ dependencies = [
  "axum",
  "backon",
  "chrono",
- "chrono-tz",
+ "chrono-tz 0.10.1",
  "cron",
  "futures",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "lazy_static",
  "prometheus",
  "regex",
@@ -11331,7 +11353,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "windmill-audit",
  "windmill-common",
 ]
@@ -11353,7 +11375,7 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "backon",
- "base64 0.13.1",
+ "base64 0.22.1",
  "bit-vec",
  "bollard",
  "bytes",
@@ -11376,7 +11398,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "jsonwebtoken",
  "lazy_static",
  "mappable-rc",
@@ -11405,7 +11427,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "urlencoding",
- "uuid 1.13.1",
+ "uuid 1.13.2",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
