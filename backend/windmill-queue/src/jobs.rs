@@ -566,6 +566,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let result_columns = result_columns.as_ref();
     let _job_id = queued_job.id;
     let (opt_uuid, _duration, _skip_downstream_error_handlers) = (|| async {
+
+        // let start = std::time::Instant::now();
+
         let mut tx = db.begin().await?;
 
         let job_id = queued_job.id;
@@ -663,7 +666,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         // tracing::error!("Added completed job {:#?}", queued_job);
 
         let mut _skip_downstream_error_handlers = false;
-        tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
+        tx = delete_job(tx, &job_id).await?;
         // tracing::error!("3 {:?}", start.elapsed());
 
         if queued_job.is_flow_step {
@@ -858,6 +861,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             "inserted completed job: {} (success: {success})",
             queued_job.id
         );
+        // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
         Ok((None, _duration, _skip_downstream_error_handlers)) as windmill_common::error::Result<(Option<Uuid>, i64, bool)>
     })
     .retry(
@@ -2597,21 +2601,17 @@ async fn extract_result_from_job_result(
 
 pub async fn delete_job<'c>(
     mut tx: Transaction<'c, Postgres>,
-    w_id: &str,
-    job_id: Uuid,
+    job_id: &Uuid,
 ) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
 
-    let job_removed = sqlx::query_scalar!(
-        "DELETE FROM v2_job_queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
-        w_id,
-        job_id
-    )
-    .fetch_optional(&mut *tx)
-    .await;
+    let job_removed =
+        sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
+            .fetch_optional(&mut *tx)
+            .await;
 
     if let Err(job_removed) = job_removed {
         tracing::error!(
