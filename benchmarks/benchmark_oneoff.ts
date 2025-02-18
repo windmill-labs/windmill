@@ -201,7 +201,7 @@ export async function main({
       kind: "rawscript",
       rawscript: {
         language: api.RawScript.language.BASH,
-        content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(25000) + "echo \"$WM_FLOW_JOB_ID\"\n",
+        content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(100) + "echo \"$WM_FLOW_JOB_ID\"\n",
       },
     });
   } else {
