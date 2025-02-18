@@ -162,6 +162,7 @@ jobs:
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
           --workers 4
+          --factor 3
       - name: Save benchmark results
         uses: actions/upload-artifact@v4
         with:
@@ -281,6 +282,7 @@ jobs:
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
           --workers 8
+          --factor 3
       - name: Save benchmark results
         uses: actions/upload-artifact@v4
         with:
