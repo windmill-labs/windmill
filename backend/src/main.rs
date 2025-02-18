@@ -21,7 +21,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::{fs::File, io::AsyncReadExt};
+use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -66,12 +66,11 @@ use windmill_common::METRICS_ADDR;
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
-    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR,
-    TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
+    DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
+    LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR,
+    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -373,6 +372,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let is_agent = mode == Mode::Agent;
 
+    let mut migration_handle: Option<JoinHandle<()>> = None;
     #[cfg(feature = "parquet")]
     let disable_s3_store = std::env::var("DISABLE_S3_STORE")
         .ok()
@@ -385,7 +385,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         if !skip_migration {
             // migration code to avoid break
-            windmill_api::migrate_db(&db).await?;
+            migration_handle = windmill_api::migrate_db(&db).await?;
         } else {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
@@ -683,6 +683,14 @@ Windmill Community Edition {GIT_VERSION}
                 loop {
                     tokio::select! {
                         biased;
+                        Some(_) = async { if let Some(jh) = migration_handle.take() {
+                            tracing::info!("migration job finished");
+                            Some(jh.await)
+                        } else {
+                            None
+                        }} => {
+                           continue;
+                        },
                         _ = monitor_killpill_rx.recv() => {
                             tracing::info!("received killpill for monitor job");
                             break;
@@ -1042,7 +1050,6 @@ pub async fn run_workers(
         TAR_PY312_CACHE_DIR,
         TAR_PY313_CACHE_DIR,
         PIP_CACHE_DIR,
-        BUN_DEPSTAR_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,

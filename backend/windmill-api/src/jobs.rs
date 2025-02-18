@@ -717,7 +717,12 @@ macro_rules! get_job_query {
         const_format::formatcp!(
             "SELECT \
             id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, \
-            CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, \
+            CASE WHEN args is null THEN NULL
+            WHEN pg_column_size(args) < 90000 THEN 
+                CASE WHEN jsonb_typeof(args) = 'object' THEN args
+                ELSE jsonb_build_object('value', args)
+                END
+            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, \
             {logs} as logs, {code} as raw_code, canceled, canceled_by, canceled_reason, job_kind, \
             schedule_path, permissioned_as, flow_status, {flow} as raw_flow, is_flow_step, language, \
             {lock} as raw_lock, email, visible_to_owner, mem_peak, tag, priority, preprocessed, {additional_fields} \
@@ -1156,7 +1161,7 @@ pub struct ListableCompletedJob {
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1294,27 +1299,30 @@ pub fn filter_list_queue_query(
     w_id: &str,
     join_outstanding_wait_times: bool,
 ) -> SqlBuilder {
+    sqlb.join("v2_job").on_eq("v2_job_queue.id", "v2_job.id");
+
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(ps) = &lq.script_path_start {
-        sqlb.and_where_like_left("script_path", ps);
+        sqlb.and_where_like_left("runnable_path", ps);
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("script_path", "?".bind(p));
+        sqlb.and_where_eq("runnable_path", "?".bind(p));
     }
     if let Some(p) = &lq.schedule_path {
-        sqlb.and_where_eq("schedule_path", "?".bind(p));
+        sqlb.and_where_eq("trigger", "?".bind(p));
+        sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
     if let Some(h) = &lq.script_hash {
-        sqlb.and_where_eq("script_hash", "?".bind(h));
+        sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
@@ -1335,7 +1343,11 @@ pub fn filter_list_queue_query(
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(fs) = &lq.is_flow_step {
-        sqlb.and_where_eq("is_flow_step", fs);
+        if *fs {
+            sqlb.and_where_is_not_null("flow_step_id");
+        } else {
+            sqlb.and_where_is_null("flow_step_id");
+        }
     }
     if let Some(fs) = &lq.has_null_parent {
         if *fs {
@@ -1344,20 +1356,20 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(dt) = &lq.created_before {
-        sqlb.and_where_le("created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_le("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_after {
-        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_ge("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(dt) = &lq.created_or_started_after {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND created_at >= to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at >= to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(dt) = &lq.created_or_started_before {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND created_at < to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at < to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(s) = &lq.suspended {
@@ -1370,7 +1382,7 @@ pub fn filter_list_queue_query(
 
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
-            "job_kind",
+            "kind",
             &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
         );
     }
@@ -1384,7 +1396,8 @@ pub fn filter_list_queue_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("schedule_path IS null");
+        sqlb.and_where("trigger_kind != 'schedule'")
+            .or_where("trigger_kind IS NULL");
     }
 
     sqlb
@@ -1399,9 +1412,9 @@ pub fn list_queue_jobs_query(
     tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
     let (limit, offset) = paginate_without_limits(pagination);
-    let mut sqlb = SqlBuilder::select_from("v2_as_queue")
+    let mut sqlb = SqlBuilder::select_from("v2_job_queue")
         .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
         .limit(limit)
         .offset(offset)
         .clone();
@@ -1446,26 +1459,25 @@ async fn list_queue_jobs(
         &w_id,
         &lq,
         &[
-            "id",
-            "running",
-            "created_by",
-            "created_at",
-            "started_at",
-            "scheduled_for",
-            "script_hash",
-            "script_path",
+            "v2_job.id",
+            "v2_job_queue.running",
+            "v2_job.created_by",
+            "v2_job.created_at",
+            "v2_job_queue.started_at",
+            "v2_job_queue.scheduled_for",
+            "v2_job.runnable_id as script_hash",
+            "v2_job.runnable_path as script_path",
             "null as args",
-            "job_kind",
-            "schedule_path",
-            "permissioned_as",
-            "is_flow_step",
-            "language",
-            "same_worker",
-            "email",
-            "suspend",
-            "tag",
-            "priority",
-            "workspace_id",
+            "v2_job.kind as job_kind",
+            "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+            "v2_job.permissioned_as",
+            "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+            "v2_job.script_lang as language",
+            "v2_job.permissioned_as_email as email",
+            "v2_job_queue.suspend",
+            "v2_job.tag",
+            "v2_job.priority",
+            "v2_job.workspace_id",
         ],
         pagination,
         false,
@@ -1605,13 +1617,14 @@ async fn list_filtered_uuids(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut sqlb = SqlBuilder::select_from("v2_as_queue")
-        .fields(&["id"])
+    let mut sqlb = SqlBuilder::select_from("v2_job_queue")
+        .fields(&["v2_job_queue.id"])
         .clone();
 
     sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
 
-    sqlb.and_where_is_null("schedule_path");
+    sqlb.and_where_ne("v2_job.trigger_kind", "'schedule'")
+        .or_where_is_null("v2_job.trigger_kind");
 
     if let Some(tags) = get_scope_tags(&authed) {
         sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
@@ -1625,7 +1638,7 @@ async fn list_filtered_uuids(
     Ok(Json(jobs))
 }
 
-#[derive(Serialize, Debug, FromRow)]
+#[derive(Serialize)]
 struct QueueStats {
     database_length: i64,
     suspended: Option<i64>,
@@ -1634,6 +1647,7 @@ struct QueueStats {
 #[derive(Deserialize)]
 pub struct CountQueueJobsQuery {
     all_workspaces: Option<bool>,
+    tags: Option<String>,
 }
 
 async fn count_queue_jobs(
@@ -1641,12 +1655,16 @@ async fn count_queue_jobs(
     Path(w_id): Path<String>,
     Query(cq): Query<CountQueueJobsQuery>,
 ) -> error::JsonResult<QueueStats> {
+    let tags = cq
+        .tags
+        .map(|t| t.split(',').map(|s| s.to_string()).collect::<Vec<_>>());
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now()",
+            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
+            tags.as_ref().map(|v| v.as_slice())
         )
         .fetch_one(&db)
         .await?,
@@ -1666,23 +1684,28 @@ async fn count_completed_jobs_detail(
     Path(w_id): Path<String>,
     Query(query): Query<CountCompletedJobsQuery>,
 ) -> error::JsonResult<i64> {
-    let mut sqlb = SqlBuilder::select_from("v2_as_completed_job");
+    let mut sqlb = SqlBuilder::select_from("v2_job_completed");
+    //FOR RLS
+    sqlb.join("v2_job USING (id)");
     sqlb.field("COUNT(*) as count");
 
     if !query.all_workspaces.unwrap_or(false) {
-        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(after_s_ago) = query.completed_after_s_ago {
         let after = Utc::now() - chrono::Duration::seconds(after_s_ago);
-        sqlb.and_where_gt(
-            "started_at + duration_ms / 1000 * interval '1 second'",
-            "?".bind(&after.to_rfc3339()),
-        );
+        sqlb.and_where_gt("ended_at", "?".bind(&after.to_rfc3339()));
     }
 
     if let Some(success) = query.success {
-        sqlb.and_where_eq("success", "?".bind(&success));
+        if success {
+            sqlb.and_where_eq("status", "'success'")
+                .or_where_eq("status", "'skipped'");
+        } else {
+            sqlb.and_where_ne("status", "'success'")
+                .and_where_ne("status", "'skipped'");
+        }
     }
 
     if let Some(tags) = query.tags {
@@ -1782,13 +1805,13 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
     #[cfg(feature = "prometheus")]
-    if _api_list_jobs_query_duration.is_some() {
+    if _api_list_jobs_query_duration.is_some() || true {
         tracing::info!("list_jobs query: {}", sql);
     }
 
@@ -2651,77 +2674,78 @@ pub struct UnifiedJob {
 
 const CJ_FIELDS: &[&str] = &[
     "'CompletedJob' as typ",
-    "id",
-    "workspace_id",
-    "parent_job",
-    "created_by",
-    "created_at",
-    "started_at",
+    "v2_job.id",
+    "v2_job.workspace_id",
+    "v2_job.parent_job",
+    "v2_job.created_by",
+    "v2_job.created_at",
+    "v2_job_completed.started_at",
     "null as scheduled_for",
     "null as running",
-    "script_hash",
-    "script_path",
+    "v2_job.runnable_id as script_hash",
+    "v2_job.runnable_path as script_path",
     "null as args",
-    "duration_ms",
-    "success",
-    "deleted",
-    "canceled",
-    "canceled_by",
-    "job_kind",
-    "schedule_path",
-    "permissioned_as",
-    "is_flow_step",
-    "language",
-    "is_skipped",
-    "email",
-    "visible_to_owner",
+    "v2_job_completed.duration_ms",
+    "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
+    "false as deleted",
+    "v2_job_completed.status = 'canceled' as canceled",
+    "v2_job_completed.canceled_by",
+    "v2_job.kind as job_kind",
+    "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+    "v2_job.permissioned_as",
+    "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+    "v2_job.script_lang as language",
+    "v2_job_completed.status = 'skipped' as is_skipped",
+    "v2_job.permissioned_as_email as email",
+    "v2_job.visible_to_owner",
     "null as suspend",
-    "mem_peak",
-    "tag",
+    "v2_job_completed.memory_peak as mem_peak",
+    "v2_job.tag",
     "null as concurrent_limit",
     "null as concurrency_time_window_s",
-    "priority",
-    "result->'wm_labels' as labels",
+    "v2_job.priority",
+    "v2_job_completed.result->'wm_labels' as labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
-    "preprocessed",
+    "v2_job.preprocessed",
 ];
+
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
-    "id",
-    "workspace_id",
-    "parent_job",
-    "created_by",
-    "created_at",
-    "started_at",
-    "scheduled_for",
-    "running",
-    "script_hash",
-    "script_path",
+    "v2_job.id",
+    "v2_job.workspace_id",
+    "v2_job.parent_job",
+    "v2_job.created_by",
+    "v2_job.created_at",
+    "v2_job_queue.started_at",
+    "v2_job_queue.scheduled_for",
+    "v2_job_queue.running",
+    "v2_job.runnable_id as script_hash",
+    "v2_job.runnable_path as script_path",
     "null as args",
     "null as duration_ms",
     "null as success",
     "false as deleted",
-    "canceled",
-    "canceled_by",
-    "job_kind",
-    "schedule_path",
-    "permissioned_as",
-    "is_flow_step",
-    "language",
+    "v2_job_queue.canceled_by IS NOT NULL as canceled",
+    "v2_job_queue.canceled_by",
+    "v2_job.kind as job_kind",
+    "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+    "v2_job.permissioned_as",
+    "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+    "v2_job.script_lang as language",
     "false as is_skipped",
-    "email",
-    "visible_to_owner",
-    "suspend",
-    "mem_peak",
-    "tag",
-    "concurrent_limit",
-    "concurrency_time_window_s",
-    "priority",
+    "v2_job.permissioned_as_email as email",
+    "v2_job.visible_to_owner",
+    "v2_job_queue.suspend",
+    "null as mem_peak",
+    "v2_job.tag",
+    "v2_job.concurrent_limit",
+    "v2_job.concurrency_time_window_s",
+    "v2_job.priority",
     "null as labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
-    "preprocessed",
+    "v2_job.preprocessed",
 ];
 
 impl UnifiedJob {
@@ -4676,6 +4700,7 @@ struct BatchInfo {
     flow_value: Option<FlowValue>,
     path: Option<String>,
     rawscript: Option<BatchRawScript>,
+    tag: Option<String>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -4844,6 +4869,8 @@ async fn add_batch_jobs(
         } else {
             format!("{}", language.as_str())
         }
+    } else if let Some(tag) = batch_info.tag {
+        tag
     } else {
         format!("{}", language.as_str())
     };
@@ -5253,10 +5280,13 @@ pub fn filter_list_completed_query(
     w_id: &str,
     join_outstanding_wait_times: bool,
 ) -> SqlBuilder {
+    sqlb.join("v2_job")
+        .on_eq("v2_job_completed.id", "v2_job.id");
+
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
     }
 
     if let Some(label) = &lq.label {
@@ -5267,21 +5297,22 @@ pub fn filter_list_completed_query(
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(p) = &lq.schedule_path {
-        sqlb.and_where_eq("schedule_path", "?".bind(p));
+        sqlb.and_where_eq("trigger", "?".bind(p));
+        sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
 
     if let Some(ps) = &lq.script_path_start {
-        sqlb.and_where_like_left("script_path", ps);
+        sqlb.and_where_like_left("runnable_path", ps);
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("script_path", "?".bind(p));
+        sqlb.and_where_eq("runnable_path", "?".bind(p));
     }
     if let Some(h) = &lq.script_hash {
-        sqlb.and_where_eq("script_hash", "?".bind(h));
+        sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(t) = &lq.tag {
         sqlb.and_where_eq("tag", "?".bind(t));
@@ -5290,7 +5321,13 @@ pub fn filter_list_completed_query(
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
     if let Some(r) = &lq.success {
-        sqlb.and_where_eq("success", r);
+        if *r {
+            sqlb.and_where_eq("status", "'success'")
+                .or_where_eq("status", "'skipped'");
+        } else {
+            sqlb.and_where_eq("status", "'failure'")
+                .or_where_eq("status", "'canceled'");
+        }
     }
     if let Some(pj) = &lq.parent_job {
         sqlb.and_where_eq("parent_job", "?".bind(pj));
@@ -5321,10 +5358,18 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(sk) = &lq.is_skipped {
-        sqlb.and_where_eq("is_skipped", sk);
+        if *sk {
+            sqlb.and_where_eq("status", "'skipped'");
+        } else {
+            sqlb.and_where_ne("status", "'skipped'");
+        }
     }
     if let Some(fs) = &lq.is_flow_step {
-        sqlb.and_where_eq("is_flow_step", fs);
+        if *fs {
+            sqlb.and_where_is_not_null("flow_step_id");
+        } else {
+            sqlb.and_where_is_null("flow_step_id");
+        }
     }
     if let Some(fs) = &lq.has_null_parent {
         if *fs {
@@ -5333,7 +5378,7 @@ pub fn filter_list_completed_query(
     }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
-            "job_kind",
+            "kind",
             &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
         );
     }
@@ -5347,7 +5392,8 @@ pub fn filter_list_completed_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("schedule_path IS null");
+        sqlb.and_where("trigger_kind != 'schedule'")
+            .or_where("trigger_kind IS NULL");
     }
 
     sqlb
@@ -5362,9 +5408,9 @@ pub fn list_completed_jobs_query(
     join_outstanding_wait_times: bool,
     tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
-    let mut sqlb = SqlBuilder::select_from("v2_as_completed_job")
+    let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -5427,35 +5473,35 @@ async fn list_completed_jobs(
         offset,
         &lq,
         &[
-            "id",
-            "workspace_id",
-            "parent_job",
-            "created_by",
-            "created_at",
-            "started_at",
-            "duration_ms",
-            "success",
-            "script_hash",
-            "script_path",
-            "deleted",
-            "canceled",
-            "canceled_by",
-            "canceled_reason",
-            "job_kind",
-            "schedule_path",
-            "permissioned_as",
+            "v2_job.id",
+            "v2_job.workspace_id",
+            "v2_job.parent_job",
+            "v2_job.created_by",
+            "v2_job.created_at",
+            "v2_job_completed.started_at",
+            "v2_job_completed.duration_ms",
+            "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
+            "v2_job.runnable_id as script_hash",
+            "v2_job.runnable_path as script_path",
+            "false as deleted",
+            "v2_job_completed.status = 'canceled' as canceled",
+            "v2_job_completed.canceled_by",
+            "v2_job_completed.canceled_reason",
+            "v2_job.kind as job_kind",
+            "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+            "v2_job.permissioned_as",
             "null as raw_code",
             "null as flow_status",
             "null as raw_flow",
-            "is_flow_step",
-            "language",
-            "is_skipped",
-            "email",
-            "visible_to_owner",
-            "mem_peak",
-            "tag",
-            "priority",
-            "result->'wm_labels' as labels",
+            "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+            "v2_job.script_lang as language",
+            "v2_job_completed.status = 'skipped' as is_skipped",
+            "v2_job.permissioned_as_email as email",
+            "v2_job.visible_to_owner",
+            "v2_job_completed.memory_peak as mem_peak",
+            "v2_job.tag",
+            "v2_job.priority",
+            "v2_job_completed.result->'wm_labels' as labels",
             "'CompletedJob' as type",
         ],
         false,

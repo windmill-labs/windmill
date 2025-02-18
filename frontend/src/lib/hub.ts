@@ -66,6 +66,9 @@ type HubPaths = {
 	slackReport: string
 	discordReport: string
 	smtpReport: string
+	teamsErrorHandler: string
+	teamsRecoveryHandler: string
+	teamsSuccessHandler: string
 }
 
 export const hubPaths = JSON.parse(rawHubPaths) as HubPaths

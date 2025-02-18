@@ -134,6 +134,7 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
 pub fn parse_deno_signature(
     code: &str,
     skip_dflt: bool,
+    skip_params: bool,
     main_override: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
@@ -179,27 +180,26 @@ pub fn parse_deno_signature(
     });
 
     let mut c: u16 = 0;
-    if let Some(params) = params {
-        let r = MainArgSignature {
-            star_args: false,
-            star_kwargs: false,
-            args: params
-                .into_iter()
-                .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
-                .collect::<anyhow::Result<Vec<Arg>>>()?,
-            no_main_func: Some(false),
-            has_preprocessor: Some(has_preprocessor),
-        };
-        Ok(r)
-    } else {
-        Ok(MainArgSignature {
-            star_args: false,
-            star_kwargs: false,
-            args: vec![],
-            no_main_func: Some(true),
-            has_preprocessor: Some(has_preprocessor),
-        })
-    }
+    let no_main_func = params.is_none();
+    let r = MainArgSignature {
+        star_args: false,
+        star_kwargs: false,
+        args: if skip_params {
+            vec![]
+        } else {
+            params
+                .map(|x| {
+                    x.into_iter()
+                        .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
+                        .collect::<anyhow::Result<Vec<Arg>>>()
+                })
+                .transpose()?
+                .unwrap_or_else(|| vec![])
+        },
+        no_main_func: Some(no_main_func),
+        has_preprocessor: Some(has_preprocessor),
+    };
+    Ok(r)
 }
 
 fn parse_param(

@@ -18,7 +18,7 @@ export function main(test1?: string, test2: string = \"burkina\",
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -159,7 +159,7 @@ export function main(test2 = \"burkina\",
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -236,7 +236,7 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -282,7 +282,7 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
