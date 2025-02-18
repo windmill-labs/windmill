@@ -25,7 +25,7 @@ async function waitForDeployment(workspace: string, hash: string) {
       if (resp.lock !== null) {
         return;
       }
-    } catch (err) {}
+    } catch (err) { }
     await sleep(0.5);
   }
   throw new Error("Script did not deploy in time");
@@ -246,7 +246,7 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
               input_transforms: {},
               language: api.RawScript.language.BASH,
               type: "rawscript",
-              content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(25000) + "echo \"$WM_FLOW_JOB_ID\"\n",
+              content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(100) + `if [[ -z $\{WM_FLOW_JOB_ID+x\} ]]; then\necho "not set"\nelif [[ -z "$WM_FLOW_JOB_ID" ]]; then\necho "empty"\nelse\necho "$WM_FLOW_JOB_ID"\nfi`,
             },
           }
         ],
