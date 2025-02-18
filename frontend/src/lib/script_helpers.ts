@@ -727,7 +727,7 @@ class MessageAttribute(TypedDict):
    string_value: str | None
    data_type: str
 
-class Sqs(TypeDict):
+class Sqs(TypedDict):
    queue_url: str
    message_id: str | None
    receipt_handle: str | None
