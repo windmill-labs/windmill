@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Portal from '$lib/components/Portal.svelte'
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { pointerDownOutside } from '$lib/utils'
+	import { zIndexes } from '$lib/zIndexes'
 
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
@@ -66,20 +66,16 @@
 		<slot name="trigger" trigger={$trigger} />
 	</button>
 
-	<Portal name="menu-v3">
-		<div class="z-[6000]" use:melt={$menuElement} data-menu>
-			<div
-				class={twMerge(
-					'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
-					lightMode ? 'bg-surface-inverse' : 'bg-surface',
-					invisible ? 'opacity-0' : ''
-				)}
-				style="max-height: {maxHeight}px;"
-			>
-				<div class="my-1">
-					<slot item={$item} />
-				</div>
-			</div>
+	<div use:melt={$menuElement} data-menu style="z-index: {zIndexes.contextMenu};">
+		<div
+			class={twMerge(
+				'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
+				lightMode ? 'bg-surface-inverse' : 'bg-surface',
+				invisible ? 'opacity-0' : ''
+			)}
+			style="max-height: {maxHeight}px; "
+		>
+			<slot item={$item} />
 		</div>
-	</Portal>
+	</div>
 </div>
