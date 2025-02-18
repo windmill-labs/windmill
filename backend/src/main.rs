@@ -901,14 +901,21 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+            #[cfg(not(feature = "enterprise"))]
+            if enabled {
                 tracing::error!("Metrics are only available in the EE, ignoring...");
-
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            windmill_common::serve_metrics(
+                *METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await;
+
             Ok(()) as anyhow::Result<()>
         };
 
