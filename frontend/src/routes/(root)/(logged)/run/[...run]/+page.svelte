@@ -20,6 +20,7 @@
 		emptyString,
 		encodeState,
 		isFlowPreview,
+		isNotFlow,
 		isScriptPreview,
 		truncateHash,
 		truncateRev
@@ -119,7 +120,7 @@
 
 	let showExplicitProgressTip: boolean =
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
-	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
+	$: job?.logs == undefined && job && viewTab == 'logs' && isNotFlow(job?.job_kind) && getLogs?.()
 
 	let lastJobId: string | undefined = undefined
 	let concurrencyKey: string | undefined = undefined
@@ -222,24 +223,33 @@
 			})
 		}
 
-		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
-			return
-		}
-		const script = await ScriptService.getScriptByHash({
-			workspace: $workspaceStore!,
-			hash: job.script_hash
-		})
-		if (script.restart_unless_cancelled ?? false) {
-			persistentScriptDefinition = script
+		if (
+			job &&
+			job.job_kind === 'script' &&
+			job.script_hash &&
+			persistentScriptDefinition === undefined
+		) {
+			const script = await ScriptService.getScriptByHash({
+				workspace: $workspaceStore!,
+				hash: job.script_hash
+			})
+			if (script.restart_unless_cancelled ?? false) {
+				persistentScriptDefinition = script
+			}
 		}
 	}
 
-	$: {
-		if ($workspaceStore && $page.params.run && testJobLoader) {
-			forceCancel = false
-			getJob()
-		}
+	function onRunsPageChangeWithLoader() {
+		forceCancel = false
+		getJob()
 	}
+
+	function onRunsPageChange() {
+		job = undefined
+		persistentScriptDefinition = undefined
+	}
+	$: $workspaceStore && $page.params.run && onRunsPageChange()
+	$: $workspaceStore && $page.params.run && testJobLoader && onRunsPageChangeWithLoader()
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 	$: job && onJobLoaded()
@@ -388,19 +398,20 @@
 		</DrawerContent>
 	</Drawer>
 {/if}
-
-<TestJobLoader
-	lazyLogs
-	bind:scriptProgress
-	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
-	bind:this={testJobLoader}
-	bind:getLogs
-	bind:isLoading={testIsLoading}
-	bind:job
-	bind:jobUpdateLastFetch
-	workspaceOverride={$workspaceStore}
-	bind:notfound
-/>
+{#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
+	<TestJobLoader
+		lazyLogs
+		bind:scriptProgress
+		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
+		bind:this={testJobLoader}
+		bind:getLogs
+		bind:isLoading={testIsLoading}
+		bind:job
+		bind:jobUpdateLastFetch
+		workspaceOverride={$workspaceStore}
+		bind:notfound
+	/>
+{/if}
 
 <Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
@@ -841,7 +852,7 @@
 				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
 			</div>
 		{/if}
-		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'singlescriptflow' && !isFlowPreview(job?.job_kind)}
+		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
@@ -921,6 +932,9 @@
 					jobId={job?.id ?? ''}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
+					}}
+					on:done={(e) => {
+						job = e.detail
 					}}
 					initialJob={job}
 					workspaceId={$workspaceStore}

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.462.3"
+version = "1.463.6"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.462.3"
+version = "1.463.6"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -175,7 +175,7 @@ uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "0.4.35", features = ["serde"] }
-chrono-tz = "^0"
+chrono-tz = "^0.10.1"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 tracing-appender = "^0"

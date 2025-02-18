@@ -21,7 +21,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::{fs::File, io::AsyncReadExt};
+use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -372,6 +372,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let is_agent = mode == Mode::Agent;
 
+    let mut migration_handle: Option<JoinHandle<()>> = None;
     #[cfg(feature = "parquet")]
     let disable_s3_store = std::env::var("DISABLE_S3_STORE")
         .ok()
@@ -384,7 +385,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         if !skip_migration {
             // migration code to avoid break
-            windmill_api::migrate_db(&db).await?;
+            migration_handle = windmill_api::migrate_db(&db).await?;
         } else {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
@@ -682,6 +683,14 @@ Windmill Community Edition {GIT_VERSION}
                 loop {
                     tokio::select! {
                         biased;
+                        Some(_) = async { if let Some(jh) = migration_handle.take() {
+                            tracing::info!("migration job finished");
+                            Some(jh.await)
+                        } else {
+                            None
+                        }} => {
+                           continue;
+                        },
                         _ = monitor_killpill_rx.recv() => {
                             tracing::info!("received killpill for monitor job");
                             break;
@@ -892,14 +901,21 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+            #[cfg(not(feature = "enterprise"))]
+            if enabled {
                 tracing::error!("Metrics are only available in the EE, ignoring...");
-
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            windmill_common::serve_metrics(
+                *METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await;
+
             Ok(()) as anyhow::Result<()>
         };
 

@@ -615,6 +615,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             "error while deleting parallel_monitor_lock: {e:#}"
                         ))
                     })?;
+
                     if r.is_some() {
                         tracing::info!(
                             "parallel flow has removed lock on its parent, last ping was {:?}",

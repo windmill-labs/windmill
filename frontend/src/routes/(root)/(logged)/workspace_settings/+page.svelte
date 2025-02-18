@@ -447,11 +447,14 @@
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
-			errorHandlerSelected = 
-				emptyString(errorHandlerScriptPath) ? 'custom' :
-				(errorHandlerScriptPath.startsWith('hub/') && errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')) ? 'slack' :
-				(errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')) ? 'teams' :
-				'custom'
+			errorHandlerSelected = emptyString(errorHandlerScriptPath)
+				? 'custom'
+				: errorHandlerScriptPath.startsWith('hub/') &&
+				  errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
+				? 'slack'
+				: errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
+				? 'teams'
+				: 'custom'
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		workspaceDefaultAppPath = settings.default_app
@@ -812,8 +815,8 @@
 					{#if !$enterpriseLicense}
 						<div class="pt-4" />
 						<Alert type="info" title="Workspace Teams commands is an EE feature">
-							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack / Teams
-							connection to run a custom script and send notifications.
+							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack
+							/ Teams connection to run a custom script and send notifications.
 						</Alert>
 						<div class="pb-2" />
 					{/if}
@@ -867,12 +870,7 @@
 
 			<div class="mt-20" />
 			<PageHeader title="Delete workspace" primary={false} />
-			{#if $superadmin}
-				<p class="italic text-xs">
-					When deleting the workspace, it will be archived for a short period of time and then
-					permanently deleted.
-				</p>
-			{:else}
+			{#if !$superadmin}
 				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
 			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}

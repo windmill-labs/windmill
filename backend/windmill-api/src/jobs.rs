@@ -1161,7 +1161,7 @@ pub struct ListableCompletedJob {
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1319,7 +1319,7 @@ pub fn filter_list_queue_query(
     }
     if let Some(p) = &lq.schedule_path {
         sqlb.and_where_eq("trigger", "?".bind(p));
-        sqlb.and_where_eq("trigger_kind", "schedule");
+        sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("runnable_id", "?".bind(h));
@@ -1647,6 +1647,7 @@ struct QueueStats {
 #[derive(Deserialize)]
 pub struct CountQueueJobsQuery {
     all_workspaces: Option<bool>,
+    tags: Option<String>,
 }
 
 async fn count_queue_jobs(
@@ -1654,12 +1655,16 @@ async fn count_queue_jobs(
     Path(w_id): Path<String>,
     Query(cq): Query<CountQueueJobsQuery>,
 ) -> error::JsonResult<QueueStats> {
+    let tags = cq
+        .tags
+        .map(|t| t.split(',').map(|s| s.to_string()).collect::<Vec<_>>());
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now()",
+            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
+            tags.as_ref().map(|v| v.as_slice())
         )
         .fetch_one(&db)
         .await?,
@@ -1800,13 +1805,13 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
     #[cfg(feature = "prometheus")]
-    if _api_list_jobs_query_duration.is_some() {
+    if _api_list_jobs_query_duration.is_some() || true {
         tracing::info!("list_jobs query: {}", sql);
     }
 
@@ -2681,7 +2686,7 @@ const CJ_FIELDS: &[&str] = &[
     "v2_job.runnable_path as script_path",
     "null as args",
     "v2_job_completed.duration_ms",
-    "v2_job_completed.status = 'success' as success",
+    "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
     "false as deleted",
     "v2_job_completed.status = 'canceled' as canceled",
     "v2_job_completed.canceled_by",
@@ -4695,6 +4700,7 @@ struct BatchInfo {
     flow_value: Option<FlowValue>,
     path: Option<String>,
     rawscript: Option<BatchRawScript>,
+    tag: Option<String>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -4863,6 +4869,8 @@ async fn add_batch_jobs(
         } else {
             format!("{}", language.as_str())
         }
+    } else if let Some(tag) = batch_info.tag {
+        tag
     } else {
         format!("{}", language.as_str())
     };
@@ -5472,7 +5480,7 @@ async fn list_completed_jobs(
             "v2_job.created_at",
             "v2_job_completed.started_at",
             "v2_job_completed.duration_ms",
-            "v2_job_completed.status = 'success' as success",
+            "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
             "v2_job.runnable_id as script_hash",
             "v2_job.runnable_path as script_path",
             "false as deleted",
