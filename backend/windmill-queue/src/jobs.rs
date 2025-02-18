@@ -2108,12 +2108,15 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
+                // let instant = std::time::Instant::now();
                 let r = sqlx::query_as::<_, PulledJob>(query)
                     .bind(worker_name)
                     .fetch_optional(db)
                     .await?;
 
                 if let Some(pulled_job) = r {
+                    // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
+
                     highest_priority_job = Some(pulled_job);
                     break;
                 }

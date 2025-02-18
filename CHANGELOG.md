@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.463.4](https://github.com/windmill-labs/windmill/compare/v1.463.3...v1.463.4) (2025-02-17)
+
+
+### Bug Fixes
+
+* improve queue job indices for faster performances ([9530826](https://github.com/windmill-labs/windmill/commit/953082681e2c4fd71d5ac1acf372265ccc72297b))
+* improve teams settings in workspace settings ([#5316](https://github.com/windmill-labs/windmill/issues/5316)) ([935b5b7](https://github.com/windmill-labs/windmill/commit/935b5b799636c0f02597315837268d4a76f6709a))
+
+## [1.463.3](https://github.com/windmill-labs/windmill/compare/v1.463.2...v1.463.3) (2025-02-17)
+
+
+### Bug Fixes
+
+* windmill_admin has implicit bypass rls on v2_job even if role not set ([0208f53](https://github.com/windmill-labs/windmill/commit/0208f53541473aa51bed0e15d938def3d4530e3f))
+
 ## [1.463.2](https://github.com/windmill-labs/windmill/compare/v1.463.1...v1.463.2) (2025-02-16)
 
 
