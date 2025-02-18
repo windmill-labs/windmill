@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE global_settings\n        SET value = (\n            SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)\n            FROM jsonb_array_elements(value) AS elem\n            WHERE NOT (elem ? 'teams_channel')\n        )\n        WHERE name = 'critical_error_channels'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "81b06122c7a12a314d8905ba5c7c14aa7614f2610e79a8c7302eaa63fb74984d"
+}
