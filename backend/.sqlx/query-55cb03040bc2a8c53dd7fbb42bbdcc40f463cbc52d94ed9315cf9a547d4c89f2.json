@@ -70,68 +70,88 @@
       },
       {
         "ordinal": 13,
-        "name": "code_completion_enabled",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 14,
         "name": "error_handler_extra_args",
         "type_info": "Json"
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "error_handler_muted_on_cancel",
         "type_info": "Bool"
       },
       {
-        "ordinal": 16,
+        "ordinal": 15,
         "name": "large_file_storage",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 17,
+        "ordinal": 16,
         "name": "git_sync",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 18,
+        "ordinal": 17,
         "name": "default_app",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 19,
+        "ordinal": 18,
         "name": "auto_add",
         "type_info": "Bool"
       },
       {
-        "ordinal": 20,
+        "ordinal": 19,
         "name": "automatic_billing",
         "type_info": "Bool"
       },
       {
-        "ordinal": 21,
+        "ordinal": 20,
         "name": "default_scripts",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 22,
+        "ordinal": 21,
         "name": "deploy_ui",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 23,
+        "ordinal": 22,
         "name": "mute_critical_alerts",
         "type_info": "Bool"
       },
       {
-        "ordinal": 24,
+        "ordinal": 23,
         "name": "color",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 25,
+        "ordinal": 24,
         "name": "operator_settings",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 25,
+        "name": "teams_command_script",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 26,
+        "name": "teams_team_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 27,
+        "name": "teams_team_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 28,
+        "name": "ai_models",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 29,
+        "name": "code_completion_model",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -153,7 +173,6 @@
       true,
       true,
       true,
-      false,
       true,
       false,
       true,
@@ -165,6 +184,11 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
+      false,
       true
     ]
   },

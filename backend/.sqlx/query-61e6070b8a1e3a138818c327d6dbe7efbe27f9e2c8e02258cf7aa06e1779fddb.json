@@ -1,0 +1,118 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM nats_trigger\n                 WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "nats_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "subjects",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 3,
+        "name": "stream_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "consumer_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "use_jetstream",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 13,
+        "name": "server_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "last_server_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "61e6070b8a1e3a138818c327d6dbe7efbe27f9e2c8e02258cf7aa06e1779fddb"
+}

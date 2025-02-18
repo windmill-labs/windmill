@@ -4,12 +4,14 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 	import { onMount } from 'svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	export let name: string
 	export let value: any
 	export let login = true
+	export let eeOnly = false
 
-	$: enabled = value != undefined
+	$: enabled = value != undefined && !(eeOnly && !$enterpriseLicense)
 
 	let tenant: string = ''
 	$: (name == 'microsoft' || name == 'teams') && changeTenantId(tenant)
@@ -35,10 +37,10 @@
 	function changeTenantId(tenant: string) {
 		if (value && tenant) {
 			if (tenant != '') {
-				if (name === "teams") {
+				if (name === 'teams') {
 					value = {
 						...value,
-						tenant 
+						tenant
 					}
 				} else {
 					value = {
@@ -66,6 +68,7 @@
 		class="text-sm flex gap-4 items-center font-medium text-primary {enabled ? 'rounded py-2' : ''}"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
+			disabled={eeOnly && !$enterpriseLicense}
 			on:change={(e) => {
 				if (e.detail) {
 					value = { id: '', secret: '' }
@@ -73,8 +76,11 @@
 					value = undefined
 				}
 			}}
-		/></label
-	>
+		/>
+		{#if eeOnly && !$enterpriseLicense}
+			<div class="text-xs"> (EE only) </div>
+		{/if}
+	</label>
 	{#if enabled}
 		<div class="p-2 rounded border mb-4">
 			{#if name != 'slack' && name != 'teams'}
@@ -179,8 +185,11 @@
 			{:else if name == 'teams'}
 				<CollapseLink text="Instructions">
 					<div class="text-sm text-secondary border p-2">
-						Follow this guide on <a href="https://www.windmill.dev/docs/misc/setup_oauth#microsoft-teams" target="_blank"
-							>Windmill Docs</a> to create a new Microsoft Teams App. Then paste Client ID, Tenant ID, and Client Secret here.
+						Follow this guide on <a
+							href="https://www.windmill.dev/docs/misc/setup_oauth#microsoft-teams"
+							target="_blank">Windmill Docs</a
+						> to create a new Microsoft Teams App. Then paste Client ID, Tenant ID, and Client Secret
+						here.
 					</div>
 				</CollapseLink>
 			{/if}

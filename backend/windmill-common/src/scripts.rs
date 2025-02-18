@@ -24,11 +24,12 @@ use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, Default)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
     Nativets,
+    #[default]
     Deno,
     Python3,
     Go,
@@ -464,17 +465,20 @@ pub async fn get_full_hub_script_by_path(
     let mut path_iterator = path.split("/");
     let version = path_iterator
         .next()
-        .ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
+        .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
     let cache_path = format!("{HUB_CACHE_DIR}/{version}");
     let script;
     if tokio::fs::metadata(&cache_path).await.is_err() {
         script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
-        crate::worker::write_file(
+        if let Err(e) = crate::worker::write_file(
             HUB_CACHE_DIR,
             &version,
             &serde_json::to_string(&script).map_err(to_anyhow)?,
-        )?;
-        tracing::info!("wrote hub script {path} to cache");
+        ) {
+            tracing::error!("failed to write hub script {path} to cache: {e}");
+        } else {
+            tracing::info!("wrote hub script {path} to cache");
+        }
     } else {
         let cache_content = tokio::fs::read_to_string(cache_path).await?;
         script = serde_json::from_str(&cache_content).unwrap();

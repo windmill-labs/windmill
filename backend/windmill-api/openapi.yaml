@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.455.1
+  version: 1.463.5
   title: Windmill API
 
   contact:
@@ -1728,6 +1728,12 @@ paths:
                     type: string
                   slack_command_script:
                     type: string
+                  teams_team_id:
+                    type: string
+                  teams_command_script:
+                    type: string
+                  teams_team_name:
+                    type: string
                   auto_invite_domain:
                     type: string
                   auto_invite_operator:
@@ -1745,9 +1751,13 @@ paths:
                   deploy_to:
                     type: string
                   ai_resource:
-                    $ref: "#/components/schemas/AiResource"
-                  code_completion_enabled:
-                    type: boolean
+                    $ref: "#/components/schemas/AIResource"
+                  code_completion_model:
+                    type: string
+                  ai_models:
+                    type: array
+                    items:
+                      type: string
                   error_handler:
                     type: string
                   error_handler_extra_args:
@@ -1771,7 +1781,7 @@ paths:
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
                 required:
-                  - code_completion_enabled
+                  - ai_models
                   - automatic_billing
                   - error_handler_muted_on_cancel
 
@@ -1950,10 +1960,148 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/edit_teams_command:
+    post:
+      summary: edit teams command
+      operationId: editTeamsCommand
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceInvite
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slack_command_script:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/available_teams_ids:
+    get:
+      summary: list available teams ids
+      operationId: listAvailableTeamsIds
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    team_name:
+                      type: string
+                    team_id:
+                      type: string
+  
+  /w/{workspace}/workspaces/available_teams_channels:
+    get:
+      summary: list available teams channels
+      operationId: listAvailableTeamsChannels
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    channel_name:
+                      type: string
+                    channel_id:
+                      type: string
+                    service_url:
+                      type: string
+                    tenant_id:
+                      type: string
+
+  /w/{workspace}/workspaces/connect_teams:
+    post:
+      summary: connect teams
+      operationId: connectTeams
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: connect teams
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                team_id:
+                  type: string
+                team_name:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/run_slack_message_test_job:
     post:
       summary: run a job that sends a message to Slack
       operationId: runSlackMessageTestJob
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: path to hub script to run and its corresponding args
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hub_script_path:
+                  type: string
+                channel:
+                  type: string
+                test_msg:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/json:
+              schema:
+                type: object
+                properties:
+                  job_uuid:
+                    type: string
+  
+  /w/{workspace}/workspaces/run_teams_message_test_job:
+    post:
+      summary: run a job that sends a message to Teams
+      operationId: runTeamsMessageTestJob
       tags:
         - workspace
       parameters:
@@ -2084,12 +2232,16 @@ paths:
             schema:
               type: object
               required:
-                - code_completion_enabled
+                - ai_models
               properties:
                 ai_resource:
-                  $ref: "#/components/schemas/AiResource"
-                code_completion_enabled:
-                  type: boolean
+                  $ref: "#/components/schemas/AIResource"
+                code_completion_model:
+                  type: string
+                ai_models:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: status
@@ -2116,15 +2268,18 @@ paths:
                 type: object
                 properties:
                   ai_provider:
-                    type: string
+                    $ref: "#/components/schemas/AIProvider"
                   exists_ai_resource:
                     type: boolean
-                  code_completion_enabled:
-                    type: boolean
+                  code_completion_model:
+                    type: string
+                  ai_models:
+                    type: array
+                    items:
+                      type: string
                 required:
-                  - ai_provider
                   - exists_ai_resource
-                  - code_completion_enabled
+                  - ai_models
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -3188,6 +3343,22 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/oauth/disconnect_teams:
+    post:
+      summary: disconnect teams
+      operationId: disconnectTeams
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: disconnected teams
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /oauth/list_logins:
     get:
       summary: list oauth logins
@@ -3277,6 +3448,41 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TeamInfo'
+
+  /teams/activities:
+    post:
+      summary: send update to Microsoft Teams activity
+      description: Respond to a Microsoft Teams activity after a workspace command is run
+      operationId: sendMessageToConversation
+      tags:
+        - teams
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - conversation_id
+                - text
+              properties:
+                conversation_id:
+                  type: string
+                  description: The ID of the Teams conversation/activity
+                success:
+                  type: boolean
+                  description: Used for styling the card conditionally
+                  default: true
+                text:
+                  type: string
+                  description: The message text to be sent in the Teams card
+                card_block:
+                  type: object
+                  description: The card block to be sent in the Teams card
+
+      responses:
+        '200':
+          description: Activity processed successfully
 
   /w/{workspace}/resources/create:
     post:
@@ -4444,7 +4650,7 @@ paths:
 
   /w/{workspace}/scripts/delete/p/{path}:
     post:
-      summary: delete all scripts at a given path (require admin)
+      summary: delete script at a given path (require admin)
       operationId: deleteScriptByPath
       tags:
         - script
@@ -7770,8 +7976,9 @@ paths:
                 http_method:
                   type: string
                   enum: ["get", "post", "put", "delete", "patch"]
+                trigger_path:
+                  type: string
               required:
-                - kind
                 - route_path
                 - http_method
       responses:
@@ -8743,6 +8950,34 @@ paths:
       responses:
         "200":
           description: postgres trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/postgres_triggers/test:
+    post:
+      summary: test postgres connection
+      operationId: testPostgresConnection
+      tags:
+        - postgres_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test postgres connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                database:
+                  type: string
+              required:
+                - database
+      responses:
+        "200":
+          description: successfuly connected to postgres
           content:
             text/plain:
               schema:
@@ -11546,16 +11781,21 @@ components:
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
 
-    AiResource:
+    AIProvider:
+      type: string
+      enum: [openai, anthropic, mistral, deepseek, groq, openrouter, customai]
+
+    AIResource:
       type: object
       properties:
         path:
           type: string
         provider:
-          type: string
+          $ref: "#/components/schemas/AIProvider"
       required:
         - path
         - provider
+
     Script:
       type: object
       properties:
@@ -11908,6 +12148,8 @@ components:
           type: number
         suspend:
           type: number
+        preprocessed:
+          type: boolean
       required:
         - id
         - running
@@ -12015,6 +12257,8 @@ components:
           type: number
         aggregate_wait_time_ms:
           type: number
+        preprocessed:
+          type: boolean
       required:
         - id
         - created_by
@@ -12978,6 +13222,8 @@ components:
           type: boolean
         requires_auth:
           type: boolean
+        is_static_website:
+          type: boolean
 
       required:
         - path
@@ -12992,6 +13238,7 @@ components:
         - is_async
         - requires_auth
         - http_method
+        - is_static_website
 
     NewHttpTrigger:
       type: object
@@ -13027,6 +13274,8 @@ components:
           type: boolean
         requires_auth:
           type: boolean
+        is_static_website:
+          type: boolean
 
       required:
         - path
@@ -13036,6 +13285,7 @@ components:
         - is_async
         - requires_auth
         - http_method
+        - is_static_website
 
     EditHttpTrigger:
       type: object
@@ -13071,6 +13321,8 @@ components:
           type: boolean
         requires_auth:
           type: boolean
+        is_static_website:
+          type: boolean
       required:
         - path
         - script_path
@@ -13079,6 +13331,7 @@ components:
         - is_async
         - requires_auth
         - http_method
+        - is_static_website
 
     TriggersCount:
       type: object
@@ -13293,7 +13546,7 @@ components:
             type: string
       required:
         - transaction_to_track
-
+    
     TableToTrack:
       type: array
       items:
@@ -14614,7 +14867,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats]
+      enum: [webhook, http, websocket, kafka, email, nats, postgres]
 
     Capture:
       type: object

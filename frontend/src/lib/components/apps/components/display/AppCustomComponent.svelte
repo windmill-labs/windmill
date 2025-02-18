@@ -119,4 +119,6 @@
 			<div id={divId} />
 		</RunnableWrapper>
 	</div>
+{:else}
+	<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} />
 {/if}

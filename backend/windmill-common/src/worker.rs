@@ -95,6 +95,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
@@ -103,33 +104,69 @@ lazy_static::lazy_static! {
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 }
 
+pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
+
+fn format_pull_query(peek: String) -> String {
+    let r = format!(
+        "WITH peek AS (
+            {}
+        ), q AS NOT MATERIALIZED (
+            UPDATE v2_job_queue SET
+                running = true,
+                started_at = coalesce(started_at, now()),
+                suspend_until = null,
+                worker = $1
+            WHERE id = (SELECT id FROM peek)
+            RETURNING
+                started_at, scheduled_for, running,
+                canceled_by, canceled_reason, canceled_by IS NOT NULL AS canceled,
+                suspend, suspend_until
+        ), r AS NOT MATERIALIZED (
+            UPDATE v2_job_runtime SET
+                ping = now()
+            WHERE id = (SELECT id FROM peek)
+        ), j AS NOT MATERIALIZED (
+            SELECT
+                id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
+                runnable_path AS script_path, args, kind AS job_kind,
+                CASE WHEN trigger_kind = 'schedule' THEN trigger END AS schedule_path,
+                permissioned_as, permissioned_as_email AS email, script_lang AS language,
+                flow_innermost_root_job AS root_job, flow_step_id, flow_step_id IS NOT NULL AS is_flow_step,
+                same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
+                concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
+                raw_flow, script_entrypoint_override, preprocessed
+            FROM v2_job
+            WHERE id = (SELECT id FROM peek)
+        ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
+            running, script_hash, script_path, args, null as logs, canceled, canceled_by,
+            canceled_reason, null as last_ping, job_kind, schedule_path, permissioned_as,
+            flow_status, is_flow_step, language, suspend,  suspend_until,
+            same_worker, pre_run_error, email,  visible_to_owner, null as mem_peak,
+            root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
+            timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
+            script_entrypoint_override, preprocessed
+        FROM q, j
+            LEFT JOIN v2_job_status f USING (id)",
+        peek
+    );
+    tracing::debug!("pull query: {}", r);
+    r
+}
+
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
     if wc.worker_tags.len() == 0 {
         tracing::error!("Empty tags in worker tags, skipping");
         return;
     }
-    let query = format!(
-        "UPDATE queue
-            SET running = true
-              , started_at = coalesce(started_at, now())
-              , last_ping = now()
-              , suspend_until = null
-            WHERE id = (
-                SELECT id
-                FROM queue
-                WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
-                ORDER BY priority DESC NULLS LAST, created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-            running,  script_hash,  script_path,  args,   null as logs,  canceled,  canceled_by,
-            canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as,
-            flow_status,  is_flow_step,  language,  suspend,  suspend_until,
-            same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
-            root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
-            timeout,  flow_step_id,  cache_ttl, priority,
-            raw_code, raw_lock, raw_flow", wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", "));
+    let query = format_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
+        ORDER BY priority DESC NULLS LAST, created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1",
+        wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ));
     let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
     *l = query;
 }
@@ -141,36 +178,24 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        let query = format!("UPDATE queue
-        SET running = true
-        , started_at = coalesce(started_at, now())
-        , last_ping = now()
-        , suspend_until = null
-        WHERE id = (
-            SELECT id
-            FROM queue
+        let query = format_pull_query(format!(
+            "SELECT id
+            FROM v2_job_queue
             WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
             ORDER BY priority DESC NULLS LAST, scheduled_for
             FOR UPDATE SKIP LOCKED
-            LIMIT 1
-        )
-        RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-        running,  script_hash,  script_path,  args,  null as logs,  canceled,  canceled_by,
-        canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as,
-        flow_status,  is_flow_step,  language,  suspend,  suspend_until,
-        same_worker,  pre_run_error,  email,  visible_to_owner,  mem_peak,
-        root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
-        timeout,  flow_step_id,  cache_ttl, priority,
-        raw_code, raw_lock, raw_flow", tags.tags.iter().map(|x| format!("'{x}'")).join(", "));
-
+            LIMIT 1",
+            tags.tags.iter().map(|x| format!("'{x}'")).join(", ")
+        ));
         queries.push(query);
     }
-
     let mut l = WORKER_PULL_QUERIES.write().await;
     *l = queries;
 }
 
 pub const TMP_DIR: &str = "/tmp/windmill";
+pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
+
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
 pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
@@ -629,7 +654,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
     let min_version = pings
         .iter()
         .filter(|x| !x.is_empty())
-        .filter_map(|x| semver::Version::parse(x.split_at(1).1).ok())
+        .filter_map(|x| semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok())
         .min()
         .unwrap_or_else(|| cur_version.clone());
 
@@ -637,6 +662,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
@@ -902,7 +928,7 @@ impl Default for WorkerConfigOpt {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Clone)]
 pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub priority_tags_sorted: Vec<PriorityTags>,
@@ -912,6 +938,13 @@ pub struct WorkerConfig {
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
+}
+
+impl std::fmt::Debug for WorkerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}", 
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.init_bash, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]

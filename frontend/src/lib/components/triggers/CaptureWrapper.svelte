@@ -14,6 +14,8 @@
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
+	import { invalidRelations } from './postgres/utils'
 
 	export let isFlow: boolean
 	export let path: string
@@ -26,16 +28,37 @@
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
-	export async function setConfig() {
-		await CaptureService.setCaptureConfig({
-			requestBody: {
-				trigger_kind: captureType,
-				path,
-				is_flow: isFlow,
-				trigger_config: args && Object.keys(args).length > 0 ? args : undefined
-			},
-			workspace: $workspaceStore!
-		})
+	export async function setConfig(): Promise<boolean> {
+		if (captureType === 'postgres') {
+			if (!args?.publication?.table_to_track) {
+				sendUserToast('Table to track must be set', true)
+				return false
+			}
+
+			if (
+				invalidRelations(args.publication.table_to_track, {
+					showError: true,
+					trackSchemaTableError: true
+				}) === true
+			) {
+				return false
+			}
+		}
+		try {
+			await CaptureService.setCaptureConfig({
+				requestBody: {
+					trigger_kind: captureType,
+					path,
+					is_flow: isFlow,
+					trigger_config: args && Object.keys(args).length > 0 ? args : undefined
+				},
+				workspace: $workspaceStore!
+			})
+			return true
+		} catch (error) {
+			sendUserToast(error.body, true)
+			return false
+		}
 	}
 
 	let captureActive = false
@@ -55,7 +78,10 @@
 			return acc
 		}, {})
 
-		if ((captureType === 'websocket' || captureType === 'kafka') && captureActive) {
+		if (
+			(captureType === 'postgres' || captureType === 'websocket' || captureType === 'kafka') &&
+			captureActive
+		) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -114,24 +140,22 @@
 		if (captureActive || e.detail.disableOnly) {
 			captureActive = false
 		} else {
-			await setConfig()
-			capture()
+			const configSet = await setConfig()
+
+			if (configSet) {
+				capture()
+			}
 		}
 	}
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
 
-	let cloudDisabled =
-		(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-		isCloudHosted()
+	const streamingTrigger = ['postgres', 'websocket', 'kafka', 'nats']
+	let cloudDisabled = streamingTrigger.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (
-			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-			config &&
-			captureActive
-		) {
+		if (streamingTrigger.includes(captureType) && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
@@ -181,6 +205,21 @@
 				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
+		{:else if captureType === 'postgres'}
+			<PostgresEditorConfigSection
+				bind:postgres_resource_path={args.postgres_resource_path}
+				bind:publication={args.publication}
+				{showCapture}
+				{captureInfo}
+				can_write={true}
+				headless={true}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
 		{:else if captureType === 'webhook'}
 			<WebhooksConfigSection
 				{isFlow}
@@ -200,8 +239,6 @@
 			/>
 		{:else if captureType === 'http'}
 			<RouteEditorConfigSection
-				{isFlow}
-				{path}
 				{showCapture}
 				can_write={true}
 				runnableArgs={data?.args}

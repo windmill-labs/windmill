@@ -264,13 +264,13 @@ pub async fn handle_dependency_job(
         Some(hash) => &cache::script::fetch(db, hash).await?.0,
         _ => match preview_data {
             Some(RawData::Script(data)) => data,
-            _ => return Err(Error::InternalErr("expected script hash".into())),
+            _ => return Err(Error::internal_err("expected script hash")),
         },
     };
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
-            Err(Error::InternalErr(
+            Err(Error::internal_err(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
@@ -550,7 +550,7 @@ pub async fn handle_flow_dependency_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     let job_path = job.script_path.clone().ok_or_else(|| {
-        error::Error::InternalErr(
+        error::Error::internal_err(
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
     })?;
@@ -573,7 +573,7 @@ pub async fn handle_flow_dependency_job(
             job.script_hash
                 .clone()
                 .ok_or_else(|| {
-                    Error::InternalErr(
+                    Error::internal_err(
                         "Flow Dependency requires script hash (flow version)".to_owned(),
                     )
                 })?
@@ -601,7 +601,7 @@ pub async fn handle_flow_dependency_job(
         Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
         _ => match preview_data {
             Some(RawData::Flow(data)) => data.clone(),
-            _ => return Err(Error::InternalErr("expected script hash".into())),
+            _ => return Err(Error::internal_err("expected script hash")),
         },
     }
     .value()
@@ -632,15 +632,17 @@ pub async fn handle_flow_dependency_job(
     let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
-    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
-        .fetch_optional(db)
-        .await
-        .map(|v| Some(true) == v)
-        .unwrap_or_else(|err| {
-            tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
-            false
-        })
-    {
+    if sqlx::query_scalar!(
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+        job.id
+    )
+    .fetch_optional(db)
+    .await
+    .map(|v| Some(true) == v)
+    .unwrap_or_else(|err| {
+        tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
+        false
+    }) {
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -648,7 +650,7 @@ pub async fn handle_flow_dependency_job(
 
     if !skip_flow_update {
         let version = version.ok_or_else(|| {
-            Error::InternalErr("Flow Dependency requires script hash (flow version)".to_owned())
+            Error::internal_err("Flow Dependency requires script hash (flow version)".to_owned())
         })?;
 
         sqlx::query!(
@@ -1127,7 +1129,6 @@ async fn insert_flow_modules<'c>(
         same_worker,
     ))
     .await?;
-    add_virtual_items_if_necessary(modules);
     if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
         return Ok(tx);
     }
@@ -1162,7 +1163,7 @@ async fn reduce_flow<'c>(
     for module in &mut *modules {
         let mut val =
             serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
-                Error::InternalErr(format!(
+                Error::internal_err(format!(
                     "reduce_flow: Failed to parse flow module value: {}",
                     err
                 ))
@@ -1256,6 +1257,7 @@ async fn reduce_flow<'c>(
         }
         module.value = to_raw_value(&val);
     }
+    add_virtual_items_if_necessary(&mut *modules);
     Ok(tx)
 }
 
@@ -1273,7 +1275,7 @@ async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64
                 // replace `content` with an empty string:
                 let Some(Value::String(code)) = script.get_mut("content").map(std::mem::take)
                 else {
-                    return Err(error::Error::InternalErr(
+                    return Err(error::Error::internal_err(
                         "Missing `content` in inlineScript".to_string(),
                     ));
                 };
@@ -1476,7 +1478,7 @@ pub async fn handle_app_dependency_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
-        error::Error::InternalErr(
+        error::Error::internal_err(
             "Cannot resolve app dependencies for app without path".to_string(),
         )
     })?;
@@ -1484,7 +1486,7 @@ pub async fn handle_app_dependency_job(
     let id = job
         .script_hash
         .clone()
-        .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
+        .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
         .0;
     let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
@@ -1524,15 +1526,17 @@ pub async fn handle_app_dependency_job(
         .await?;
 
         // Re-check cancelation to ensure we don't accidentially override an app.
-        if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
-            .fetch_optional(db)
-            .await
-            .map(|v| Some(true) == v)
-            .unwrap_or_else(|err| {
-                tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
-                false
-            })
-        {
+        if sqlx::query_scalar!(
+            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+            job.id
+        )
+        .fetch_optional(db)
+        .await
+        .map(|v| Some(true) == v)
+        .unwrap_or_else(|err| {
+            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            false
+        }) {
             return Ok(());
         }
 
@@ -1571,7 +1575,7 @@ pub async fn handle_app_dependency_job(
         // match tx {
         //     PushIsolationLevel::Transaction(tx) => tx.commit().await?,
         //     _ => {
-        //         return Err(Error::InternalErr(
+        //         return Err(Error::internal_err(
         //             "Expected a transaction here".to_string(),
         //         ));
         //     }
@@ -1677,7 +1681,7 @@ async fn capture_dependency_job(
     match job_language {
         ScriptLang::Python3 => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Python requires the python feature to be enabled".to_string(),
             ));
             #[cfg(feature = "python")]
@@ -1727,7 +1731,7 @@ async fn capture_dependency_job(
         }
         ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Ansible requires the python feature to be enabled".to_string(),
             ));
 
@@ -1848,7 +1852,7 @@ async fn capture_dependency_job(
         }
         ScriptLang::Php => {
             #[cfg(not(feature = "php"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "PHP requires the php feature to be enabled".to_string(),
             ));
 
@@ -1890,7 +1894,7 @@ async fn capture_dependency_job(
             }
 
             #[cfg(not(feature = "rust"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
             ));
 

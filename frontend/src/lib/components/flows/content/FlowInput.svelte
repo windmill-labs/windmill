@@ -304,10 +304,11 @@
 
 	function resetArgs() {
 		if (!previewSchema) {
-			previewArguments = undefined
+			// previewArguments = undefined
 			savedPreviewArgs = undefined
 		}
 	}
+	let historicInputs: HistoricInputs | undefined = undefined
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -348,6 +349,7 @@
 				{diff}
 				disableDnd={!!previewSchema}
 				on:rejectChange={(e) => {
+					console.log('rejectChange')
 					rejectChange(e.detail).then(() => {
 						updatePreviewSchema(selectedSchema)
 					})
@@ -422,7 +424,9 @@
 								size="xs"
 								startIcon={{ icon: X }}
 								shortCut={{ key: 'esc', withoutModifier: true }}
-								nonCaptureEvent
+								on:click={() => {
+									historicInputs?.resetSelected(true)
+								}}
 							/>
 						</div>
 					{:else}
@@ -460,10 +464,11 @@
 							}}
 						>
 							<HistoricInputs
+								bind:this={historicInputs}
 								runnableId={initialPath ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
-									updatePreviewSchemaAndArgs(e.detail ?? undefined)
+									updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
 								}}
 							/>
 						</FlowInputEditor>

@@ -7,7 +7,7 @@
 	export let inputSelected: 'history' | 'captures' | 'saved' | undefined = undefined
 </script>
 
-<div class="min-h-[34px]">
+<div class="min-h-[38px]">
 	<div
 		class="rounded-md flex flex-row gap-2 items-center py-1 px-2 w-fit {classes['info']
 			.bgClass} {inputSelected ? '' : 'hidden'}"
@@ -24,7 +24,7 @@
 			size="xs2"
 			startIcon={{ icon: X }}
 			shortCut={{ key: 'esc', withoutModifier: true }}
-			nonCaptureEvent
+			on:click
 		/>
 	</div>
 </div>
