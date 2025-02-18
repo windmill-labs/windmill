@@ -1545,15 +1545,12 @@ async fn spawn_uv_install(
         let _ = write_file(
             job_dir,
             &nsjail_proto,
-            &(if no_uv_install {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
-            } else {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-            })
-            .replace("{WORKER_DIR}", worker_dir)
-            .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
-            .replace("{TARGET_DIR}", &venv_p)
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+            NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+                .replace("{WORKER_DIR}", worker_dir)
+                .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+                .replace("{TARGET_DIR}", &venv_p)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .as_str(),
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
