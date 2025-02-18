@@ -22,7 +22,7 @@ jobs:
 
 
       windmill:
-        image: ghcr.io/windmill-labs/windmill-ee:main
+        image: ghcr.io/windmill-labs/windmill-ee:1.464.4
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
@@ -106,7 +106,7 @@ jobs:
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
       windmill:
-        image: ghcr.io/windmill-labs/windmill-ee:main
+        image: ghcr.io/windmill-labs/windmill-ee:1.463.5
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
@@ -183,7 +183,7 @@ jobs:
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
       windmill:
-        image: ghcr.io/windmill-labs/windmill-ee:main
+        image: ghcr.io/windmill-labs/windmill-ee:1.463.6
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
