@@ -8,6 +8,7 @@
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
@@ -70,5 +71,14 @@
 		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{:else if triggerType === 'nats'}
 		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
+	{:else if triggerType === 'sqs'}
+		<SqsTriggerEditorConfigSection
+			bind:queue_url={args.queue_url}
+			bind:aws_resource_path={args.aws_resource_path}
+			bind:message_attributes={args.message_attributes}
+			headless={true}
+			can_write={true}
+			showCapture={false}
+		/>
 	{/if}
 </div>

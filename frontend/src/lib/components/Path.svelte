@@ -17,7 +17,8 @@
 		WebsocketTriggerService,
 		KafkaTriggerService,
 		PostgresTriggerService,
-		NatsTriggerService
+		NatsTriggerService,
+		SqsTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -43,6 +44,7 @@
 		| 'kafka_trigger'
 		| 'postgres_trigger'
 		| 'nats_trigger'
+		| 'sqs_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -243,6 +245,11 @@
 			})
 		} else if (kind == 'nats_trigger') {
 			return await NatsTriggerService.existsNatsTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'sqs_trigger') {
+			return await SqsTriggerService.existsSqsTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

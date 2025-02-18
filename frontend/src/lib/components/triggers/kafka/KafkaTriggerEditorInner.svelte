@@ -215,13 +215,6 @@
 					</Label>
 				</div>
 
-				<KafkaTriggersConfigSection
-					bind:args
-					bind:isValid
-					{path}
-					defaultValues={useDefaultValues() ? defaultValues : undefined}
-				/>
-
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered<Required required={true} />
@@ -239,6 +232,13 @@
 						/>
 					</div>
 				</Section>
+
+				<KafkaTriggersConfigSection
+					bind:args
+					bind:isValid
+					{path}
+					defaultValues={useDefaultValues() ? defaultValues : undefined}
+				/>
 			</div>
 		{/if}
 	</DrawerContent>

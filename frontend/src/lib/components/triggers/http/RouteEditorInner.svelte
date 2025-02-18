@@ -226,16 +226,6 @@
 					</Label>
 				</div>
 
-				<RouteEditorConfigSection
-					initialTriggerPath={initialPath}
-					bind:route_path
-					bind:isValid
-					bind:dirtyRoutePath
-					bind:http_method
-					{can_write}
-					bind:static_asset_config
-				/>
-
 				<Section label="Target">
 					{#if !isCloudHosted()}
 						<ToggleButtonGroup
@@ -375,6 +365,16 @@
 						</div>
 					{/if}
 				</Section>
+
+				<RouteEditorConfigSection
+					initialTriggerPath={initialPath}
+					bind:route_path
+					bind:isValid
+					bind:dirtyRoutePath
+					bind:http_method
+					{can_write}
+					bind:static_asset_config
+				/>
 
 				{#if !is_static_website}
 					<Section label="Advanced">

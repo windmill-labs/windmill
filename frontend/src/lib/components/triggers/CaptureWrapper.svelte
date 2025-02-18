@@ -14,6 +14,7 @@
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 	import { invalidRelations } from './postgres/utils'
 
@@ -79,7 +80,7 @@
 		}, {})
 
 		if (
-			(captureType === 'postgres' || captureType === 'websocket' || captureType === 'kafka') &&
+			(captureType === 'postgres' || captureType === 'websocket' || captureType === 'kafka' || captureType === 'sqs') &&
 			captureActive
 		) {
 			const config = captureConfigs[captureType]
@@ -150,12 +151,11 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-
-	const streamingTrigger = ['postgres', 'websocket', 'kafka', 'nats']
-	let cloudDisabled = streamingTrigger.includes(captureType) && isCloudHosted()
+	const streamingCaptures = ['sqs', 'websocket', 'postgres', 'kafka', 'nats']
+	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (streamingTrigger.includes(captureType) && config && captureActive) {
+		if (streamingCaptures.includes(captureType) && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
@@ -298,6 +298,22 @@
 				on:updateSchema
 				on:addPreprocessor
 				on:captureToggle={handleCapture}
+			/>
+		{:else if captureType === 'sqs'}
+			<SqsTriggerEditorConfigSection
+				can_write={true}
+				headless={true}
+				bind:queue_url={args.queue_url}
+				bind:aws_resource_path={args.aws_resource_path}
+				bind:message_attributes={args.message_attributes}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{/if}
 	</div>

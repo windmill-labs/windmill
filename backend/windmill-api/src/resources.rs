@@ -515,7 +515,9 @@ pub async fn transform_json_value<'c>(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::internal_err(format!("Invalid resource path: {path}")));
+                return Err(Error::internal_err(format!(
+                    "Invalid resource path: {path}"
+                )));
             }
             let mut tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;
@@ -1204,4 +1206,45 @@ async fn update_resource_type(
     );
 
     Ok(format!("resource_type {} updated", name))
+}
+
+#[cfg(any(
+    feature = "postgres_trigger",
+    all(feature = "sqs_trigger", feature = "enterprise")
+))]
+pub async fn try_get_resource_from_db_as<T>(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    resource_path: &str,
+    w_id: &str,
+) -> Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let resource = get_resource_value_interpolated_internal(
+        &authed,
+        user_db,
+        &db,
+        &w_id,
+        &resource_path,
+        None,
+        "",
+    )
+    .await?;
+
+    let resource = match resource {
+        Some(resource) => serde_json::from_value::<T>(resource)
+            .map_err(|e| Error::SerdeJson { error: e, location: "resources.rs".to_string() })?,
+        None => {
+            return {
+                Err(Error::NotFound(format!(
+                    "resource at path :{} do not exist",
+                    &resource_path
+                )))
+            }
+        }
+    };
+
+    Ok(resource)
 }
