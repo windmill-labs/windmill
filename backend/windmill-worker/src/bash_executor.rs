@@ -97,7 +97,7 @@ cleanup() {{
     trap '' SIGTERM SIGINT
 
     # Kill the process group of the script (negative PID value)
-    pkill -P $$
+    pkill -P $$ 2>/dev/null || true
     exit
 }}
 
