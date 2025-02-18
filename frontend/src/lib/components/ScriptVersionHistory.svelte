@@ -190,9 +190,15 @@
 						{#if selectedVersionIndex !== undefined && versions?.slice(selectedVersionIndex + 1).length}
 							<div class="p-2 flex flex-row items-center gap-2 h-8">
 								<div class="w-min">
-									<ToggleButtonGroup bind:selected={showDiff}>
-										<ToggleButton light small value={false} label="Code" icon={Code} />
-										<ToggleButton light small value={true} label="Diff" icon={Diff} />
+									<ToggleButtonGroup
+										selected={showDiff ? 'diff' : 'code'}
+										let:item
+										on:selected={({ detail }) => {
+											showDiff = detail === 'diff'
+										}}
+									>
+										<ToggleButton light small value="code" label="Code" icon={Code} {item} />
+										<ToggleButton light small value="diff" label="Diff" icon={Diff} {item} />
 									</ToggleButtonGroup>
 								</div>
 

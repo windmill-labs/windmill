@@ -263,13 +263,21 @@
 				}
 			}}
 			class="mb-4"
+			let:item
 		>
-			<ToggleButton position="left" value="normal" size="sm" label="Any jobs within worker tags" />
+			<ToggleButton
+				position="left"
+				value="normal"
+				size="sm"
+				label="Any jobs within worker tags"
+				{item}
+			/>
 			<ToggleButton
 				position="dedicated"
 				value="dedicated"
 				size="sm"
 				label="Dedicated to a script/flow"
+				{item}
 			/>
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}

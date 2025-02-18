@@ -184,9 +184,13 @@
 			</Alert>
 			<div class="flex items-center gap-1">
 				<div>
-					<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
-						<ToggleButton value="user" size="xs" label="User" />
-						<ToggleButton value="group" size="xs" label="Group" />
+					<ToggleButtonGroup
+						bind:selected={ownerKind}
+						on:selected={() => (ownerItem = '')}
+						let:item
+					>
+						<ToggleButton value="user" size="xs" label="User" {item} />
+						<ToggleButton value="group" size="xs" label="Group" {item} />
 					</ToggleButtonGroup>
 				</div>
 

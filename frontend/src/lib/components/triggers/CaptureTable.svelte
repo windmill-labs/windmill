@@ -208,13 +208,15 @@
 					on:selected={(e) => {
 						initLoadCaptures(e.detail)
 					}}
+					let:item
 				>
-					<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small />
+					<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small {item} />
 					<ToggleButton
 						value="preprocessor"
 						label="Preprocessor"
 						small
 						tooltip="When the runnable has a preprocessor, it receives additional information about the request"
+						{item}
 					/>
 				</ToggleButtonGroup>
 			</div>

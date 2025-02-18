@@ -8,9 +8,7 @@
 		Webhook,
 		Unplug,
 		PlugZap,
-
 		Database
-
 	} from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
@@ -111,9 +109,9 @@
 						<slot name="postgres" />
 					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
 						<div class="m-1.5">
-							<ToggleButtonGroup bind:selected={eventStreamType}>
-								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
-								<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+							<ToggleButtonGroup bind:selected={eventStreamType} let:item>
+								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
+								<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
 							</ToggleButtonGroup>
 						</div>
 						{#if eventStreamType === 'kafka'}

@@ -759,9 +759,10 @@
 								value = { label: oneOfSelected }
 								redraw += 1
 							}}
+							let:item
 						>
 							{#each oneOf as obj}
-								<ToggleButton value={obj.title} label={obj.title} />
+								<ToggleButton value={obj.title} label={obj.title} {item} />
 							{/each}
 						</ToggleButtonGroup>
 						{#if oneOfSelected}

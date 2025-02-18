@@ -155,9 +155,9 @@
 							</div>
 						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats'}
 							<div class="p-4 flex flex-col gap-2">
-								<ToggleButtonGroup bind:selected={eventStreamType}>
-									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
-									<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+								<ToggleButtonGroup bind:selected={eventStreamType} let:item>
+									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
+									<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
 								</ToggleButtonGroup>
 								{#if eventStreamType === 'kafka'}
 									<KafkaTriggersPanel

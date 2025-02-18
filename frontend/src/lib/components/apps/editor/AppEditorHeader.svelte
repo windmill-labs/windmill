@@ -85,7 +85,6 @@
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
-	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
@@ -1547,70 +1546,92 @@
 			/>
 
 			{#if $app}
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
+				<ToggleButtonGroup
+					class="h-[30px]"
+					selected={$app.fullscreen ? 'true' : 'false'}
+					on:selected={({ detail }) => {
+						$app.fullscreen = detail === 'true'
+					}}
+					let:item
+				>
 					<ToggleButton
 						icon={AlignHorizontalSpaceAround}
-						value={false}
+						value={'false'}
 						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="The width is of the app if the full width of its container"
 						icon={Expand}
-						value={true}
+						value={'true'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 				</ToggleButtonGroup>
 			{/if}
 			{#if $app}
 				<ToggleButtonGroup
 					class="h-[30px]"
-					on:selected={(e) => {
-						setTheme(e.detail)
+					on:selected={({ detail }) => {
+						console.log('dbg detail', detail)
+						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
+						console.log('dbg settheme', theme)
+						setTheme(theme)
 					}}
-					bind:selected={$app.darkMode}
+					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
+					let:item
 				>
 					<ToggleButton
 						icon={SunMoon}
-						value={undefined}
+						value={'auto'}
 						tooltip="The app mode between dark/light is automatic"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						icon={Sun}
-						value={false}
+						value={'sun'}
 						tooltip="Force light mode"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="Force dark mode"
 						icon={Moon}
-						value={true}
+						value={'dark'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint} let:item>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
 						value={'lg'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="Mobile View"
 						icon={Smartphone}
 						value={'sm'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					{#if $breakpoint === 'sm'}
-						<ToggleEnable
-							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
-							label="Enable mobile view for smaller screens"
+						<Toggle
+							size="xs"
+							options={{
+								right: 'Enable mobile view for smaller screens',
+								rightTooltip:
+									'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
+							}}
+							textClass="text-2xs whitespace-nowrap white !w-full"
 							bind:checked={$app.mobileViewOnSmallerScreens}
-							iconProps={{ size: 16 }}
-							iconOnly={false}
+							class="flex flex-row px-2 items-center"
 						/>
 					{/if}
 				</ToggleButtonGroup>

@@ -103,6 +103,8 @@
 	let labelTimeout: NodeJS.Timeout | undefined = undefined
 	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
 	let tagTimeout: NodeJS.Timeout | undefined = undefined
+
+	let allWorkspacesValue = allWorkspaces ? 'all' : 'admins'
 </script>
 
 <div class="flex gap-4">
@@ -111,9 +113,13 @@
 			{#if $workspaceStore == 'admins'}
 				<div class="relative">
 					<span class="text-xs absolute -top-4">Workspaces</span>
-					<ToggleButtonGroup bind:selected={allWorkspaces}>
-						<ToggleButton value={false} label="Admins" />
-						<ToggleButton value={true} label="All" />
+					<ToggleButtonGroup
+						bind:selected={allWorkspacesValue}
+						on:selected={({ detail }) => (allWorkspaces = detail === 'all')}
+						let:item
+					>
+						<ToggleButton value={'admins'} label="Admins" {item} />
+						<ToggleButton value={'all'} label="All" {item} />
 					</ToggleButtonGroup>
 				</div>
 			{/if}
@@ -135,10 +141,11 @@
 							autoSet = false
 						}
 					}}
+					let:item
 				>
-					<ToggleButton value="path" label="Path" />
-					<ToggleButton value="user" label="User" />
-					<ToggleButton value="folder" label="Folder" />
+					<ToggleButton value="path" label="Path" {item} />
+					<ToggleButton value="user" label="User" {item} />
+					<ToggleButton value="folder" label="Folder" {item} />
 					<ToggleButtonMore
 						togglableItems={[
 							{ label: 'Schedule path', value: 'schedulePath' },
@@ -146,6 +153,8 @@
 							{ label: 'Label', value: 'label' },
 							{ label: 'Tag', value: 'tag' }
 						]}
+						{item}
+						bind:selected={filterBy}
 					/>
 				</ToggleButtonGroup>
 			</div>
@@ -410,47 +419,53 @@
 		</div>
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Kind</span>
-			<ToggleButtonGroup bind:selected={jobKindsCat}>
-				<ToggleButton value="all" label="All" />
+			<ToggleButtonGroup bind:selected={jobKindsCat} let:item>
+				<ToggleButton value="all" label="All" {item} />
 				<ToggleButton
 					value="runs"
 					label="Runs"
 					showTooltipIcon
 					tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+					{item}
 				/>
 				<ToggleButton
 					value="previews"
 					label="Previews"
 					showTooltipIcon
 					tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+					{item}
 				/>
 				<ToggleButton
 					value="dependencies"
 					label="Deps"
 					showTooltipIcon
 					tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+					{item}
 				/>
 				<ToggleButton
 					value="deploymentcallbacks"
 					label="Sync"
 					showTooltipIcon
 					tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
+					{item}
 				/>
 			</ToggleButtonGroup>
 		</div>
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Status</span>
 			<ToggleButtonGroup
+				allowEmpty
 				bind:selected={success}
 				on:selected={() => dispatch('successChange', success)}
+				let:item
 			>
-				<ToggleButton value={undefined} label="All" />
 				<ToggleButton
 					value={'running'}
 					tooltip="Running"
 					class="whitespace-nowrap"
 					icon={PlayCircle}
 					iconProps={{ color: success === 'running' ? 'blue' : 'gray' }}
+					{item}
 				/>
 				<ToggleButton
 					value={'success'}
@@ -458,6 +473,7 @@
 					class="whitespace-nowrap"
 					icon={CheckCircle2}
 					iconProps={{ color: success === 'success' ? 'green' : 'gray' }}
+					{item}
 				/>
 				<ToggleButton
 					value={'failure'}
@@ -465,6 +481,7 @@
 					class="whitespace-nowrap"
 					icon={AlertCircle}
 					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
+					{item}
 				/>
 				{#if success == 'waiting'}
 					<ToggleButton
@@ -473,6 +490,7 @@
 						class="whitespace-nowrap"
 						icon={Hourglass}
 						iconProps={{ color: 'blue' }}
+						{item}
 					/>
 				{:else if success == 'suspended'}
 					<ToggleButton
@@ -481,6 +499,7 @@
 						class="whitespace-nowrap"
 						icon={Hourglass}
 						iconProps={{ color: 'blue' }}
+						{item}
 					/>
 				{/if}
 			</ToggleButtonGroup>
@@ -501,9 +520,10 @@
 		<svelte:fragment slot="content">
 			<Section label="Filters">
 				<div class="w-102 flex flex-col gap-4">
-					{#if mobile}
+					{#if mobile || true}
 						<Label label="Filter by">
 							<ToggleButtonGroup
+								let:item
 								bind:selected={filterBy}
 								on:selected={() => {
 									if (!autoSet) {
@@ -519,13 +539,13 @@
 									}
 								}}
 							>
-								<ToggleButton value="path" label="Path" />
-								<ToggleButton value="user" label="User" />
-								<ToggleButton value="folder" label="Folder" />
-								<ToggleButton value="schedulePath" label="Schedule" />
-								<ToggleButton value="concurrencyKey" label="Concurrency" />
-								<ToggleButton value="tag" label="Tag" />
-								<ToggleButton value="label" label="Label" />
+								<ToggleButton value="path" label="Path" {item} />
+								<ToggleButton value="user" label="User" {item} />
+								<ToggleButton value="folder" label="Folder" {item} />
+								<ToggleButton value="schedulePath" label="Schedule" {item} />
+								<ToggleButton value="concurrencyKey" label="Concurrency" {item} />
+								<ToggleButton value="tag" label="Tag" {item} />
+								<ToggleButton value="label" label="Label" {item} />
 							</ToggleButtonGroup>
 						</Label>
 
@@ -725,41 +745,44 @@
 						{/if}
 
 						<Label label="Kind">
-							<ToggleButtonGroup bind:selected={jobKindsCat}>
-								<ToggleButton value="all" label="All" />
+							<ToggleButtonGroup bind:selected={jobKindsCat} let:item>
+								<ToggleButton value="all" label="All" {item} />
 								<ToggleButton
 									value="runs"
 									label="Runs"
 									showTooltipIcon
 									tooltip="Runs are jobs that have no parent jobs (flows are jobs that are parent of the jobs they start), they have been triggered through the UI, a schedule or webhook"
+									{item}
 								/>
 								<ToggleButton
 									value="previews"
 									label="Previews"
 									showTooltipIcon
 									tooltip="Previews are jobs that have been started in the editor as 'Tests'"
+									{item}
 								/>
 								<ToggleButton
 									value="dependencies"
 									label="Deps"
 									showTooltipIcon
 									tooltip="Deploying a script, flow or an app launch a dependency job that create and then attach the lockfile to the deployed item. This mechanism ensure that logic is always executed with the exact same direct and indirect dependencies."
+									{item}
 								/>
 								<ToggleButton
 									value="deploymentcallbacks"
 									label="Sync"
 									showTooltipIcon
 									tooltip="Sync jobs that are triggered on every script deployment to sync the workspace with the Git repository configured in the the workspace settings"
+									{item}
 								/>
 							</ToggleButtonGroup>
 						</Label>
 
 						<Label label="Status">
-							<ToggleButtonGroup bind:selected={success}>
-								<ToggleButton value={undefined} label="All" />
-								<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" />
-								<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" />
-								<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" />
+							<ToggleButtonGroup bind:selected={success} let:item allowEmpty>
+								<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" {item} />
+								<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" {item} />
+								<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" {item} />
 							</ToggleButtonGroup>
 						</Label>
 					{/if}

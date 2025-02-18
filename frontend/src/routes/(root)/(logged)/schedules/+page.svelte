@@ -268,18 +268,18 @@
 				<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind}>
-						<ToggleButton small value="schedule" label="Schedule" icon={Calendar} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+						<ToggleButton small value="schedule" label="Schedule" icon={Calendar} {item} />
+						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
 				<div class="flex flex-row items-center justify-end gap-4">
-					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled}>
-						<ToggleButton small value="all" label="All" />
-						<ToggleButton small value="enabled" label="Enabled" />
-						<ToggleButton small value="disabled" label="Disabled" />
+					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled} let:item>
+						<ToggleButton small value="all" label="All" {item} />
+						<ToggleButton small value="enabled" label="Enabled" {item} />
+						<ToggleButton small value="disabled" label="Disabled" {item} />
 					</ToggleButtonGroup>
 					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />

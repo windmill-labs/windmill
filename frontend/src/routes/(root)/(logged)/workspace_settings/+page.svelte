@@ -1071,19 +1071,21 @@
 						aiModels = []
 						codeCompletionModel = undefined
 					}}
+					let:item
 				>
-					<ToggleButton value="openai" label="OpenAI" />
-					<ToggleButton value="anthropic" label="Anthropic" />
-					<ToggleButton value="mistral" label="Mistral" />
-					<ToggleButton value="deepseek" label="DeepSeek" />
-					<ToggleButton value="groq" label="Groq" />
-					<ToggleButton value="openrouter" label="OpenRouter" />
+					<ToggleButton value="openai" label="OpenAI" {item} />
+					<ToggleButton value="anthropic" label="Anthropic" {item} />
+					<ToggleButton value="mistral" label="Mistral" {item} />
+					<ToggleButton value="deepseek" label="DeepSeek" {item} />
+					<ToggleButton value="groq" label="Groq" {item} />
+					<ToggleButton value="openrouter" label="OpenRouter" {item} />
 					<ToggleButton
 						value="customai"
 						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE)')}
 						disabled={!$enterpriseLicense}
 						tooltip="Configure a custom AI provider that is OpenAI API compatible"
 						showTooltipIcon
+						{item}
 					/>
 				</ToggleButtonGroup>
 				<div class="flex gap-1">

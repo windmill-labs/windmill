@@ -249,6 +249,11 @@
 	}
 	$: $copilotInfo && checkForInvalidModel()
 
+	function handlePublicOnlySelected({ detail }: { detail: string }) {
+		if (!dbSchema) return
+		;(dbSchema as any).publicOnly = detail === 'true'
+	}
+
 	onDestroy(() => {
 		abortController?.abort()
 	})
@@ -401,9 +406,15 @@
 				{:else if $copilotInfo.exists_ai_resource}
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between items-center w-96 gap-2">
-							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode}>
-								<ToggleButton value={'gen'} label="Generate from scratch" light class="px-2" />
-								<ToggleButton value={'edit'} label="Edit existing code" light class="px-2" />
+							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode} let:item>
+								<ToggleButton
+									value={'gen'}
+									label="Generate from scratch"
+									light
+									class="px-2"
+									{item}
+								/>
+								<ToggleButton value={'edit'} label="Edit existing code" light class="px-2" {item} />
 							</ToggleButtonGroup>
 
 							<div class="min-w-0">
@@ -502,14 +513,20 @@
 									{/if}
 								</div>
 								{#if dbSchema && dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
-									<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
+									<ToggleButtonGroup
+										class="w-auto shrink-0"
+										selected={dbSchema?.publicOnly ? 'true' : 'false'}
+										on:selected={handlePublicOnlySelected}
+										let:item
+									>
 										<ToggleButton
-											value={true}
+											value={'true'}
 											label={(dbSchema.schema?.dbo ? 'Dbo' : 'Public') + ' schema'}
 											small
 											light
+											{item}
 										/>
-										<ToggleButton value={false} label="All schemas" small light />
+										<ToggleButton value={'false'} label="All schemas" small light {item} />
 									</ToggleButtonGroup>
 								{/if}
 							</div>

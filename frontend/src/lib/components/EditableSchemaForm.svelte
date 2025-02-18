@@ -468,6 +468,7 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
+																			let:item
 																			bind:selected
 																			on:selected={(e) => {
 																				const isS3 = e.detail == 'S3'
@@ -548,7 +549,7 @@
 																			}}
 																		>
 																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
-																				<ToggleButton value={x[1]} label={x[0]} />
+																				<ToggleButton value={x[1]} label={x[0]} {item} />
 																			{/each}
 																		</ToggleButtonGroup>
 																	</Label>
