@@ -302,6 +302,12 @@
 				headless={true}
 				{showCapture}
 				{captureInfo}
+				bind:v3_config={args.v3_config}
+				bind:v5_config={args.v5_config}
+				bind:client_version={args.client_version}
+				bind:subscribe_topics={args.subscribe_topics}
+				bind:mqtt_resource_path={args.mqtt_resource_path}
+				bind:client_id={args.client_id}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema

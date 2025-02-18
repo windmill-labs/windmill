@@ -15,18 +15,22 @@ use axum::{
 };
 use http::StatusCode;
 use itertools::Itertools;
-use rumqttc::{v5::AsyncClient as AsyncClientV5, AsyncClient as AsyncClientV3, MqttOptions};
-use serde::{Deserialize, Serialize};
-use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::{
-    error::BoxDynError,
-    postgres::{PgHasArrayType, PgTypeInfo, PgValueRef},
-    Decode, Encode, FromRow, Postgres, Type,
+use rumqttc::{
+    v5::{
+        mqttbytes::{v5::Filter, QoS as V5QoS},
+        AsyncClient as V5AsyncClient, EventLoop as V5EventLoop, MqttOptions as V5MqttOptions,
+    },
+    AsyncClient as V3AsyncClient, EventLoop as V3EventLoop, MqttOptions as V3MqttOptions,
+    QoS as V3QoS, SubscribeFilter, TlsConfiguration,
 };
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
+use sql_builder::{bind::Bind, SqlBuilder};
+use sqlx::{FromRow, Type};
 use std::collections::HashMap;
+use std::time::Duration;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
-    auth,
     db::UserDB,
     error::{self, JsonResult},
     utils::{not_found_if_none, paginate, report_critical_error, Pagination, StripPath},
@@ -35,7 +39,7 @@ use windmill_common::{
 };
 
 use rand::seq::SliceRandom;
-use serde_json::{to_value, value::RawValue, Value};
+use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
 
 use windmill_queue::PushArgsOwned;
@@ -49,6 +53,20 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_mqtt_trigger))
         .route("/exists/*path", get(exists_mqtt_trigger))
         .route("/setenabled/*path", post(set_enabled))
+}
+
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("{0}")]
+    Common(#[from] windmill_common::error::Error),
+    #[error("{0}")]
+    V5RumqttClient(#[from] rumqttc::v5::ClientError),
+    #[error("{0}")]
+    V5ConnectionError(#[from] rumqttc::v5::ConnectionError),
+    #[error("{0}")]
+    V3RumqttClient(#[from] rumqttc::ClientError),
+    #[error("{0}")]
+    V3ConnectionError(#[from] rumqttc::ConnectionError),
 }
 
 async fn run_job(
@@ -109,29 +127,37 @@ pub struct LastWillConfig {
     retain: bool,
 }
 
-trait MqttClient {}
-
-impl MqttClient for AsyncClientV5 {}
-
-impl MqttClient for AsyncClientV3 {}
-
-struct MqttAsyncClient<T>(pub T)
-where
-    T: MqttClient;
-
-impl<T> MqttAsyncClient<T> where T: MqttClient {}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommonMqttConfig {
-    client_id: Option<String>,
     will: Option<LastWillConfig>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
 pub enum QualityOfService {
-    AtMostOnce,
-    AtLeastOnce,
-    ExactlyOnce,
+    AtMostOnce = 0,
+    AtLeastOnce = 1,
+    ExactlyOnce = 2,
+}
+
+impl Into<V3QoS> for QualityOfService {
+    fn into(self) -> V3QoS {
+        match self {
+            QualityOfService::AtMostOnce => V3QoS::AtMostOnce,
+            QualityOfService::AtLeastOnce => V3QoS::AtLeastOnce,
+            QualityOfService::ExactlyOnce => V3QoS::ExactlyOnce,
+        }
+    }
+}
+
+impl Into<V5QoS> for QualityOfService {
+    fn into(self) -> V5QoS {
+        match self {
+            QualityOfService::AtMostOnce => V5QoS::AtMostOnce,
+            QualityOfService::AtLeastOnce => V5QoS::AtLeastOnce,
+            QualityOfService::ExactlyOnce => V5QoS::ExactlyOnce,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -155,6 +181,7 @@ pub struct MqttV5Config {
 #[derive(Debug, Deserialize, Serialize, Type)]
 #[sqlx(type_name = "MQTT_CLIENT_VERSION")]
 #[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum MqttClientVersion {
     V3,
     V5,
@@ -166,11 +193,11 @@ pub struct MqttResource {
     password: Option<String>,
     port: u16,
     host: String,
-    ca_certificate: Option<Vec<u8>>,
+    ca_certificate: String,
 }
-#[derive(FromRow, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, FromRow, Serialize, Deserialize)]
 pub struct SubscribeTopic {
-    qos: u8,
+    qos: QualityOfService,
     topic: String,
 }
 
@@ -180,7 +207,9 @@ pub struct NewMqttTrigger {
     subscribe_topics: Vec<SubscribeTopic>,
     v3_config: Option<MqttV3Config>,
     v5_config: Option<MqttV5Config>,
-    client_version: MqttClientVersion,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_version: Option<MqttClientVersion>,
+    client_id: Option<String>,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -193,7 +222,9 @@ pub struct EditMqttTrigger {
     subscribe_topics: Vec<SubscribeTopic>,
     v3_config: Option<MqttV3Config>,
     v5_config: Option<MqttV5Config>,
-    client_version: MqttClientVersion,
+    client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_version: Option<MqttClientVersion>,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -201,43 +232,39 @@ pub struct EditMqttTrigger {
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct MqttTrigger {
-    pub mqtt_resource_path: String,
-    pub subscribe_topics: Vec<SqlxJson<SubscribeTopic>>,
-    pub v3_config: Option<SqlxJson<MqttV3Config>>,
-    pub v5_config: Option<SqlxJson<MqttV5Config>>,
-    pub client_version: MqttClientVersion,
-    pub path: String,
-    pub script_path: String,
-    pub is_flow: bool,
-    pub workspace_id: String,
-    pub edited_by: String,
-    pub email: String,
-    pub edited_at: chrono::DateTime<chrono::Utc>,
-    pub extra_perms: Option<serde_json::Value>,
-    pub error: Option<String>,
-    pub server_id: Option<String>,
-    pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
-    pub enabled: bool,
+    mqtt_resource_path: String,
+    subscribe_topics: Vec<SqlxJson<SubscribeTopic>>,
+    v3_config: Option<SqlxJson<MqttV3Config>>,
+    v5_config: Option<SqlxJson<MqttV5Config>>,
+    client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_version: Option<MqttClientVersion>,
+    path: String,
+    script_path: String,
+    is_flow: bool,
+    workspace_id: String,
+    edited_by: String,
+    email: String,
+    edited_at: chrono::DateTime<chrono::Utc>,
+    extra_perms: Option<serde_json::Value>,
+    error: Option<String>,
+    server_id: Option<String>,
+    last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
+    enabled: bool,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct ListMqttTriggerQuery {
-    pub page: Option<usize>,
-    pub per_page: Option<usize>,
-    pub path: Option<String>,
-    pub is_flow: Option<bool>,
-    pub path_start: Option<String>,
+    page: Option<usize>,
+    per_page: Option<usize>,
+    path: Option<String>,
+    is_flow: Option<bool>,
+    path_start: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct SetEnabled {
-    pub enabled: bool,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("{0}")]
-    Common(#[from] windmill_common::error::Error),
+    enabled: bool,
 }
 
 pub async fn create_mqtt_trigger(
@@ -262,6 +289,7 @@ pub async fn create_mqtt_trigger(
         v3_config,
         v5_config,
         client_version,
+        client_id,
     } = new_mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -276,6 +304,7 @@ pub async fn create_mqtt_trigger(
             mqtt_resource_path,
             subscribe_topics,
             client_version,
+            client_id,
             v3_config,
             v5_config,
             workspace_id,
@@ -298,11 +327,13 @@ pub async fn create_mqtt_trigger(
             $9,
             $10,
             $11,
-            $12
+            $12,
+            $13
         )"#,
         mqtt_resource_path,
         subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
-        client_version as MqttClientVersion,
+        client_version as Option<MqttClientVersion>,
+        client_id,
         v3_config as Option<SqlxJson<MqttV3Config>>,
         v5_config as Option<SqlxJson<MqttV5Config>>,
         &w_id,
@@ -346,6 +377,8 @@ pub async fn list_mqtt_triggers(
             "subscribe_topics",
             "v3_config",
             "v5_config",
+            "client_version",
+            "client_id",
             "workspace_id",
             "path",
             "script_path",
@@ -407,6 +440,7 @@ pub async fn get_mqtt_trigger(
             v3_config as "v3_config!: Option<SqlxJson<MqttV3Config>>",
             v5_config as "v5_config!: Option<SqlxJson<MqttV5Config>>",
             client_version AS "client_version: _",
+            client_id,
             workspace_id,
             path,
             script_path,
@@ -453,9 +487,8 @@ pub async fn update_mqtt_trigger(
         v3_config,
         v5_config,
         client_version,
+        client_id,
     } = mqtt_trigger;
-
-    //valid_config_version(client_version, advance_configuration.as_ref())?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -472,23 +505,25 @@ pub async fn update_mqtt_trigger(
                 mqtt_resource_path =  $1,
                 subscribe_topics = $2,
                 client_version = $3,
-                v3_config = $4,
-                v5_config = $5,
-                is_flow = $6, 
-                edited_by = $7, 
-                email = $8,
-                script_path = $9,
-                path = $10,
+                client_id = $4,
+                v3_config = $5,
+                v5_config = $6,
+                is_flow = $7, 
+                edited_by = $8, 
+                email = $9,
+                script_path = $10,
+                path = $11,
                 edited_at = now(), 
                 error = NULL,
                 server_id = NULL
             WHERE 
-                workspace_id = $11 AND 
-                path = $12
+                workspace_id = $12 AND 
+                path = $13
             "#,
         mqtt_resource_path,
         subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
-        client_version as MqttClientVersion,
+        client_version as Option<MqttClientVersion>,
+        client_id,
         v3_config as Option<SqlxJson<MqttV3Config>>,
         v5_config as Option<SqlxJson<MqttV5Config>>,
         is_flow,
@@ -648,9 +683,192 @@ async fn loop_ping(db: &DB, mqtt: &MqttConfig, error: Option<&str>) {
     }
 }
 
+enum MqttClientResult {
+    V3((V3AsyncClient, V3EventLoop)),
+    V5((V5AsyncClient, V5EventLoop)),
+}
+
+async fn get_mqtt_async_client(
+    mqtt_resource: &MqttResource,
+    client_version: Option<&MqttClientVersion>,
+    client_id: Option<&str>,
+    subscribe_topics: Vec<SubscribeTopic>,
+    v3_config: Option<&MqttV3Config>,
+    v5_config: Option<&MqttV5Config>,
+) -> Result<MqttClientResult, Error> {
+    match client_version {
+        Some(&MqttClientVersion::V5) | None => {
+            let mut mqtt_options = V5MqttOptions::new(
+                client_id.unwrap_or(""),
+                &mqtt_resource.host,
+                mqtt_resource.port,
+            );
+
+            if !mqtt_resource.ca_certificate.is_empty() {
+                let transport = TlsConfiguration::SimpleNative {
+                    ca: mqtt_resource.ca_certificate.as_bytes().to_vec(),
+                    client_auth: None,
+                };
+
+                mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
+            }
+
+            if let Some(v5_config) = v5_config {
+                mqtt_options.set_keep_alive(Duration::from_secs(
+                    v5_config.keep_alive.unwrap_or(30) as u64,
+                ));
+                mqtt_options.set_clean_start(v5_config.clean_start.unwrap_or(true));
+            }
+
+            let (async_client, mut event_loop) =
+                V5AsyncClient::new(mqtt_options, subscribe_topics.len());
+
+            event_loop.poll().await?;
+
+            let subscribe_filters = subscribe_topics
+                .into_iter()
+                .map(|subscribe_topic| {
+                    Filter::new(subscribe_topic.topic.clone(), subscribe_topic.qos.into())
+                })
+                .collect_vec();
+
+            async_client.subscribe_many(subscribe_filters).await?;
+
+            Ok(MqttClientResult::V5((async_client, event_loop)))
+        }
+        _ => {
+            let mut mqtt_options = V3MqttOptions::new(
+                client_id.unwrap_or(""),
+                &mqtt_resource.host,
+                mqtt_resource.port,
+            );
+
+            mqtt_options.set_keep_alive(Duration::from_secs(30));
+
+            if !mqtt_resource.ca_certificate.is_empty() {
+                let transport = TlsConfiguration::SimpleNative {
+                    ca: mqtt_resource.ca_certificate.as_bytes().to_vec(),
+                    client_auth: None,
+                };
+
+                mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
+            }
+
+            if let Some(v3_config) = v3_config {
+                
+            }
+
+            let (async_client, mut event_loop) =
+                V3AsyncClient::new(mqtt_options, subscribe_topics.len());
+
+            event_loop.poll().await?;
+
+            let subscribe_filters = subscribe_topics
+                .into_iter()
+                .map(|subscribe_topic| {
+                    SubscribeFilter::new(subscribe_topic.topic.clone(), subscribe_topic.qos.into())
+                })
+                .collect_vec();
+
+            async_client.subscribe_many(subscribe_filters).await?;
+
+            Ok(MqttClientResult::V3((async_client, event_loop)))
+        }
+    }
+}
+
+#[derive(Debug)]
 enum MqttConfig {
     Trigger(MqttTrigger),
     Capture(CaptureConfigForMqttTrigger),
+}
+
+impl MqttConfig {
+    async fn update_ping(&self, db: &DB, error: Option<&str>) -> Option<()> {
+        match self {
+            MqttConfig::Trigger(trigger) => trigger.update_ping(db, error).await,
+            MqttConfig::Capture(capture) => capture.update_ping(db, error).await,
+        }
+    }
+
+    async fn disable_with_error(&self, db: &DB, error: String) -> () {
+        match self {
+            MqttConfig::Trigger(trigger) => trigger.disable_with_error(&db, error).await,
+            MqttConfig::Capture(capture) => capture.disable_with_error(db, error).await,
+        }
+    }
+
+    async fn start_consuming_messages(
+        &self,
+        db: &DB,
+    ) -> std::result::Result<MqttClientResult, Error> {
+        let mqtt_resource_path;
+        let subscribe_topics;
+        let workspace_id;
+        let authed;
+        let client_version;
+        let client_id;
+        let v3_config;
+        let v5_config;
+        match self {
+            MqttConfig::Capture(capture) => {
+                mqtt_resource_path = &capture.trigger_config.0.mqtt_resource_path;
+                subscribe_topics = capture.trigger_config.0.subscribe_topics.clone();
+                workspace_id = &capture.trigger_config.0.mqtt_resource_path;
+                authed = capture.fetch_authed(&db).await?;
+                client_version = capture.trigger_config.0.client_version.as_ref();
+                client_id = capture.trigger_config.0.client_id.as_deref();
+                v3_config = capture.trigger_config.0.v3_config.as_ref();
+                v5_config = capture.trigger_config.0.v5_config.as_ref();
+            }
+            MqttConfig::Trigger(trigger) => {
+                mqtt_resource_path = &trigger.mqtt_resource_path;
+                subscribe_topics = trigger
+                    .subscribe_topics
+                    .iter()
+                    .map(|topic| topic.0.clone())
+                    .collect_vec();
+                workspace_id = &trigger.workspace_id;
+                client_version = trigger.client_version.as_ref();
+                authed = trigger.fetch_authed(&db).await?;
+                client_id = trigger.client_id.as_deref();
+                v3_config = trigger.v3_config.as_ref().map(|v3_config| &v3_config.0);
+                v5_config = trigger.v5_config.as_ref().map(|v5_config| &v5_config.0);
+            }
+        }
+
+        let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
+            authed,
+            Some(UserDB::new(db.clone())),
+            db,
+            mqtt_resource_path,
+            workspace_id,
+        )
+        .await?;
+
+        let client = get_mqtt_async_client(
+            &mqtt_resource,
+            client_version,
+            client_id,
+            subscribe_topics.into_iter().collect_vec(),
+            v3_config,
+            v5_config,
+        )
+        .await?;
+        Ok(client)
+    }
+
+    async fn handle(
+        &self,
+        db: &DB,
+        args: Option<HashMap<String, Box<RawValue>>>,
+        extra: Option<HashMap<String, Box<RawValue>>>,
+    ) -> () {
+        match self {
+            MqttConfig::Trigger(trigger) => trigger.handle(&db, args, extra).await,
+            MqttConfig::Capture(capture) => capture.handle(&db, args, extra).await,
+        }
+    }
 }
 
 impl MqttTrigger {
@@ -685,7 +903,7 @@ impl MqttTrigger {
         match mqtt_trigger {
             Ok(has_lock) => {
                 if has_lock.flatten().unwrap_or(false) {
-                    tracing::info!("Spawning new task to listen_to_database_transaction");
+                    tracing::info!("Spawning new task to listen to mqtt notifications");
                     tokio::spawn(async move {
                         listen_to_messages(MqttConfig::Trigger(self), db.clone(), killpill_rx)
                             .await;
@@ -730,7 +948,7 @@ impl MqttTrigger {
         match updated {
             Ok(updated) => {
                 if updated.flatten().is_none() {
-                    // allow faster restart of database trigger
+                    // allow faster restart of mqtt trigger
                     sqlx::query!(
                         r#"
                     UPDATE 
@@ -839,79 +1057,6 @@ impl MqttTrigger {
     }
 }
 
-impl MqttConfig {
-    async fn update_ping(&self, db: &DB, error: Option<&str>) -> Option<()> {
-        match self {
-            MqttConfig::Trigger(trigger) => trigger.update_ping(db, error).await,
-            MqttConfig::Capture(capture) => capture.update_ping(db, error).await,
-        }
-    }
-
-    async fn disable_with_error(&self, db: &DB, error: String) -> () {
-        match self {
-            MqttConfig::Trigger(trigger) => trigger.disable_with_error(&db, error).await,
-            MqttConfig::Capture(capture) => capture.disable_with_error(db, error).await,
-        }
-    }
-
-    async fn start_consuming_messages(&self, db: &DB) -> std::result::Result<(), Error> {
-        let mqtt_resource_path;
-        let topics;
-        let workspace_id;
-        let authed;
-
-        match self {
-            MqttConfig::Capture(capture) => {
-                mqtt_resource_path = &capture.trigger_config.0.mqtt_resource_path;
-                topics = capture
-                    .trigger_config
-                    .0
-                    .subscribe_topics
-                    .iter()
-                    .collect_vec()
-                    .as_slice();
-                workspace_id = &capture.trigger_config.0.mqtt_resource_path;
-                authed = capture.fetch_authed(&db).await?;
-            }
-            MqttConfig::Trigger(trigger) => {
-                mqtt_resource_path = &trigger.mqtt_resource_path;
-                topics = trigger
-                    .subscribe_topics
-                    .iter()
-                    .map(|topic| &topic.0)
-                    .collect_vec()
-                    .as_slice();
-                workspace_id = &trigger.workspace_id;
-                authed = trigger.fetch_authed(&db).await?;
-            }
-        }
-
-        let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
-            authed,
-            Some(UserDB::new(db.clone())),
-            db,
-            mqtt_resource_path,
-            workspace_id,
-        )
-        .await?;
-
-        //let options = MqttOptions::new(, host, port);
-        Ok(())
-    }
-
-    async fn handle(
-        &self,
-        db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
-    ) -> () {
-        match self {
-            MqttConfig::Trigger(trigger) => trigger.handle(&db, args, extra).await,
-            MqttConfig::Capture(capture) => capture.handle(&db, args, extra).await,
-        }
-    }
-}
-
 async fn listen_to_messages(
     mqtt: MqttConfig,
     db: DB,
@@ -937,13 +1082,29 @@ async fn listen_to_messages(
                 _ = {
                     async {
                         match result {
-                            Ok(_) => {
-                                loop {
+                            Ok(connection) => {
+                                let handle_notification = || {};
+                                match connection {
+                                    MqttClientResult::V5((async_client, mut event_loop)) => {
 
+                                        while let Ok(notification) = event_loop.poll().await {
+                                            println!("Received = {:?}", notification);
+                                        }
+
+                                        handle_notification();
+                                    }
+                                    MqttClientResult::V3((async_client, mut event_loop)) => {
+
+                                        while let Ok(notification) = event_loop.poll().await {
+                                            println!("Received = {:?}", notification);
+                                        }
+
+                                        handle_notification();
+                                    }
                                 }
                             }
                             Err(err) => {
-                                tracing::error!("Mqtt trigger error while trying to start listening to messages: {}", &err);
+                                tracing::error!("Mqtt trigger error while trying to start listening to notifications: {}", &err);
                                 mqtt.disable_with_error(&db, err.to_string()).await
                             }
                         }
@@ -955,7 +1116,7 @@ async fn listen_to_messages(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct CaptureConfigForMqttTrigger {
     trigger_config: SqlxJson<MqttTriggerConfig>,
     path: String,
@@ -1174,6 +1335,7 @@ async fn listen_to_unlistened_mqtt_events(
                 v3_config as "v3_config!: Option<SqlxJson<MqttV3Config>>",
                 v5_config as "v5_config!: Option<SqlxJson<MqttV5Config>>",
                 client_version as "client_version: _",
+                client_id,
                 workspace_id,
                 path,
                 script_path,

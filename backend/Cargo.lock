@@ -7266,11 +7266,13 @@ dependencies = [
  "flume",
  "futures-util",
  "log",
+ "native-tls",
  "rustls-native-certs 0.7.3",
  "rustls-pemfile 2.2.0",
  "rustls-webpki 0.102.8",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-native-tls",
  "tokio-rustls 0.25.0",
 ]
 
@@ -11003,6 +11005,7 @@ dependencies = [
  "samael",
  "serde",
  "serde_json",
+ "serde_repr",
  "serde_urlencoded",
  "sha2 0.10.8",
  "sql-builder",

@@ -576,7 +576,6 @@ pub async fn run_server(
                 .on_failure(MyOnFailure {}),
         )
     };
-
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
     let ip = listener

@@ -39,7 +39,9 @@
 	let subscribe_topics: SubscribeTopic[] = []
 	let v3_config: MqttV3Config | undefined
 	let v5_config: MqttV5Config | undefined
-	let client_version: MqttClientVersion
+	let client_version: MqttClientVersion | undefined
+	let client_id: string
+	let isValid: boolean
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -79,7 +81,8 @@
 			initialPath = ''
 			edit = false
 			dirtyPath = false
-			client_version = 'v5'
+			client_version = defaultValues?.client_version ?? 'v5'
+			client_id = defaultValues?.client_id ?? ''
 		} finally {
 			drawerLoading = false
 		}
@@ -91,7 +94,6 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-			console.log({ s })
 			mqtt_resource_path = s.mqtt_resource_path
 			subscribe_topics = s.subscribe_topics
 			script_path = s.script_path
@@ -99,9 +101,10 @@
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled
-			client_version = s.mqtt_client_version
+			client_version = s.client_version
 			v3_config = s.v3_config
-			v3_config = s.v5_config
+			v5_config = s.v5_config
+			client_id = s.client_id ?? ''
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger: ${error.body}`, true)
@@ -114,7 +117,8 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
-					mqtt_client_version: client_version,
+					client_id,
+					client_version,
 					v3_config,
 					v5_config,
 					mqtt_resource_path,
@@ -130,7 +134,8 @@
 			await MqttTriggerService.createMqttTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
-					mqtt_client_version: client_version,
+					client_id,
+					client_version,
 					v3_config,
 					v5_config,
 					mqtt_resource_path,
@@ -177,7 +182,7 @@
 				{/if}
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' || emptyString(script_path) || !can_write}
+					disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
 					on:click={updateTrigger}
 				>
 					Save
@@ -239,6 +244,8 @@
 					bind:client_version
 					bind:v3_config
 					bind:v5_config
+					bind:isValid
+					bind:client_id
 					headless={true}
 				/>
 			</div>

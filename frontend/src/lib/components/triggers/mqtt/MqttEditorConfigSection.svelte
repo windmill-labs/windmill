@@ -11,10 +11,11 @@
 	import { fade } from 'svelte/transition'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { emptyStringTrimmed } from '$lib/utils'
 
 	const DEFAULT_V5_CONFIG: MqttV5Config = {
-		client_id: '',
-		clean_start: false,
+		clean_start: true,
 		keep_alive: undefined,
 		session_expiration: undefined,
 		receive_maximum: undefined,
@@ -22,8 +23,7 @@
 	}
 
 	const DEFAULT_V3_CONFIG: MqttV3Config = {
-		client_id: '',
-		clean_session: false
+		clean_session: true
 	}
 
 	export let can_write: boolean = false
@@ -33,20 +33,30 @@
 	export let subscribe_topics: SubscribeTopic[] = []
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
-	export let v3_config: MqttV3Config = DEFAULT_V3_CONFIG
-	export let v5_config: MqttV5Config = DEFAULT_V5_CONFIG
+	export let v3_config: MqttV3Config | undefined
+	export let v5_config: MqttV5Config | undefined
 	export let client_version: MqttClientVersion = 'v5'
 	export let isValid: boolean = false
-	export let topics: string[] = []
-
+	export let client_id: string
 	if (!v3_config) {
 		v3_config = DEFAULT_V3_CONFIG
+	} else {
+		v3_config = {
+			clean_session: v3_config.clean_session
+		}
 	}
 	if (!v5_config) {
 		v5_config = DEFAULT_V5_CONFIG
+	} else {
+		v5_config = {
+			clean_start: v5_config.clean_start,
+			keep_alive: v5_config.keep_alive,
+			session_expiration: v5_config.session_expiration,
+			receive_maximum: v5_config.receive_maximum,
+			maximum_packet_size: v5_config.maximum_packet_size
+		}
 	}
-
-	$: isValid = topics.length > 0
+	$: isValid = subscribe_topics.length > 0 && !emptyStringTrimmed(mqtt_resource_path)
 </script>
 
 <div>
@@ -138,12 +148,88 @@
 
 			<Subsection label="Advanced" collapsable={true}>
 				<div class="flex p-2 flex-col gap-2 mt-3">
-					<Subsection label="v5" collapsable={true}>
+					<ToggleButtonGroup bind:selected={client_version}>
+						<ToggleButton value="v5" label="Version 5" />
+						<ToggleButton value="v3" label="Version 3" />
+					</ToggleButtonGroup>
 
-					</Subsection>
-					<Subsection label="v3" collapsable={true}>
-						
-					</Subsection>
+					<input
+						type="text"
+						bind:value={client_id}
+						disabled={!can_write}
+						placeholder="client id"
+						autocomplete="off"
+					/>
+
+					{#if client_version === 'v5'}
+						<Toggle
+							textClass="font-normal text-sm"
+							color="nord"
+							size="xs"
+							checked={v5_config.clean_start}
+							on:change={() => {
+								v5_config.clean_start = !v5_config.clean_start
+							}}
+							options={{
+								right: 'Clean start',
+								rightTooltip: '',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mqtt_trigger'
+							}}
+							class="py-1"
+						/>
+
+						<input
+							type="number"
+							min={10}
+							bind:value={v5_config.keep_alive}
+							disabled={!can_write}
+							placeholder="keep alive"
+							autocomplete="off"
+						/>
+
+						<input
+							type="number"
+							min={10}
+							bind:value={v5_config.session_expiration}
+							disabled={!can_write}
+							placeholder="session expiration"
+							autocomplete="off"
+						/>
+
+						<input
+							type="number"
+							min={10}
+							bind:value={v5_config.receive_maximum}
+							disabled={!can_write}
+							placeholder="receive maximum"
+							autocomplete="off"
+						/>
+
+						<input
+							type="number"
+							min={10}
+							bind:value={v5_config.maximum_packet_size}
+							disabled={!can_write}
+							placeholder="maximum packet_size"
+							autocomplete="off"
+						/>
+					{:else if client_version === 'v3'}
+						<Toggle
+							textClass="font-normal text-sm"
+							color="nord"
+							size="xs"
+							checked={v3_config.clean_session}
+							on:change={() => {
+								v3_config.clean_session = !v3_config.clean_session
+							}}
+							options={{
+								right: 'Clean session',
+								rightTooltip: '',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mqtt_trigger'
+							}}
+							class="py-1"
+						/>
+					{/if}
 				</div>
 			</Subsection>
 		</div>

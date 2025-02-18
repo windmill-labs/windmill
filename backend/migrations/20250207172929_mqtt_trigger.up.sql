@@ -7,6 +7,7 @@ CREATE TABLE mqtt_trigger (
     client_version MQTT_CLIENT_VERSION DEFAULT 'v5' NOT NULL,
     v5_config JSONB NULL,
     v3_config JSONB NULL,
+    client_id VARCHAR(65535) DEFAULT NULL,
     path VARCHAR(255) NOT NULL,
     script_path VARCHAR(255) NOT NULL,
     is_flow BOOLEAN NOT NULL,

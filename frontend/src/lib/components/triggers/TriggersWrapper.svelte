@@ -72,6 +72,16 @@
 	{:else if triggerType === 'nats'}
 		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{:else if triggerType === 'mqtt'}
-		<MqttEditorConfigSection headless={true} />
+		<MqttEditorConfigSection
+			bind:v3_config={args.v3_config}
+			bind:v5_config={args.v5_config}
+			bind:client_version={args.client_version}
+			bind:subscribe_topics={args.subscribe_topics}
+			bind:mqtt_resource_path={args.mqtt_resource_path}
+			bind:client_id={args.client_id}
+			showCapture={false}
+			headless={true}
+			can_write={true}
+		/>
 	{/if}
 </div>

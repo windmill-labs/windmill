@@ -155,7 +155,8 @@ pub struct MqttTriggerConfig {
     pub subscribe_topics: Vec<SubscribeTopic>,
     pub v3_config: Option<MqttV3Config>,
     pub v5_config: Option<MqttV5Config>,
-    pub mqtt_client_version: MqttClientVersion,
+    pub client_version: Option<MqttClientVersion>,
+    pub client_id: Option<String>,
 }
 #[cfg(feature = "postgres_trigger")]
 #[derive(Serialize, Deserialize, Debug)]

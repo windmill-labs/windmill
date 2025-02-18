@@ -13705,8 +13705,6 @@ components:
     CommonMqttConfig:
       type: object
       properties:
-        client_id:
-          type: string
         will:
           type: object
           properties:
@@ -13775,7 +13773,9 @@ components:
           $ref: "#/components/schemas/MqttV3Config"
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
-        mqtt_client_version:
+        client_id:
+          type: string
+        client_version:
           $ref: "#/components/schemas/MqttClientVersion"
         server_id:
           type: string
@@ -13791,7 +13791,6 @@ components:
         - enabled
         - subscribe_topics
         - mqtt_resource_path
-        - mqtt_client_version
 
     NewMqttTrigger:
       type: object
@@ -13802,11 +13801,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SubscribeTopic"
+        client_id:
+          type: string
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
-        mqtt_client_version:
+        client_version:
           $ref: "#/components/schemas/MqttClientVersion"
         path:
           type: string
@@ -13822,7 +13823,6 @@ components:
         - is_flow
         - subscribe_topics
         - mqtt_resource_path
-        - mqtt_client_version
 
     EditMqttTrigger:
       type: object
@@ -13833,11 +13833,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SubscribeTopic"
+        client_id:
+          type: string
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
         v5_config:
           $ref: "#/components/schemas/MqttV5Config"
-        mqtt_client_version:
+        client_version:
           $ref: "#/components/schemas/MqttClientVersion"
         path:
           type: string
@@ -13854,7 +13856,6 @@ components:
         - enabled
         - subscribe_topics  
         - mqtt_resource_path
-        - mqtt_client_version
 
     Slot:
       type: object
