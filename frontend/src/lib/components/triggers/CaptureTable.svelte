@@ -67,7 +67,7 @@
 	}
 
 	function initLoadCaptures(testKind: 'preprocessor' | 'main' = 'main') {
-		const loadInputsPageFn = async (page: number, perPage: number, _discovery: boolean) => {
+		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const captures = await CaptureService.listCaptures({
 				workspace: $workspaceStore!,
 				runnableKind: isFlow ? 'flow' : 'script',
