@@ -53,6 +53,12 @@
 	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 
 	$: shouldDisplayError = resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
+
+	function handleSelected({ detail }: CustomEvent<string>) {
+		if (dbSchema && dbSchema.lang !== 'graphql') {
+			dbSchema.publicOnly = detail === 'dbo'
+		}
+	}
 </script>
 
 {#if loading}
@@ -89,9 +95,7 @@
 				<ToggleButtonGroup
 					class="mb-4"
 					selected={dbSchema.publicOnly ? 'dbo' : 'all'}
-					on:selected={({ detail }) => {
-						dbSchema.publicOnly = detail === 'dbo'
-					}}
+					on:selected={handleSelected}
 					let:item
 				>
 					<ToggleButton value="dbo" label={dbSchema.schema.dbo ? 'Dbo' : 'Public'} {item} />
