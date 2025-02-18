@@ -42,6 +42,8 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 	}
+
+	const zIndex = zIndexes.contextMenu
 </script>
 
 <div class={twMerge('w-full h-8', $$props.class)}>
@@ -66,7 +68,7 @@
 		<slot name="trigger" trigger={$trigger} />
 	</button>
 
-	<div use:melt={$menuElement} data-menu style="z-index: {zIndexes.contextMenu};">
+	<div use:melt={$menuElement} data-menu class={`z-[${zIndex}]`}>
 		<div
 			class={twMerge(
 				'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
