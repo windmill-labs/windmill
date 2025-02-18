@@ -10,6 +10,8 @@
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+#[cfg(feature = "mqtt_trigger")]
+use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 #[cfg(feature = "postgres_trigger")]
@@ -33,7 +35,6 @@ use windmill_common::error::Error;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
-    mqtt_triggers::SubscribeTopic,
     users::fetch_api_authed,
 };
 use axum::{
@@ -152,7 +153,9 @@ pub struct NatsTriggerConfig {
 pub struct MqttTriggerConfig {
     pub mqtt_resource_path: String,
     pub subscribe_topics: Vec<SubscribeTopic>,
-    pub ca_certificate: Option<Vec<u8>>
+    pub v3_config: Option<MqttV3Config>,
+    pub v5_config: Option<MqttV5Config>,
+    pub mqtt_client_version: MqttClientVersion,
 }
 #[cfg(feature = "postgres_trigger")]
 #[derive(Serialize, Deserialize, Debug)]

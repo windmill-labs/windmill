@@ -15,7 +15,7 @@ use axum::{
 };
 use http::StatusCode;
 use itertools::Itertools;
-use rumqttc::MqttOptions;
+use rumqttc::{v5::AsyncClient as AsyncClientV5, AsyncClient as AsyncClientV3, MqttOptions};
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{
@@ -101,6 +101,65 @@ async fn run_job(
     Ok(())
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LastWillConfig {
+    topic: String,
+    payload: Vec<u8>,
+    qos: QualityOfService,
+    retain: bool,
+}
+
+trait MqttClient {}
+
+impl MqttClient for AsyncClientV5 {}
+
+impl MqttClient for AsyncClientV3 {}
+
+struct MqttAsyncClient<T>(pub T)
+where
+    T: MqttClient;
+
+impl<T> MqttAsyncClient<T> where T: MqttClient {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommonMqttConfig {
+    client_id: Option<String>,
+    will: Option<LastWillConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum QualityOfService {
+    AtMostOnce,
+    AtLeastOnce,
+    ExactlyOnce,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MqttV3Config {
+    #[serde(flatten)]
+    base: CommonMqttConfig,
+    clean_session: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MqttV5Config {
+    #[serde(flatten)]
+    base: CommonMqttConfig,
+    clean_start: Option<bool>,
+    keep_alive: Option<u16>,
+    session_expiration: Option<u16>,
+    receive_maximum: Option<u16>,
+    maximum_packet_size: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Type)]
+#[sqlx(type_name = "MQTT_CLIENT_VERSION")]
+#[sqlx(rename_all = "lowercase")]
+pub enum MqttClientVersion {
+    V3,
+    V5,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct MqttResource {
     username: Option<String>,
@@ -116,10 +175,12 @@ pub struct SubscribeTopic {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-
 pub struct NewMqttTrigger {
     mqtt_resource_path: String,
-    subscribe_topics: Vec<sqlx::types::Json<SubscribeTopic>>,
+    subscribe_topics: Vec<SubscribeTopic>,
+    v3_config: Option<MqttV3Config>,
+    v5_config: Option<MqttV5Config>,
+    client_version: MqttClientVersion,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -129,7 +190,10 @@ pub struct NewMqttTrigger {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EditMqttTrigger {
     mqtt_resource_path: String,
-    subscribe_topics: Vec<sqlx::types::Json<SubscribeTopic>>,
+    subscribe_topics: Vec<SubscribeTopic>,
+    v3_config: Option<MqttV3Config>,
+    v5_config: Option<MqttV5Config>,
+    client_version: MqttClientVersion,
     path: String,
     script_path: String,
     is_flow: bool,
@@ -138,7 +202,10 @@ pub struct EditMqttTrigger {
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct MqttTrigger {
     pub mqtt_resource_path: String,
-    pub subscribe_topics: Vec<sqlx::types::Json<SubscribeTopic>>,
+    pub subscribe_topics: Vec<SqlxJson<SubscribeTopic>>,
+    pub v3_config: Option<SqlxJson<MqttV3Config>>,
+    pub v5_config: Option<SqlxJson<MqttV5Config>>,
+    pub client_version: MqttClientVersion,
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
@@ -192,21 +259,26 @@ pub async fn create_mqtt_trigger(
         script_path,
         enabled,
         is_flow,
+        v3_config,
+        v5_config,
+        client_version,
     } = new_mqtt_trigger;
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let subscribe_topics = subscribe_topics
-        .into_iter()
-        .map(|topic| to_value(topic).unwrap())
-        .collect_vec();
+    let subscribe_topics = subscribe_topics.into_iter().map(SqlxJson).collect_vec();
+    let v3_config = v3_config.map(SqlxJson);
+    let v5_config = v5_config.map(SqlxJson);
 
     sqlx::query!(
         r#"
         INSERT INTO mqtt_trigger (
             mqtt_resource_path,
             subscribe_topics,
-            workspace_id, 
+            client_version,
+            v3_config,
+            v5_config,
+            workspace_id,
             path, 
             script_path, 
             is_flow, 
@@ -223,10 +295,16 @@ pub async fn create_mqtt_trigger(
             $6, 
             $7,
             $8,
-            $9
+            $9,
+            $10,
+            $11,
+            $12
         )"#,
         mqtt_resource_path,
-        subscribe_topics.as_slice(),
+        subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
+        client_version as MqttClientVersion,
+        v3_config as Option<SqlxJson<MqttV3Config>>,
+        v5_config as Option<SqlxJson<MqttV5Config>>,
         &w_id,
         &path,
         script_path,
@@ -266,6 +344,8 @@ pub async fn list_mqtt_triggers(
         .fields(&[
             "mqtt_resource_path",
             "subscribe_topics",
+            "v3_config",
+            "v5_config",
             "workspace_id",
             "path",
             "script_path",
@@ -323,7 +403,10 @@ pub async fn get_mqtt_trigger(
         r#"
         SELECT
             mqtt_resource_path,
-            subscribe_topics as "subscribe_topics!: Vec<sqlx::types::Json<SubscribeTopic>>",
+            subscribe_topics as "subscribe_topics!: Vec<SqlxJson<SubscribeTopic>>",
+            v3_config as "v3_config!: Option<SqlxJson<MqttV3Config>>",
+            v5_config as "v5_config!: Option<SqlxJson<MqttV5Config>>",
+            client_version AS "client_version: _",
             workspace_id,
             path,
             script_path,
@@ -361,15 +444,25 @@ pub async fn update_mqtt_trigger(
     Json(mqtt_trigger): Json<EditMqttTrigger>,
 ) -> error::Result<String> {
     let workspace_path = path.to_path();
-    let EditMqttTrigger { mqtt_resource_path, subscribe_topics, script_path, path, is_flow } =
-        mqtt_trigger;
+    let EditMqttTrigger {
+        mqtt_resource_path,
+        subscribe_topics,
+        script_path,
+        path,
+        is_flow,
+        v3_config,
+        v5_config,
+        client_version,
+    } = mqtt_trigger;
+
+    //valid_config_version(client_version, advance_configuration.as_ref())?;
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let subscribe_topics = subscribe_topics
-        .into_iter()
-        .map(|topic| to_value(topic).unwrap())
-        .collect_vec();
+    let subscribe_topics = subscribe_topics.into_iter().map(SqlxJson).collect_vec();
+
+    let v3_config = v3_config.map(SqlxJson);
+    let v5_config = v5_config.map(SqlxJson);
 
     sqlx::query!(
         r#"
@@ -377,21 +470,27 @@ pub async fn update_mqtt_trigger(
                 mqtt_trigger 
             SET
                 mqtt_resource_path =  $1,
-                subscribe_topics = $2, 
-                is_flow = $3, 
-                edited_by = $4, 
-                email = $5,
-                script_path = $6,
-                path = $7,
+                subscribe_topics = $2,
+                client_version = $3,
+                v3_config = $4,
+                v5_config = $5,
+                is_flow = $6, 
+                edited_by = $7, 
+                email = $8,
+                script_path = $9,
+                path = $10,
                 edited_at = now(), 
                 error = NULL,
                 server_id = NULL
             WHERE 
-                workspace_id = $8 AND 
-                path = $9
+                workspace_id = $11 AND 
+                path = $12
             "#,
         mqtt_resource_path,
-        subscribe_topics.as_slice(),
+        subscribe_topics.as_slice() as &[SqlxJson<SubscribeTopic>],
+        client_version as MqttClientVersion,
+        v3_config as Option<SqlxJson<MqttV3Config>>,
+        v5_config as Option<SqlxJson<MqttV5Config>>,
         is_flow,
         &authed.username,
         &authed.email,
@@ -1071,7 +1170,10 @@ async fn listen_to_unlistened_mqtt_events(
         r#"
             SELECT
                 mqtt_resource_path,
-                subscribe_topics as "subscribe_topics!: Vec<sqlx::types::Json<SubscribeTopic>>",
+                subscribe_topics as "subscribe_topics!: Vec<SqlxJson<SubscribeTopic>>",
+                v3_config as "v3_config!: Option<SqlxJson<MqttV3Config>>",
+                v5_config as "v5_config!: Option<SqlxJson<MqttV5Config>>",
+                client_version as "client_version: _",
                 workspace_id,
                 path,
                 script_path,

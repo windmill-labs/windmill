@@ -12,7 +12,13 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { MqttTriggerService, type SubscribeTopic } from '$lib/gen'
+	import {
+		MqttTriggerService,
+		type MqttClientVersion,
+		type MqttV3Config,
+		type MqttV5Config,
+		type SubscribeTopic
+	} from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 
 	let mqtt_resource_path: string = ''
@@ -31,6 +37,9 @@
 	let can_write = true
 	let drawerLoading = true
 	let subscribe_topics: SubscribeTopic[] = []
+	let v3_config: MqttV3Config | undefined
+	let v5_config: MqttV5Config | undefined
+	let client_version: MqttClientVersion
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -70,6 +79,7 @@
 			initialPath = ''
 			edit = false
 			dirtyPath = false
+			client_version = 'v5'
 		} finally {
 			drawerLoading = false
 		}
@@ -89,6 +99,9 @@
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled
+			client_version = s.mqtt_client_version
+			v3_config = s.v3_config
+			v3_config = s.v5_config
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger: ${error.body}`, true)
@@ -101,6 +114,9 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
+					mqtt_client_version: client_version,
+					v3_config,
+					v5_config,
 					mqtt_resource_path,
 					subscribe_topics,
 					path,
@@ -114,6 +130,9 @@
 			await MqttTriggerService.createMqttTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
+					mqtt_client_version: client_version,
+					v3_config,
+					v5_config,
 					mqtt_resource_path,
 					subscribe_topics,
 					enabled: true,
@@ -217,6 +236,9 @@
 					bind:mqtt_resource_path
 					bind:subscribe_topics
 					bind:can_write
+					bind:client_version
+					bind:v3_config
+					bind:v5_config
 					headless={true}
 				/>
 			</div>

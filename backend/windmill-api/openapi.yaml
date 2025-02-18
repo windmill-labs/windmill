@@ -13698,18 +13698,68 @@ components:
           required:
             - runnable_result
 
+    QoS:
+      type: number
+      enum: [0, 1, 2]
+  
+    CommonMqttConfig:
+      type: object
+      properties:
+        client_id:
+          type: string
+        will:
+          type: object
+          properties:
+            topic:
+              type: string
+            message:
+              type: array
+              items:
+                type: number
+            qos:
+              $ref: "#/components/schemas/QoS"
+            retain:
+              type: boolean
+
+    MqttV3Config:
+      allOf:
+        - $ref: "#/components/schemas/CommonMqttConfig"
+      type: object
+      properties:
+        clean_session:
+          type: boolean
+
+    MqttV5Config:
+      allOf:
+        - $ref: "#/components/schemas/CommonMqttConfig"
+      type: object
+      properties:
+        clean_start:
+          type: boolean
+        keep_alive:
+          type: number
+        session_expiration:
+          type: number
+        receive_maximum:
+          type: number
+        maximum_packet_size:
+          type: number
+
     SubscribeTopic:
       type: object
       properties:
         qos:
-          type: number
-          enum: [0, 1, 2]
+          $ref: "#/components/schemas/QoS"
         topic:
           type: string
       required:
         - qos
         - topic
-  
+
+    MqttClientVersion:
+      type: string
+      enum: ["v3", "v5"]
+
     MqttTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -13721,6 +13771,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SubscribeTopic"
+        v3_config:
+          $ref: "#/components/schemas/MqttV3Config"
+        v5_config:
+          $ref: "#/components/schemas/MqttV5Config"
+        mqtt_client_version:
+          $ref: "#/components/schemas/MqttClientVersion"
         server_id:
           type: string
         last_server_ping:
@@ -13735,6 +13791,7 @@ components:
         - enabled
         - subscribe_topics
         - mqtt_resource_path
+        - mqtt_client_version
 
     NewMqttTrigger:
       type: object
@@ -13745,6 +13802,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SubscribeTopic"
+        v3_config:
+          $ref: "#/components/schemas/MqttV3Config"
+        v5_config:
+          $ref: "#/components/schemas/MqttV5Config"
+        mqtt_client_version:
+          $ref: "#/components/schemas/MqttClientVersion"
         path:
           type: string
         script_path:
@@ -13759,6 +13822,7 @@ components:
         - is_flow
         - subscribe_topics
         - mqtt_resource_path
+        - mqtt_client_version
 
     EditMqttTrigger:
       type: object
@@ -13769,6 +13833,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SubscribeTopic"
+        v3_config:
+          $ref: "#/components/schemas/MqttV3Config"
+        v5_config:
+          $ref: "#/components/schemas/MqttV5Config"
+        mqtt_client_version:
+          $ref: "#/components/schemas/MqttClientVersion"
         path:
           type: string
         script_path:
@@ -13784,6 +13854,7 @@ components:
         - enabled
         - subscribe_topics  
         - mqtt_resource_path
+        - mqtt_client_version
 
     Slot:
       type: object

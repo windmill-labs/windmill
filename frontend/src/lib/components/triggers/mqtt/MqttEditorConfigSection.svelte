@@ -6,11 +6,25 @@
 	import { Plus, X } from 'lucide-svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import type { SubscribeTopic } from '$lib/gen'
+	import type { MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic } from '$lib/gen'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+
+	const DEFAULT_V5_CONFIG: MqttV5Config = {
+		client_id: '',
+		clean_start: false,
+		keep_alive: undefined,
+		session_expiration: undefined,
+		receive_maximum: undefined,
+		maximum_packet_size: undefined
+	}
+
+	const DEFAULT_V3_CONFIG: MqttV3Config = {
+		client_id: '',
+		clean_session: false
+	}
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -19,8 +33,19 @@
 	export let subscribe_topics: SubscribeTopic[] = []
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
+	export let v3_config: MqttV3Config = DEFAULT_V3_CONFIG
+	export let v5_config: MqttV5Config = DEFAULT_V5_CONFIG
+	export let client_version: MqttClientVersion = 'v5'
 	export let isValid: boolean = false
 	export let topics: string[] = []
+
+	if (!v3_config) {
+		v3_config = DEFAULT_V3_CONFIG
+	}
+	if (!v5_config) {
+		v5_config = DEFAULT_V5_CONFIG
+	}
+
 	$: isValid = topics.length > 0
 </script>
 
@@ -108,6 +133,17 @@
 							Add topic
 						</Button>
 					</div>
+				</div>
+			</Subsection>
+
+			<Subsection label="Advanced" collapsable={true}>
+				<div class="flex p-2 flex-col gap-2 mt-3">
+					<Subsection label="v5" collapsable={true}>
+
+					</Subsection>
+					<Subsection label="v3" collapsable={true}>
+						
+					</Subsection>
 				</div>
 			</Subsection>
 		</div>
