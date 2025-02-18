@@ -14,9 +14,9 @@
 	export let small = false
 	export let markdownTooltip: string | undefined = undefined
 	export let disablePopup: boolean = false
-	export let openDelay: number = 200
+	export let openDelay: number = 300
 	export let closeDelay: number = 0
-	export let portal: string | undefined | null = undefined
+	export let portal: string | undefined | null = 'body'
 
 	const plugins = [gfmPlugin()]
 
@@ -29,9 +29,6 @@
 		},
 		openDelay,
 		closeDelay,
-		closeOnPointerDown: false,
-		forceVisible: true,
-		disableHoverableContent: false,
 		group: true,
 		portal
 	})

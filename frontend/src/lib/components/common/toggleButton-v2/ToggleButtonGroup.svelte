@@ -19,7 +19,7 @@
 		options: { disabled: disabledOption },
 		states
 	} = createToggleGroup({
-		type: 'multiple',
+		type: 'single',
 		onValueChange: ({ curr, next }) => {
 			if (next === undefined && !allowEmpty) {
 				return curr
