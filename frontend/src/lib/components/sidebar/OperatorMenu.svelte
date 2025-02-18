@@ -112,6 +112,16 @@
 	})
 
 	let moreOpen = false
+	let moreOpenTimeout: NodeJS.Timeout | undefined
+
+	function debouncedSetMoreOpen(value: boolean) {
+		if (moreOpenTimeout) {
+			clearTimeout(moreOpenTimeout)
+		}
+		moreOpenTimeout = setTimeout(() => {
+			moreOpen = value
+		}, 150) // 150ms debounce
+	}
 </script>
 
 <Menubar let:createMenu>
@@ -248,14 +258,14 @@
 				</button>
 			</div>
 			<div
-				on:mouseenter={() => (moreOpen = true)}
-				on:mouseleave={() => (moreOpen = false)}
+				on:mouseenter={() => debouncedSetMoreOpen(true)}
+				on:mouseleave={() => debouncedSetMoreOpen(false)}
 				role="none"
 			>
 				<div
 					use:melt={item}
-					on:m-focusin={() => (moreOpen = true)}
-					on:m-focusout={() => (moreOpen = false)}
+					on:m-focusin={() => debouncedSetMoreOpen(true)}
+					on:m-focusout={() => debouncedSetMoreOpen(false)}
 				>
 					{#if !moreOpen || secondMenuLinks.length === 0}
 						<div class="px-2 py-2 text-tertiary text-2xs">More...</div>
@@ -271,8 +281,8 @@
 									'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 								)}
 								use:melt={item}
-								on:m-focusin={() => (moreOpen = true)}
-								on:m-focusout={() => (moreOpen = false)}
+								on:m-focusin={() => debouncedSetMoreOpen(true)}
+								on:m-focusout={() => debouncedSetMoreOpen(false)}
 							>
 								{menuLink.label}
 							</a>
@@ -283,8 +293,8 @@
 		</div>
 		{#if $enterpriseLicense}
 			<div
-				on:mouseenter={() => (moreOpen = true)}
-				on:mouseleave={() => (moreOpen = false)}
+				on:mouseenter={() => debouncedSetMoreOpen(true)}
+				on:mouseleave={() => debouncedSetMoreOpen(false)}
 				role="none"
 			>
 				<MultiplayerMenu />
