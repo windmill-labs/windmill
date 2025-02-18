@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.465.0](https://github.com/windmill-labs/windmill/compare/v1.464.0...v1.465.0) (2025-02-18)
+
+
+### Features
+
+* SQS triggers ([#5182](https://github.com/windmill-labs/windmill/issues/5182)) ([58a67a3](https://github.com/windmill-labs/windmill/commit/58a67a3ac0c57b9504a90a6e454f738cf0810e21))
+
+
+### Bug Fixes
+
+* fix rendering of app components without component inputs ([0e72991](https://github.com/windmill-labs/windmill/commit/0e72991476ba932a526e1b4cf42bad157be2cfdb))
+
 ## [1.464.0](https://github.com/windmill-labs/windmill/compare/v1.463.6...v1.464.0) (2025-02-18)
 
 
