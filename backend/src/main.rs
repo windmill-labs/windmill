@@ -59,9 +59,6 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(feature = "enterprise")]
-use windmill_common::METRICS_ADDR;
-
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
@@ -901,14 +898,24 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+            #[cfg(not(all(feature = "enterprise", feature = "prometheus")))]
+            if enabled {
                 tracing::error!("Metrics are only available in the EE, ignoring...");
-
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            if let Err(e) = windmill_common::serve_metrics(
+                *windmill_common::METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await
+            {
+                tracing::error!("Error serving metrics: {e:#}");
+            }
+
             Ok(()) as anyhow::Result<()>
         };
 
