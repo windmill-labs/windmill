@@ -34,6 +34,7 @@ use http::HeaderValue;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
+use tokio::task::JoinHandle;
 use windmill_common::global_settings::load_value_from_global_settings;
 use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
 use windmill_common::worker::HUB_CACHE_DIR;
@@ -641,7 +642,8 @@ async fn openapi_json() -> &'static str {
     include_str!("../openapi-deref.json")
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    db::migrate(db).await?;
-    Ok(())
+pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }
