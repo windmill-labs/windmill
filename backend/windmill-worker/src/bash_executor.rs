@@ -96,6 +96,8 @@ cleanup() {{
     # Ignore SIGTERM and SIGINT
     trap '' SIGTERM SIGINT
 
+    rm -f bp 2>/dev/null
+
     # Kill the process group of the script (negative PID value)
     pkill -P $$ 2>/dev/null || true
     exit
@@ -105,17 +107,26 @@ cleanup() {{
 # Trap SIGTERM (or other signals) and call cleanup function
 trap cleanup SIGTERM SIGINT
 
+# Create a named pipe
+mkfifo bp
+
+# Start background processes
+cat bp | tail -1 >> ./result2.out &
+tail_pid=$!
 
 # Run main.sh in the same process group
-{bash} ./main.sh "$@" 2>&1 | tee >(tail -1 >> ./result2.out) &
-
+{bash} ./main.sh "$@" 2>&1 | tee bp &
 pid=$!
 
 # Wait for main.sh to finish and capture its exit status
 wait $pid
 exit_status=$?
 
+# Ensure tail has finished before cleanup
+wait $tail_pid 2>/dev/null || true
+
 # Clean up the named pipe and background processes
+rm -f bp
 pkill -P $$ || true
 
 # Exit with the captured status
@@ -618,7 +629,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     write_file(
         job_dir,
         "wrapper.sh",
-        &format!("set -o pipefail\nset -e\n{} -F ./main.ps1 \"$@\" 2>&1 | tee >(tail -1 >> ./result2.out) &\nwait $!", POWERSHELL_PATH.as_str()),
+        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n{} -F ./main.ps1 \"$@\" 2>&1 | tee bp\nwait $!", POWERSHELL_PATH.as_str()),
     )?;
 
     #[cfg(windows)]
