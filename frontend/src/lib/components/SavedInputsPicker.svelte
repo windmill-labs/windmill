@@ -59,7 +59,7 @@
 	}
 
 	function initLoadInputs() {
-		const loadInputsPageFn = async (page: number, perPage: number, _discovery: boolean) => {
+		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.listInputs({
 				workspace: $workspaceStore!,
 				runnableId,
