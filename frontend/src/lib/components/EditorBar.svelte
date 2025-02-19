@@ -372,7 +372,7 @@
 		} else if (lang == 'csharp') {
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
 		} else if (lang == 'nu') {
-			// TODO
+			editor.insertAtCursor(`$env.${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -438,8 +438,9 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_variable ${path}`)
 		}
-		// TODO: Nu
 		sendUserToast(`${name} inserted at cursor`)
 	}}
 	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
@@ -521,6 +522,8 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetStringAsync(uri));
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_resource ${path}`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}

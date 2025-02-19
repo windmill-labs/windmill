@@ -9,8 +9,12 @@ use windmill_parser_nu::parse_nu_signature;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
-    common::{create_args_and_out_file, read_result, start_child_process, OccupancyMetrics},
+    common::{
+        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
+        OccupancyMetrics,
+    },
     handle_child, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS,
 };
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
@@ -185,6 +189,16 @@ $env.config.table.mode = 'basic'
 # 	$in
 # }
 
+# TODO: Probably needs rework in order for LSP to work
+def get_variable [ pat ] {
+    let addr = $"($env.BASE_INTERNAL_URL)/api/w/($env.WM_WORKSPACE)/variables/get_value/($pat)" ;
+    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in 
+}
+def get_resource [ pat ] {
+    let addr = $"($env.BASE_INTERNAL_URL)/api/w/($env.WM_WORKSPACE)/resources/get_value_interpolated/($pat)" ;
+    http get -H ["Authorization", $"Bearer ($env.WM_TOKEN)"] $addr | return $in 
+}
+
 def 'main --wrapped' [] {
     let parsed_args = open args.json
     # TRANSFORM
@@ -209,10 +223,15 @@ async fn run<'a>(
         db,
         job_dir,
         shared_mount,
+        client,
+        envs,
+        base_internal_url,
         ..
     }: &mut JobHandlerInput<'a>,
     // plugins: Vec<&'a str>,
 ) -> Result<(), Error> {
+    let client = &client.get_authed().await;
+    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let child = if !*DISABLE_NSJAIL {
         append_logs(
             &job.id,
@@ -243,6 +262,10 @@ async fn run<'a>(
             .current_dir(job_dir)
             .env_clear()
             .env("PATH", PATH_ENV.as_str())
+            .envs(PROXY_ENVS.clone())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(reserved_variables)
+            .envs(envs)
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -275,6 +298,11 @@ async fn run<'a>(
         run_cmd
             .current_dir(job_dir.to_owned())
             .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .envs(PROXY_ENVS.clone())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(reserved_variables)
+            .envs(envs)
             .args(&[
                 // "--plugin-config",
                 // &plugin_registry,
