@@ -124,8 +124,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['rust', 'Rust'],
 	['ansible', 'Ansible Playbook'],
 	['csharp', 'C#'],
-	['nu', 'Nu'],
-	['docker', 'Docker']
+	['docker', 'Docker'],
+	['nu', 'Nu']
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {

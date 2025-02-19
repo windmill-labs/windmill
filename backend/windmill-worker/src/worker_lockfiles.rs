@@ -1940,14 +1940,6 @@ async fn capture_dependency_job(
             )
             .await
         }
-        ScriptLang::Nu => {
-            // if raw_deps {
-                return Err(Error::ExecutionErr(
-                    "Raw dependencies not supported for Nu".to_string(),
-                ));
-            // }
-            // todo!()
-        }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),
@@ -1956,6 +1948,7 @@ async fn capture_dependency_job(
         ScriptLang::Graphql => Ok("".to_owned()),
         ScriptLang::OracleDB => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
+        ScriptLang::Nu => Ok("".to_owned()),
         ScriptLang::Powershell => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),
     }

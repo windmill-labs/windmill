@@ -38,7 +38,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 54] = [
+pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -56,6 +56,7 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "S3_CACHE_BUCKET",
     "COOKIE_DOMAIN",
     "PYTHON_PATH",
+    "NU_PATH",
     "DENO_PATH",
     "GO_PATH",
     "GOPRIVATE",

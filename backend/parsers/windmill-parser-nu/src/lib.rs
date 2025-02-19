@@ -121,20 +121,20 @@ fn glue_types(var_name: String, shape: SyntaxShape, is_top_level: bool) -> anyho
             }
             fields
         }),
-        // Table(vec) => Typ::List(Box::new(
-        //     Typ::Object({
-        //         let mut fields = vec![];
-        //         for (key, shape) in vec.into_iter() {
-        //             fields.push(
-        //                 ObjectProperty {
-        //                     key,
-        //                     typ: Box::new(glue_types(var_name.clone(), shape, false)?),
-        //                 }
-        //             );
-        //         }
-        //         fields
-        //     })
-        // )),
+        Table(vec) => Typ::List(Box::new(
+            Typ::Object({
+                let mut fields = vec![];
+                for (key, shape) in vec.into_iter() {
+                    fields.push(
+                        ObjectProperty {
+                            key,
+                            typ: Box::new(glue_types(var_name.clone(), shape, false)?),
+                        }
+                    );
+                }
+                fields
+            })
+        )),
 
         List(syntax_shape) => Typ::List(Box::new(glue_types(var_name, *syntax_shape, false)?)),
         Binary if is_top_level => Typ::Bytes,
@@ -144,6 +144,6 @@ fn glue_types(var_name: String, shape: SyntaxShape, is_top_level: bool) -> anyho
         Binary => bail!("main.{var_name}: `binary` is only supported on top level."),
         DateTime => bail!("main.{var_name}: `datetime` is only supported on top level. If you wish to use `datetime` in object you can use `string` and then convert to datetime manually `$in | into datetime` "),
         Float => bail!("main.{var_name}: `float` is only supported on top level, use `number` or `int` instead."),
-        t => bail!("main.{var_name}: `{t}` is not handled by Windmill, please open ann issue if this seems to be an error"),
+        t => bail!("main.{var_name}: `{t}` is not handled by Windmill, please open an issue if this seems to be an error"),
     })
 }
