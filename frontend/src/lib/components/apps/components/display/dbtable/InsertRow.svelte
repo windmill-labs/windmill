@@ -34,7 +34,7 @@
 
 	$: fields = columnDefs
 		?.filter((t) => {
-			const shouldFilter = t.isidentity !== ColumnIdentity.Always && t?.hideInsert === true
+			const shouldFilter = t.isidentity === ColumnIdentity.Always || t?.hideInsert === true
 
 			return !shouldFilter
 		})
