@@ -101,8 +101,6 @@
 				{createMenu}
 				placement="bottom-end"
 				justifyEnd={false}
-				on:close
-				on:open
 				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
 				usePointerDownOutside={true}
 			>
