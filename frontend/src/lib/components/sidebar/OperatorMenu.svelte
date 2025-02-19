@@ -300,8 +300,16 @@
 		</div>
 		{#if $enterpriseLicense}
 			<div
-				on:mouseenter={() => debouncedSetMoreOpen(true)}
-				on:mouseleave={() => debouncedSetMoreOpen(false)}
+				on:mouseenter={() => {
+					if (moreOpenTimeout) {
+						setTimeout(() => {
+							clearTimeout(moreOpenTimeout)
+						}, 15)
+					}
+				}}
+				on:mouseleave={() => {
+					debouncedSetMoreOpen(false)
+				}}
 				role="none"
 			>
 				<MultiplayerMenu />
