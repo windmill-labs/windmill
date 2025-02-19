@@ -54,6 +54,7 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
+		nulsp: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -646,7 +647,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			</Button>
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
 						btnClasses="!font-medium text-tertiary"
 						size="xs"
@@ -672,6 +673,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 								<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
 							{:else if lang == 'bash'}
 								(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span
+								>)
+							{:else if lang == 'nu'}
+								(<span class={websocketAlive.nulsp ? 'green' : 'text-red-700'}>NuLSP</span
 								>)
 							{/if}
 						</span>

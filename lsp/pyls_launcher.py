@@ -75,28 +75,26 @@ class LanguageServerWebSocketHandler(websocket.WebSocketHandler):
 class PyrightLS(LanguageServerWebSocketHandler):
     procargs = ["pipenv", "run", "pyright-langserver", "--stdio"]
 
-
 class DiagnosticLS(LanguageServerWebSocketHandler):
     procargs = ["diagnostic-languageserver", "--stdio", "--log-level", "4"]
-
 
 class RuffLS(LanguageServerWebSocketHandler):
     procargs = ["ruff-lsp"]
 
-
 class DenoLS(LanguageServerWebSocketHandler):
     procargs = ["deno", "lsp"]
 
-
-
 class GoLS(LanguageServerWebSocketHandler):
     procargs = ["gopls", "serve"]
+
+class NuLS(LanguageServerWebSocketHandler):
+    # procargs = ["nu", "--lsp", "--stdio"]
+    procargs = ["pipenv", "run", "pyright-langserver", "--stdio"]
 
 
 class MainHandler(web.RequestHandler):
     def get(self):
         self.write("ok")
-
 
 if __name__ == "__main__":
     monaco_path = "/tmp/monaco"
@@ -115,6 +113,7 @@ if __name__ == "__main__":
             (r"/ws/ruff", RuffLS),
             (r"/ws/deno", DenoLS),
             (r"/ws/go", GoLS),
+            (r"/ws/nu", NuLS),
             (r"/", MainHandler),
             (r"/health", MainHandler),
         ]

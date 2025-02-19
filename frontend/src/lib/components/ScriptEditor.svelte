@@ -63,7 +63,8 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false
+		shellcheck: false,
+		nulsp: false
 	}
 
 	const dispatch = createEventDispatcher()
