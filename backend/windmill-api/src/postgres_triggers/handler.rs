@@ -36,11 +36,11 @@ use super::{
 use lazy_static::lazy_static;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
-pub struct Database {
+pub struct Postgres {
     pub user: String,
     pub password: String,
     pub host: String,
-    pub port: u16,
+    pub port: Option<u16>,
     pub dbname: String,
     #[serde(default)]
     pub sslmode: String,
@@ -112,7 +112,6 @@ pub struct NewPostgresTrigger {
 pub struct TestPostgres {
     pub postgres_resource_path: String,
 }
-
 
 pub async fn test_postgres_connection(
     authed: ApiAuthed,
@@ -706,7 +705,7 @@ pub async fn get_publication_info(
     let publication_data =
         get_publication_scope_and_transaction(&mut connection, &publication_name).await;
 
-        let (all_table, transaction_to_track) = match publication_data {
+    let (all_table, transaction_to_track) = match publication_data {
         Ok(pub_data) => pub_data,
         Err(Error::SqlErr { error: sqlx::Error::RowNotFound, .. }) => {
             return Err(Error::NotFound(

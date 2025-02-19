@@ -9,6 +9,7 @@
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
 
 	export let small = false
 
@@ -83,6 +84,15 @@
 				</div>
 			</button>
 			<button
+				class="hover:bg-surface-hover p-2 transition-colors duration-150"
+				on:click={() => handleClick('sqs')}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<AwsIcon size={16} />
+					<p class="text-xs text-secondary">SQS</p>
+				</div>
+			</button>
+			<button 
 				class="hover:bg-surface-hover p-2 transition-colors duration-150"
 				on:click={() => handleClick('postgres')}
 			>

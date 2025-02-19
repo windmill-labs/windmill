@@ -50,6 +50,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
 	import {
 		Menubar,
 		Menu,
@@ -58,6 +59,7 @@
 		MeltButton
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
+
 	export let numUnacknowledgedCriticalAlerts = 0
 
 	$: mainMenuLinks = [
@@ -125,6 +127,13 @@
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats'
+		},
+		{
+			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/sqs_triggers',
+			icon: AwsIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'sqs'
 		}
 	]
 

@@ -59,18 +59,15 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(feature = "enterprise")]
-use windmill_common::METRICS_ADDR;
-
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR,
-    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
+    TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -901,14 +898,25 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
-                tracing::error!("Metrics are only available in the EE, ignoring...");
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
+            #[cfg(not(all(feature = "enterprise", feature = "prometheus")))]
+            if enabled {
+                tracing::error!("Metrics are only available in the EE, ignoring...");
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            if let Err(e) = windmill_common::serve_metrics(
+                *windmill_common::METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await
+            {
+                tracing::error!("Error serving metrics: {e:#}");
+            }
+
             Ok(()) as anyhow::Result<()>
         };
 
@@ -1033,10 +1041,8 @@ pub async fn run_workers(
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for x in [
-        LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
-        TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
@@ -1049,7 +1055,6 @@ pub async fn run_workers(
         TAR_PY311_CACHE_DIR,
         TAR_PY312_CACHE_DIR,
         TAR_PY313_CACHE_DIR,
-        PIP_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
