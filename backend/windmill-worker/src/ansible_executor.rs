@@ -2,11 +2,7 @@
 use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::PathBuf, process::Stdio};
 
 #[cfg(windows)]
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    process::Stdio,
-};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use itertools::Itertools;
