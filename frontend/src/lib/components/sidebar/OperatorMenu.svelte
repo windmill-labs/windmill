@@ -22,10 +22,10 @@
 	import { logout } from '$lib/logout'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
-	import { Menu, Menubar } from '$lib/components/meltComponents'
+	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
 	import MenuLink from './MenuLink.svelte'
-	import { melt } from '@melt-ui/svelte'
+	import { onDestroy } from 'svelte'
 	let darkMode: boolean = false
 
 	export let isCollapsed: boolean = false
@@ -122,6 +122,12 @@
 			moreOpen = value
 		}, 150) // 150ms debounce
 	}
+
+	onDestroy(() => {
+		if (moreOpenTimeout) {
+			clearTimeout(moreOpenTimeout)
+		}
+	})
 </script>
 
 <Menubar let:createMenu>
@@ -138,9 +144,9 @@
 		</svelte:fragment>
 		<div class="w-full max-w-full">
 			{#each favoriteLinks ?? [] as favorite (favorite.href)}
-				<a
+				<MenuItem
 					href={favorite.href}
-					use:melt={item}
+					{item}
 					class={twMerge(
 						'w-full inline-flex flex-row px-2 py-2 hover:bg-surface-hover',
 						'data-[highlighted]:bg-surface-hover'
@@ -158,7 +164,7 @@
 					<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
 						{favorite.label}
 					</span>
-				</a>
+				</MenuItem>
 			{/each}
 		</div>
 
@@ -168,7 +174,7 @@
 
 		<div class="divide-y" role="none">
 			<div role="none">
-				<a
+				<MenuItem
 					href={USER_SETTINGS_HASH}
 					class={twMerge(
 						'flex flex-row gap-3.5 items-center px-2 py-2 ',
@@ -176,15 +182,15 @@
 						'hover:bg-surface-hover hover:text-primary cursor-pointer',
 						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 					)}
-					use:melt={item}
+					{item}
 				>
 					<Settings size={14} />
 					Account settings
-				</a>
+				</MenuItem>
 			</div>
 
 			<div role="none">
-				<button
+				<MenuItem
 					on:click={() => {
 						if (!document.documentElement.classList.contains('dark')) {
 							document.documentElement.classList.add('dark')
@@ -199,9 +205,7 @@
 						'flex flex-row items-center gap-3.5 ',
 						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 					)}
-					role="menuitem"
-					tabindex="-1"
-					use:melt={item}
+					{item}
 				>
 					{#if darkMode}
 						<Sun size={14} />
@@ -209,8 +213,8 @@
 						<Moon size={14} />
 					{/if}
 					Switch theme
-				</button>
-				<a
+				</MenuItem>
+				<MenuItem
 					href="{base}/user/workspaces"
 					on:click={() => {
 						localStorage.removeItem('workspace')
@@ -219,16 +223,14 @@
 						'text-primary flex gap-3.5 px-2 py-2 text-xs hover:bg-surface-hover hover:text-primary',
 						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 					)}
-					role="menuitem"
-					tabindex="-1"
-					use:melt={item}
+					{item}
 				>
 					<Building size={14} />
 					All workspaces
-				</a>
+				</MenuItem>
 
 				{#if $superadmin}
-					<a
+					<MenuItem
 						href="#superadmin-settings"
 						class={twMerge(
 							'flex flex-row gap-3.5 items-center px-2 py-2 ',
@@ -236,14 +238,14 @@
 							'hover:bg-surface-hover hover:text-primary cursor-pointer',
 							'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 						)}
-						use:melt={item}
+						{item}
 					>
 						<ServerCog size={14} />
 						Instance settings
-					</a>
+					</MenuItem>
 				{/if}
 
-				<button
+				<MenuItem
 					on:click={() => logout()}
 					class={twMerge(
 						'flex flex-row gap-3.5  items-center px-2 py-2 w-full',
@@ -251,41 +253,41 @@
 						'hover:bg-surface-hover hover:text-primary cursor-pointer',
 						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 					)}
-					use:melt={item}
+					{item}
 				>
 					<LogOut size={14} />
 					Sign out
-				</button>
+				</MenuItem>
 			</div>
 			<div
 				on:mouseenter={() => debouncedSetMoreOpen(true)}
 				on:mouseleave={() => debouncedSetMoreOpen(false)}
 				role="none"
 			>
-				<div
-					use:melt={item}
+				<MenuItem
 					on:m-focusin={() => debouncedSetMoreOpen(true)}
 					on:m-focusout={() => debouncedSetMoreOpen(false)}
+					{item}
 				>
 					{#if !moreOpen || secondMenuLinks.length === 0}
 						<div class="px-2 py-2 text-tertiary text-2xs">More...</div>
 					{/if}
-				</div>
+				</MenuItem>
 				{#if moreOpen && secondMenuLinks.length > 0}
 					{#each secondMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 						<div>
-							<a
+							<MenuItem
 								href={menuLink.href}
 								class={twMerge(
 									'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
 									'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 								)}
-								use:melt={item}
+								{item}
 								on:m-focusin={() => debouncedSetMoreOpen(true)}
 								on:m-focusout={() => debouncedSetMoreOpen(false)}
 							>
 								{menuLink.label}
-							</a>
+							</MenuItem>
 						</div>
 					{/each}
 				{/if}

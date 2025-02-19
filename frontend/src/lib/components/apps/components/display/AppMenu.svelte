@@ -17,8 +17,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { AppButton } from '../buttons'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import { Menubar, Menu } from '$lib/components/meltComponents'
-	import { melt } from '@melt-ui/svelte'
+	import { Menubar, Menu, MeltButton } from '$lib/components/meltComponents'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -108,7 +107,7 @@
 				usePointerDownOutside={true}
 			>
 				<svelte:fragment slot="trigger" let:trigger>
-					<div use:melt={trigger} class="w-full h-full">
+					<MeltButton meltElement={trigger} class="w-full h-full">
 						<Button
 							on:pointerdown={(e) => e.stopPropagation()}
 							btnClasses={twMerge(
@@ -143,7 +142,7 @@
 								{/if}
 							</span>
 						</Button>
-					</div>
+					</MeltButton>
 				</svelte:fragment>
 
 				<div class="flex flex-col w-full p-1 gap-2 max-h-[50vh] overflow-y-auto">
