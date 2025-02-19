@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, process::Stdio};
+use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use regex::Regex;
@@ -156,16 +156,18 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .into_iter()
         .map(|Arg { name, typ, has_default, .. }| {
             // Apply additional input transformation
-            let transformation = "| ".to_owned()
-                + match typ {
+            let transformation = format!(
+                "| if $in != null {{ {} }} else {{ $in }}",
+                match typ {
                     // JSON converts X.0 to X and nu can't coerce type automatically
                     windmill_parser::Typ::Datetime => "into datetime",
-                    windmill_parser::Typ::Bytes => "into binary ",
+                    windmill_parser::Typ::Bytes => "into binary",
                     windmill_parser::Typ::Float => "into float",
                     // Ident
                     _ => "$in",
-                };
-            let nullguard = if has_default {
+                }
+            );
+            let nullguard = if has_default || matches!(typ, windmill_parser::Typ::Unknown) {
                 "".to_owned()
             } else {
                 format!("| nullguard {name}")
@@ -176,18 +178,11 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .join(" ");
     Ok(
         r#"    
-
 $env.config.table.mode = 'basic'
 
-# TODO:
 def nullguard [ name: string ] {
 	if ($in == null) {
-		# let span = (metadata $in).span;
-		# TODO: Impl more reliable way to find span
-        # let block  = view blocks | find "main" ;
 		panic $"argument `($name)` of main function can't be null"
-
-		# error make {msg: $"`($name)` can't be null", label: {text: "fish right here", span: {start: $block.start, end: $block.end} } }
 	}
 	$in
 }
@@ -204,7 +199,6 @@ def get_resource [ pat ] {
 
 def 'main --wrapped' [] {
     let parsed_args = open args.json
-    # TRANSFORM
     (main SPREAD
     ) | to json | save -f result.json
 }

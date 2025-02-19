@@ -9,7 +9,7 @@ use nu_protocol::{
 use serde_json::{json, Map};
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty};
 
-// TODO: Preprocessors
+// TODO: Preprocessors?
 pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     let engine_state = nu_cmd_lang::create_default_context();
     let mut set = StateWorkingSet::new(&engine_state);
@@ -72,6 +72,7 @@ fn parse_default_value(val: nu_protocol::Value) -> anyhow::Result<serde_json::Va
     match val {
         Bool { val, .. } => to_value(val).map_err(anyhow::Error::from),
         Int { val, .. } => to_value(val).map_err(anyhow::Error::from),
+        // Number { val, .. } => to_value(val).map_err(anyhow::Error::from),
         Float { val, .. } => to_value(val).map_err(anyhow::Error::from),
         String { val, .. } => to_value(val).map_err(anyhow::Error::from),
         Date { val, .. } => to_value(val).map_err(anyhow::Error::from),
@@ -103,8 +104,6 @@ fn glue_types(var_name: String, shape: SyntaxShape, is_top_level: bool) -> anyho
     use nu_protocol::SyntaxShape::*;
     Ok(match shape {
         Any | Nothing => Typ::Unknown,
-        t if !is_top_level => bail!("main.{var_name}: `{t}` cannot be used as a type in nested objects, you can use `any` or leave type empty"),
-        Int => Typ::Int,
         Number => Typ::Float,
         Boolean => Typ::Bool,
         String => Typ::Str(None),
@@ -137,13 +136,14 @@ fn glue_types(var_name: String, shape: SyntaxShape, is_top_level: bool) -> anyho
         )),
 
         List(syntax_shape) => Typ::List(Box::new(glue_types(var_name, *syntax_shape, false)?)),
-        Binary if is_top_level => Typ::Bytes,
-        DateTime if is_top_level => Typ::Datetime,
-        Float if is_top_level => Typ::Float,
+        Float if !is_top_level => bail!("arg: {var_name}\n `float` is only supported on top level, use `number` instead."),
+        Int if !is_top_level => bail!("arg: {var_name}\n `int` is only supported on top level, use `number` instead."),
+        t if !is_top_level => bail!("arg: {var_name}\n `{t}` is only supported on top level."),
 
-        Binary => bail!("main.{var_name}: `binary` is only supported on top level."),
-        DateTime => bail!("main.{var_name}: `datetime` is only supported on top level. If you wish to use `datetime` in object you can use `string` and then convert to datetime manually `$in | into datetime` "),
-        Float => bail!("main.{var_name}: `float` is only supported on top level, use `number` or `int` instead."),
-        t => bail!("main.{var_name}: `{t}` is not handled by Windmill, please open an issue if this seems to be an error"),
+        Binary => Typ::Bytes,
+        DateTime => Typ::Datetime,
+        Float => Typ::Float,
+        Int => Typ::Int,
+        t => bail!("arg: {var_name}\n `{t}` is not handled by Windmill, please open an issue if this seems to be an error"),
     })
 }

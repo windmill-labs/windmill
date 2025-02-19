@@ -1919,10 +1919,6 @@ async fn test_nu_job_full(db: Pool<Postgres>) {
     let port = server.addr.port();
 
     let content = r#"
-# TODO:
-# relative imports
-# extern modules import 
-# nu-client usage
 def main [ 
   # Required
   ## Primitive
@@ -1935,9 +1931,9 @@ def main [
   j: nothing
   k: binary
   ## Nesting
-  g: record<a>
-  h: list<any>
-  # i: table<a, b, c>
+  g: record<a: number>
+  h: list<string>
+  i: table<a: number, b: string, c: bool>
   # Optional
   m?
   n = "foo"
@@ -1970,12 +1966,15 @@ def main [
     .arg("f", json!("str"))
     .arg("j", json!(null))
     .arg("k", json!("0x[ffffffff]"))
-    // TODO: Add more edge cases to test
-    .arg("g", json!({}))
-    .arg("h", json!([]))
-    // .arg("i", json!([]))
-    // .arg("s", json!([]))
-    // .arg("t", json!({}))
+    .arg("g", json!({"a": 32}))
+    .arg("h", json!(["foo"]))
+    .arg(
+        "i",
+        json!([
+            {"a": 1, "b": "foo", "c": true},
+            {"a": 2, "b": "baz", "c": false}
+        ]),
+    )
     .arg("n", json!("baz"))
     .run_until_complete(&db, port)
     .await
