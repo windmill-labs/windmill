@@ -25,7 +25,7 @@
 	}
 </script>
 
-<Popover closeButton={false} bind:open={isOpen}>
+<Popover closeButton={false} bind:isOpen>
 	<svelte:fragment slot="trigger">
 		{#if small}
 			<Button
