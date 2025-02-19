@@ -7,7 +7,8 @@
 	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { sendUserToast } from '$lib/utils'
@@ -91,37 +92,35 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 		>
 			<div class="flex flex-row">
-				<Popup
-					let:close
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				>
-					<svelte:fragment slot="button">
+				<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+					<svelte:fragment slot="trigger">
 						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New folder</Button>
 					</svelte:fragment>
-					<div class="flex flex-col gap-2">
-						<input
-							class="mr-2"
-							on:keyup={(e) => handleKeyUp(e, () => close(null))}
-							placeholder="New folder name"
-							bind:value={newFolderName}
-						/>
+					<svelte:fragment slot="content" let:close>
+						<div class="flex flex-col gap-2 p-4">
+							<input
+								class="mr-2"
+								on:keyup={(e) => handleKeyUp(e, () => close())}
+								placeholder="New folder name"
+								bind:value={newFolderName}
+							/>
 
-						<div>
-							<Button
-								size="md"
-								startIcon={{ icon: Plus }}
-								disabled={!newFolderName}
-								on:click={() => {
-									addFolder()
-									close(null)
-								}}
-							>
-								Create
-							</Button>
+							<div>
+								<Button
+									size="md"
+									startIcon={{ icon: Plus }}
+									disabled={!newFolderName}
+									on:click={() => {
+										addFolder()
+										close()
+									}}
+								>
+									Create
+								</Button>
+							</div>
 						</div>
-					</div>
-				</Popup>
+					</svelte:fragment>
+				</Popover>
 			</div>
 		</PageHeader>
 

@@ -1,13 +1,14 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Button, Popup, SecondsInput } from '$lib/components/common'
-	import { autoPlacement } from '@floating-ui/core'
+	import { Button, SecondsInput } from '$lib/components/common'
 	import { Database } from 'lucide-svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { autoPlacement } from '@floating-ui/core'
 
 	export let cache_ttl: number | undefined
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		middleware: [
 			autoPlacement({
@@ -16,7 +17,7 @@
 		]
 	}}
 >
-	<svelte:fragment slot="button">
+	<svelte:fragment slot="trigger">
 		<Button
 			nonCaptureEvent={true}
 			btnClasses={Boolean(cache_ttl)
@@ -30,28 +31,30 @@
 			title="Cache settings"
 		/>
 	</svelte:fragment>
-	<div class="block text-primary">
-		<Toggle
-			checked={Boolean(cache_ttl)}
-			on:change={() => {
-				if (cache_ttl != undefined) {
-					cache_ttl = undefined
-				} else {
-					cache_ttl = 600
-				}
-			}}
-			options={{
-				right: 'Cache the results for each possible inputs'
-			}}
-		/>
-		<div class="mb-4">
-			<span class="text-xs font-bold">How long to keep cache valid</span>
+	<svelte:fragment slot="content">
+		<div class="block text-primary p-4">
+			<Toggle
+				checked={Boolean(cache_ttl)}
+				on:change={() => {
+					if (cache_ttl != undefined) {
+						cache_ttl = undefined
+					} else {
+						cache_ttl = 600
+					}
+				}}
+				options={{
+					right: 'Cache the results for each possible inputs'
+				}}
+			/>
+			<div class="mb-4">
+				<span class="text-xs font-bold">How long to keep cache valid</span>
 
-			{#if cache_ttl}
-				<SecondsInput bind:seconds={cache_ttl} />
-			{:else}
-				<SecondsInput disabled />
-			{/if}
+				{#if cache_ttl}
+					<SecondsInput bind:seconds={cache_ttl} />
+				{:else}
+					<SecondsInput disabled />
+				{/if}
+			</div>
 		</div>
-	</div>
-</Popup>
+	</svelte:fragment>
+</Popover>

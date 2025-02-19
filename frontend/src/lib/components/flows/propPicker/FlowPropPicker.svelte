@@ -1,12 +1,13 @@
 <script lang="ts">
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
-	import { Popup } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import { Plug } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { getContext } from 'svelte'
-	import Popover from '$lib/components/Popover.svelte'
+
 	import { tick } from 'svelte'
 
 	export let json = {}
@@ -31,6 +32,7 @@
 	}}
 	on:keydown|preventDefault|stopPropagation
 	data-prop-picker
+	title=""
 >
 	<AnimatedButton
 		animate={isConnecting}
@@ -38,9 +40,12 @@
 		baseRadius="9999px"
 		marginWidth="1px"
 	>
-		<Popup floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
-			<svelte:fragment slot="button" let:open>
-				<Popover disablePopup={open}>
+		<Popover
+			floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
+			closeOnOtherPopoverOpen={true}
+		>
+			<svelte:fragment slot="trigger" let:isOpen>
+				<Tooltip disablePopup={isOpen}>
 					<svelte:fragment slot="text">node outputs</svelte:fragment>
 					<button
 						class={twMerge(
@@ -52,25 +57,24 @@
 					>
 						<Plug size={12} strokeWidth={2} />
 					</button>
-				</Popover>
+				</Tooltip>
 			</svelte:fragment>
-			<div data-prop-picker>
-				<ObjectViewer
-					{json}
-					topBrackets={false}
-					pureViewer={false}
-					{prefix}
-					on:select={({ detail }) => {
-						if ($flowPropPickerConfig?.onSelect(detail)) {
-							$flowPropPickerConfig?.clearFocus()
-							// console.log('BAR')
-						} else {
-							// console.log('FOO')
-						}
-					}}
-					allowCopy={!$flowPropPickerConfig}
-				/>
-			</div>
-		</Popup>
+			<svelte:fragment slot="content">
+				<div class="p-4" data-prop-picker>
+					<ObjectViewer
+						{json}
+						topBrackets={false}
+						pureViewer={false}
+						{prefix}
+						on:select={({ detail }) => {
+							if ($flowPropPickerConfig?.onSelect(detail)) {
+								$flowPropPickerConfig?.clearFocus()
+							}
+						}}
+						allowCopy={!$flowPropPickerConfig}
+					/>
+				</div>
+			</svelte:fragment>
+		</Popover>
 	</AnimatedButton>
 </button>

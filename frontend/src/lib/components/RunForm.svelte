@@ -12,7 +12,7 @@
 	import SharedBadge from './SharedBadge.svelte'
 
 	import TimeAgo from './TimeAgo.svelte'
-	import Popup from './common/popup/Popup.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
@@ -58,7 +58,6 @@
 	export let jsonView = false
 
 	let reloadArgs = 0
-	let blockPopupOpen = false
 	let jsonEditor: JsonInputs | undefined = undefined
 	let schemaHeight = 0
 
@@ -206,7 +205,7 @@
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
 				</Button>
 				<div>
-					<Popup
+					<Popover
 						floatingConfig={{
 							middleware: [
 								autoPlacement({
@@ -221,22 +220,23 @@
 								})
 							]
 						}}
-						let:close
-						blockOpen={blockPopupOpen}
+						closeButton
+						usePointerDownOutside
 					>
-						<svelte:fragment slot="button">
+						<svelte:fragment slot="trigger">
 							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
 								Advanced
 							</Button>
 						</svelte:fragment>
-						<RunFormAdvancedPopup
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							bind:runnable
-							on:close={() => close(null)}
-						/>
-					</Popup>
+						<svelte:fragment slot="content">
+							<RunFormAdvancedPopup
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+								bind:runnable
+							/>
+						</svelte:fragment>
+					</Popover>
 				</div>
 			</div>
 			{#if overrideTag}

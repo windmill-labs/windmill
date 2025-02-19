@@ -11,7 +11,7 @@
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Flow } from '$lib/gen'
 
 	let loading = false
@@ -84,12 +84,11 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 </script>
 
 {#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
-	<Popup
+	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-		let:close
+		contentClasses="p-4 flex w-96"
 	>
-		<svelte:fragment slot="button">
+		<svelte:fragment slot="trigger">
 			<Button
 				color={loading ? 'red' : 'light'}
 				size="xs"
@@ -103,7 +102,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				on:click={loading ? () => abortController?.abort() : undefined}
 			/>
 		</svelte:fragment>
-		<div class="flex w-96">
+		<svelte:fragment slot="content" let:close>
 			<input
 				bind:this={instructionsField}
 				type="text"
@@ -111,7 +110,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				bind:value={instructions}
 				on:keypress={({ key }) => {
 					if (key === 'Enter' && instructions.length > 0) {
-						close(instructionsField || null)
+						close()
 						generatePredicate()
 					}
 				}}
@@ -126,12 +125,12 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				aria-label="Generate"
 				iconOnly
 				on:click={() => {
-					close(instructionsField || null)
+					close()
 					generatePredicate()
 				}}
 				disabled={instructions.length == 0}
 				startIcon={{ icon: Wand2 }}
 			/>
-		</div>
-	</Popup>
+		</svelte:fragment>
+	</Popover>
 {/if}

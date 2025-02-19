@@ -4,7 +4,8 @@
 	import { GroupService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
@@ -40,11 +41,12 @@
 		}
 	}
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyUp(event: KeyboardEvent, close: () => void) {
 		const key = event.key
 		if (key === 'Enter') {
 			event.preventDefault()
 			addGroup()
+			close()
 		}
 	}
 	async function addGroup() {
@@ -87,34 +89,35 @@
 		>
 			<div class="flex flex-row">
 				<div>
-					<Popup
-						let:close
+					<Popover
 						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 					>
-						<svelte:fragment slot="button">
+						<svelte:fragment slot="trigger">
 							<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
 						</svelte:fragment>
-						<div class="flex-col flex gap-2">
-							<input
-								class="mr-2"
-								on:keyup={handleKeyUp}
-								placeholder="New group name"
-								bind:value={newGroupName}
-							/>
-							<Button
-								size="md"
-								startIcon={{ icon: Plus }}
-								disabled={!newGroupName}
-								on:click={() => {
-									addGroup()
-									close(null)
-								}}
-							>
-								Create
-							</Button>
-						</div>
-					</Popup>
+						<svelte:fragment slot="content" let:close>
+							<div class="flex-col flex gap-2 p-4">
+								<input
+									class="mr-2"
+									on:keyup={(e) => handleKeyUp(e, close)}
+									placeholder="New group name"
+									bind:value={newGroupName}
+								/>
+								<Button
+									size="md"
+									startIcon={{ icon: Plus }}
+									disabled={!newGroupName}
+									on:click={() => {
+										addGroup()
+										close()
+									}}
+								>
+									Create
+								</Button>
+							</div>
+						</svelte:fragment>
+					</Popover>
 				</div>
 			</div>
 		</PageHeader>
@@ -168,7 +171,8 @@
 												displayName: 'Manage group',
 												icon: Pen,
 												disabled: !canWrite,
-												action: () => {
+												action: (e) => {
+													e?.stopPropagation()
 													editGroupName = name
 													groupDrawer.openDrawer()
 												}
