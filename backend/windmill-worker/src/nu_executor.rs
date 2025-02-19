@@ -19,7 +19,7 @@ use crate::{
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
 lazy_static::lazy_static! {
-    static ref NU_PATH: String = std::env::var("NU_PATH").unwrap_or_else(|_| "~/.cargo/bin/nu".to_string());
+    static ref NU_PATH: String = std::env::var("NU_PATH").unwrap_or_else(|_| "/usr/bin/nu".to_string());
     static ref PLUGIN_USE_RE: Regex = Regex::new(r#"(?:plugin use )(?<plugin>.*)"#).unwrap();
 }
 
@@ -246,14 +246,7 @@ async fn run<'a>(
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_NU_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace(
-                    "{NU_PATH}",
-                    dbg!(Path::new(NU_PATH.as_str())
-                        .parent()
-                        .map(|parent| parent.to_str())
-                        .flatten()
-                        .unwrap_or("~/.cargo/bin")),
-                )
+                .replace("{NU_PATH}", &NU_PATH)
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;

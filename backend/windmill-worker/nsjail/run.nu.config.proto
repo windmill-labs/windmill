@@ -16,6 +16,33 @@ keep_env: true
 mount_proc: true
 
 mount {
+    src: "/bin"
+    dst: "/bin"
+	is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+	is_bind: true
+}
+
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+	is_bind: true
+    mandatory: false
+}
+
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+	is_bind: true
+}
+
+mount {
 	src: "/dev/null"
 	dst: "/dev/null"
 	is_bind: true
@@ -30,14 +57,14 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/main.nu"
-    dst: "/tmp/main.nu"
-    is_bind: true
+    src: "{NU_PATH}"
+    dst: "{NU_PATH}"
+  	is_bind: true
 }
 
 mount {
-    src: "{NU_PATH}"
-    dst: "{NU_PATH}"
+    src: "{JOB_DIR}/main.nu"
+    dst: "/tmp/main.nu"
     is_bind: true
 }
 
@@ -52,6 +79,23 @@ mount {
     src: "{JOB_DIR}/args.json"
     dst: "/tmp/args.json"
     rw: true
+    is_bind: true
+}
+mount {
+    src: "/etc"
+    dst: "/etc"
+	is_bind: true
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
     is_bind: true
 }
 
