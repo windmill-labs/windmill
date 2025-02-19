@@ -137,21 +137,28 @@
 								componentInput['expr'] = JSON.stringify(JSON.parse(componentInput['expr']), null, 4)
 							}
 						}}
+						let:item
 					>
-						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" />
+						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" {item} />
 						{#if userInputEnabled}
-							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" />
+							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" {item} />
 						{/if}
 						{#if fileUpload}
-							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
+							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 						{/if}
 						{#if componentInput?.type === 'connected'}
-							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
+							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
 						{/if}
 						{#if componentInput?.type === 'eval'}
-							<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval Legacy" />
+							<ToggleButton
+								value="eval"
+								icon={FunctionSquare}
+								iconOnly
+								tooltip="Eval Legacy"
+								{item}
+							/>
 						{/if}
-						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
+						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" {item} />
 					</ToggleButtonGroup>
 					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}
