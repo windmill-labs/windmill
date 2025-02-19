@@ -95,6 +95,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
@@ -103,26 +104,28 @@ lazy_static::lazy_static! {
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 }
 
+pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
+
 fn format_pull_query(peek: String) -> String {
-    format!(
+    let r = format!(
         "WITH peek AS (
             {}
-        ), q AS (
+        ), q AS NOT MATERIALIZED (
             UPDATE v2_job_queue SET
                 running = true,
                 started_at = coalesce(started_at, now()),
-                suspend_until = null
+                suspend_until = null,
+                worker = $1
             WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for, running,
                 canceled_by, canceled_reason, canceled_by IS NOT NULL AS canceled,
                 suspend, suspend_until
-        ), r AS (
+        ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
-            RETURNING ping AS last_ping, memory_peak AS mem_peak
-        ), j AS (
+        ), j AS NOT MATERIALIZED (
             SELECT
                 id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
                 runnable_path AS script_path, args, kind AS job_kind,
@@ -136,16 +139,18 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
         ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
             running, script_hash, script_path, args, null as logs, canceled, canceled_by,
-            canceled_reason, last_ping, job_kind, schedule_path, permissioned_as,
+            canceled_reason, null as last_ping, job_kind, schedule_path, permissioned_as,
             flow_status, is_flow_step, language, suspend,  suspend_until,
-            same_worker, pre_run_error, email,  visible_to_owner, mem_peak,
+            same_worker, pre_run_error, email,  visible_to_owner, null as mem_peak,
             root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
             timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
             script_entrypoint_override, preprocessed
-        FROM q, r, j
+        FROM q, j
             LEFT JOIN v2_job_status f USING (id)",
         peek
-    )
+    );
+    tracing::debug!("pull query: {}", r);
+    r
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -652,7 +657,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
     let min_version = pings
         .iter()
         .filter(|x| !x.is_empty())
-        .filter_map(|x| semver::Version::parse(x.split_at(1).1).ok())
+        .filter_map(|x| semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok())
         .min()
         .unwrap_or_else(|| cur_version.clone());
 
@@ -660,6 +665,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);

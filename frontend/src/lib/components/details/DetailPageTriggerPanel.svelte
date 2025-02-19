@@ -7,7 +7,8 @@
 		Terminal,
 		Webhook,
 		Unplug,
-		PlugZap
+		PlugZap,
+		Database
 	} from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
@@ -15,6 +16,7 @@
 	import NatsIcon from '../icons/NatsIcon.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { AwsIcon } from '../icons'
 
 	export let triggerSelected:
 		| 'webhooks'
@@ -26,13 +28,14 @@
 		| 'kafka'
 		| 'postgres'
 		| 'nats'
+		| 'sqs'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
 
-	export let eventStreamType: 'kafka' | 'nats' = 'kafka'
+	export let eventStreamType: 'kafka' | 'nats' | 'sqs' = 'kafka'
 
 	$: {
-		if (triggerSelected === 'kafka' || triggerSelected === 'nats') {
+		if (triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs') {
 			eventStreamType = triggerSelected
 		}
 	}
@@ -69,11 +72,11 @@
 			</Tab>
 			<Tab value="postgres">
 				<span class="flex flex-row gap-2 items-center text-xs">
-					<Unplug size={12} />
+					<Database size={12} />
 					Postgres
 				</span>
 			</Tab>
-			<Tab value="kafka" otherValues={['nats']}>
+			<Tab value="kafka" otherValues={['nats', 'sqs']}>
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<PlugZap size={12} />
 					Event streams
@@ -106,17 +109,20 @@
 						<slot name="websockets" />
 					{:else if triggerSelected === 'postgres'}
 						<slot name="postgres" />
-					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
+					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs'}
 						<div class="m-1.5">
 							<ToggleButtonGroup bind:selected={eventStreamType}>
 								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
 								<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+								<ToggleButton value="sqs" label="SQS" icon={AwsIcon} />
 							</ToggleButtonGroup>
 						</div>
 						{#if eventStreamType === 'kafka'}
 							<slot name="kafka" />
 						{:else if eventStreamType === 'nats'}
 							<slot name="nats" />
+						{:else if eventStreamType === 'sqs'}
+							<slot name="sqs" />
 						{/if}
 					{:else if triggerSelected === 'cli'}
 						<slot name="cli" />

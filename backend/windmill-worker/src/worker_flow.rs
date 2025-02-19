@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "benchmark")]
+use crate::bench::BenchmarkIter;
 use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{
@@ -30,8 +32,6 @@ use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
-#[cfg(feature = "benchmark")]
-use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
@@ -408,10 +408,27 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if matches!(module_step, Step::PreprocessorStep) {
             sqlx::query!(
-                "UPDATE v2_job SET
-                    args = (SELECT result FROM v2_job_completed WHERE id = $1),
-                    preprocessed = TRUE
-                WHERE id = $2",
+                "WITH job_result AS (
+                SELECT result 
+                FROM v2_job_completed 
+                WHERE id = $1
+            )
+            UPDATE v2_job 
+            SET args = COALESCE(
+                    CASE 
+                        WHEN job_result.result IS NULL THEN NULL
+                        WHEN jsonb_typeof(job_result.result) = 'object' 
+                        THEN job_result.result
+                        WHEN jsonb_typeof(job_result.result) = 'null'
+                        THEN NULL
+                        ELSE jsonb_build_object('value', job_result.result)
+                    END, 
+                    '{}'::jsonb
+                ),
+                preprocessed = TRUE
+            FROM job_result
+            WHERE v2_job.id = $2;
+            ",
                 job_id_for_status,
                 flow
             )
@@ -598,6 +615,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             "error while deleting parallel_monitor_lock: {e:#}"
                         ))
                     })?;
+
                     if r.is_some() {
                         tracing::info!(
                             "parallel flow has removed lock on its parent, last ping was {:?}",
@@ -1137,6 +1155,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             same_worker_tx.clone(),
             worker_dir,
             job_completed_tx,
+            worker_name,
         )
         .warn_after_seconds(10)
         .await
@@ -1528,6 +1547,7 @@ pub async fn handle_flow(
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
+    worker_name: &str,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
     let status = flow_job
@@ -1570,20 +1590,24 @@ pub async fn handle_flow(
             );
         }
     }
+    let mut rec = Some(PushNextFlowJobRec { flow_job: flow_job, status: status });
+    while let Some(nrec) = rec {
+        rec = push_next_flow_job(
+            nrec.flow_job,
+            nrec.status,
+            flow,
+            db,
+            client,
+            last_result.clone(),
+            same_worker_tx.clone(),
+            worker_dir,
+            job_completed_tx.clone(),
+            worker_name,
+        )
+        .warn_after_seconds(10)
+        .await?;
+    }
 
-    push_next_flow_job(
-        flow_job,
-        status,
-        flow,
-        db,
-        client,
-        last_result,
-        same_worker_tx,
-        worker_dir,
-        job_completed_tx,
-    )
-    .warn_after_seconds(10)
-    .await?;
     Ok(())
 }
 
@@ -1626,6 +1650,11 @@ fn potentially_crash_for_testing() {
 lazy_static::lazy_static! {
     pub static ref EHM: HashMap<String, Box<RawValue>> = HashMap::new();
 }
+
+struct PushNextFlowJobRec {
+    flow_job: Arc<QueuedJob>,
+    status: FlowStatus,
+}
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
@@ -1638,7 +1667,8 @@ async fn push_next_flow_job(
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     job_completed_tx: Sender<SendResult>,
-) -> error::Result<()> {
+    worker_name: &str,
+) -> error::Result<Option<PushNextFlowJobRec>> {
     let job_root = flow_job
         .root_job
         .map(|x| x.to_string())
@@ -1693,7 +1723,7 @@ async fn push_next_flow_job(
                 ))
             })?;
 
-        return Ok(());
+        return Ok(None);
     }
 
     if matches!(step, Step::Step(0)) {
@@ -1707,11 +1737,24 @@ async fn push_next_flow_job(
             .await?;
             if no_flow_overlap {
                 let overlapping = sqlx::query_scalar!(
-                    "SELECT id AS \"id!\" FROM v2_as_queue WHERE schedule_path = $1 AND workspace_id = $2 AND id != $3 AND running = true",
+                    // Query plan:
+                    // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL`
+                    //   clause.
+                    // - select from `v2_job` first, then join with `v2_job_queue` to avoid a full
+                    //   table scan on `running = true`.
+                    "SELECT id
+                    FROM v2_job j JOIN v2_job_queue USING (id)
+                    WHERE j.workspace_id = $2 AND trigger_kind = 'schedule' AND trigger = $1 AND runnable_path = $4
+                        AND parent_job IS NULL
+                        AND j.id != $3
+                        AND running = true",
                     flow_job.schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
-                    flow_job.id
-                ).fetch_all(db).await?;
+                    flow_job.id,
+                    flow_job.script_path.as_ref().unwrap()
+                )
+                .fetch_all(db)
+                .await?;
                 if overlapping.len() > 0 {
                     let overlapping_str = overlapping
                         .iter()
@@ -1738,7 +1781,7 @@ async fn push_next_flow_job(
                             ))
                         })?;
 
-                    return Ok(());
+                    return Ok(None);
                 }
             }
         }
@@ -1775,7 +1818,7 @@ async fn push_next_flow_job(
                         ))
                     })?;
 
-                return Ok(());
+                return Ok(None);
             }
         }
     }
@@ -2021,7 +2064,7 @@ async fn push_next_flow_job(
                 .await?;
 
                 tx.commit().await?;
-                return Ok(());
+                return Ok(None);
 
             /* cancelled or we're WaitingForEvents but we don't have enough messages (timed out) */
             } else {
@@ -2078,7 +2121,7 @@ async fn push_next_flow_job(
                         ))
                     })?;
 
-                return Ok(());
+                return Ok(None);
             }
         }
     }
@@ -2377,33 +2420,44 @@ async fn push_next_flow_job(
 
     let (job_payloads, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
-        NextFlowTransform::EmptyInnerFlows => {
-            sqlx::query!(
+        NextFlowTransform::EmptyInnerFlows { branch_chosen } => {
+            let raw_status = sqlx::query_scalar!(
                 "UPDATE v2_job_status
                 SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)
-                WHERE id = $3",
+                WHERE id = $3
+                RETURNING flow_status AS \"flow_status: Json<Box<RawValue>>\"",
                 status.step.to_string(),
                 json!(FlowStatusModule::Success {
                     id: status_module.id(),
                     job: Uuid::nil(),
                     flow_jobs: Some(vec![]),
                     flow_jobs_success: Some(vec![]),
-                    branch_chosen: None,
+                    branch_chosen: branch_chosen,
                     approvers: vec![],
                     failed_retries: vec![],
                     skipped: false,
                 }),
                 flow_job.id
             )
-            .execute(db)
-            .await?;
-            // flow is reprocessed by the worker in a state where the module has completed successfully.
-            // The next steps are pull -> handle flow -> push next flow job -> update flow status since module status is success
-            same_worker_tx
-                .send(SameWorkerPayload { job_id: flow_job.id, recoverable: true })
-                .await
-                .expect("send to same worker");
-            return Ok(());
+            .fetch_optional(db)
+            .await?
+            .flatten();
+
+            let status = raw_status
+                .as_ref()
+                .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok());
+
+            if let Some(status) = status {
+                // // flow is reprocessed by the worker in a state where the module has completed successfully.
+                return Ok(Some(PushNextFlowJobRec {
+                    flow_job: flow_job,
+                    status: status,
+                }));
+            } else {
+                return Err(Error::BadRequest(
+                    "impossible to parse new flow status after applying innr flows".to_string(),
+                ));
+            }
         }
     };
 
@@ -2646,6 +2700,16 @@ async fn push_next_flow_job(
         .warn_after_seconds(2)
         .await?;
 
+        if continue_on_same_worker {
+            let _ = sqlx::query!(
+                "UPDATE v2_job_queue SET worker = $2 WHERE id = $1",
+                uuid,
+                worker_name
+            )
+            .execute(&mut *inner_tx)
+            .await;
+        }
+
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
         if value_with_parallel.type_ == "forloopflow" {
@@ -2879,7 +2943,7 @@ async fn push_next_flow_job(
             .await
             .map_err(to_anyhow)?;
     }
-    return Ok(());
+    return Ok(None);
 }
 
 // async fn jump_to_next_step(
@@ -3001,7 +3065,7 @@ enum ContinuePayload {
 }
 
 enum NextFlowTransform {
-    EmptyInnerFlows,
+    EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),
 }
 
@@ -3063,7 +3127,7 @@ fn get_path(flow_job: &QueuedJob, status: &FlowStatus, module: &FlowModule) -> S
     {
         format!("{}/preprocessor", flow_job.script_path())
     } else {
-        format!("{}/step-{}", flow_job.script_path(), status.step)
+        format!("{}/{}", flow_job.script_path(), module.id)
     }
 }
 
@@ -3267,7 +3331,9 @@ async fn compute_next_flow_transform(
             .await?;
 
             match next_loop_status {
-                ForLoopStatus::EmptyIterator => Ok(NextFlowTransform::EmptyInnerFlows),
+                ForLoopStatus::EmptyIterator => {
+                    Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None })
+                }
                 ForLoopStatus::NextIteration(ns) => {
                     next_loop_iteration(
                         flow,
@@ -3319,7 +3385,7 @@ async fn compute_next_flow_transform(
                         })
                         .collect::<Vec<_>>();
                     if payloads.is_empty() {
-                        return Ok(NextFlowTransform::EmptyInnerFlows);
+                        return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
                     }
                     Ok(NextFlowTransform::Continue(
                         ContinuePayload::ParallelJobs(payloads),
@@ -3375,12 +3441,12 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let (modules, modules_node) = match branch {
-                BranchChosen::Default => (default, default_node),
+            let (modules, modules_node, branch_idx) = match branch {
+                BranchChosen::Default => (default, default_node, 0),
                 BranchChosen::Branch { branch } => branches
                     .into_iter()
                     .nth(branch)
-                    .map(|Branch { modules, modules_node, .. }| (modules, modules_node))
+                    .map(|Branch { modules, modules_node, .. }| (modules, modules_node, branch + 1))
                     .ok_or_else(|| {
                         Error::BadRequest(format!(
                             "Unrecognized branch for BranchOne {status_module:?}"
@@ -3394,10 +3460,10 @@ async fn compute_next_flow_transform(
                 flow.failure_module.as_ref(),
                 flow.same_worker,
                 || status.step.to_string(),
-                || format!("{}/branchone-{}", flow_job.script_path(), status.step),
+                || format!("{}/branchone-{}", flow_job.script_path(), branch_idx),
                 true,
             ) else {
-                return Ok(NextFlowTransform::EmptyInnerFlows);
+                return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: Some(branch) });
             };
 
             Ok(NextFlowTransform::Continue(
@@ -3417,7 +3483,7 @@ async fn compute_next_flow_transform(
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     if branches.is_empty() {
-                        return Ok(NextFlowTransform::EmptyInnerFlows);
+                        return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
                     } else if parallel {
                         let len = branches.len();
                         let payloads: Vec<JobPayloadWithTag> = branches
@@ -3445,7 +3511,7 @@ async fn compute_next_flow_transform(
                             })
                             .collect::<Vec<_>>();
                         if payloads.is_empty() {
-                            return Ok(NextFlowTransform::EmptyInnerFlows);
+                            return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
                         }
                         return Ok(NextFlowTransform::Continue(
                             ContinuePayload::ParallelJobs(payloads),
@@ -3503,7 +3569,9 @@ async fn compute_next_flow_transform(
                 },
                 false,
             ) else {
-                return Ok(NextFlowTransform::EmptyInnerFlows);
+                return Ok(NextFlowTransform::EmptyInnerFlows {
+                    branch_chosen: Some(BranchChosen::Default),
+                });
             };
 
             Ok(NextFlowTransform::Continue(
@@ -3565,7 +3633,7 @@ async fn next_loop_iteration(
         inner_path,
         true,
     ) else {
-        return Ok(NextFlowTransform::EmptyInnerFlows);
+        return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
     };
 
     Ok(NextFlowTransform::Continue(

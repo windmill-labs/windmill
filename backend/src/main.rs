@@ -21,7 +21,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::{fs::File, io::AsyncReadExt};
+use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -59,19 +59,15 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(feature = "enterprise")]
-use windmill_common::METRICS_ADDR;
-
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
-    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR,
-    TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
+    DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
+    LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR,
+    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -320,7 +316,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
-    if num_workers > 1 {
+    if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
         println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
         );
@@ -344,8 +340,17 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     println!("Connecting to database...");
-    let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
+    let db = windmill_common::initial_connection().await?;
 
+    let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
+
+    tracing::info!(
+        "PostgreSQL version: {} (windmill require PG >= 14)",
+        num_version
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "UNKNOWN".to_string())
+    );
     load_otel(&db).await;
 
     tracing::info!("Database connected");
@@ -362,30 +367,31 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
-    let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
-
-    tracing::info!(
-        "PostgreSQL version: {} (windmill require PG >= 14)",
-        num_version
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "UNKNOWN".to_string())
-    );
-
     let is_agent = mode == Mode::Agent;
 
-    if !is_agent {
+    let mut migration_handle: Option<JoinHandle<()>> = None;
+    #[cfg(feature = "parquet")]
+    let disable_s3_store = std::env::var("DISABLE_S3_STORE")
+        .ok()
+        .is_some_and(|x| x == "1" || x == "true");
+
+    if !is_agent && !indexer_mode {
         let skip_migration = std::env::var("SKIP_MIGRATION")
             .map(|val| val == "true")
             .unwrap_or(false);
 
         if !skip_migration {
             // migration code to avoid break
-            windmill_api::migrate_db(&db).await?;
+            migration_handle = windmill_api::migrate_db(&db).await?;
         } else {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
     }
+
+    drop(db);
+    let worker_mode = num_workers > 0;
+
+    let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
 
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -450,8 +456,6 @@ Windmill Community Edition {GIT_VERSION}
         }
     }
 
-    let worker_mode = num_workers > 0;
-
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
@@ -474,7 +478,15 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
-        initial_load(&db, killpill_tx.clone(), worker_mode, server_mode, is_agent).await;
+        initial_load(
+            &db,
+            killpill_tx.clone(),
+            worker_mode,
+            server_mode,
+            #[cfg(feature = "parquet")]
+            disable_s3_store,
+        )
+        .await;
 
         monitor_db(
             &db,
@@ -635,7 +647,7 @@ Windmill Community Edition {GIT_VERSION}
                         killpill_tx.clone(),
                         num_workers,
                         base_internal_url.clone(),
-                        mode.clone() == Mode::Agent,
+                        is_agent,
                         hostname.clone(),
                     )
                     .await?;
@@ -668,6 +680,14 @@ Windmill Community Edition {GIT_VERSION}
                 loop {
                     tokio::select! {
                         biased;
+                        Some(_) = async { if let Some(jh) = migration_handle.take() {
+                            tracing::info!("migration job finished");
+                            Some(jh.await)
+                        } else {
+                            None
+                        }} => {
+                           continue;
+                        },
                         _ = monitor_killpill_rx.recv() => {
                             tracing::info!("received killpill for monitor job");
                             break;
@@ -757,8 +777,10 @@ Windmill Community Edition {GIT_VERSION}
                                                     reload_job_default_timeout_setting(&db).await
                                                 },
                                                 #[cfg(feature = "parquet")]
-                                                OBJECT_STORE_CACHE_CONFIG_SETTING if !is_agent => {
-                                                    reload_s3_cache_setting(&db).await
+                                                OBJECT_STORE_CACHE_CONFIG_SETTING => {
+                                                    if !disable_s3_store {
+                                                        reload_s3_cache_setting(&db).await
+                                                    }
                                                 },
                                                 SCIM_TOKEN_SETTING => {
                                                     reload_scim_token_setting(&db).await
@@ -876,14 +898,25 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
-                tracing::error!("Metrics are only available in the EE, ignoring...");
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
+            #[cfg(not(all(feature = "enterprise", feature = "prometheus")))]
+            if enabled {
+                tracing::error!("Metrics are only available in the EE, ignoring...");
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            if let Err(e) = windmill_common::serve_metrics(
+                *windmill_common::METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await
+            {
+                tracing::error!("Error serving metrics: {e:#}");
+            }
+
             Ok(()) as anyhow::Result<()>
         };
 
@@ -1025,7 +1058,6 @@ pub async fn run_workers(
         TAR_PY312_CACHE_DIR,
         TAR_PY313_CACHE_DIR,
         PIP_CACHE_DIR,
-        BUN_DEPSTAR_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,

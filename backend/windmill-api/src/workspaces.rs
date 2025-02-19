@@ -58,6 +58,11 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::utils::not_found_if_none;
 
+use crate::teams_ee::{
+    connect_teams, edit_teams_command, run_teams_message_test_job,
+    workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
+};
+
 lazy_static::lazy_static! {
     static ref WORKSPACE_KEY_REGEXP: Regex = Regex::new("^[a-zA-Z0-9]{64}$").unwrap();
 }
@@ -73,9 +78,23 @@ pub fn workspaced_service() -> Router {
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
+        .route("/edit_teams_command", post(edit_teams_command))
+        .route(
+            "/available_teams_ids",
+            get(workspaces_list_available_teams_ids),
+        )
+        .route(
+            "/available_teams_channels",
+            get(workspaces_list_available_teams_channels),
+        )
+        .route("/connect_teams", post(connect_teams))
         .route(
             "/run_slack_message_test_job",
             post(run_slack_message_test_job),
+        )
+        .route(
+            "/run_teams_message_test_job",
+            post(run_teams_message_test_job),
         )
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
@@ -165,32 +184,59 @@ struct Workspace {
 #[derive(FromRow, Serialize, Debug)]
 pub struct WorkspaceSettings {
     pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_command_script: Option<String>,
+    pub teams_command_script: Option<String>,
     pub slack_email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_invite_domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_invite_operator: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_add: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_resource: Option<serde_json::Value>,
-    pub ai_models: Vec<String>,
+    pub ai_models: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_extra_args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_muted_on_cancel: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
-    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
-    pub deploy_ui: Option<serde_json::Value>,          // effectively: WorkspaceDeploymentUISettings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
     pub automatic_billing: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_scripts: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub operator_settings: Option<serde_json::Value>,
 }
 
@@ -407,7 +453,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_resource, ai_models, code_completion_model, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, automatic_billing, default_scripts, mute_critical_alerts, color, operator_settings FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
@@ -1316,6 +1362,7 @@ struct UsedTriggers {
     pub kafka_used: bool,
     pub nats_used: bool,
     pub postgres_used: bool,
+    pub sqs_used: bool
 }
 
 async fn get_used_triggers(
@@ -1334,7 +1381,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
-            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!"
+            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
+            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!"
         "#,
         w_id
     )
@@ -1358,9 +1406,15 @@ async fn list_workspaces_as_super_admin(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
-         FROM workspace
-         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
+        "SELECT
+            workspace.id AS \"id!\",
+            workspace.name AS \"name!\",
+            workspace.owner AS \"owner!\",
+            workspace.deleted AS \"deleted!\",
+            workspace.premium AS \"premium!\",
+            workspace_settings.color AS \"color\"
+        FROM workspace
+        LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
         per_page as i32,
         offset as i32

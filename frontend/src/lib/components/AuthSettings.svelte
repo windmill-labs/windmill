@@ -4,6 +4,7 @@
 
 	import OAuthSetting from '$lib/components/OAuthSetting.svelte'
 	import OktaSetting from './OktaSetting.svelte'
+	import Auth0Setting from './Auth0Setting.svelte'
 	import CloseButton from './common/CloseButton.svelte'
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import CustomSso from './CustomSso.svelte'
@@ -81,6 +82,7 @@
 			<OAuthSetting name="google" bind:value={oauths['google']} />
 			<OAuthSetting name="microsoft" bind:value={oauths['microsoft']} />
 			<OktaSetting bind:value={oauths['okta']} />
+			<Auth0Setting bind:value={oauths['auth0']} />
 			<OAuthSetting name="github" bind:value={oauths['github']} />
 			<OAuthSetting name="gitlab" bind:value={oauths['gitlab']} />
 			<OAuthSetting name="jumpcloud" bind:value={oauths['jumpcloud']} />
@@ -90,7 +92,7 @@
 			<KanidmSetting bind:value={oauths['kanidm']} />
 			<ZitadelSetting bind:value={oauths['zitadel']} />
 			{#each Object.keys(oauths) as k}
-				{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && 'login_config' in oauths[k]}
+				{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && 'login_config' in oauths[k]}
 					{#if oauths[k]}
 						<div class="flex flex-col gap-2 pb-4">
 							<div class="flex flex-row items-center gap-2">
@@ -170,7 +172,7 @@
 		<div class="py-1" />
 		<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 		<div class="py-1" />
-		<OAuthSetting login={false} name="teams" bind:value={oauths['teams']} />
+		<OAuthSetting login={false} name="teams" eeOnly={true} bind:value={oauths['teams']} />
 		<div class="py-1" />
 
 		{#each Object.keys(oauths) as k}

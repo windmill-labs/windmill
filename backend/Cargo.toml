@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.457.1"
+version = "1.465.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.457.1"
+version = "1.465.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -74,6 +74,7 @@ mssql = ["windmill-worker/mssql"]
 bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
+sqs_trigger = ["windmill-api/sqs_trigger"]
 python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 csharp = ["windmill-worker/csharp"]
@@ -174,7 +175,7 @@ uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "0.4.35", features = ["serde"] }
-chrono-tz = "^0"
+chrono-tz = "^0.10.1"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 tracing-appender = "^0"
@@ -187,7 +188,7 @@ hex = "^0"
 sql-builder = "^3"
 argon2 = "^0"
 quick_cache = "^0"
-rand = "^0"
+rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
@@ -306,6 +307,7 @@ datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
+aws-sdk-sqs = "1.57.0"
 aws-sdk-sts = "^1"
 
 crc = "^3"
@@ -315,10 +317,10 @@ async-stream = "^0"
 
 opentelemetry = "0.27.0"
 tracing-opentelemetry = "0.28.0"
-opentelemetry_sdk = { version = "*", features = ["rt-tokio"] }
+opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
-opentelemetry-semantic-conventions = { version = "*", features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
 
 bollard = "0.18.1"
 

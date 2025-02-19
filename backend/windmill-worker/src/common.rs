@@ -214,6 +214,25 @@ pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
 }
 
 #[async_recursion]
+pub async fn get_root_job_id(job: &Uuid, db: &Pool<Postgres>) -> anyhow::Result<Uuid> {
+    let njob = sqlx::query_scalar!(
+        "SELECT flow_innermost_root_job FROM v2_job WHERE id = $1",
+        job
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if let Some(root_job) = njob {
+        if root_job == *job {
+            return Ok(job.to_owned());
+        }
+        get_root_job_id(&root_job, db).await
+    } else {
+        Ok(job.to_owned())
+    }
+}
+
+#[async_recursion]
 pub async fn transform_json_value(
     name: &str,
     client: &AuthedClient,
@@ -252,8 +271,10 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$encrypted:") => {
             let encrypted = y.strip_prefix("$encrypted:").unwrap();
-            let mc =
-                build_crypt_with_key_suffix(&db, &job.workspace_id, &job.id.to_string()).await?;
+
+            let root_job_id = get_root_job_id(&job.root_job.unwrap_or_else(|| job.id), db).await?;
+            let mc = build_crypt_with_key_suffix(&db, &job.workspace_id, &root_job_id.to_string())
+                .await?;
             decrypt(&mc, encrypted.to_string()).and_then(|x| {
                 serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
             })
@@ -333,7 +354,8 @@ pub fn unsafe_raw(json: String) -> Box<RawValue> {
 fn check_result_too_big(size: usize) -> error::Result<()> {
     if *CLOUD_HOSTED && size > MAX_RESULT_SIZE {
         return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
-        If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
+We highly recommend using object to store and pass heavy data (https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#read-a-file-from-s3-within-a-script)
+Alternatively, if using this script as part of a flow, activate shared folder and use the shared folder to pass heavy data between steps.".to_owned()));
     };
     Ok(())
 }

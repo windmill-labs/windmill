@@ -130,11 +130,26 @@
       },
       {
         "ordinal": 25,
+        "name": "teams_command_script",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 26,
+        "name": "teams_team_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 27,
+        "name": "teams_team_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 28,
         "name": "ai_models",
         "type_info": "VarcharArray"
       },
       {
-        "ordinal": 26,
+        "ordinal": 29,
         "name": "code_completion_model",
         "type_info": "Varchar"
       }
@@ -165,6 +180,9 @@
       true,
       true,
       false,
+      true,
+      true,
+      true,
       true,
       true,
       true,

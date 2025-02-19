@@ -222,14 +222,6 @@
 						/>
 					</Label>
 				</div>
-
-				<NatsTriggersConfigSection
-					{path}
-					bind:args
-					bind:isValid
-					defaultValues={useDefaultValues() ? defaultValues : undefined}
-				/>
-
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered<Required required={true} />
@@ -247,6 +239,13 @@
 						/>
 					</div>
 				</Section>
+
+				<NatsTriggersConfigSection
+					{path}
+					bind:args
+					bind:isValid
+					defaultValues={useDefaultValues() ? defaultValues : undefined}
+				/>
 			</div>
 		{/if}
 	</DrawerContent>

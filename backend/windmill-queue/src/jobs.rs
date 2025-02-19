@@ -566,6 +566,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let result_columns = result_columns.as_ref();
     let _job_id = queued_job.id;
     let (opt_uuid, _duration, _skip_downstream_error_handlers) = (|| async {
+
+        // let start = std::time::Instant::now();
+
         let mut tx = db.begin().await?;
 
         let job_id = queued_job.id;
@@ -591,28 +594,30 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , canceled_by
                     , canceled_reason
                     , flow_status
+                    , workflow_as_code_status
                     , memory_peak
                     , status
+                    , worker
                     )
-                VALUES ($1, $2, $3, COALESCE($12::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($3, now()))))*1000), $5, $13, $7, $8, $9,\
-                        $11, CASE WHEN $6::BOOL THEN 'canceled'::job_status
-                        WHEN $10::BOOL THEN 'skipped'::job_status
-                        WHEN $4::BOOL THEN 'success'::job_status
-                        ELSE 'failure'::job_status END)
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $5 RETURNING duration_ms AS \"duration_ms!\"",
-            /* $1 */ queued_job.workspace_id,
-            /* $2 */ queued_job.id,
-            /* $3 */ queued_job.started_at,
-            /* $4 */ success,
-            /* $5 */ result as Json<&T>,
-            /* $6 */ canceled_by.is_some(),
-            /* $7 */ canceled_by.clone().map(|cb| cb.username).flatten(),
-            /* $8 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
-            /* $9 */ &queued_job.flow_status as &Option<Json<Box<RawValue>>>,
-            /* $10 */ skipped,
-            /* $11 */ if mem_peak > 0 { Some(mem_peak) } else { None },
-            /* $12 */ duration,
-            /* $13 */ result_columns as Option<&Vec<String>>,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                        flow_status, workflow_as_code_status,
+                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
+                        WHEN $7::BOOL THEN 'skipped'::job_status
+                        WHEN $2::BOOL THEN 'success'::job_status
+                        ELSE 'failure'::job_status END AS status,
+                        q.worker
+                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            /* $1 */ queued_job.id,
+            /* $2 */ success,
+            /* $3 */ result as Json<&T>,
+            /* $4 */ canceled_by.is_some(),
+            /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
+            /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
+            /* $7 */ skipped,
+            /* $8 */ if mem_peak > 0 { Some(mem_peak) } else { None },
+            /* $9 */ duration,
+            /* $10 */ result_columns as Option<&Vec<String>>,
         )
         .fetch_one(&mut *tx)
         .await
@@ -633,28 +638,14 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
 
         if !queued_job.is_flow_step {
-            if _duration > 500
-                && (queued_job.job_kind == JobKind::Script
-                    || queued_job.job_kind == JobKind::Preview)
-            {
-                if let Err(e) = sqlx::query!(
-                "UPDATE v2_job_completed SET flow_status = f.flow_status FROM v2_job_status f WHERE v2_job_completed.id = $1 AND f.id = $1 AND v2_job_completed.workspace_id = $2",
-                &queued_job.id,
-                &queued_job.workspace_id
-            )
-            .execute(&mut *tx)
-            .await {
-                tracing::error!("Could not update job duration: {}", e);
-            }
-            }
             if let Some(parent_job) = queued_job.parent_job {
-                if let Err(e) = sqlx::query_scalar!(
+                let _ = sqlx::query_scalar!(
                     "UPDATE v2_job_status SET
-                        flow_status = jsonb_set(
+                        workflow_as_code_status = jsonb_set(
                             jsonb_set(
-                                COALESCE(flow_status, '{}'::jsonb),
+                                COALESCE(workflow_as_code_status, '{}'::jsonb),
                                 array[$1],
-                                COALESCE(flow_status->$1, '{}'::jsonb)
+                                COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
                             ),
                             array[$1, 'duration_ms'],
                             to_jsonb($2::bigint)
@@ -665,15 +656,17 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     parent_job
                 )
                 .execute(&mut *tx)
-                .await {
-                    tracing::error!("Could not update parent job flow_status: {}", e);
-                }
+                .await
+                .inspect_err(|e| tracing::error!(
+                    "Could not update parent job `duration_ms` in workflow as code status: {}",
+                    e,
+                ));
             }
         }
         // tracing::error!("Added completed job {:#?}", queued_job);
 
         let mut _skip_downstream_error_handlers = false;
-        tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
+        tx = delete_job(tx, &job_id).await?;
         // tracing::error!("3 {:?}", start.elapsed());
 
         if queued_job.is_flow_step {
@@ -868,6 +861,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             "inserted completed job: {} (success: {success})",
             queued_job.id
         );
+        // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
         Ok((None, _duration, _skip_downstream_error_handlers)) as windmill_common::error::Result<(Option<Uuid>, i64, bool)>
     })
     .retry(
@@ -1387,12 +1381,17 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
             let exact = schedule.on_failure_exact.unwrap_or(false);
             if times > 1 || exact {
                 let past_jobs = sqlx::query!(
-                    "SELECT
-                        success AS \"success!\",
-                        result AS \"result: Json<Box<RawValue>>\",
-                        started_at AS \"started_at!\"
-                    FROM v2_as_completed_job
-                    WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                    // Query plan:
+                    // - use of the  `ix_v2_job_root_by_path` index;
+                    //   hence the `parent_job IS NULL` clause.
+                    // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
+                    //   table scan.
+                    "SELECT status = 'success' AS \"success!\"
+                    FROM v2_job j JOIN v2_job_completed USING (id)
+                    WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+                        AND parent_job IS NULL
+                        AND runnable_path = $3
+                        AND j.id != $4
                     ORDER BY created_at DESC
                     LIMIT $5",
                     &schedule.workspace_id,
@@ -1458,11 +1457,19 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
             let tx = db.begin().await?;
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
             let past_jobs = sqlx::query!(
-                "SELECT
-                    success AS \"success!\",
+                // Query plan:
+                // - use of the  `ix_v2_job_root_by_path` index;
+                //   hence the `parent_job IS NULL` clause.
+                // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
+                //   table scan.
+                "SELECT status = 'success' AS \"success!\",
                     result AS \"result: Json<Box<RawValue>>\",
                     started_at AS \"started_at!\"\
-                FROM v2_as_completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                FROM v2_job j JOIN v2_job_completed USING (id)
+                WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+                    AND parent_job IS NULL
+                    AND runnable_path = $3
+                    AND j.id != $4
                 ORDER BY created_at DESC
                 LIMIT $5",
                 &schedule.workspace_id,
@@ -1838,10 +1845,15 @@ impl std::ops::Deref for PulledJob {
 pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
+    worker_name: &str,
 ) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
     loop {
-        let (job, suspended) =
-            pull_single_job_and_mark_as_running_no_concurrency_limit(db, suspend_first).await?;
+        let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
+            db,
+            suspend_first,
+            worker_name,
+        )
+        .await?;
 
         let Some(job) = job else {
             return Ok((None, suspended));
@@ -2045,13 +2057,14 @@ pub async fn pull(
                 running = false,
                 started_at = null,
                 scheduled_for = $1
-            WHERE id = (SELECT id FROM ping)",
+            WHERE id = $2",
             estimated_next_schedule_timestamp,
             job_uuid,
         )
-        .fetch_all(&mut *tx)
+        .execute(&mut *tx)
         .await
         .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
+
         tx.commit().await?
     }
 }
@@ -2059,6 +2072,7 @@ pub async fn pull(
 async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
     db: &Pool<Postgres>,
     suspend_first: bool,
+    worker_name: &str,
 ) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
     let job_and_suspended: (Option<PulledJob>, bool) = {
         /* Jobs can be started if they:
@@ -2078,6 +2092,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         let r = if suspend_first {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
+                .bind(worker_name)
                 .fetch_optional(db)
                 .await?
         } else {
@@ -2097,11 +2112,15 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
+                // let instant = std::time::Instant::now();
                 let r = sqlx::query_as::<_, PulledJob>(query)
+                    .bind(worker_name)
                     .fetch_optional(db)
                     .await?;
 
                 if let Some(pulled_job) = r {
+                    // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
+
                     highest_priority_job = Some(pulled_job);
                     break;
                 }
@@ -2582,21 +2601,17 @@ async fn extract_result_from_job_result(
 
 pub async fn delete_job<'c>(
     mut tx: Transaction<'c, Postgres>,
-    w_id: &str,
-    job_id: Uuid,
+    job_id: &Uuid,
 ) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
 
-    let job_removed = sqlx::query_scalar!(
-        "DELETE FROM v2_job_queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
-        w_id,
-        job_id
-    )
-    .fetch_optional(&mut *tx)
-    .await;
+    let job_removed =
+        sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
+            .fetch_optional(&mut *tx)
+            .await;
 
     if let Err(job_removed) = job_removed {
         tracing::error!(
@@ -3791,9 +3806,12 @@ pub async fn push<'c, 'd>(
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
 
-    sqlx::query!("INSERT INTO v2_job_runtime (id) VALUES ($1)", job_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)",
+        job_id
+    )
+    .execute(&mut *tx)
+    .await?;
     if let Some(flow_status) = flow_status {
         sqlx::query!(
             "INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)",

@@ -146,7 +146,7 @@ use crate::mssql_executor::do_mssql;
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
-use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
+use crate::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
@@ -291,7 +291,6 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
-pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
 
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
@@ -1278,7 +1277,7 @@ pub async fn run_worker(
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) v2_job_queue, v2_job_runtime, v2_job_status")
+                    if let Err(e) = sqlx::query!("VACUUM v2_job_queue, v2_job_runtime, v2_job_status")
                         .execute(&db2)
                         .await
                     {
@@ -1325,16 +1324,28 @@ pub async fn run_worker(
                     same_worker_job.job_id
                 );
                 let r = sqlx::query_as::<_, PulledJob>(
-                    "WITH ping AS (
+                    "
+                    WITH ping AS (
                         UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 RETURNING id
-                    ) SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)",
+                    )
+                    SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)
+                    ",
                 )
                 .bind(same_worker_job.job_id)
                 .fetch_optional(db)
                 .await
-                .map_err(|_| {
-                    Error::internal_err("Impossible to fetch same_worker job".to_string())
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Impossible to fetch same_worker job {}: {}",
+                        same_worker_job.job_id, e
+                    ))
                 });
+                let _ = sqlx::query!(
+                    "UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1",
+                    same_worker_job.job_id
+                )
+                .execute(db)
+                .await;
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
                         worker = %worker_name, hostname = %hostname,
@@ -1381,7 +1392,7 @@ pub async fn run_worker(
                     last_suspend_first = Instant::now();
                 }
 
-                let job = pull(&db, suspend_first).await;
+                let job = pull(&db, suspend_first, &worker_name).await;
 
                 add_time!(bench, "job pulled from DB");
                 let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -2006,13 +2017,13 @@ async fn handle_queued_job(
         .warn_after_seconds(5)
         .await?;
     } else if let Some(parent_job) = job.parent_job {
-        if let Err(e) = sqlx::query_scalar!(
+        let _ = sqlx::query_scalar!(
             "UPDATE v2_job_status SET
-                flow_status = jsonb_set(
+                workflow_as_code_status = jsonb_set(
                     jsonb_set(
-                        COALESCE(flow_status, '{}'::jsonb),
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
                         array[$1],
-                        COALESCE(flow_status->$1, '{}'::jsonb)
+                        COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
                     ),
                     array[$1, 'started_at'],
                     to_jsonb(now()::text)
@@ -2024,9 +2035,12 @@ async fn handle_queued_job(
         .execute(db)
         .warn_after_seconds(5)
         .await
-        {
-            tracing::error!("Could not update parent job started_at flow_status: {}", e);
-        }
+        .inspect_err(|e| {
+            tracing::error!(
+                "Could not update parent job `started_at` in workflow as code status: {}",
+                e
+            )
+        });
     }
 
     let started = Instant::now();
@@ -2101,6 +2115,7 @@ async fn handle_queued_job(
             same_worker_tx,
             worker_dir,
             job_completed_tx.0.clone(),
+            worker_name,
         )
         .warn_after_seconds(10)
         .await?;
@@ -2131,7 +2146,7 @@ async fn handle_queued_job(
         #[cfg(not(feature = "enterprise"))]
         if job.concurrent_limit.is_some() {
             logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are going to become an Enterprise Edition feature in the near future.\n");
+            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
             logs.push_str("---\n");
         }
 
