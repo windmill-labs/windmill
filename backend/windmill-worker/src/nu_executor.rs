@@ -5,6 +5,7 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 use windmill_common::{error::Error, jobs::QueuedJob, worker::write_file};
+use windmill_parser::Arg;
 use windmill_parser_nu::parse_nu_signature;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -153,22 +154,23 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .args
         .clone()
         .into_iter()
-        .map(|x| {
+        .map(|Arg { name, typ, has_default, .. }| {
             // Apply additional input transformation
-            let transformation = match x.typ {
-                // JSON converts X.0 to X and nu can't coerce type automatically
-                windmill_parser::Typ::Datetime => "into datetime",
-                windmill_parser::Typ::Bytes => "into binary ",
-                windmill_parser::Typ::Float => "into float",
-                _ => "",
-            }
-            .to_owned();
-
-            if transformation != "" {
-                format!("\n\t\t\t($parsed_args.{}? | {transformation}) ", &x.name)
+            let transformation = "| ".to_owned()
+                + match typ {
+                    // JSON converts X.0 to X and nu can't coerce type automatically
+                    windmill_parser::Typ::Datetime => "into datetime",
+                    windmill_parser::Typ::Bytes => "into binary ",
+                    windmill_parser::Typ::Float => "into float",
+                    // Ident
+                    _ => "$in",
+                };
+            let nullguard = if has_default {
+                "".to_owned()
             } else {
-                format!("\n\t\t\t($parsed_args.{}?) ", &x.name)
-            }
+                format!("| nullguard {name}")
+            };
+            format!("\n\t\t\t($parsed_args.{name}? {nullguard} {transformation}) ",)
         })
         .collect_vec()
         .join(" ");
@@ -178,16 +180,17 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
 $env.config.table.mode = 'basic'
 
 # TODO:
-# def safeguard [ name: string ] {
-# 	if ($in == null) {
-# 		# let span = (metadata $in).span;
-# 		# TODO: Impl more reliable way to find span
-#         # let block  = view blocks | find "main" ;
-# 		panic $"`($name)` can't be null"
-# 		# error make {msg: $"`($name)` can't be null", label: {text: "fish right here", span: {start: $block.start, end: $block.end} } }
-# 	}
-# 	$in
-# }
+def nullguard [ name: string ] {
+	if ($in == null) {
+		# let span = (metadata $in).span;
+		# TODO: Impl more reliable way to find span
+        # let block  = view blocks | find "main" ;
+		panic $"argument `($name)` of main function can't be null"
+
+		# error make {msg: $"`($name)` can't be null", label: {text: "fish right here", span: {start: $block.start, end: $block.end} } }
+	}
+	$in
+}
 
 # TODO: Probably needs rework in order for LSP to work
 def get_variable [ pat ] {
