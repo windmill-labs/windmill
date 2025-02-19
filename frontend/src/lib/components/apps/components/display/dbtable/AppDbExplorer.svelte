@@ -702,7 +702,6 @@
 			<svelte:fragment slot="actions">
 				<Button color="dark" size="xs" on:click={insert} disabled={!isInsertable}>Insert</Button>
 			</svelte:fragment>
-
 			<InsertRow
 				bind:args
 				bind:isInsertable
