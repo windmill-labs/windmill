@@ -39,8 +39,7 @@ use crate::csharp_executor::generate_nuget_lockfile;
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
 use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion, USE_PIP_COMPILE,
-    USE_PIP_INSTALL,
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
 };
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
@@ -1602,8 +1601,6 @@ async fn python_dep(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     annotated_pyv_numeric: Option<u32>,
     annotations: PythonAnnotations,
-    no_uv_compile: bool,
-    no_uv_install: bool,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
 
@@ -1634,7 +1631,6 @@ async fn python_dep(
         occupancy_metrics,
         final_version,
         annotations.no_cache,
-        no_uv_compile,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1651,7 +1647,6 @@ async fn python_dep(
             worker_dir,
             occupancy_metrics,
             final_version,
-            no_uv_install,
         )
         .await;
 
@@ -1716,21 +1711,6 @@ async fn capture_dependency_job(
                     .await?
                     .join("\n")
                 };
-                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } = anns;
-                if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                    if let Err(e) = sqlx::query!(
-                        r#"
-                          INSERT INTO metrics (id, value) 
-                               VALUES ('no_uv_usage_py', $1)
-                        "#,
-                        serde_json::to_value("").map_err(to_anyhow)?
-                    )
-                    .execute(db)
-                    .await
-                    {
-                        tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
-                    }
-                }
 
                 python_dep(
                     reqs,
@@ -1745,8 +1725,6 @@ async fn capture_dependency_job(
                     &mut Some(occupancy_metrics),
                     annotated_pyv_numeric,
                     anns,
-                    no_uv_compile | no_uv,
-                    no_uv_install | no_uv,
                 )
                 .await
             }
@@ -1767,21 +1745,6 @@ async fn capture_dependency_job(
                 let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
                 let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
 
-                if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                    if let Err(e) = sqlx::query!(
-                        r#"
-                        INSERT INTO metrics (id, value) 
-                            VALUES ('no_uv_usage_ansible', $1)
-                        "#,
-                        serde_json::to_value("").map_err(to_anyhow)?
-                    )
-                    .execute(db)
-                    .await
-                    {
-                        tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
-                    };
-                }
-
                 python_dep(
                     reqs,
                     job_id,
@@ -1795,8 +1758,6 @@ async fn capture_dependency_job(
                     &mut Some(occupancy_metrics),
                     None,
                     PythonAnnotations::default(),
-                    false,
-                    false,
                 )
                 .await
             }
