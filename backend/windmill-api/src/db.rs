@@ -15,6 +15,7 @@ use sqlx::{
     Executor, PgConnection, Pool, Postgres,
 };
 
+use tokio::task::JoinHandle;
 use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
 use windmill_common::{
     db::{Authable, Authed},
@@ -170,7 +171,7 @@ impl Migrate for CustomMigrator {
     }
 }
 
-pub async fn migrate(db: &DB) -> Result<(), Error> {
+pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
@@ -225,9 +226,10 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         }
     });
 
-    if !has_done_migration(db, "v2_finalize_disable_sync_III").await {
+    let mut jh = None;
+    if !has_done_migration(db, "v2_finalize_job_completed").await {
         let db2 = db.clone();
-        let _ = tokio::task::spawn(async move {
+        let v2jh = tokio::task::spawn(async move {
             loop {
                 if !*MIN_VERSION_IS_AT_LEAST_1_461.read().await {
                     tracing::info!("Waiting for all workers to be at least version 1.461 before applying v2 finalize migration, sleeping for 5s...");
@@ -245,9 +247,10 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
                 break;
             }
         });
+        jh = Some(v2jh)
     }
 
-    Ok(())
+    Ok(jh)
 }
 
 async fn fix_flow_versioning_migration(
@@ -373,29 +376,91 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
     run_windmill_migration!("v2_finalize_disable_sync_III", db, |tx| {
         tx.execute(
             r#"
+            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
             ALTER TABLE v2_job_queue DISABLE ROW LEVEL SECURITY;
-            ALTER TABLE v2_job_completed DISABLE ROW LEVEL SECURITY;
-
-            DROP FUNCTION IF EXISTS v2_job_after_update CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_completed_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_completed_before_update CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_queue_after_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_queue_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_queue_before_update CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_runtime_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_runtime_before_update CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_status_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_status_before_update CASCADE;
-
-            DROP VIEW IF EXISTS completed_job, completed_job_view, job, queue, queue_view CASCADE;
-            
             "#,
         )
         .await?;
     });
+
+    run_windmill_migration!("v2_finalize_disable_sync_III_2", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job_completed IN ACCESS EXCLUSIVE MODE;
+            ALTER TABLE v2_job_completed DISABLE ROW LEVEL SECURITY;
+            "#,
+        )
+        .await?;
+    });
+
+    run_windmill_migration!("v2_finalize_disable_sync_III_3", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job IN ACCESS EXCLUSIVE MODE;
+            DROP FUNCTION IF EXISTS v2_job_after_update CASCADE;
+        "#,
+        )
+        .await?;
+    });
+
+    run_windmill_migration!("v2_finalize_disable_sync_III_4", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job_completed IN ACCESS EXCLUSIVE MODE;
+            DROP FUNCTION IF EXISTS v2_job_completed_before_insert CASCADE;
+            DROP FUNCTION IF EXISTS v2_job_completed_before_update CASCADE;          
+            "#,
+        )
+        .await?;
+    });
+
+    run_windmill_migration!("v2_finalize_disable_sync_III_5", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
+            DROP FUNCTION IF EXISTS v2_job_queue_after_insert CASCADE;
+            DROP FUNCTION IF EXISTS v2_job_queue_before_insert CASCADE;
+            DROP FUNCTION IF EXISTS v2_job_queue_before_update CASCADE;       
+            "#,
+        )
+        .await?;
+    });
+
+    run_windmill_migration!("v2_finalize_disable_sync_III_6", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job_runtime IN ACCESS EXCLUSIVE MODE;
+            DROP FUNCTION IF EXISTS v2_job_runtime_before_insert CASCADE;
+            DROP FUNCTION IF EXISTS v2_job_runtime_before_update CASCADE;     
+            "#,
+        )
+        .await?;
+    });
+
+    run_windmill_migration!("v2_finalize_disable_sync_III_7", db, |tx| {
+        tx.execute(
+            r#"
+            LOCK TABLE v2_job_status IN ACCESS EXCLUSIVE MODE;
+            DROP FUNCTION IF EXISTS v2_job_status_before_insert CASCADE;
+            DROP FUNCTION IF EXISTS v2_job_status_before_update CASCADE;     
+            "#,
+        )
+        .await?;
+    });
+
+    run_windmill_migration!("v2_finalize_disable_sync_III_8", db, |tx| {
+        tx.execute(
+            r#"
+            DROP VIEW IF EXISTS completed_job, completed_job_view, job, queue, queue_view CASCADE;
+            "#,
+        )
+        .await?;
+    });
+
     run_windmill_migration!("v2_finalize_job_queue", db, |tx| {
         tx.execute(
             r#"
+            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
             ALTER TABLE v2_job_queue
                 DROP COLUMN IF EXISTS __parent_job CASCADE,
                 DROP COLUMN IF EXISTS __created_by CASCADE,
@@ -434,6 +499,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
     run_windmill_migration!("v2_finalize_job_completed", db, |tx| {
         tx.execute(
             r#"
+            LOCK TABLE v2_job_completed IN ACCESS EXCLUSIVE MODE;
             ALTER TABLE v2_job_completed
                 DROP COLUMN IF EXISTS __parent_job CASCADE,
                 DROP COLUMN IF EXISTS __created_by CASCADE,
@@ -545,8 +611,8 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
-    run_windmill_migration!("fix_job_index_1", &db, |tx| {
-        let migration_job_name = "fix_job_completed_index_4";
+    run_windmill_migration!("fix_job_index_1_II", &db, |tx| {
+        let migration_job_name = "fix_job_index_1_II";
         let mut i = 1;
         tracing::info!("step {i} of {migration_job_name} migration");
         sqlx::query!("create index concurrently  if not exists ix_job_workspace_id_created_at_new_3 ON v2_job  (workspace_id,  created_at DESC)")
@@ -579,9 +645,16 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
-        sqlx::query!("create index concurrently if not exists root_job_index_by_path_2 ON v2_job (workspace_id, runnable_path, created_at desc) WHERE parent_job IS NULL")
+        sqlx::query!("create index concurrently if not exists ix_job_root_job_index_by_path_2 ON v2_job (workspace_id, runnable_path, created_at desc) WHERE parent_job IS NULL")
                 .execute(db)
                 .await?;
+
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path_2")
+            .execute(db)
+            .await?;
 
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
@@ -655,6 +728,23 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
     });
 
+    run_windmill_migration!("v2_improve_v2_queued_jobs_indices", &db, |tx| {
+        sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) WHERE running = false")
+            .execute(db)
+            .await?;
+
+        // sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_2_v2 ON v2_job_queue (tag, priority DESC NULLS LAST, scheduled_for) WHERE running = false")
+        //     .execute(db)
+        //     .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort_2")
+            .execute(db)
+            .await?;
+    });
     Ok(())
 }
 

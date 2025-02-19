@@ -21,7 +21,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::{fs::File, io::AsyncReadExt};
+use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -58,9 +58,6 @@ use tikv_jemallocator::Jemalloc;
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
-
-#[cfg(feature = "enterprise")]
-use windmill_common::METRICS_ADDR;
 
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
@@ -372,6 +369,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let is_agent = mode == Mode::Agent;
 
+    let mut migration_handle: Option<JoinHandle<()>> = None;
     #[cfg(feature = "parquet")]
     let disable_s3_store = std::env::var("DISABLE_S3_STORE")
         .ok()
@@ -384,7 +382,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         if !skip_migration {
             // migration code to avoid break
-            windmill_api::migrate_db(&db).await?;
+            migration_handle = windmill_api::migrate_db(&db).await?;
         } else {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
@@ -682,6 +680,14 @@ Windmill Community Edition {GIT_VERSION}
                 loop {
                     tokio::select! {
                         biased;
+                        Some(_) = async { if let Some(jh) = migration_handle.take() {
+                            tracing::info!("migration job finished");
+                            Some(jh.await)
+                        } else {
+                            None
+                        }} => {
+                           continue;
+                        },
                         _ = monitor_killpill_rx.recv() => {
                             tracing::info!("received killpill for monitor job");
                             break;
@@ -892,14 +898,25 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
-                tracing::error!("Metrics are only available in the EE, ignoring...");
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
+            #[cfg(not(all(feature = "enterprise", feature = "prometheus")))]
+            if enabled {
+                tracing::error!("Metrics are only available in the EE, ignoring...");
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            if let Err(e) = windmill_common::serve_metrics(
+                *windmill_common::METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await
+            {
+                tracing::error!("Error serving metrics: {e:#}");
+            }
+
             Ok(()) as anyhow::Result<()>
         };
 

@@ -43,7 +43,6 @@
 	}
 
 	async function getLogs() {
-		console.log('getLogs', iteration, jobId)
 		iteration += 1
 		if (jobId) {
 			const getUpdate = await JobService.getJobUpdates({
@@ -77,7 +76,7 @@
 	class:border={!noBorder}
 	class="grid {!col
 		? 'grid-cols-2'
-		: 'grid-rows-2'} shadow border border-tertiary-inverse grow overflow-hidden"
+		: 'grid-rows-2 max-h-screen'} shadow border border-tertiary-inverse grow overflow-hidden"
 >
 	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>

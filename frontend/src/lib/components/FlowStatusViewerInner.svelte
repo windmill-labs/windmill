@@ -1309,7 +1309,7 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							<div class="pt-2 max-h-[80vh] grow flex flex-col">
+							<div class="pt-2 grow flex flex-col">
 								{#if selectedNode}
 									{@const node = $localModuleStates[selectedNode]}
 
@@ -1388,7 +1388,6 @@
 												/>
 											</div>
 										{/if}
-
 										<FlowJobResult
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
