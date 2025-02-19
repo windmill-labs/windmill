@@ -346,9 +346,16 @@
 					setQuery($page.url, 'kind', itemKind)
 				}}
 				class="h-10"
+				let:item
 			>
-				<ToggleButton value="all" label="All" class="text-sm px-4 py-2" />
-				<ToggleButton value="script" icon={Code2} label="Scripts" class="text-sm px-4 py-2" />
+				<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
+				<ToggleButton
+					value="script"
+					icon={Code2}
+					label="Scripts"
+					class="text-sm px-4 py-2"
+					{item}
+				/>
 				{#if HOME_SEARCH_SHOW_FLOW}
 					<ToggleButton
 						value="flow"
@@ -356,6 +363,7 @@
 						icon={FlowIcon}
 						class="text-sm px-4 py-2"
 						selectedColor="#14b8a6"
+						{item}
 					/>
 				{/if}
 				<ToggleButton
@@ -364,6 +372,7 @@
 					icon={LayoutDashboard}
 					class="text-sm px-4 py-2"
 					selectedColor="#fb923c"
+					{item}
 				/>
 			</ToggleButtonGroup>
 		</div>

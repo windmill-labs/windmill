@@ -1552,18 +1552,21 @@
 					on:selected={({ detail }) => {
 						$app.fullscreen = detail === 'true'
 					}}
+					let:item
 				>
 					<ToggleButton
 						icon={AlignHorizontalSpaceAround}
 						value={'false'}
 						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="The width is of the app if the full width of its container"
 						icon={Expand}
 						value={'true'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 				</ToggleButtonGroup>
 			{/if}
@@ -1577,40 +1580,46 @@
 						setTheme(theme)
 					}}
 					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
+					let:item
 				>
 					<ToggleButton
 						icon={SunMoon}
 						value={'auto'}
 						tooltip="The app mode between dark/light is automatic"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						icon={Sun}
 						value={'sun'}
 						tooltip="Force light mode"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="Force dark mode"
 						icon={Moon}
 						value={'dark'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint} let:item>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
 						value={'lg'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="Mobile View"
 						icon={Smartphone}
 						value={'sm'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					{#if $breakpoint === 'sm'}
 						<Toggle

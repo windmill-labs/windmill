@@ -45,9 +45,10 @@
 					}
 				}}
 				bind:selected={selectedTable}
+				let:item
 			>
-				<ToggleButton value="all" label="All Tables" />
-				<ToggleButton value="specific" label="Specific Tables" />
+				<ToggleButton value="all" label="All Tables" light {item} />
+				<ToggleButton value="specific" label="Specific Tables" light {item} />
 			</ToggleButtonGroup>
 		</div>
 	</div>

@@ -146,9 +146,9 @@
 		</Button>
 	{/if}
 	<!-- <div>
-		<ToggleButtonGroup bind:selected={format}>
-			<ToggleButton light small value={'local'} label="local" />
-			<ToggleButton light small value={'utc'} label="utc" />
+		<ToggleButtonGroup bind:selected={format} let:item>
+			<ToggleButton light small value={'local'} label="local" {item} />
+			<ToggleButton light small value={'utc'} label="utc" {item} />
 		</ToggleButtonGroup>
 	</div> -->
 </div>

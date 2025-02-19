@@ -40,9 +40,10 @@
 						$currentStepStore = numberToChars(0)
 					}
 				}}
+				let:item
 			>
-				<ToggleButton value="sequence" label="Sequence" />
-				<ToggleButton value="trigger" label="Trigger" />
+				<ToggleButton value="sequence" label="Sequence" {item} />
+				<ToggleButton value="trigger" label="Trigger" {item} />
 			</ToggleButtonGroup>
 			{#if flowCopilotMode === 'trigger'}
 				<Alert title="Trigger flow builder">

@@ -204,9 +204,10 @@
 									autoAdd = e.detail === 'add'
 								}
 							}}
+							let:item
 						>
-							<ToggleButton value="invite" size="xs" label="Auto-invite" />
-							<ToggleButton value="add" size="xs" label="Auto-add" />
+							<ToggleButton value="invite" size="xs" label="Auto-invite" {item} />
+							<ToggleButton value="add" size="xs" label="Auto-add" {item} />
 						</ToggleButtonGroup>
 					{/if}
 
@@ -233,18 +234,19 @@
 								operatorOnly = e.detail === 'operator'
 							}
 						}}
+						let:item
 					>
 						<ToggleButton
 							value="operator"
-							size="xs"
 							label="Operator"
 							tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+							{item}
 						/>
 						<ToggleButton
 							value="developer"
-							size="xs"
 							label="Developer"
 							tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+							{item}
 						/>
 					</ToggleButtonGroup>
 					<div class="pt-2">
@@ -363,26 +365,27 @@
 										})
 										listUsers()
 									}}
+									let:item
 								>
 									<ToggleButton
 										value="operator"
-										size="xs"
 										label="Operator"
 										tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+										{item}
 									/>
 
 									<ToggleButton
 										value="developer"
-										size="xs"
 										label="Developer"
 										tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+										{item}
 									/>
 
 									<ToggleButton
 										value="admin"
-										size="xs"
 										label="Admin"
 										tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+										{item}
 									/>
 								</ToggleButtonGroup>
 							</div>
@@ -492,26 +495,27 @@
 											})
 											listUsers()
 										}}
+										let:item
 									>
 										<ToggleButton
 											value="operator"
-											size="xs"
 											label="Operator"
 											tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+											{item}
 										/>
 
 										<ToggleButton
 											value="developer"
-											size="xs"
 											label="Developer"
 											tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+											{item}
 										/>
 
 										<ToggleButton
 											value="admin"
-											size="xs"
 											label="Admin"
 											tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+											{item}
 										/>
 									</ToggleButtonGroup>
 								</div>

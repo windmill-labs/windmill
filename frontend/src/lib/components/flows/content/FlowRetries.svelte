@@ -68,10 +68,11 @@
 				setExponentialRetries()
 			}
 		}}
+		let:item
 	>
-		<ToggleButton light value="disabled" label="Disabled" />
-		<ToggleButton light value="constant" label="Constant" />
-		<ToggleButton light value="exponential" label="Exponential" />
+		<ToggleButton light value="disabled" label="Disabled" {item} />
+		<ToggleButton light value="constant" label="Constant" {item} />
+		<ToggleButton light value="exponential" label="Exponential" {item} />
 	</ToggleButtonGroup>
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">

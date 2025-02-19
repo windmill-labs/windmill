@@ -157,15 +157,23 @@
 <div class="flex flex-col gap-2">
 	<div class="flex gap-2 flex-wrap sticky top-0 left-0 right-0 bg-surface">
 		<div class="p-2">
-			<ToggleButtonGroup bind:selected={searchKind} class="h-10 ">
-				<ToggleButton small light value="all" label={'All' + counts.all} />
-				<ToggleButton small light value="scripts" icon={Code2} label={'Scripts' + counts.scripts} />
+			<ToggleButtonGroup bind:selected={searchKind} class="h-10 " let:item>
+				<ToggleButton small light value="all" label={'All' + counts.all} {item} />
+				<ToggleButton
+					small
+					light
+					value="scripts"
+					icon={Code2}
+					label={'Scripts' + counts.scripts}
+					{item}
+				/>
 				<ToggleButton
 					small
 					light
 					value="resources"
 					icon={Boxes}
 					label={'Resources' + counts.resources}
+					{item}
 				/>
 				<ToggleButton
 					small
@@ -174,6 +182,7 @@
 					label={'Flows' + counts.flows}
 					icon={FlowIcon}
 					selectedColor="#14b8a6"
+					{item}
 				/>
 				<ToggleButton
 					small
@@ -182,6 +191,7 @@
 					label={'Apps' + counts.apps}
 					icon={LayoutDashboard}
 					selectedColor="#fb923c"
+					{item}
 				/>
 			</ToggleButtonGroup>
 		</div>

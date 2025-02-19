@@ -629,13 +629,18 @@
 											</div>
 											<div class="flex gap-2 justify-between mb-4 items-center">
 												<div class="flex gap-2">
-													<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
+													<ToggleButtonGroup bind:selected={s3Kind} class="w-auto" let:item>
 														{#if flowModule.value['language'] === 'deno'}
-															<ToggleButton value="s3_client" size="sm" label="S3 lite client" />
+															<ToggleButton
+																value="s3_client"
+																size="sm"
+																label="S3 lite client"
+																{item}
+															/>
 														{:else}
-															<ToggleButton value="s3_client" size="sm" label="Boto3" />
-															<ToggleButton value="polars" size="sm" label="Polars" />
-															<ToggleButton value="duckdb" size="sm" label="DuckDB" />
+															<ToggleButton value="s3_client" size="sm" label="Boto3" {item} />
+															<ToggleButton value="polars" size="sm" label="Polars" {item} />
+															<ToggleButton value="duckdb" size="sm" label="DuckDB" {item} />
 														{/if}
 													</ToggleButtonGroup>
 												</div>

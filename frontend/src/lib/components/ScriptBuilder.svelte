@@ -902,6 +902,7 @@
 												script.kind = detail
 												initContent(script.language, detail, template)
 											}}
+											let:item
 										>
 											{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
 												<ToggleButton
@@ -911,6 +912,7 @@
 													{documentationLink}
 													icon={Icon}
 													showTooltipIcon={Boolean(desc)}
+													{item}
 												/>
 											{/each}
 										</ToggleButtonGroup>

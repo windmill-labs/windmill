@@ -80,12 +80,13 @@
 				bind:value={email}
 				class="mr-4"
 			/>
-			<ToggleButtonGroup bind:selected>
+			<ToggleButtonGroup bind:selected let:item>
 				<ToggleButton
 					value="operator"
 					size="sm"
 					label="Operator"
 					tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+					{item}
 				/>
 
 				<ToggleButton
@@ -94,6 +95,7 @@
 					size="sm"
 					label="Developer"
 					tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+					{item}
 				/>
 
 				<ToggleButton
@@ -102,6 +104,7 @@
 					size="sm"
 					label="Admin"
 					tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+					{item}
 				/>
 			</ToggleButtonGroup>
 			<Button
