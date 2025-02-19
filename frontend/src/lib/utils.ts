@@ -1100,6 +1100,14 @@ export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 	return !!job_kind && (job_kind === 'flowpreview' || job_kind === 'flownode')
 }
 
+export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
+	return (
+		job_kind !== 'flow' &&
+		job_kind !== 'singlescriptflow' &&
+		!isFlowPreview(job_kind)
+	)
+}
+
 export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
 	return (
 		!!job_kind && (job_kind === 'preview' || job_kind === 'flowscript' || job_kind === 'appscript')

@@ -2,6 +2,7 @@
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { pointerDownOutside } from '$lib/utils'
+	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 
@@ -40,6 +41,8 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 	}
+
+	const zIndex = zIndexes.contextMenu
 </script>
 
 <div class={twMerge('w-full h-8', $$props.class)}>
@@ -64,16 +67,16 @@
 		<slot name="trigger" trigger={$trigger} />
 	</button>
 
-	<div
-		class={twMerge(
-			'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
-			lightMode ? 'bg-surface-inverse' : 'bg-surface',
-			invisible ? 'opacity-0' : ''
-		)}
-		style="max-height: {maxHeight}px;"
-		use:melt={$menuElement}
-		data-menu
-	>
-		<slot item={$item} />
+	<div use:melt={$menuElement} data-menu class={`z-[${zIndex}]`}>
+		<div
+			class={twMerge(
+				'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
+				lightMode ? 'bg-surface-inverse' : 'bg-surface',
+				invisible ? 'opacity-0' : ''
+			)}
+			style="max-height: {maxHeight}px; "
+		>
+			<slot item={$item} />
+		</div>
 	</div>
 </div>
