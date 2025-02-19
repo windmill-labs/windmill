@@ -275,6 +275,7 @@
 									<div>
 										<ToggleButtonGroup
 											selected={role}
+											let:item
 											on:selected={async (e) => {
 												const role = e.detail
 												// const wasInFolder = (folder?.owners ?? []).includes(folder)
@@ -316,6 +317,7 @@
 												size="xs"
 												label="Viewer"
 												tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+												{item}
 											/>
 
 											<ToggleButton
@@ -324,6 +326,7 @@
 												size="xs"
 												label="Writer"
 												tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+												{item}
 											/>
 
 											<ToggleButton
@@ -332,6 +335,7 @@
 												size="xs"
 												label="Admin"
 												tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
+												{item}
 											/>
 										</ToggleButtonGroup>
 									</div>

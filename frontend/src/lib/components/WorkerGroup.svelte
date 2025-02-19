@@ -690,9 +690,10 @@
 									envvar.value = undefined
 								}
 							}}
+							let:item
 						>
-							<ToggleButton position="left" value="dynamic" label="Dynamic" />
-							<ToggleButton position="right" value="static" label="Static" />
+							<ToggleButton value="dynamic" label="Dynamic" {item} />
+							<ToggleButton value="static" label="Static" {item} />
 						</ToggleButtonGroup>
 						<input
 							type="text"

@@ -540,9 +540,10 @@
 																	relations = []
 																	transaction_to_track = []
 																}}
+																let:item
 															>
-																<ToggleButton value="create" label="Create Publication" />
-																<ToggleButton value="get" label="Get Publication" />
+																<ToggleButton value="create" label="Create Publication" {item} />
+																<ToggleButton value="get" label="Get Publication" {item} />
 															</ToggleButtonGroup>
 															{#if selectedPublicationAction === 'create'}
 																<div class="flex gap-3">
