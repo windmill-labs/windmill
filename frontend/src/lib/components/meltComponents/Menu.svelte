@@ -69,7 +69,7 @@
 		<slot name="trigger" {trigger} />
 	</button>
 
-	<div use:melt={$menuElement} data-menu class="z-[{zIndex}]">
+	<div use:melt={$menuElement} data-menu class={`z-[${zIndex}]`}>
 		<div
 			class={twMerge(
 				'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
