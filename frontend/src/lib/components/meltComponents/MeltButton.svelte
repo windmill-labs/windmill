@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { melt, type AnyMeltElement } from '@melt-ui/svelte'
+	import { type AnyMeltElement } from '@melt-ui/svelte'
 
 	export let meltElement: AnyMeltElement
-	export let type: 'button' | 'submit' | 'reset' | null | undefined = 'button'
+	export let type: 'button' | 'submit' | 'reset' | null | undefined = undefined
 	export let title: string = ''
-	export let id: string = ''
+	export let id: string | undefined = undefined
 </script>
 
-<button use:melt={$meltElement} class={$$props.class} {type} {title} {id}>
+<button use:meltElement class={$$props.class} {type} {title} {id} {...$meltElement}>
 	<slot />
 </button>
