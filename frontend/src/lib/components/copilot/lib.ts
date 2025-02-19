@@ -38,7 +38,7 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	anthropic: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-	googleai: ['gemini-1.5-flash'],
+	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
 	customai: []
@@ -50,6 +50,34 @@ export const OPENAI_COMPATIBLE_BASE_URLS = {
 	deepseek: 'https://api.deepseek.com/v1',
 	googleai: 'https://generativelanguage.googleapis.com/v1beta/openai'
 } as const
+
+function prepareOpenaiCompatibleMessages(
+	aiProvider: AIProvider,
+	messages: ChatCompletionMessageParam[]
+) {
+	switch (aiProvider) {
+		case 'googleai':
+			// system messages are not supported by gemini
+			const systemMessage = messages.find((m) => m.role === 'system')
+			if (systemMessage) {
+				messages.shift()
+				const startMessages: ChatCompletionMessageParam[] = [
+					{
+						role: 'user',
+						content: 'System prompt: ' + (systemMessage.content as string)
+					},
+					{
+						role: 'assistant',
+						content: 'Understood'
+					}
+				]
+				messages = [...startMessages, ...messages]
+			}
+			return messages
+		default:
+			return messages
+	}
+}
 
 const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParamsStreaming = {
 	model: '',
@@ -65,7 +93,8 @@ export const OPENAI_COMPATIBLE_COMPLETION_CONFIG = {
 	openrouter: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
 	googleai: {
-		max_tokens: 8192 //TODO: make this dynamic
+		...DEFAULT_COMPLETION_CONFIG,
+		seed: undefined // not supported by gemini
 	} as ChatCompletionCreateParamsStreaming
 } as const
 
@@ -529,10 +558,11 @@ export async function getNonStreamingCompletion(
 			if (!config) {
 				throw new Error('No config for this provider: ' + aiProvider)
 			}
+			const processedMessages = prepareOpenaiCompatibleMessages(aiProvider, messages)
 			const completion = await openaiClient.chat.completions.create(
 				{
 					...config,
-					messages,
+					messages: processedMessages,
 					model,
 					stream: false
 				},
@@ -604,11 +634,12 @@ export async function getCompletion(
 			if (!config) {
 				throw new Error('No config for this provider: ' + aiProvider)
 			}
+			const processedMessages = prepareOpenaiCompatibleMessages(aiProvider, messages)
 			const completion = await openaiClient.chat.completions.create(
 				{
 					...config,
 					model,
-					messages
+					messages: processedMessages
 				},
 				{
 					signal: abortController.signal
