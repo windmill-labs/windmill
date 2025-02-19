@@ -4,13 +4,9 @@
 
 	import { Trash } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
 	import NameEditor from './NameEditor.svelte'
-
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { ResourceService } from '$lib/gen'
 
 	export let row: {
@@ -52,6 +48,17 @@
 
 		sendUserToast('Component name updated:\n' + name)
 	}
+
+	function getItems() {
+		return [
+			{
+				action: toggleDelete,
+				icon: Trash,
+				displayName: 'Delete',
+				type: 'delete' as const
+			}
+		]
+	}
 </script>
 
 <tr>
@@ -69,23 +76,6 @@
 	</Cell>
 
 	<Cell last>
-		<div class={twMerge('flex flex-row gap-1 justify-end  z-[10000]')}>
-			<button on:pointerdown|stopPropagation>
-				<ButtonDropdown target="#cc_portal" hasPadding={false}>
-					<svelte:fragment slot="items">
-						<MenuItem on:click={toggleDelete}>
-							<div
-								class={classNames(
-									'!text-red-600 flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
-								)}
-							>
-								<Trash size={16} />
-								Delete
-							</div>
-						</MenuItem>
-					</svelte:fragment>
-				</ButtonDropdown>
-			</button>
-		</div>
+		<Dropdown items={getItems()} />
 	</Cell>
 </tr>

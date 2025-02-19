@@ -1120,3 +1120,14 @@ export function conditionalMelt(node: HTMLElement, meltElement: any) {
 	}
 	return { destroy: () => {} }
 }
+
+export type Item = {
+	displayName: string
+	action?: (e: CustomEvent<any>) => void
+	icon?: any
+	iconColor?: string
+	href?: string
+	disabled?: boolean
+	type?: 'action' | 'delete'
+	hide?: boolean | undefined
+}

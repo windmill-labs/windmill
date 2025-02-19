@@ -70,8 +70,7 @@
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -86,7 +85,6 @@
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
-	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
@@ -1548,17 +1546,23 @@
 			/>
 
 			{#if $app}
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
+				<ToggleButtonGroup
+					class="h-[30px]"
+					selected={$app.fullscreen ? 'true' : 'false'}
+					on:selected={({ detail }) => {
+						$app.fullscreen = detail === 'true'
+					}}
+				>
 					<ToggleButton
 						icon={AlignHorizontalSpaceAround}
-						value={false}
+						value={'false'}
 						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
 						iconProps={{ size: 16 }}
 					/>
 					<ToggleButton
 						tooltip="The width is of the app if the full width of its container"
 						icon={Expand}
-						value={true}
+						value={'true'}
 						iconProps={{ size: 16 }}
 					/>
 				</ToggleButtonGroup>
@@ -1566,27 +1570,30 @@
 			{#if $app}
 				<ToggleButtonGroup
 					class="h-[30px]"
-					on:selected={(e) => {
-						setTheme(e.detail)
+					on:selected={({ detail }) => {
+						console.log('dbg detail', detail)
+						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
+						console.log('dbg settheme', theme)
+						setTheme(theme)
 					}}
-					bind:selected={$app.darkMode}
+					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
 				>
 					<ToggleButton
 						icon={SunMoon}
-						value={undefined}
+						value={'auto'}
 						tooltip="The app mode between dark/light is automatic"
 						iconProps={{ size: 16 }}
 					/>
 					<ToggleButton
 						icon={Sun}
-						value={false}
+						value={'sun'}
 						tooltip="Force light mode"
 						iconProps={{ size: 16 }}
 					/>
 					<ToggleButton
 						tooltip="Force dark mode"
 						icon={Moon}
-						value={true}
+						value={'dark'}
 						iconProps={{ size: 16 }}
 					/>
 				</ToggleButtonGroup>
@@ -1606,12 +1613,16 @@
 						iconProps={{ size: 16 }}
 					/>
 					{#if $breakpoint === 'sm'}
-						<ToggleEnable
-							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
-							label="Enable mobile view for smaller screens"
+						<Toggle
+							size="xs"
+							options={{
+								right: 'Enable mobile view for smaller screens',
+								rightTooltip:
+									'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
+							}}
+							textClass="text-2xs whitespace-nowrap white !w-full"
 							bind:checked={$app.mobileViewOnSmallerScreens}
-							iconProps={{ size: 16 }}
-							iconOnly={false}
+							class="flex flex-row px-2 items-center"
 						/>
 					{/if}
 				</ToggleButtonGroup>
@@ -1660,33 +1671,11 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<ButtonDropdown hasPadding={false}>
+		<Dropdown items={moreItems} class="center-center">
 			<svelte:fragment slot="buttonReplacement">
-				<Button nonCaptureEvent size="xs" color="light">
-					<div class="flex flex-row items-center">
-						<MoreVertical size={14} />
-					</div>
-				</Button>
+				<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
 			</svelte:fragment>
-			<svelte:fragment slot="items">
-				{#each moreItems as item}
-					<MenuItem
-						on:click={item.action}
-						disabled={item.disabled}
-						class={item.disabled ? 'opacity-50' : ''}
-					>
-						<div
-							class={classNames(
-								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-							)}
-						>
-							<svelte:component this={item.icon} size={14} />
-							{item.displayName}
-						</div>
-					</MenuItem>
-				{/each}
-			</svelte:fragment>
-		</ButtonDropdown>
+		</Dropdown>
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
 		<div class="hidden md:inline relative overflow-visible">

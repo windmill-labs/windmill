@@ -1,22 +1,16 @@
 <script lang="ts">
 	import { MoreVertical } from 'lucide-svelte'
-	import Menu from './common/menu/MenuV2.svelte'
-
+	import { Menu, Menubar } from '$lib/components/meltComponents'
+	import { melt } from '@melt-ui/svelte'
+	import type { Placement } from '@floating-ui/core'
+	import type { Item } from '$lib/utils'
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
-
-	type Item = {
-		displayName: string
-		action?: (e: CustomEvent<any>) => void
-		icon?: any
-		href?: string
-		disabled?: boolean
-		type?: 'action' | 'delete'
-		hide?: boolean | undefined
-	}
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let justifyEnd: boolean = true
 	export let disabled = false
+	export let placement: Placement = 'bottom-end'
+	export let usePointerDownOutside = false
 
 	async function computeItems(): Promise<Item[]> {
 		if (typeof items === 'function') {
@@ -27,17 +21,31 @@
 	}
 </script>
 
-<Menu placement="bottom-end" {justifyEnd} on:close on:open {disabled}>
-	<div slot="trigger">
-		{#if $$slots.buttonReplacement}
-			<slot name="buttonReplacement" />
-		{:else}
-			<MoreVertical
-				size={16}
-				class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-			/>
-		{/if}
-	</div>
+<Menubar let:createMenu>
+	<Menu
+		{createMenu}
+		{placement}
+		{justifyEnd}
+		on:close
+		on:open
+		{disabled}
+		let:item
+		class={$$props.class}
+		{usePointerDownOutside}
+	>
+		<svelte:fragment slot="trigger" let:trigger>
+			<button use:melt={trigger} on:click={(e) => e?.stopPropagation()}>
+				{#if $$slots.buttonReplacement}
+					<slot name="buttonReplacement" />
+				{:else}
+					<MoreVertical
+						size={16}
+						class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+					/>
+				{/if}
+			</button>
+		</svelte:fragment>
 
-	<DropdownV2Inner items={computeItems} />
-</Menu>
+		<DropdownV2Inner items={computeItems} meltItem={item} />
+	</Menu>
+</Menubar>
