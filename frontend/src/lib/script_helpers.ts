@@ -911,14 +911,13 @@ export const INITIAL_CODE = {
 }
 
 export function isInitialCode(content: string): boolean {
-	Object.values(INITIAL_CODE).forEach((lang) => {
-		Object.values(lang).forEach((code) => {
+	for (const lang of Object.values(INITIAL_CODE)) {
+		for (const code of Object.values(lang)) {
 			if (content === code) {
 				return true
 			}
-		})
-	})
-
+		}
+	}
 	return false
 }
 
