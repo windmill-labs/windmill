@@ -17,8 +17,12 @@ use http::StatusCode;
 use itertools::Itertools;
 use rumqttc::{
     v5::{
-        mqttbytes::{v5::Filter, QoS as V5QoS},
-        AsyncClient as V5AsyncClient, EventLoop as V5EventLoop, MqttOptions as V5MqttOptions,
+        mqttbytes::{
+            v5::{Filter, Publish as V5Publish},
+            QoS as V5QoS,
+        },
+        AsyncClient as V5AsyncClient, Event as V5Event, EventLoop as V5EventLoop,
+        Incoming as V5Incoming, MqttOptions as V5MqttOptions,
     },
     AsyncClient as V3AsyncClient, EventLoop as V3EventLoop, MqttOptions as V3MqttOptions,
     QoS as V3QoS, SubscribeFilter, TlsConfiguration,
@@ -755,7 +759,7 @@ async fn get_mqtt_async_client(
             }
 
             if let Some(v3_config) = v3_config {
-                
+                mqtt_options.set_clean_session(v3_config.clean_session.unwrap_or(true));
             }
 
             let (async_client, mut event_loop) =
@@ -1057,6 +1061,20 @@ impl MqttTrigger {
     }
 }
 
+async fn handle_notification(db: &DB, mqtt: &MqttConfig, publish: V5Publish) {
+    let payload = publish.payload.as_ref();
+    let topic = String::from_utf8(publish.topic.as_ref().to_vec()).unwrap();
+    let args = HashMap::from([("payload".to_string(), to_raw_value(&payload))]);
+    let extra = Some(HashMap::from([(
+        "wm_trigger".to_string(),
+        to_raw_value(&serde_json::json!({
+            "kind": "mqtt",
+            "topic": topic
+        })),
+    )]));
+    mqtt.handle(&db, Some(args), extra).await;
+}
+
 async fn listen_to_messages(
     mqtt: MqttConfig,
     db: DB,
@@ -1083,23 +1101,44 @@ async fn listen_to_messages(
                     async {
                         match result {
                             Ok(connection) => {
-                                let handle_notification = || {};
                                 match connection {
                                     MqttClientResult::V5((async_client, mut event_loop)) => {
-
-                                        while let Ok(notification) = event_loop.poll().await {
-                                            println!("Received = {:?}", notification);
+                                        loop {
+                                            match event_loop.poll().await {
+                                                Ok(notification) => {
+                                                    match notification {
+                                                        V5Event::Incoming(packet) => {
+                                                            match packet {
+                                                                V5Incoming::Publish(publish) => {
+                                                                    handle_notification(&db, &mqtt, publish).await;
+                                                                }
+                                                                packet => {
+                                                                    println!("Received = {:?}", packet);
+                                                                }
+                                                            }
+                                                        }
+                                                        V5Event::Outgoing(packet) => {
+                                                            println!("Outgoing Received = {:?}", packet);
+                                                        }
+                                                    }
+                                                }
+                                                Err(err) => {
+                                                    mqtt.disable_with_error(&db, err.to_string()).await
+                                                }
+                                            }
                                         }
-
-                                        handle_notification();
                                     }
                                     MqttClientResult::V3((async_client, mut event_loop)) => {
-
-                                        while let Ok(notification) = event_loop.poll().await {
-                                            println!("Received = {:?}", notification);
+                                        loop {
+                                            match event_loop.poll().await {
+                                                Ok(notification) => {
+                                                    println!("Received = {:?}", notification);
+                                                }
+                                                Err(err) => {
+                                                    mqtt.disable_with_error(&db, err.to_string()).await
+                                                }
+                                            }
                                         }
-
-                                        handle_notification();
                                     }
                                 }
                             }
