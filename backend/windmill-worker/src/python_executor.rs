@@ -2441,7 +2441,7 @@ for line in sys.stdin:
             PyVersion::Py311
         }
     } else {
-        tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be infered. Fallback to 3.11");
+        tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
         PyVersion::Py311
     };
 
