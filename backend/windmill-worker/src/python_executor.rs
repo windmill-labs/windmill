@@ -2418,7 +2418,33 @@ for line in sys.stdin:
     );
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
-    let py_version = PyVersion::from_instance_version().await;
+    let py_version = if let Some(requirements) = requirements_o {
+        let requirements_lines: Vec<&str> = if requirements.len() > 0 {
+            requirements
+                .split("\n")
+                .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
+                .collect()
+        } else {
+            vec![]
+        };
+        // If script is deployed we can try to parse first line to get assigned version
+        if let Some(v) = requirements_lines
+            .get(0)
+            .and_then(|line| PyVersion::parse_version(line))
+        {
+            // We have valid assigned version, we use it
+            v
+        } else {
+            // If there is no assigned version in lockfile we automatically fallback to 3.11
+            // In this case we have dependencies, but no associated python version
+            // This is the case for old deployed scripts
+            PyVersion::Py311
+        }
+    } else {
+        tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be infered. Fallback to 3.11");
+        PyVersion::Py311
+    };
+
     let python_path = get_python_path(
         py_version,
         worker_name,
