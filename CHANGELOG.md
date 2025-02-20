@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.466.3](https://github.com/windmill-labs/windmill/compare/v1.466.2...v1.466.3) (2025-02-20)
+
+
+### Bug Fixes
+
+* **frontend:** add warning when integer number if too big for frontend ([#5340](https://github.com/windmill-labs/windmill/issues/5340)) ([03f8834](https://github.com/windmill-labs/windmill/commit/03f88349c8730bfbb4613105c35482b4f3fadd64))
+* remove db streaming to avoid backpressure on db ([#5342](https://github.com/windmill-labs/windmill/issues/5342)) ([9ba66ea](https://github.com/windmill-labs/windmill/commit/9ba66eacd28175607900a7d2294584662b4c26a2))
+
+## [1.466.2](https://github.com/windmill-labs/windmill/compare/v1.466.1...v1.466.2) (2025-02-20)
+
+
+### Bug Fixes
+
+* add proxy envs (http_proxy) to uv install ([affb0b4](https://github.com/windmill-labs/windmill/commit/affb0b4c720551f7f1c7fa5315e3b39e5580b732))
+
+## [1.466.1](https://github.com/windmill-labs/windmill/compare/v1.466.0...v1.466.1) (2025-02-20)
+
+
+### Bug Fixes
+
+* **cli:** improve cli dependency error clarity ([dcc0d35](https://github.com/windmill-labs/windmill/commit/dcc0d35e971ab3df6a0122dc881b968e8221f40f))
+* **cli:** improve dependency job error message (logs in result) ([2c67e84](https://github.com/windmill-labs/windmill/commit/2c67e84abe98a3c43972cf5555536104119c6527))
+* **cli:** improve flow cli dependency error clarity ([d5b3a04](https://github.com/windmill-labs/windmill/commit/d5b3a04b0ab5f003c4c512cc9ba74eb620a3afc1))
+* **python:** PYTHON_PATH overrides python from uv ([39c0dd3](https://github.com/windmill-labs/windmill/commit/39c0dd3736da0722c7e18d84183c0e9b06cf2839))
+
 ## [1.466.0](https://github.com/windmill-labs/windmill/compare/v1.465.0...v1.466.0) (2025-02-19)
 
 

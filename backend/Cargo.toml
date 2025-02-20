@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.466.0"
+version = "1.466.3"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.466.0"
+version = "1.466.3"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -166,7 +166,7 @@ memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
-tokio = { version = "^1.42.0", features = ["full", "tracing"] }
+tokio = { version = "^1.42.0", features = ["full", "tracing", "time"] }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"

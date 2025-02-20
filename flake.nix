@@ -97,7 +97,6 @@
         REMOTE_LSP = "http://127.0.0.1:3001";
         RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
         DENO_PATH = "${pkgs.deno}/bin/deno";
-        PYTHON_PATH = "${pkgs.python3}/bin/python3";
         GO_PATH = "${pkgs.go}/bin/go";
         BUN_PATH = "${pkgs.bun}/bin/bun";
         UV_PATH = "${pkgs.uv}/bin/uv";

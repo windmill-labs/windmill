@@ -39,8 +39,10 @@ use std::env::var;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
-    static ref PYTHON_PATH: String =
-    var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
+        tracing::warn!("PYTHON_PATH is set to {} and thus python will not be managed by uv and stay static regardless of annotation and instance settings. NOT RECOMMENDED", v);
+        v
+    });
 
     static ref UV_PATH: String =
     var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
@@ -298,6 +300,7 @@ impl PyVersion {
             .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .envs(PROXY_ENVS.clone())
             .args(["python", "install", v, "--python-preference=only-managed"])
             // TODO: Do we need these?
             .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
@@ -773,6 +776,30 @@ fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Resul
     Ok(())
 }
 
+async fn get_python_path(
+    py_version: PyVersion,
+    worker_name: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    mem_peak: &mut i32,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+) -> windmill_common::error::Result<String> {
+    let python_path = if let Some(python_path) = PYTHON_PATH.clone() {
+        python_path
+    } else if let Some(python_path) = py_version
+        .get_python(&job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+        .await?
+    {
+        python_path
+    } else {
+        return Err(Error::ExecutionErr(format!(
+            "uv could not manage python path. Please manage it manually by setting PYTHON_PATH environment variable to your python binary path"
+        )));
+    };
+    Ok(python_path)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<&String>,
@@ -811,21 +838,16 @@ pub async fn handle_python_job(
 
     let PythonAnnotations { no_postinstall, .. } = PythonAnnotations::parse(inner_content);
     tracing::debug!("Finished handling python dependencies");
-    let python_path = if let Some(python_path) = py_version
-        .get_python(
-            &job.id,
-            mem_peak,
-            db,
-            worker_name,
-            &job.workspace_id,
-            &mut Some(occupancy_metrics),
-        )
-        .await?
-    {
-        python_path
-    } else {
-        PYTHON_PATH.clone()
-    };
+    let python_path = get_python_path(
+        py_version,
+        worker_name,
+        &job.id,
+        &job.workspace_id,
+        mem_peak,
+        db,
+        &mut Some(occupancy_metrics),
+    )
+    .await?;
 
     if !no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, db).await {
@@ -1663,7 +1685,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, installer_path).await
+            start_child_process(cmd, "uv").await
         }
     }
 }
@@ -2395,8 +2417,20 @@ for line in sys.stdin:
         base_internal_url.to_string(),
     );
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
+
+    let py_version = PyVersion::from_instance_version().await;
+    let python_path = get_python_path(
+        py_version,
+        worker_name,
+        &Uuid::nil(),
+        w_id,
+        &mut mem_peak,
+        db,
+        &mut None,
+    )
+    .await?;
     handle_dedicated_process(
-        &*PYTHON_PATH,
+        &python_path,
         job_dir,
         context_envs,
         envs,
