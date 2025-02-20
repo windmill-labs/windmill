@@ -746,6 +746,7 @@
 							}
 						}}
 						defaultValue={defaultValue?.s3}
+						initialValue={value}
 					/>
 				{/if}
 			</div>
