@@ -53,6 +53,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
 	import AwsIcon from '../icons/AwsIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
@@ -129,7 +130,14 @@
 			icon: AwsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'sqs'
-		}
+		},
+		{
+			label: 'MQTT',
+			href: '/mqtt_triggers',
+			icon: MqttIcon,
+			disabled: $userStore?.operator,
+			kind: 'mqtt'
+		},
 	]
 
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
@@ -160,7 +168,7 @@
 								icon: FolderCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...($superadmin
 					? [
@@ -170,7 +178,7 @@
 								icon: ServerCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...(!$superadmin && !$userStore?.is_admin
 					? [
@@ -183,7 +191,7 @@
 								icon: LogOut,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: [])
 			],
 			disabled: $userStore?.operator
@@ -227,7 +235,7 @@
 										href: `${base}/service_logs`,
 										icon: Logs
 									}
-							  ]
+								]
 							: []),
 						...($enterpriseLicense
 							? [
@@ -239,16 +247,16 @@
 										icon: AlertCircle,
 										notificationCount: numUnacknowledgedCriticalAlerts
 									}
-							  ]
+								]
 							: [])
 					]
-			  }
+				}
 			: {
 					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator
-			  }
+				}
 	]
 
 	let hasNewChangelogs = false
