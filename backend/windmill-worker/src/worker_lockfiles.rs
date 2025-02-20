@@ -747,6 +747,11 @@ fn get_deployment_msg_and_parent_path_from_args(
     (deployment_message, parent_path)
 }
 
+struct LockModuleError {
+    id: String,
+    error: Error,
+}
+
 async fn lock_modules<'c>(
     modules: Vec<FlowModule>,
     job: &QueuedJob,
@@ -770,7 +775,9 @@ async fn lock_modules<'c>(
 )> {
     let mut new_flow_modules = Vec::new();
     let mut modified_ids = Vec::new();
+    let mut errors = Vec::new();
     for mut e in modules.into_iter() {
+        let id = e.id.clone();
         let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
             lock,
@@ -1022,12 +1029,7 @@ async fn lock_modules<'c>(
             }
             Err(error) => {
                 // TODO: Record flow raw script error lock logs
-                tracing::warn!(
-                    path = path,
-                    language = ?language,
-                    error = ?error,
-                    "Failed to generate flow lock for raw script"
-                );
+                errors.push(LockModuleError { id, error });
                 None
             }
         };
@@ -1045,6 +1047,28 @@ async fn lock_modules<'c>(
         });
         new_flow_modules.push(e);
         continue;
+    }
+    if !errors.is_empty() {
+        let error_message = errors
+            .iter()
+            .map(|e| format!("{}: {}", e.id, e.error))
+            .collect::<Vec<String>>()
+            .join("\n");
+        let logs2 = sqlx::query_scalar!(
+            "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+            &job.id,
+            &job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_else(|| "no logs".to_string());
+
+        return Err(Error::ExecutionErr(format!(
+            "Error locking flow modules:\n{}\n\nlogs:\n{}",
+            error_message,
+            remove_ansi_codes(&logs2)
+        )));
     }
     Ok((new_flow_modules, tx, modified_ids))
 }
