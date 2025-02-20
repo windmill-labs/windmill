@@ -38,7 +38,8 @@ pub async fn push_scheduled_job<'c>(
         ));
     }
 
-    let sched = ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref())?;
+    let sched =
+        ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref(), false)?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
