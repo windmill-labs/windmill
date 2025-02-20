@@ -49,6 +49,13 @@ import { FlowFile, replaceInlineScripts } from "./flow.ts";
 import { getIsWin } from "./main.ts";
 import { FlowValue } from "./gen/types.gen.ts";
 
+export class LockfileGenerationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LockfileGenerationError';
+  }
+}
+
 export async function generateAllMetadata() { }
 
 function findClosestRawReqs(
@@ -376,9 +383,16 @@ async function updateScriptLock(
     const response = JSON.parse(responseText);
     const lock = response.lock;
     if (lock === undefined) {
-      throw new Error(
-        `Failed to generate lockfile. Full response was: ${JSON.stringify(
-          response
+      if (response?.["error"]?.["message"]) {
+        throw new LockfileGenerationError(
+          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
+        );
+      }
+      throw new LockfileGenerationError(
+        `Failed to generate lockfile: ${JSON.stringify(
+          response,
+          null,
+          2
         )}`
       );
     }
@@ -395,8 +409,11 @@ async function updateScriptLock(
       metadataContent.lock = "";
     }
   } catch (e) {
-    throw new Error(
-      `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
+    if (e instanceof LockfileGenerationError) {
+      throw e;
+    }
+    throw new LockfileGenerationError(
+      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`
     );
   }
 }
@@ -427,8 +444,20 @@ export async function updateFlow(
   try {
     const res = (await rawResponse.json()) as
       | { updated_flow_value: any }
+      | { error: { message: string } }
       | undefined;
-    return res?.updated_flow_value;
+    if (rawResponse.status != 200) {
+      const msg = (res as any)?.["error"]?.["message"]
+      if (msg) {
+        throw new LockfileGenerationError(
+          `Failed to generate lockfile: ${msg}`
+        );
+      }
+      throw new LockfileGenerationError(
+        `Failed to generate lockfile: ${rawResponse.statusText}, ${responseText}`
+      );
+    }
+    return (res as any).updated_flow_value;
   } catch (e) {
     try {
       responseText = await rawResponse.text();
