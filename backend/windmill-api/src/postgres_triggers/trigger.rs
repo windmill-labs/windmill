@@ -4,7 +4,6 @@ use crate::{
     capture::{insert_capture_payload, PostgresTriggerConfig, TriggerKind},
     db::{ApiAuthed, DB},
     postgres_triggers::{
-        get_database_resource,
         relation::RelationConverter,
         replication_message::{
             LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
@@ -12,7 +11,7 @@ use crate::{
         },
         run_job,
     },
-    users::fetch_api_authed,
+    users::fetch_api_authed, resources::try_get_resource_from_db_as,
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -33,7 +32,7 @@ use windmill_queue::PushArgsOwned;
 
 use super::{
     drop_logical_replication_slot_query, drop_publication_query, get_database_connection,
-    handler::{Database, PostgresTrigger},
+    handler::{Postgres, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
     ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
@@ -80,7 +79,7 @@ enum Error {
 pub struct PostgresSimpleClient(Client);
 
 impl PostgresSimpleClient {
-    async fn new(database: &Database) -> Result<Self, Error> {
+    async fn new(database: &Postgres) -> Result<Self, Error> {
         let ssl_mode = match database.sslmode.as_ref() {
             "disable" => SslMode::Disable,
             "" | "prefer" | "allow" => SslMode::Prefer,
@@ -98,10 +97,13 @@ impl PostgresSimpleClient {
         config
             .dbname(&database.dbname)
             .host(&database.host)
-            .port(database.port)
             .user(&database.user)
             .ssl_mode(ssl_mode)
             .replication_mode(rust_postgres::config::ReplicationMode::Logical);
+
+        if let Some(port) = database.port {
+            config.port(port);
+        };
 
         if !database.password.is_empty() {
             config.password(&database.password);
@@ -451,7 +453,7 @@ impl PostgresConfig {
             PostgresConfig::Capture(capture) => capture.fetch_authed(db).await?,
         };
 
-        let database = get_database_resource(
+        let database = try_get_resource_from_db_as::<Postgres>(
             authed,
             Some(UserDB::new(db.clone())),
             &db,

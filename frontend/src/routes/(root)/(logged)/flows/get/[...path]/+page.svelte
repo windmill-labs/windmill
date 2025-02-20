@@ -66,6 +66,7 @@
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -586,9 +587,16 @@
 				<PostgresTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
+		
 		<svelte:fragment slot="nats">
 			<div class="p-2">
 				<NatsTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+
+		<svelte:fragment slot="sqs">
+			<div class="p-2">
+				<SqsTriggerPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
 

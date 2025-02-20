@@ -1,5 +1,93 @@
 # Changelog
 
+## [1.466.3](https://github.com/windmill-labs/windmill/compare/v1.466.2...v1.466.3) (2025-02-20)
+
+
+### Bug Fixes
+
+* **frontend:** add warning when integer number if too big for frontend ([#5340](https://github.com/windmill-labs/windmill/issues/5340)) ([03f8834](https://github.com/windmill-labs/windmill/commit/03f88349c8730bfbb4613105c35482b4f3fadd64))
+* remove db streaming to avoid backpressure on db ([#5342](https://github.com/windmill-labs/windmill/issues/5342)) ([9ba66ea](https://github.com/windmill-labs/windmill/commit/9ba66eacd28175607900a7d2294584662b4c26a2))
+
+## [1.466.2](https://github.com/windmill-labs/windmill/compare/v1.466.1...v1.466.2) (2025-02-20)
+
+
+### Bug Fixes
+
+* add proxy envs (http_proxy) to uv install ([affb0b4](https://github.com/windmill-labs/windmill/commit/affb0b4c720551f7f1c7fa5315e3b39e5580b732))
+
+## [1.466.1](https://github.com/windmill-labs/windmill/compare/v1.466.0...v1.466.1) (2025-02-20)
+
+
+### Bug Fixes
+
+* **cli:** improve cli dependency error clarity ([dcc0d35](https://github.com/windmill-labs/windmill/commit/dcc0d35e971ab3df6a0122dc881b968e8221f40f))
+* **cli:** improve dependency job error message (logs in result) ([2c67e84](https://github.com/windmill-labs/windmill/commit/2c67e84abe98a3c43972cf5555536104119c6527))
+* **cli:** improve flow cli dependency error clarity ([d5b3a04](https://github.com/windmill-labs/windmill/commit/d5b3a04b0ab5f003c4c512cc9ba74eb620a3afc1))
+* **python:** PYTHON_PATH overrides python from uv ([39c0dd3](https://github.com/windmill-labs/windmill/commit/39c0dd3736da0722c7e18d84183c0e9b06cf2839))
+
+## [1.466.0](https://github.com/windmill-labs/windmill/compare/v1.465.0...v1.466.0) (2025-02-19)
+
+
+### Features
+
+* add support for gemini ([#5235](https://github.com/windmill-labs/windmill/issues/5235)) ([35d5293](https://github.com/windmill-labs/windmill/commit/35d5293fba47d368e503e9781719e6e9ccc96713))
+* remove `pip` fallback option for python and ansible ([#5186](https://github.com/windmill-labs/windmill/issues/5186)) ([4ad654f](https://github.com/windmill-labs/windmill/commit/4ad654fcf0c603aefc5a9b5c41da1ffa24b99d2d))
+
+
+### Bug Fixes
+
+* **apps:** font-size of title text not screen dependent ([44a6a62](https://github.com/windmill-labs/windmill/commit/44a6a62fbe3a9cae79e2d7ab7efd119f559aa374))
+* improve app db explorer handling of always identity columns ([74c0a10](https://github.com/windmill-labs/windmill/commit/74c0a10c3a8a4848341456635f36c0c2061b7943))
+
+## [1.465.0](https://github.com/windmill-labs/windmill/compare/v1.464.0...v1.465.0) (2025-02-18)
+
+
+### Features
+
+* SQS triggers ([#5182](https://github.com/windmill-labs/windmill/issues/5182)) ([58a67a3](https://github.com/windmill-labs/windmill/commit/58a67a3ac0c57b9504a90a6e454f738cf0810e21))
+
+
+### Bug Fixes
+
+* fix rendering of app components without component inputs ([0e72991](https://github.com/windmill-labs/windmill/commit/0e72991476ba932a526e1b4cf42bad157be2cfdb))
+
+## [1.464.0](https://github.com/windmill-labs/windmill/compare/v1.463.6...v1.464.0) (2025-02-18)
+
+
+### Features
+
+* add ready endpoints for workers to enterprise ([1ef482e](https://github.com/windmill-labs/windmill/commit/1ef482e8aee9433c518ce3cbc5bc38174e27c34f))
+
+
+### Bug Fixes
+
+* **bash:** allow process substitution on nsjail ([d4f61f1](https://github.com/windmill-labs/windmill/commit/d4f61f13fd6a9c2e5707738fba960b7fd926230c))
+* **bash:** improve bash last line as result reliability using bash process substitution ([#5321](https://github.com/windmill-labs/windmill/issues/5321)) ([138cedf](https://github.com/windmill-labs/windmill/commit/138cedf1da91290f97c19513daf0c1981488a94a))
+
+## [1.463.6](https://github.com/windmill-labs/windmill/compare/v1.463.5...v1.463.6) (2025-02-18)
+
+
+### Bug Fixes
+
+* fix reactivity issue on loading live flow on runs page ([52e12d1](https://github.com/windmill-labs/windmill/commit/52e12d1021831adc2ce9b7b0946a93562038017e))
+* improve v2 migration finalizer to avoid deadlocks ([1069ad3](https://github.com/windmill-labs/windmill/commit/1069ad39992940e32e5d8566ef2283970525be1a))
+
+## [1.463.5](https://github.com/windmill-labs/windmill/compare/v1.463.4...v1.463.5) (2025-02-18)
+
+
+### Bug Fixes
+
+* fix teams cleanup preventing start ([1b46e0f](https://github.com/windmill-labs/windmill/commit/1b46e0f08426497d549cf5007c93981df9ab41e5))
+
+
+## [1.463.4](https://github.com/windmill-labs/windmill/compare/v1.463.3...v1.463.4) (2025-02-17)
+
+
+### Bug Fixes
+
+* improve queue job indices for faster performances ([9530826](https://github.com/windmill-labs/windmill/commit/953082681e2c4fd71d5ac1acf372265ccc72297b))
+* improve teams settings in workspace settings ([#5316](https://github.com/windmill-labs/windmill/issues/5316)) ([935b5b7](https://github.com/windmill-labs/windmill/commit/935b5b799636c0f02597315837268d4a76f6709a))
+
 ## [1.463.3](https://github.com/windmill-labs/windmill/compare/v1.463.2...v1.463.3) (2025-02-17)
 
 

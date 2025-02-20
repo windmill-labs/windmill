@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.463.3
+  version: 1.466.3
   title: Windmill API
 
   contact:
@@ -2642,12 +2642,15 @@ paths:
                     type: boolean
                   postgres_used:
                     type: boolean
+                  sqs_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
                   - kafka_used
                   - nats_used
                   - postgres_used
+                  - sqs_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -8595,6 +8598,196 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/sqs_triggers/create:
+    post:
+      summary: create sqs trigger
+      operationId: createSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new sqs trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewSqsTrigger"
+      responses:
+        "201":
+          description: sqs trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/update/{path}:
+    post:
+      summary: update sqs trigger
+      operationId: updateSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditSqsTrigger"
+      responses:
+        "200":
+          description: sqs trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/delete/{path}:
+    delete:
+      summary: delete sqs trigger
+      operationId: deleteSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: sqs trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/get/{path}:
+    get:
+      summary: get sqs trigger
+      operationId: getSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: sqs trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SqsTrigger"
+
+  /w/{workspace}/sqs_triggers/list:
+    get:
+      summary: list sqs triggers
+      operationId: listSqsTriggers
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: sqs trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SqsTrigger"
+
+  /w/{workspace}/sqs_triggers/exists/{path}:
+    get:
+      summary: does sqs trigger exists
+      operationId: existsSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: sqs trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/sqs_triggers/setenabled/{path}:
+    post:
+      summary: set enabled sqs trigger
+      operationId: setSqsTriggerEnabled
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated sqs trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: sqs trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/test:
+    post:
+      summary: test sqs connection
+      operationId: testSqsConnection
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test sqs connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: object
+              required:
+                - connection
+      responses:
+        "200":
+          description: successfuly connected to sqs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
@@ -9882,6 +10075,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                sqs_trigger
               ]
       responses:
         "200":
@@ -9923,6 +10117,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                sqs_trigger
               ]
       requestBody:
         description: acl to add
@@ -9975,6 +10170,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                sqs_trigger
               ]
       requestBody:
         description: acl to add
@@ -11814,7 +12010,7 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, anthropic, mistral, deepseek, groq, openrouter, customai]
+      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, customai]
 
     AIResource:
       type: object
@@ -13197,6 +13393,10 @@ components:
     TriggerExtraProperty:
       type: object
       properties:
+        path:
+          type: string
+        script_path:
+          type: string
         email:
           type: string
         extra_perms:
@@ -13210,22 +13410,23 @@ components:
         edited_at:
           type: string
           format: date-time
+        is_flow:
+          type: boolean
       required:
+        - path
+        - script_path
         - email
         - extra_perms
         - workspace_id
         - edited_by
         - edited_at
+        - is_flow
 
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        path:
-          type: string
-        script_path:
-          type: string
         route_path:
           type: string
         static_asset_config:
@@ -13239,8 +13440,6 @@ components:
               type: string
           required:
             - s3
-        is_flow:
-          type: boolean
         http_method:
           type: string
           enum:
@@ -13257,15 +13456,7 @@ components:
           type: boolean
 
       required:
-        - path
-        - edited_by
-        - edited_at
-        - script_path
         - route_path
-        - extra_perms
-        - is_flow
-        - email
-        - workspace_id
         - is_async
         - requires_auth
         - http_method
@@ -13388,20 +13579,16 @@ components:
           type: number
         nats_count:
           type: number
+        sqs_count:
+          type: number
 
     WebsocketTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        path:
-          type: string
-        script_path:
-          type: string
         url:
           type: string
-        is_flow:
-          type: boolean
         server_id:
           type: string
         last_server_ping:
@@ -13432,15 +13619,7 @@ components:
           type: boolean
 
       required:
-        - path
-        - edited_by
-        - edited_at
-        - script_path
         - url
-        - extra_perms
-        - is_flow
-        - email
-        - workspace_id
         - enabled
         - filters
         - can_return_message
@@ -13550,6 +13729,88 @@ components:
           required:
             - runnable_result
     
+    SqsTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        queue_url:
+          type: string
+        aws_resource_path:
+          type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+
+      required:
+        - queue_url
+        - aws_resource_path
+        - enabled
+
+    NewSqsTrigger:
+      type: object
+      properties:
+        queue_url:
+          type: string
+        aws_resource_path:
+          type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - queue_url
+        - aws_resource_path        
+        - path
+        - script_path
+        - is_flow
+
+    EditSqsTrigger:
+      type: object
+      properties:
+        queue_url:
+          type: string
+        aws_resource_path:
+          type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - queue_url
+        - aws_resource_path      
+        - path
+        - script_path
+        - is_flow
+        - enabled
+
+
     Slot:
       type: object
       properties:
@@ -13631,12 +13892,6 @@ components:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        path:
-          type: string
-        script_path:
-          type: string
-        is_flow:
-          type: boolean
         enabled:
           type: boolean
         postgres_resource_path:
@@ -13653,9 +13908,6 @@ components:
             type: string
             format: date-time
       required:
-        - path
-        - script_path
-        - is_flow
         - enabled
         - postgres_resource_path
         - replication_slot_name
@@ -13716,17 +13968,10 @@ components:
         - replication_slot_name
 
     KafkaTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        path:
-          type: string
-        edited_by:
-          type: string
-        edited_at:
-          type: string
-          format: date-time
-        script_path:
-          type: string
         kafka_resource_path:
           type: string
         group_id:
@@ -13735,16 +13980,6 @@ components:
           type: array
           items:
             type: string
-        is_flow:
-          type: boolean
-        extra_perms:
-          type: object
-          additionalProperties:
-            type: boolean
-        email:
-          type: string
-        workspace_id:
-          type: string
         server_id:
           type: string
         last_server_ping:
@@ -13756,17 +13991,9 @@ components:
           type: boolean
 
       required:
-        - path
-        - edited_by
-        - edited_at
-        - script_path
         - kafka_resource_path
         - group_id
         - topics
-        - extra_perms
-        - is_flow
-        - email
-        - workspace_id
         - enabled
 
     NewKafkaTrigger:
@@ -13824,17 +14051,10 @@ components:
         - is_flow
 
     NatsTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        path:
-          type: string
-        edited_by:
-          type: string
-        edited_at:
-          type: string
-          format: date-time
-        script_path:
-          type: string
         nats_resource_path:
           type: string
         use_jetstream:
@@ -13847,16 +14067,6 @@ components:
           type: array
           items:
             type: string
-        is_flow:
-          type: boolean
-        extra_perms:
-          type: object
-          additionalProperties:
-            type: boolean
-        email:
-          type: string
-        workspace_id:
-          type: string
         server_id:
           type: string
         last_server_ping:
@@ -13868,17 +14078,9 @@ components:
           type: boolean
         
       required:
-        - path
-        - edited_by
-        - edited_at
-        - script_path
         - nats_resource_path
         - use_jetstream
         - subjects
-        - extra_perms
-        - is_flow
-        - email
-        - workspace_id
         - enabled
 
     NewNatsTrigger:
@@ -14898,7 +15100,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats, postgres]
+      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs]
 
     Capture:
       type: object
