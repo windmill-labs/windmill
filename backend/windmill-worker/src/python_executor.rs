@@ -300,6 +300,7 @@ impl PyVersion {
             .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .envs(PROXY_ENVS.clone())
             .args(["python", "install", v, "--python-preference=only-managed"])
             // TODO: Do we need these?
             .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
