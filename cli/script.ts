@@ -990,7 +990,7 @@ const command = new Command()
   .action(bootstrap as any)
   .command(
     "generate-metadata",
-    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate - locks`)"
+    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)"
   )
   .arguments("[script:file]")
   .option("--yes", "Skip confirmation prompt")
