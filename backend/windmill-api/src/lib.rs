@@ -107,6 +107,8 @@ mod settings;
 mod slack_approvals;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+mod sqs_triggers_ee;
 mod static_assets;
 mod stripe_ee;
 mod teams_ee;
@@ -333,6 +335,18 @@ pub async fn run_server(
         }
     };
 
+    let sqs_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        {
+            sqs_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
+        {
+            Router::new()
+        }
+    };
+
     let websocket_triggers_service = {
         #[cfg(feature = "websocket")]
         {
@@ -381,15 +395,23 @@ pub async fn run_server(
             let nats_killpill_rx = rx.resubscribe();
             nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
         }
+
         #[cfg(feature = "postgres_trigger")]
         {
             let db_killpill_rx = rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
+        
         #[cfg(feature = "mqtt_trigger")]
         {
             let mqtt_killpill_rx = rx.resubscribe();
             mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        {
+            let sqs_killpill_rx = rx.resubscribe();
+            sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
         }
     }
 
@@ -446,6 +468,7 @@ pub async fn run_server(
                         .nest("/kafka_triggers", kafka_triggers_service)
                         .nest("/nats_triggers", nats_triggers_service)
                         .nest("/mqtt_triggers", mqtt_triggers_service)
+                        .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())

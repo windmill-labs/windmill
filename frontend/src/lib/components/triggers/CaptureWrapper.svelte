@@ -15,6 +15,7 @@
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 	import { invalidRelations } from './postgres/utils'
 
@@ -78,7 +79,7 @@
 			acc[c.trigger_kind] = c
 			return acc
 		}, {})
-		const streamingCapture = ['websocket', 'kafka', 'mqtt']
+		const streamingCapture = ['postgres', 'websocket', 'kafka', 'sqs', 'mqtt']
 		if (streamingCapture.includes(captureType) && captureActive) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
@@ -148,7 +149,7 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-	const streamingCaptures = ['mqtt', 'websocket', 'postgres', 'kafka', 'nats']
+	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats']
 	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
@@ -308,6 +309,16 @@
 				bind:subscribe_topics={args.subscribe_topics}
 				bind:mqtt_resource_path={args.mqtt_resource_path}
 				bind:client_id={args.client_id}
+			/>
+		{:else if captureType === 'sqs'}
+			<SqsTriggerEditorConfigSection
+				can_write={true}
+				headless={true}
+				bind:queue_url={args.queue_url}
+				bind:aws_resource_path={args.aws_resource_path}
+				bind:message_attributes={args.message_attributes}
+				{showCapture}
+				{captureInfo}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema

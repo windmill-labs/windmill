@@ -100,6 +100,7 @@ pub enum TriggerKind {
     Email,
     Nats,
     Mqtt,
+    Sqs,
     Postgres,
 }
 
@@ -113,6 +114,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
             TriggerKind::Mqtt => "mqtt",
+            TriggerKind::Sqs => "sqs",
             TriggerKind::Postgres => "postgres",
         };
         write!(f, "{}", s)
@@ -133,6 +135,14 @@ pub struct KafkaTriggerConfig {
     pub connection: KafkaTriggerConfigConnection,
     pub topics: Vec<String>,
     pub group_id: String,
+}
+
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SqsTriggerConfig {
+    pub queue_url: String,
+    pub aws_resource_path: String,
+    pub message_attributes: Option<Vec<String>>
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -184,6 +194,8 @@ enum TriggerConfig {
     Postgres(PostgresTriggerConfig),
     #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    Sqs(SqsTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "nats"))]

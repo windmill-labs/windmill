@@ -8,15 +8,13 @@
 		Webhook,
 		Unplug,
 		PlugZap,
-
 		Database
-
 	} from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import { MqttIcon, NatsIcon, KafkaIcon } from '../icons'
+	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon } from '../icons'
 
 	export let triggerSelected:
 		| 'webhooks'
@@ -28,14 +26,15 @@
 		| 'kafka'
 		| 'postgres'
 		| 'nats'
+		| 'sqs'
 		| 'mqtt'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
 
-	export let eventStreamType: 'kafka' | 'nats' | 'mqtt' = 'kafka'
+	export let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
 
 	$: {
-		if (triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'mqtt') {
+		if (triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs' || triggerSelected === 'mqtt') {
 			eventStreamType = triggerSelected
 		}
 	}
@@ -76,7 +75,7 @@
 					Postgres
 				</span>
 			</Tab>
-			<Tab value="kafka" otherValues={['nats', 'mqtt']}>
+			<Tab value="kafka" otherValues={['nats', 'sqs', 'mqtt']}>
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<PlugZap size={12} />
 					Event streams
@@ -109,18 +108,21 @@
 						<slot name="websockets" />
 					{:else if triggerSelected === 'postgres'}
 						<slot name="postgres" />
-					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'mqtt'}
+					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs' || triggerSelected === 'mqtt'}
 						<div class="m-1.5">
 							<ToggleButtonGroup bind:selected={eventStreamType}>
 								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
 								<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
 								<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} />
+								<ToggleButton value="sqs" label="SQS" icon={AwsIcon} />
 							</ToggleButtonGroup>
 						</div>
 						{#if eventStreamType === 'kafka'}
 							<slot name="kafka" />
 						{:else if eventStreamType === 'nats'}
 							<slot name="nats" />
+						{:else if eventStreamType === 'sqs'}
+							<slot name="sqs" />
 						{:else if eventStreamType === 'mqtt'}
 							<slot name="mqtt" />
 						{/if}

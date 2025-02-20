@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.464.0
+  version: 1.465.0
   title: Windmill API
 
   contact:
@@ -2613,6 +2613,8 @@ paths:
                     type: boolean
                   mqtt_used:
                     type: boolean
+                  sqs_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -2620,6 +2622,7 @@ paths:
                   - nats_used
                   - postgres_used
                   - mqtt_used
+                  - sqs_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -8567,6 +8570,195 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/sqs_triggers/create:
+    post:
+      summary: create sqs trigger
+      operationId: createSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new sqs trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewSqsTrigger"
+      responses:
+        "201":
+          description: sqs trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/update/{path}:
+    post:
+      summary: update sqs trigger
+      operationId: updateSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditSqsTrigger"
+      responses:
+        "200":
+          description: sqs trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/delete/{path}:
+    delete:
+      summary: delete sqs trigger
+      operationId: deleteSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: sqs trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/get/{path}:
+    get:
+      summary: get sqs trigger
+      operationId: getSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: sqs trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SqsTrigger"
+
+  /w/{workspace}/sqs_triggers/list:
+    get:
+      summary: list sqs triggers
+      operationId: listSqsTriggers
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: sqs trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SqsTrigger"
+
+  /w/{workspace}/sqs_triggers/exists/{path}:
+    get:
+      summary: does sqs trigger exists
+      operationId: existsSqsTrigger
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: sqs trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/sqs_triggers/setenabled/{path}:
+    post:
+      summary: set enabled sqs trigger
+      operationId: setSqsTriggerEnabled
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated sqs trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: sqs trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/sqs_triggers/test:
+    post:
+      summary: test sqs connection
+      operationId: testSqsConnection
+      tags:
+        - sqs_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test sqs connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: object
+              required:
+                - connection
+      responses:
+        "200":
+          description: successfuly connected to sqs
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/mqtt_triggers/create:
     post:
       summary: create mqtt trigger
@@ -10044,7 +10236,8 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
-                mqtt_trigger
+                mqtt_trigger,
+                sqs_trigger
               ]
       responses:
         "200":
@@ -10086,7 +10279,8 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
-                mqtt_trigger
+                mqtt_trigger,
+                sqs_trigger
               ]
       requestBody:
         description: acl to add
@@ -10139,7 +10333,8 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
-                mqtt_trigger
+                mqtt_trigger,
+                sqs_trigger
               ]
       requestBody:
         description: acl to add
@@ -11979,7 +12174,7 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, anthropic, mistral, deepseek, groq, openrouter, customai]
+      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, customai]
 
     AIResource:
       type: object
@@ -13550,6 +13745,8 @@ components:
           type: number
         mqtt_count:
           type: number
+        sqs_count:
+          type: number
 
     WebsocketTrigger:
       allOf:
@@ -13697,6 +13894,34 @@ components:
                 - is_flow
           required:
             - runnable_result
+
+        SqsTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        queue_url:
+          type: string
+        aws_resource_path:
+          type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+
+      required:
+        - queue_url
+        - aws_resource_path
+        - enabled
 
     QoS:
       type: number
@@ -13856,6 +14081,60 @@ components:
         - enabled
         - subscribe_topics  
         - mqtt_resource_path
+    
+    NewSqsTrigger:
+      type: object
+      properties:
+        queue_url:
+          type: string
+        aws_resource_path:
+          type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - queue_url
+        - aws_resource_path        
+        - path
+        - script_path
+        - is_flow
+
+    EditSqsTrigger:
+      type: object
+      properties:
+        queue_url:
+          type: string
+        aws_resource_path:
+          type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - queue_url
+        - aws_resource_path      
+        - path
+        - script_path
+        - is_flow
+        - enabled
+
 
     Slot:
       type: object
@@ -15146,7 +15425,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats, postgres, mqtt]
+      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt]
 
     Capture:
       type: object
