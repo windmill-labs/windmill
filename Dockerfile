@@ -168,6 +168,7 @@ ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.5.15/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN npm install -g nushell@0.102.0
 
 # Preinstall python runtimes
 RUN uv python install 3.11.10
