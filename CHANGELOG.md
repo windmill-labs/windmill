@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.466.4](https://github.com/windmill-labs/windmill/compare/v1.466.3...v1.466.4) (2025-02-20)
+
+
+### Bug Fixes
+
+* fix schedule run now args ([3430f9c](https://github.com/windmill-labs/windmill/commit/3430f9c4390b6c630086394ddfaf1a1b2030c78f))
+* schedules do not accept 5 units cron syntax on update/create anymore ([c90fe38](https://github.com/windmill-labs/windmill/commit/c90fe387e882f7767c3b3621e5e230fc8acd80b0))
+
 ## [1.466.3](https://github.com/windmill-labs/windmill/compare/v1.466.2...v1.466.3) (2025-02-20)
 
 
