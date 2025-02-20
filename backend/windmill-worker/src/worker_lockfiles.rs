@@ -396,9 +396,18 @@ pub async fn handle_dependency_job(
             )
             .execute(db)
             .await?;
-            Err(Error::ExecutionErr(format!("Error locking file: {error}")))?
+            Err(Error::ExecutionErr(format!(
+                "Error locking file: {error}\n\nlogs:\n{}",
+                remove_ansi_codes(&logs2)
+            )))?
         }
     }
+}
+fn remove_ansi_codes(s: &str) -> String {
+    lazy_static::lazy_static! {
+        static ref ANSI_REGEX: regex::Regex = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+    }
+    ANSI_REGEX.replace_all(s, "").to_string()
 }
 
 async fn trigger_dependents_to_recompute_dependencies(
