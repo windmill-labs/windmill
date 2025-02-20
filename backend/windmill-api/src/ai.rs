@@ -380,6 +380,7 @@ pub enum AIProvider {
     Anthropic,
     Mistral,
     DeepSeek,
+    GoogleAI,
     Groq,
     OpenRouter,
     CustomAI,
@@ -389,6 +390,9 @@ impl AIProvider {
     pub fn get_openai_compatible_base_url(&self) -> Result<Option<String>> {
         match self {
             AIProvider::DeepSeek => Ok(Some("https://api.deepseek.com/v1".to_string())),
+            AIProvider::GoogleAI => Ok(Some(
+                "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
+            )),
             AIProvider::Groq => Ok(Some("https://api.groq.com/openai/v1".to_string())),
             AIProvider::OpenRouter => Ok(Some("https://openrouter.ai/api/v1".to_string())),
             AIProvider::CustomAI => Ok(None),
@@ -409,6 +413,7 @@ impl TryFrom<&str> for AIProvider {
             "groq" => Ok(AIProvider::Groq),
             "openrouter" => Ok(AIProvider::OpenRouter),
             "deepseek" => Ok(AIProvider::DeepSeek),
+            "googleai" => Ok(AIProvider::GoogleAI),
             "customai" => Ok(AIProvider::CustomAI),
             _ => Err(Error::BadRequest(format!("Invalid AI provider: {}", s))),
         }
@@ -472,7 +477,9 @@ async fn proxy(
                 .await?;
 
                 if ai_resource.is_none() {
-                    return Err(Error::internal_err("AI resource not configured".to_string()));
+                    return Err(Error::internal_err(
+                        "AI resource not configured".to_string(),
+                    ));
                 }
 
                 let ai_resource = serde_json::from_value::<AIResource>(ai_resource.unwrap())

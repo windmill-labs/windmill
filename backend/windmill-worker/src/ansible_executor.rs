@@ -2,11 +2,7 @@
 use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::PathBuf, process::Stdio};
 
 #[cfg(windows)]
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    process::Stdio,
-};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use itertools::Itertools;
@@ -86,7 +82,6 @@ async fn handle_ansible_python_deps(
                     &mut Some(occupancy_metrics),
                     PyVersion::Py311,
                     false,
-                    false,
                 )
                 .await
                 .map_err(|e| {
@@ -113,7 +108,6 @@ async fn handle_ansible_python_deps(
             worker_dir,
             &mut Some(occupancy_metrics),
             crate::python_executor::PyVersion::Py311,
-            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
