@@ -444,8 +444,20 @@ export async function updateFlow(
   try {
     const res = (await rawResponse.json()) as
       | { updated_flow_value: any }
+      | { error: { message: string } }
       | undefined;
-    return res?.updated_flow_value;
+    if (rawResponse.status != 200) {
+      const msg = (res as any)?.["error"]?.["message"]
+      if (msg) {
+        throw new LockfileGenerationError(
+          `Failed to generate lockfile: ${msg}`
+        );
+      }
+      throw new LockfileGenerationError(
+        `Failed to generate lockfile: ${rawResponse.statusText}, ${responseText}`
+      );
+    }
+    return (res as any).updated_flow_value;
   } catch (e) {
     try {
       responseText = await rawResponse.text();
