@@ -13895,34 +13895,6 @@ components:
           required:
             - runnable_result
 
-        SqsTrigger:
-      allOf:
-        - $ref: "#/components/schemas/TriggerExtraProperty"
-      type: object
-      properties:
-        queue_url:
-          type: string
-        aws_resource_path:
-          type: string
-        message_attributes:
-          type: array
-          items:
-            type: string
-        server_id:
-          type: string
-        last_server_ping:
-          type: string
-          format: date-time
-        error:
-          type: string
-        enabled:
-          type: boolean
-
-      required:
-        - queue_url
-        - aws_resource_path
-        - enabled
-
     QoS:
       type: number
       enum: [0, 1, 2]
@@ -14082,6 +14054,34 @@ components:
         - subscribe_topics  
         - mqtt_resource_path
     
+    SqsTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        queue_url:
+          type: string
+        aws_resource_path:
+          type: string
+        message_attributes:
+          type: array
+          items:
+            type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+
+      required:
+        - queue_url
+        - aws_resource_path
+        - enabled
+
     NewSqsTrigger:
       type: object
       properties:

@@ -1378,7 +1378,6 @@ async fn get_used_triggers(
         SELECT 
             
             EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!", 
-           
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",

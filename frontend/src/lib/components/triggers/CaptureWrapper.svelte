@@ -18,6 +18,7 @@
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 	import { invalidRelations } from './postgres/utils'
+	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
 
 	export let isFlow: boolean
 	export let path: string
@@ -119,7 +120,18 @@
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
 		} else {
-			args = {}
+			switch (captureType) {
+				case 'mqtt':
+					//define these field so any reactive statement that may use them will not crash trying to access their property
+					args = {
+						v3_config: DEFAULT_V3_CONFIG,
+						v5_config: DEFAULT_V5_CONFIG,
+						subscribe_topics: []
+					}
+					break
+				default:
+					args = {}
+			}
 		}
 		ready = true
 	}
@@ -309,6 +321,11 @@
 				bind:subscribe_topics={args.subscribe_topics}
 				bind:mqtt_resource_path={args.mqtt_resource_path}
 				bind:client_id={args.client_id}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{:else if captureType === 'sqs'}
 			<SqsTriggerEditorConfigSection

@@ -13,18 +13,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
-
-	const DEFAULT_V5_CONFIG: MqttV5Config = {
-		clean_start: true,
-		keep_alive: undefined,
-		session_expiration: undefined,
-		receive_maximum: undefined,
-		maximum_packet_size: undefined
-	}
-
-	const DEFAULT_V3_CONFIG: MqttV3Config = {
-		clean_session: true
-	}
+	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -33,29 +22,12 @@
 	export let subscribe_topics: SubscribeTopic[] = []
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
-	export let v3_config: MqttV3Config | undefined
-	export let v5_config: MqttV5Config | undefined
+	export let v3_config: MqttV3Config = DEFAULT_V3_CONFIG
+	export let v5_config: MqttV5Config = DEFAULT_V5_CONFIG
 	export let client_version: MqttClientVersion = 'v5'
 	export let isValid: boolean = false
 	export let client_id: string
-	if (!v3_config) {
-		v3_config = DEFAULT_V3_CONFIG
-	} else {
-		v3_config = {
-			clean_session: v3_config.clean_session
-		}
-	}
-	if (!v5_config) {
-		v5_config = DEFAULT_V5_CONFIG
-	} else {
-		v5_config = {
-			clean_start: v5_config.clean_start,
-			keep_alive: v5_config.keep_alive,
-			session_expiration: v5_config.session_expiration,
-			receive_maximum: v5_config.receive_maximum,
-			maximum_packet_size: v5_config.maximum_packet_size
-		}
-	}
+
 	$: isValid = subscribe_topics.length > 0 && !emptyStringTrimmed(mqtt_resource_path)
 </script>
 
