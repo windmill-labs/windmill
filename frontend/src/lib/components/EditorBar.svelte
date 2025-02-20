@@ -54,6 +54,7 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
+		nu: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -92,7 +93,8 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu'
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -105,7 +107,8 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu'
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -118,7 +121,8 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu'
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -368,6 +372,8 @@
 			editor.insertAtCursor(`std::env::var("${name}").unwrap();`)
 		} else if (lang == 'csharp') {
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`$env.${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -433,6 +439,8 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_variable ${path}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -515,6 +523,8 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetStringAsync(uri));
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_resource ${path}`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
@@ -637,7 +647,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			</Button>
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
 						btnClasses="!font-medium text-tertiary"
 						size="xs"
@@ -663,6 +673,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 								<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
 							{:else if lang == 'bash'}
 								(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span
+								>)
+							{:else if lang == 'nu'}
+								(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Nu-lsp</span
 								>)
 							{/if}
 						</span>
