@@ -1685,7 +1685,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, installer_path).await
+            start_child_process(cmd, "uv").await
         }
     }
 }
