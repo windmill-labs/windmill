@@ -54,7 +54,7 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
-		nulsp: boolean
+		nu: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -675,7 +675,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 								(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span
 								>)
 							{:else if lang == 'nu'}
-								(<span class={websocketAlive.nulsp ? 'green' : 'text-red-700'}>NuLSP</span
+								(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Nu-lsp</span
 								>)
 							{/if}
 						</span>

@@ -204,7 +204,7 @@
 		deno: false,
 		go: false,
 		shellcheck: false,
-		nulsp: false
+		nu: false
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -249,7 +249,7 @@
 
 	let destroyed = false
 	const uri =
-		lang != 'go' && lang != 'typescript' && lang != 'python'
+		lang != 'go' && lang != 'typescript' && lang != 'python' && lang != 'nu'
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -372,7 +372,7 @@
 	export async function format() {
 		if (editor) {
 			code = getCode()
-			if (lang != 'shell') {
+			if (lang != 'shell' && lang != 'nu') {
 				if ($formatOnSave != false) {
 					if (scriptLang == 'deno' && languageClients.length > 0) {
 						languageClients.forEach(async (x) => {
@@ -1017,7 +1017,7 @@
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
-							!websocketAlive.nulsp &&
+							!websocketAlive.nu &&
 							scriptLang != 'bun'
 						) {
 							console.log('reconnecting to language servers')
@@ -1198,7 +1198,7 @@
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
-				!websocketAlive.nulsp &&
+				!websocketAlive.nu &&
 				!websocketInterval &&
 				scriptLang != 'bun'
 			) {

@@ -64,7 +64,7 @@
 		go: false,
 		ruff: false,
 		shellcheck: false,
-		nulsp: false
+		nu: false
 	}
 
 	const dispatch = createEventDispatcher()
