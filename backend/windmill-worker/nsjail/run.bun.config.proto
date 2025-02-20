@@ -77,6 +77,12 @@ mount {
     mandatory: false
 }
 
+mount {
+    src: "{JOB_DIR}/bun.lock"
+    dst: "/tmp/{LANG}/bun.lock"
+    is_bind: true
+    mandatory: false
+}
 
 mount {
     src: "{JOB_DIR}/wrapper.mjs"
@@ -149,14 +155,6 @@ mount {
 }
 
 iface_no_lo: true
-
-mount {
-    src: "{CACHE_DIR}"
-    dst: "/tmp/windmill/cache_nomount/bun"
-    is_bind: true
-    mandatory: false
-    rw: true
-}
 
 {SHARED_MOUNT}
 

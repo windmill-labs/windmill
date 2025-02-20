@@ -161,8 +161,8 @@ impl Retry {
             if let Some(random_factor) = exponential.random_factor {
                 if random_factor > 0 {
                     let random_component =
-                        rand::thread_rng().gen_range(0..(std::cmp::min(random_factor, 100) as u16));
-                    secs = match rand::thread_rng().gen_bool(1.0 / 2.0) {
+                        rand::rng().random_range(0..(std::cmp::min(random_factor, 100) as u16));
+                    secs = match rand::rng().random_bool(1.0 / 2.0) {
                         true => secs.saturating_add(secs * random_component / 100),
                         false => secs.saturating_sub(secs * random_component / 100),
                     };
@@ -736,7 +736,7 @@ pub async fn resolve_value(
     with_code: bool,
 ) -> Result<(), Error> {
     let mut val = serde_json::from_str::<FlowValue>(value.get()).map_err(|err| {
-        Error::InternalErr(format!("resolve: Failed to parse flow value: {}", err))
+        Error::internal_err(format!("resolve: Failed to parse flow value: {}", err))
     })?;
     for module in &mut val.modules {
         resolve_module(e, workspace_id, &mut module.value, with_code).await?;
@@ -755,7 +755,7 @@ pub async fn resolve_module(
     use FlowModuleValue::*;
 
     let mut val = serde_json::from_str::<FlowModuleValue>(value.get()).map_err(|err| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "resolve: Failed to parse flow module value: {}",
             err
         ))

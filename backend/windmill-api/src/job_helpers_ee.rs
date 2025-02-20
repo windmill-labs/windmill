@@ -69,7 +69,7 @@ pub async fn get_s3_resource<'c>(
     _resource_type: Option<StorageResourceType>,
     _job_id: Option<Uuid>,
 ) -> error::Result<ObjectStoreResource> {
-    Err(error::Error::InternalErr(
+    Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
@@ -81,7 +81,7 @@ pub async fn upload_file_from_req(
     _req: axum::extract::Request,
     _options: PutMultipartOpts,
 ) -> error::Result<()> {
-    Err(error::Error::InternalErr(
+    Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
@@ -93,7 +93,7 @@ pub async fn upload_file_internal(
     _stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
     _options: PutMultipartOpts,
 ) -> error::Result<()> {
-    Err(error::Error::InternalErr(
+    Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
@@ -107,7 +107,7 @@ pub async fn download_s3_file_internal(
     _w_id: &str,
     _query: DownloadFileQuery,
 ) -> error::Result<Response> {
-    Err(error::Error::InternalErr(
+    Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
@@ -120,7 +120,7 @@ pub async fn load_image_preview_internal(
     _w_id: &str,
     _query: LoadImagePreviewQuery,
 ) -> error::Result<Response> {
-    Err(error::Error::InternalErr(
+    Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }

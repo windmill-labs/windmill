@@ -20,7 +20,7 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{check_executor_binary_exists, build_args_map, OccupancyMetrics},
+    common::{build_args_map, check_executor_binary_exists, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
     AuthedClientBackgroundTask,
 };
@@ -302,7 +302,11 @@ pub async fn do_oracledb(
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    check_executor_binary_exists("the Oracle client lib", ORACLE_LIB_DIR.as_str(), "Oracle Database")?;
+    check_executor_binary_exists(
+        "the Oracle client lib",
+        ORACLE_LIB_DIR.as_str(),
+        "Oracle Database",
+    )?;
 
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -324,7 +328,7 @@ pub async fn do_oracledb(
             .await?;
 
         let as_raw = serde_json::from_value(val).map_err(|e| {
-            Error::InternalErr(format!("Error while parsing inline resource: {e:#}"))
+            Error::internal_err(format!("Error while parsing inline resource: {e:#}"))
         })?;
 
         Some(as_raw)

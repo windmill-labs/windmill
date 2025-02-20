@@ -12,8 +12,10 @@
 		| 'cli'
 		| 'routes'
 		| 'websockets'
+		| 'postgres'
 		| 'scheduledPoll'
 		| 'kafka'
+		| 'sqs'
 		| 'nats' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let simplfiedPoll: boolean = false
@@ -27,7 +29,7 @@
 
 <div class="flex flex-col h-full">
 	<Tabs bind:selected wrapperClass="flex-none w-full">
-		<Tab value="saved_inputs">Saved Inputs</Tab>
+		<Tab value="saved_inputs">Inputs library</Tab>
 		{#if !isOperator}
 			<Tab value="triggers">Triggers</Tab>
 		{/if}
@@ -53,8 +55,10 @@
 						<slot slot="webhooks" name="webhooks" />
 						<slot slot="routes" name="routes" />
 						<slot slot="websockets" name="websockets" />
+						<slot slot="postgres" name="postgres" />
 						<slot slot="kafka" name="kafka" />
 						<slot slot="nats" name="nats" />
+						<slot slot="sqs" name="sqs" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />
 						<slot slot="cli" name="cli" />

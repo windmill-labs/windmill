@@ -26,9 +26,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import WebsocketTriggerEditor from '$lib/components/triggers/WebsocketTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import WebsocketTriggerEditor from '$lib/components/triggers/websocket/WebsocketTriggerEditor.svelte'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 
@@ -209,21 +209,21 @@
 
 <CenteredPage>
 	<PageHeader
-		title="Websocket triggers"
-		tooltip="Windmill can listen to websocket events and trigger scripts or flows based on them."
+		title="WebSocket triggers"
+		tooltip="Windmill can listen to WebSocket events and trigger scripts or flows based on them."
 	>
 		<Button
 			size="md"
 			startIcon={{ icon: Plus }}
 			on:click={() => websocketTriggerEditor.openNew(false)}
 		>
-			New&nbsp;WS trigger
+			New&nbsp;WebSocket trigger
 		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			Websocket triggers are disabled in the multi-tenant cloud.
+			WebSocket triggers are disabled in the multi-tenant cloud.
 		</Alert>
 		<div class="py-4" />
 	{/if}
@@ -233,7 +233,7 @@
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="WS Trigger" icon={Unplug} />
+					<ToggleButton small value="trigger" label="WS trigger" icon={Unplug} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -314,12 +314,12 @@
 										<div slot="text">
 											{#if enabled}
 												{#if !server_id}
-													Websocket is starting...
+													WebSocket is starting...
 												{:else}
-													Websocket is not connected{error ? ': ' + error : ''}
+													WebSocket is not connected{error ? ': ' + error : ''}
 												{/if}
 											{:else}
-												Websocket was disabled because of an error: {error}
+												WebSocket was disabled because of an error: {error}
 											{/if}
 										</div>
 									</Popover>
@@ -329,7 +329,7 @@
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
 										<div slot="text">
-											Websocket is connected{!server_id ? ' (shutting down...)' : ''}
+											WebSocket is connected{!server_id ? ' (shutting down...)' : ''}
 										</div>
 									</Popover>
 								{/if}

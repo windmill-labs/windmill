@@ -35,9 +35,19 @@ use windmill_queue::{PushArgs, PushArgsOwned};
 #[cfg(feature = "http_trigger")]
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_ee::KafkaResourceSecurity;
+use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_ee::NatsResourceAuth;
+use crate::nats_triggers_ee::NatsTriggerConfigConnection;
+#[cfg(feature = "postgres_trigger")]
+use crate::postgres_triggers::{
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection, PublicationData,
+};
+#[cfg(feature = "postgres_trigger")]
+use itertools::Itertools;
+#[cfg(feature = "postgres_trigger")]
+use pg_escape::quote_literal;
+
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
@@ -56,6 +66,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_configs/:runnable_kind/*path", get(get_configs))
         .route("/list/:runnable_kind/*path", get(list_captures))
         .route("/:id", delete(delete_capture))
+        .route("/:id", get(get_capture))
 }
 
 pub fn workspaced_unauthed_service() -> Router {
@@ -77,7 +88,7 @@ pub fn workspaced_unauthed_service() -> Router {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TriggerKind {
@@ -87,6 +98,8 @@ pub enum TriggerKind {
     Kafka,
     Email,
     Nats,
+    Sqs,
+    Postgres,
 }
 
 impl fmt::Display for TriggerKind {
@@ -98,6 +111,8 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
+            TriggerKind::Sqs => "sqs",
+            TriggerKind::Postgres => "postgres",
         };
         write!(f, "{}", s)
     }
@@ -112,14 +127,6 @@ struct HttpTriggerConfig {
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 #[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum KafkaTriggerConfigConnection {
-    Resource { kafka_resource_path: String },
-    Static { brokers: Vec<String>, security: KafkaResourceSecurity },
-}
-
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-#[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
     #[serde(flatten)]
     pub connection: KafkaTriggerConfigConnection,
@@ -127,12 +134,12 @@ pub struct KafkaTriggerConfig {
     pub group_id: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum NatsTriggerConfigConnection {
-    Resource { nats_resource_path: String },
-    Static { servers: Vec<String>, auth: NatsResourceAuth, require_tls: bool },
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SqsTriggerConfig {
+    pub queue_url: String,
+    pub aws_resource_path: String,
+    pub message_attributes: Option<Vec<String>>
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -148,6 +155,16 @@ pub struct NatsTriggerConfig {
     pub use_jetstream: bool,
 }
 
+#[cfg(feature = "postgres_trigger")]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PostgresTriggerConfig {
+    pub postgres_resource_path: String,
+    pub publication_name: Option<String>,
+    pub replication_slot_name: Option<String>,
+    pub publication: PublicationData,
+}
+
+#[cfg(feature = "websocket")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WebsocketTriggerConfig {
     pub url: String,
@@ -160,7 +177,12 @@ pub struct WebsocketTriggerConfig {
 enum TriggerConfig {
     #[cfg(feature = "http_trigger")]
     Http(HttpTriggerConfig),
+    #[cfg(feature = "postgres_trigger")]
+    Postgres(PostgresTriggerConfig),
+    #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    Sqs(SqsTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "kafka"))]
     Kafka(KafkaTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -201,18 +223,88 @@ async fn get_configs(
     )
     .fetch_all(&mut *tx)
     .await?;
-
     tx.commit().await?;
 
     Ok(Json(configs))
 }
 
+#[cfg(feature = "postgres_trigger")]
+async fn set_postgres_trigger_config(
+    w_id: &str,
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    mut capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    let Some(TriggerConfig::Postgres(mut postgres_config)) = capture_config.trigger_config else {
+        return Err(windmill_common::error::Error::BadRequest(
+            "Invalid postgres config".to_string(),
+        ));
+    };
+
+    let mut connection = get_database_connection(
+        authed,
+        Some(user_db),
+        &db,
+        &postgres_config.postgres_resource_path,
+        &w_id,
+    )
+    .await?;
+
+    let publication_name = postgres_config
+        .publication_name
+        .get_or_insert(format!("windmill_capture_{}", generate_random_string()));
+    let replication_slot_name = postgres_config
+        .replication_slot_name
+        .get_or_insert(publication_name.clone());
+
+    let query = drop_publication_query(&publication_name);
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    let query = create_publication_query(
+        &publication_name,
+        postgres_config.publication.table_to_track.as_deref(),
+        &postgres_config
+            .publication
+            .transaction_to_track
+            .iter()
+            .map(AsRef::as_ref)
+            .collect_vec(),
+    );
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    let query = format!(
+        "SELECT 1 from pg_replication_slots WHERE slot_name = {}",
+        quote_literal(replication_slot_name)
+    );
+
+    let row = sqlx::query(&query).fetch_optional(&mut connection).await?;
+
+    if row.is_none() {
+        let query = create_logical_replication_slot_query(&replication_slot_name);
+        sqlx::query(&query).execute(&mut connection).await?;
+    }
+    capture_config.trigger_config = Some(TriggerConfig::Postgres(postgres_config));
+    Ok(capture_config)
+}
+
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    #[cfg(feature = "postgres_trigger")] Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
+    #[cfg(feature = "postgres_trigger")]
+    let nc = if let TriggerKind::Postgres = nc.trigger_kind {
+        set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
+    }
+    else {
+        nc
+    };
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -296,7 +388,7 @@ async fn list_captures(
 
     let captures = sqlx::query_as!(
         Capture,
-        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", payload as "payload: _", trigger_extra as "trigger_extra: _"
+        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", CASE WHEN pg_column_size(payload) < 40000 THEN payload ELSE '"WINDMILL_TOO_BIG"'::jsonb END as "payload!: _", trigger_extra as "trigger_extra: _"
         FROM capture
         WHERE workspace_id = $1
             AND path = $2 AND is_flow = $3
@@ -317,6 +409,24 @@ async fn list_captures(
     tx.commit().await?;
 
     Ok(Json(captures))
+}
+
+async fn get_capture(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, i64)>,
+) -> JsonResult<Capture> {
+    let mut tx = user_db.begin(&authed).await?;
+    let capture = sqlx::query_as!(
+        Capture,
+        r#"SELECT id, created_at, trigger_kind as "trigger_kind: _", payload as "payload!: _", trigger_extra as "trigger_extra: _" FROM capture WHERE id = $1 AND workspace_id = $2"#,
+        id,
+        &w_id,
+    )
+    .fetch_one(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Json(capture))
 }
 
 async fn delete_capture(
@@ -409,7 +519,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
 
     Ok((
         serde_json::from_str(trigger_config.get()).map_err(|e| {
-            Error::InternalErr(format!(
+            Error::internal_err(format!(
                 "error parsing capture config for {} trigger: {}",
                 kind, e
             ))

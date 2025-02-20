@@ -10,7 +10,7 @@ use anyhow::anyhow;
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Pool, Postgres};
+use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
@@ -22,8 +22,11 @@ use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
-    error::{self, Error},
-    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
+    error::{
+        self,
+        Error::{self},
+    },
+    jobs::QueuedJob,
     utils::calculate_hash,
     worker::{write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
@@ -32,42 +35,33 @@ use windmill_common::{
 #[cfg(feature = "enterprise")]
 use windmill_common::variables::get_secret_value_as_admin;
 
+use std::env::var;
 use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
-    static ref PYTHON_PATH: String =
-    std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
+        tracing::warn!("PYTHON_PATH is set to {} and thus python will not be managed by uv and stay static regardless of annotation and instance settings. NOT RECOMMENDED", v);
+        v
+    });
 
     static ref UV_PATH: String =
-    std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
+    var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
 
     static ref PY_CONCURRENT_DOWNLOADS: usize =
-    std::env::var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+    var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
-    static ref FLOCK_PATH: String =
-    std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
-    static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
-    static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
-
-    pub static ref USE_PIP_COMPILE: bool = std::env::var("USE_PIP_COMPILE")
-        .ok().map(|flag| flag == "true").unwrap_or(false);
-
-    /// Use pip install
-    pub static ref USE_PIP_INSTALL: bool = std::env::var("USE_PIP_INSTALL")
-        .ok().map(|flag| flag == "true").unwrap_or(false);
-
+    static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
+    static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
+    static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
-    static ref EPHEMERAL_TOKEN_CMD: Option<String> = std::env::var("EPHEMERAL_TOKEN_CMD").ok();
-
+    static ref EPHEMERAL_TOKEN_CMD: Option<String> = var("EPHEMERAL_TOKEN_CMD").ok();
 }
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
-const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK: &str =
-    include_str!("../nsjail/download.py.pip.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
@@ -79,14 +73,324 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, read_file,
-        read_result, start_child_process, OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, read_file, read_result,
+        start_child_process, OccupancyMetrics,
     },
-    handle_child::{get_mem_peak, handle_child},
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, LOCK_CACHE_DIR,
-    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
-    PY311_CACHE_DIR, TZ_ENV, UV_CACHE_DIR,
+    handle_child::handle_child,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION,
+    NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    UV_CACHE_DIR,
 };
+
+// To change latest stable version:
+// 1. Change placeholder in instanceSettings.ts
+// 2. Change LATEST_STABLE_PY in dockerfile
+// 3. Change #[default] annotation for PyVersion in backend
+#[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
+pub enum PyVersion {
+    Py310,
+    #[default]
+    Py311,
+    Py312,
+    Py313,
+}
+
+impl PyVersion {
+    pub async fn from_instance_version() -> Self {
+        match INSTANCE_PYTHON_VERSION.read().await.clone() {
+            Some(v) => PyVersion::from_string_with_dots(&v).unwrap_or_else(|| {
+                let v = PyVersion::default();
+                tracing::error!(
+                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})",
+                *INSTANCE_PYTHON_VERSION
+            );
+                v
+            }),
+            // Use latest stable
+            None => PyVersion::default(),
+        }
+    }
+    /// e.g.: `/tmp/windmill/cache/python_3xy`
+    pub fn to_cache_dir(&self) -> String {
+        use windmill_common::worker::ROOT_CACHE_DIR;
+        format!("{ROOT_CACHE_DIR}{}", &self.to_cache_dir_top_level())
+    }
+    /// e.g.: `python_3xy`
+    pub fn to_cache_dir_top_level(&self) -> String {
+        format!("python_{}", self.to_string_no_dot())
+    }
+    /// e.g.: `3xy`
+    pub fn to_string_no_dot(&self) -> String {
+        self.to_string_with_dot().replace('.', "")
+    }
+    /// e.g.: `3.xy`
+    pub fn to_string_with_dot(&self) -> &str {
+        use PyVersion::*;
+        match self {
+            Py310 => "3.10",
+            Py311 => "3.11",
+            Py312 => "3.12",
+            Py313 => "3.13",
+        }
+    }
+    pub fn from_string_with_dots(value: &str) -> Option<Self> {
+        use PyVersion::*;
+        match value {
+            "3.10" => Some(Py310),
+            "3.11" => Some(Py311),
+            "3.12" => Some(Py312),
+            "3.13" => Some(Py313),
+            "default" => Some(PyVersion::default()),
+            _ => {
+                tracing::warn!(
+                    "Cannot convert string (\"{value}\") to PyVersion\nExpected format x.yz"
+                );
+                None
+            }
+        }
+    }
+    pub fn from_string_no_dots(value: &str) -> Option<Self> {
+        use PyVersion::*;
+        match value {
+            "310" => Some(Py310),
+            "311" => Some(Py311),
+            "312" => Some(Py312),
+            "313" => Some(Py313),
+            "default" => Some(PyVersion::default()),
+            _ => {
+                tracing::warn!(
+                    "Cannot convert string (\"{value}\") to PyVersion\nExpected format xyz"
+                );
+                None
+            }
+        }
+    }
+    /// e.g.: `# py3xy` -> `PyVersion::Py3XY`
+    pub fn parse_version(line: &str) -> Option<Self> {
+        Self::from_string_no_dots(line.replace(" ", "").replace("#py", "").as_str())
+    }
+    pub fn from_py_annotations(a: PythonAnnotations) -> Option<Self> {
+        let PythonAnnotations { py310, py311, py312, py313, .. } = a;
+        use PyVersion::*;
+        if py313 {
+            Some(Py313)
+        } else if py312 {
+            Some(Py312)
+        } else if py311 {
+            Some(Py311)
+        } else if py310 {
+            Some(Py310)
+        } else {
+            None
+        }
+    }
+    pub fn from_numeric(n: u32) -> Option<Self> {
+        use PyVersion::*;
+        match n {
+            310 => Some(Py310),
+            311 => Some(Py311),
+            312 => Some(Py312),
+            313 => Some(Py313),
+            _ => None,
+        }
+    }
+    pub fn to_numeric(&self) -> u32 {
+        use PyVersion::*;
+        match self {
+            Py310 => 310,
+            Py311 => 311,
+            Py312 => 312,
+            Py313 => 313,
+        }
+    }
+    pub async fn get_python(
+        &self,
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    ) -> error::Result<Option<String>> {
+        // lazy_static::lazy_static! {
+        //     static ref PYTHON_PATHS: Arc<RwLock<HashMap<PyVersion, String>>> = Arc::new(RwLock::new(HashMap::new()));
+        // }
+
+        let res = self
+            .get_python_inner(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+            .await;
+
+        if let Err(ref e) = res {
+            tracing::error!(
+                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n 
+                Error while getting python from uv, falling back to system python: {e:?}"
+            );
+        }
+        res
+    }
+    async fn get_python_inner(
+        self,
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    ) -> error::Result<Option<String>> {
+        let py_path = self.find_python().await;
+
+        // Runtime is not installed
+        if py_path.is_err() {
+            // Install it
+            if let Err(err) = self
+                .install_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+                .await
+            {
+                tracing::error!("Cannot install python: {err}");
+                return Err(err);
+            } else {
+                // Try to find one more time
+                let py_path = self.find_python().await;
+
+                if let Err(err) = py_path {
+                    tracing::error!("Cannot find python version {err}");
+                    return Err(err);
+                }
+
+                // TODO: Cache the result
+                py_path
+            }
+        } else {
+            py_path
+        }
+    }
+    async fn install_python(
+        self,
+        job_id: &Uuid,
+        mem_peak: &mut i32,
+        // canceled_by: &mut Option<CanceledBy>,
+        db: &Pool<Postgres>,
+        worker_name: &str,
+        w_id: &str,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    ) -> error::Result<()> {
+        let v = self.to_string_with_dot();
+        append_logs(job_id, w_id, format!("\nINSTALLING PYTHON ({})", v), db).await;
+        // Create dirs for newly installed python
+        // If we dont do this, NSJAIL will not be able to mount cache
+        // For the default version directory created during startup (main.rs)
+        DirBuilder::new()
+            .recursive(true)
+            .create(self.to_cache_dir())
+            .await
+            .expect("could not create initial worker dir");
+
+        let logs = String::new();
+
+        #[cfg(windows)]
+        let uv_cmd = "uv";
+
+        #[cfg(unix)]
+        let uv_cmd = UV_PATH.as_str();
+
+        let mut child_cmd = Command::new(uv_cmd);
+        child_cmd
+            .env_clear()
+            .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
+            .envs(PROXY_ENVS.clone())
+            .args(["python", "install", v, "--python-preference=only-managed"])
+            // TODO: Do we need these?
+            .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            child_cmd
+                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+
+        let child_process = start_child_process(child_cmd, "uv").await?;
+
+        append_logs(&job_id, &w_id, logs, db).await;
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            &mut None,
+            child_process,
+            false,
+            worker_name,
+            &w_id,
+            "uv",
+            None,
+            false,
+            occupancy_metrics,
+        )
+        .await
+    }
+    async fn find_python(self) -> error::Result<Option<String>> {
+        #[cfg(windows)]
+        let uv_cmd = "uv";
+
+        #[cfg(unix)]
+        let uv_cmd = UV_PATH.as_str();
+
+        let mut child_cmd = Command::new(uv_cmd);
+
+        #[cfg(windows)]
+        {
+            child_cmd
+                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+
+        let output = child_cmd
+            // .current_dir(job_dir)
+            .env_clear()
+            .env("HOME", HOME_ENV.to_string())
+            .env("PATH", PATH_ENV.to_string())
+            .args([
+                "python",
+                "find",
+                self.to_string_with_dot(),
+                "--python-preference=only-managed",
+            ])
+            .envs([
+                ("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR),
+                ("UV_PYTHON_PREFERENCE", "only-managed"),
+            ])
+            // .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await?;
+
+        // Check if the command was successful
+        if output.status.success() {
+            // Convert the output to a String
+            let stdout =
+                String::from_utf8(output.stdout).expect("Failed to convert output to String");
+            return Ok(Some(stdout.replace('\n', "")));
+        } else {
+            // If the command failed, print the error
+            let stderr =
+                String::from_utf8(output.stderr).expect("Failed to convert error output to String");
+            return Err(error::Error::FindPythonError(stderr));
+        }
+    }
+}
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -120,6 +424,10 @@ pub fn handle_ephemeral_token(x: String) -> String {
     x
 }
 
+// This function only invoked during deployment of script or test run.
+// And never for already deployed scripts, these have their lockfiles in PostgreSQL
+// thus this function call is skipped.
+/// Returns lockfile and python version
 pub async fn uv_pip_compile(
     job_id: &Uuid,
     requirements: &str,
@@ -130,14 +438,14 @@ pub async fn uv_pip_compile(
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    // Fallback to pip-compile. Will be removed in future
-    mut no_uv: bool,
+    py_version: PyVersion,
     // Debug-only flag
     no_cache: bool,
 ) -> error::Result<String> {
     let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
+
     let requirements = if let Some(pip_local_dependencies) =
         WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
     {
@@ -167,108 +475,44 @@ pub async fn uv_pip_compile(
         requirements.to_string()
     };
 
+    // Include python version to requirements.in
+    // We need it because same hash based on requirements.in can get calculated even for different python versions
+    // To prevent from overwriting same requirements.in but with different python versions, we include version to hash
+    let requirements = format!("# py{}\n{}", py_version.to_string_no_dot(), requirements);
+
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
 
-    let mut req_hash = format!("py-{}", calculate_hash(&requirements));
+    let req_hash = format!("py-{}", calculate_hash(&requirements));
 
-    if no_uv || *USE_PIP_COMPILE {
-        logs.push_str(&format!("\nFallback to pip-compile (Deprecated!)"));
-        // Set no_uv if not setted
-        no_uv = true;
-        // Make sure that if we put #no_uv (switch to pip-compile) to python code or used `USE_PIP_COMPILE=true` variable.
-        // Windmill will recalculate lockfile using pip-compile and dont take potentially broken lockfile (generated by uv) from cache (our db).
-        // It will recalculate lockfile even if inputs have not been changed.
-        req_hash.push_str("-no_uv");
-        // Will be in format:
-        //     py-000..000-no_uv
-    }
     if !no_cache {
         if let Some(cached) = sqlx::query_scalar!(
             "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+            // Python version is included in hash,
+            // hash will be the different for every python version
             req_hash
         )
         .fetch_optional(db)
         .await?
         {
-            logs.push_str(&format!("\nfound cached resolution: {req_hash}"));
+            logs.push_str(&format!(
+                "\nFound cached resolution: {req_hash}, on python version: {}",
+                py_version.to_string_with_dot()
+            ));
             return Ok(cached);
         }
     }
+
     let file = "requirements.in";
 
     write_file(job_dir, file, &requirements)?;
 
-    // Fallback pip-compile. Will be removed in future
-    if no_uv {
-        tracing::debug!("Fallback to pip-compile");
+    {
+        // Make sure we have python runtime installed
+        py_version
+            .get_python(job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+            .await?;
 
-        let mut args = vec![
-            "-q",
-            "--no-header",
-            file,
-            "--resolver=backtracking",
-            "--strip-extras",
-        ];
-        let mut pip_args = vec![];
-        let pip_extra_index_url = PIP_EXTRA_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
-        if let Some(url) = pip_extra_index_url.as_ref() {
-            url.split(",").for_each(|url| {
-                args.extend(["--extra-index-url", url]);
-                pip_args.push(format!("--extra-index-url {}", url));
-            });
-            args.push("--no-emit-index-url");
-        }
-        let pip_index_url = PIP_INDEX_URL
-            .read()
-            .await
-            .clone()
-            .map(handle_ephemeral_token);
-        if let Some(url) = pip_index_url.as_ref() {
-            args.extend(["--index-url", url, "--no-emit-index-url"]);
-            pip_args.push(format!("--index-url {}", url));
-        }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-            args.extend(["--trusted-host", host]);
-        }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            args.extend(["--cert", cert_path]);
-        }
-        let pip_args_str = pip_args.join(" ");
-        if pip_args.len() > 0 {
-            args.extend(["--pip-args", &pip_args_str]);
-        }
-        tracing::debug!("pip-compile args: {:?}", args);
-
-        let mut child_cmd = Command::new("pip-compile");
-        child_cmd
-            .current_dir(job_dir)
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let child_process = start_child_process(child_cmd, "pip-compile").await?;
-        append_logs(&job_id, &w_id, logs, db).await;
-        handle_child(
-            job_id,
-            db,
-            mem_peak,
-            canceled_by,
-            child_process,
-            false,
-            worker_name,
-            &w_id,
-            "pip-compile",
-            None,
-            false,
-            occupancy_metrics,
-        )
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
-    } else {
         let mut args = vec![
             "pip",
             "compile",
@@ -286,11 +530,15 @@ pub async fn uv_pip_compile(
             // Target to /tmp/windmill/cache/uv
             "--cache-dir",
             UV_CACHE_DIR,
-            // We dont want UV to manage python installations
-            "--python-preference",
-            "only-system",
-            "--no-python-downloads",
         ];
+
+        args.extend([
+            "-p",
+            &py_version.to_string_with_dot(),
+            "--python-preference",
+            "only-managed",
+        ]);
+
         if no_cache {
             args.extend(["--no-cache"]);
         }
@@ -312,13 +560,16 @@ pub async fn uv_pip_compile(
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             args.extend(["--trusted-host", host]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
         }
-        tracing::error!("uv args: {:?}", args);
+        if *NATIVE_CERT {
+            args.extend(["--native-tls"]);
+        }
+        tracing::debug!("uv args: {:?}", args);
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -332,6 +583,7 @@ pub async fn uv_pip_compile(
             .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
             .envs(PROXY_ENVS.clone())
             .args(&args)
             .stdout(Stdio::piped())
@@ -378,17 +630,22 @@ pub async fn uv_pip_compile(
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
-    let lockfile = req_content
-        .lines()
-        .filter(|x| !x.trim_start().starts_with('#'))
-        .map(|x| x.to_string())
-        .collect::<Vec<String>>()
-        .join("\n");
+    let lockfile = format!(
+        "# py{}\n{}",
+        py_version.to_string_no_dot(),
+        req_content
+            .lines()
+            .filter(|x| !x.trim_start().starts_with('#'))
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>()
+            .join("\n")
+    );
     sqlx::query!(
         "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
         req_hash,
         lockfile
     ).fetch_optional(db).await?;
+
     Ok(lockfile)
 }
 
@@ -519,6 +776,30 @@ fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Resul
     Ok(())
 }
 
+async fn get_python_path(
+    py_version: PyVersion,
+    worker_name: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    mem_peak: &mut i32,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+) -> windmill_common::error::Result<String> {
+    let python_path = if let Some(python_path) = PYTHON_PATH.clone() {
+        python_path
+    } else if let Some(python_path) = py_version
+        .get_python(&job_id, mem_peak, db, worker_name, w_id, occupancy_metrics)
+        .await?
+    {
+        python_path
+    } else {
+        return Err(Error::ExecutionErr(format!(
+            "uv could not manage python path. Please manage it manually by setting PYTHON_PATH environment variable to your python binary path"
+        )));
+    };
+    Ok(python_path)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<&String>,
@@ -538,7 +819,8 @@ pub async fn handle_python_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.script_path());
-    let mut additional_python_paths = handle_python_deps(
+
+    let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
         inner_content,
@@ -554,23 +836,38 @@ pub async fn handle_python_job(
     )
     .await?;
 
+    let PythonAnnotations { no_postinstall, .. } = PythonAnnotations::parse(inner_content);
     tracing::debug!("Finished handling python dependencies");
+    let python_path = get_python_path(
+        py_version,
+        worker_name,
+        &job.id,
+        &job.workspace_id,
+        mem_peak,
+        db,
+        &mut Some(occupancy_metrics),
+    )
+    .await?;
 
-    if !PythonAnnotations::parse(inner_content).no_postinstall {
+    if !no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, db).await {
             tracing::error!("Postinstall stage has failed. Reason: {e}");
         }
         tracing::debug!("Finished deps postinstall stage");
     }
 
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        "\n\n--- PYTHON CODE EXECUTION ---\n".to_string(),
-        db,
-    )
-    .await;
-
+    {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\n\n--- PYTHON ({}) CODE EXECUTION ---\n",
+                py_version.to_string_with_dot()
+            ),
+            db,
+        )
+        .await;
+    }
     let (
         import_loader,
         import_base64,
@@ -584,10 +881,11 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
+        job.is_flow_step,
+        job.preprocessed,
+        job.script_entrypoint_override.as_deref(),
         inner_content,
         &script_path,
-        job.args.as_ref(),
-        false,
     )
     .await?;
 
@@ -699,7 +997,27 @@ except BaseException as e:
 
     let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    let additional_python_paths_folders = additional_python_paths.iter().join(":");
+
+    // Add /tmp/windmill/cache/python_xyz/global-site-packages to PYTHONPATH.
+    // Usefull if certain wheels needs to be preinstalled before execution.
+    let global_site_packages_path = py_version.to_cache_dir() + "/global-site-packages";
+    let additional_python_paths_folders = {
+        let mut paths = additional_python_paths.clone();
+        if std::fs::metadata(&global_site_packages_path).is_ok() {
+            // We want global_site_packages_path to be included in additonal_python_paths_folders, but
+            // we don't want it to be included in global_site_packages_path.
+            // The reason for this is that additional_python_paths_folders is used to fill PYTHONPATH env variable for jailed script
+            // When global_site_packages_path used to place mount point of wheels to the jail config.
+            // Since we handle mount of global_site_packages on our own, we don't want it to be mounted automatically.
+            // We do this because existence of every wheel in cache is mandatory and if it is not there and nsjail expects it, it is a bug.
+            // On the other side global_site_packages is purely optional.
+            // NOTE: This behaviour can be changed in future, so verification of wheels can be offloaded from nsjail to windmill
+            paths.insert(0, global_site_packages_path.clone());
+            //    ^^^^^^^^
+            // We also want this be priorotized, that's why we insert it to the beginning
+        }
+        paths.iter().join(":")
+    };
 
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
@@ -725,9 +1043,11 @@ mount {{
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
+                .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
@@ -743,6 +1063,7 @@ mount {{
         "started python code execution {}",
         job.id
     );
+
     let child = if !*DISABLE_NSJAIL {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -759,7 +1080,7 @@ mount {{
                 "--config",
                 "run.config.proto",
                 "--",
-                PYTHON_PATH.as_str(),
+                &python_path,
                 "-u",
                 "-m",
                 "wrapper",
@@ -768,7 +1089,9 @@ mount {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let mut python_cmd = Command::new(PYTHON_PATH.as_str());
+        let mut python_cmd = Command::new(&python_path);
+
+        let args = vec!["-u", "-m", "wrapper"];
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -778,7 +1101,7 @@ mount {{
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(vec!["-u", "-m", "wrapper"])
+            .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -788,7 +1111,7 @@ mount {{
             python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        start_child_process(python_cmd, PYTHON_PATH.as_str()).await?
+        start_child_process(python_cmd, &python_path).await?
     };
 
     handle_child(
@@ -811,13 +1134,13 @@ mount {{
         let args = read_file(&format!("{job_dir}/args.json"))
             .await
             .map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while reading args from preprocessing: {e:#}"
                 ))
             })?;
         let args: HashMap<String, Box<RawValue>> =
             serde_json::from_str(args.get()).map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while deserializing args from preprocessing: {e:#}"
                 ))
             })?;
@@ -829,10 +1152,11 @@ mount {{
 
 async fn prepare_wrapper(
     job_dir: &str,
+    job_is_flow_step: bool,
+    job_preprocessed: Option<bool>,
+    job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
     script_path: &str,
-    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
-    skip_preprocessor: bool,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -845,16 +1169,8 @@ async fn prepare_wrapper(
     Option<String>,
     Option<String>,
 )> {
-    let (main_override, apply_preprocessor) = match get_main_override(args) {
-        Some(main_override) => {
-            if !skip_preprocessor && main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
-                (None, true)
-            } else {
-                (Some(main_override), false)
-            }
-        }
-        None => (None, false),
-    };
+    let main_override = job_script_entrypoint_override.as_deref();
+    let apply_preprocessor = !job_is_flow_step && job_preprocessed == Some(false);
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
@@ -894,12 +1210,17 @@ async fn prepare_wrapper(
         let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
     }
 
-    let sig = windmill_parser_py::parse_python_signature(inner_content, main_override.clone())?;
+    let sig = windmill_parser_py::parse_python_signature(
+        inner_content,
+        main_override.map(ToString::to_string),
+        false,
+    )?;
 
     let pre_sig = if apply_preprocessor {
         Some(windmill_parser_py::parse_python_signature(
             inner_content,
             Some("preprocessor".to_string()),
+            false,
         )?)
     } else {
         None
@@ -988,12 +1309,12 @@ async fn prepare_wrapper(
                     } else {
                         format!(
                             r#"pre_args["{name}"] = kwargs.get("{name}")
-    if pre_args["{name}"] is None:
-        del pre_args["{name}"]"#
+        if pre_args["{name}"] is None:
+            del pre_args["{name}"]"#
                         )
                     }
                 })
-                .join("\n    ")
+                .join("\n        ")
         };
         Some(spread)
     } else {
@@ -1011,7 +1332,7 @@ async fn prepare_wrapper(
         last,
         transforms,
         spread,
-        main_override,
+        main_override.map(ToString::to_string),
         pre_spread,
     ))
 }
@@ -1031,7 +1352,7 @@ async fn replace_pip_secret(
                 let capture = PIP_SECRET_VARIABLE.captures(req);
                 let variable = capture.unwrap().get(1).unwrap().as_str();
                 if !variable.contains("/PIP_SECRET_") {
-                    return Err(error::Error::InternalErr(format!(
+                    return Err(error::Error::internal_err(format!(
                         "invalid secret variable in pip requirements, (last part of path ma): {}",
                         req
                     )));
@@ -1073,7 +1394,7 @@ async fn handle_python_deps(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-) -> error::Result<Vec<String>> {
+) -> error::Result<(PyVersion, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
@@ -1084,8 +1405,12 @@ async fn handle_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
-    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let mut requirements;
+    let mut annotated_pyv = None;
+    let mut annotated_pyv_numeric = None;
+    let is_deployed = requirements_o.is_some();
+    let instance_pyv = PyVersion::from_instance_version().await;
+    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
@@ -1097,9 +1422,13 @@ async fn handle_python_deps(
                 script_path,
                 db,
                 &mut already_visited,
+                &mut annotated_pyv_numeric,
             )
             .await?
             .join("\n");
+
+            annotated_pyv = annotated_pyv_numeric.and_then(|v| PyVersion::from_numeric(v));
+
             if !requirements.is_empty() {
                 requirements = uv_pip_compile(
                     job_id,
@@ -1111,7 +1440,7 @@ async fn handle_python_deps(
                     worker_name,
                     w_id,
                     occupancy_metrics,
-                    annotations.no_uv || annotations.no_uv_compile,
+                    annotated_pyv.unwrap_or(instance_pyv),
                     annotations.no_cache,
                 )
                 .await
@@ -1123,12 +1452,47 @@ async fn handle_python_deps(
         }
     };
 
+    let requirements_lines: Vec<&str> = if requirements.len() > 0 {
+        requirements
+            .split("\n")
+            .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
+            .collect()
+    } else {
+        vec![]
+    };
+
+    /*
+     For deployed scripts we want to find out version in following order:
+     1. Assigned version (written in lockfile)
+     2. 3.11
+
+     For Previews:
+     1. Annotated version
+     2. Instance version
+     3. Latest Stable
+    */
+    let final_version = if is_deployed {
+        // If script is deployed we can try to parse first line to get assigned version
+        if let Some(v) = requirements_lines
+            .get(0)
+            .and_then(|line| PyVersion::parse_version(line))
+        {
+            // We have valid assigned version, we use it
+            v
+        } else {
+            // If there is no assigned version in lockfile we automatically fallback to 3.11
+            // In this case we have dependencies, but no associated python version
+            // This is the case for old deployed scripts
+            PyVersion::Py311
+        }
+    } else {
+        // This is not deployed script, meaning we test run it (Preview)
+        annotated_pyv.unwrap_or(instance_pyv)
+    };
+    // If len > 0 it means there is atleast one dependency or assigned python version
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(
-            requirements
-                .split("\n")
-                .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
-                .collect(),
+            requirements_lines,
             job_id,
             w_id,
             mem_peak,
@@ -1138,13 +1502,13 @@ async fn handle_python_deps(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            annotations.no_uv || annotations.no_uv_install,
-            false,
+            final_version,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
     }
-    Ok(additional_python_paths)
+
+    Ok((final_version, additional_python_paths))
 }
 
 lazy_static::lazy_static! {
@@ -1160,7 +1524,9 @@ async fn spawn_uv_install(
     venv_p: &str,
     job_dir: &str,
     (pip_extra_index_url, pip_index_url): (Option<String>, Option<String>),
-    no_uv_install: bool,
+    // If none, it is system python
+    py_path: Option<String>,
+    worker_dir: &str,
 ) -> Result<tokio::process::Child, Error> {
     if !*DISABLE_NSJAIL {
         tracing::info!(
@@ -1175,15 +1541,39 @@ async fn spawn_uv_install(
         if let Some(url) = pip_index_url.as_ref() {
             vars.push(("INDEX_URL", url));
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            vars.push(("PIP_INDEX_CERT", cert_path));
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            vars.push(("SSL_CERT_FILE", cert_path));
         }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
         }
-
+        if *NATIVE_CERT {
+            vars.push(("UV_NATIVE_TLS", "true"));
+        }
+        let _owner;
+        if let Some(py_path) = py_path.as_ref() {
+            _owner = format!(
+                "-p {} --python-preference only-managed",
+                py_path.as_str() //
+            );
+            vars.push(("PY_PATH", &_owner));
+        }
         vars.push(("REQ", &req));
         vars.push(("TARGET", venv_p));
+
+        std::fs::create_dir_all(venv_p)?;
+        let nsjail_proto = format!("{req}.config.proto");
+        // Prepare NSJAIL
+        let _ = write_file(
+            job_dir,
+            &nsjail_proto,
+            NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+                .replace("{WORKER_DIR}", worker_dir)
+                .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
+                .replace("{TARGET_DIR}", &venv_p)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .as_str(),
+        )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -1191,64 +1581,53 @@ async fn spawn_uv_install(
             .env_clear()
             .envs(vars)
             .envs(PROXY_ENVS.clone())
-            .args(vec!["--config", "download.config.proto"])
+            .args(vec!["--config", &nsjail_proto])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await
     } else {
-        let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
         #[cfg(unix)]
-        let req = if no_uv_install {
-            format!("'{}'", req)
-        } else {
-            req.to_owned()
-        };
+        let req = req.to_owned();
 
         #[cfg(windows)]
         let req = format!("{}", req);
 
-        let mut command_args = if no_uv_install {
-            vec![
-                PYTHON_PATH.as_str(),
-                "-m",
-                "pip",
-                "install",
-                &req,
-                "-I",
-                "--no-deps",
-                "--no-color",
-                "--isolated",
-                "--no-warn-conflicts",
-                "--disable-pip-version-check",
-                "-t",
-                venv_p,
-            ]
+        let mut command_args = vec![
+            UV_PATH.as_str(),
+            "pip",
+            "install",
+            &req,
+            "--no-deps",
+            "--no-color",
+            // Prevent uv from discovering configuration files.
+            "--no-config",
+            "--link-mode=copy",
+            "--system",
+            // Prefer main index over extra
+            // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
+            // TODO: Use env variable that can be toggled from UI
+            "--index-strategy",
+            "unsafe-best-match",
+            "--target",
+            venv_p,
+            "--no-cache",
+            // If we invoke uv pip install, then we want to overwrite existing data
+            "--reinstall",
+        ];
+
+        if let Some(py_path) = py_path.as_ref() {
+            command_args.extend([
+                "-p",
+                py_path.as_str(),
+                "--python-preference",
+                "only-managed", //
+            ]);
         } else {
-            vec![
-                UV_PATH.as_str(),
-                "pip",
-                "install",
-                &req,
-                "--no-deps",
-                "--no-color",
-                // "-p",
-                // "3.11",
-                // Prevent uv from discovering configuration files.
-                "--no-config",
-                "--link-mode=copy",
-                "--system",
-                // Prefer main index over extra
-                // https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes
-                // TODO: Use env variable that can be toggled from UI
-                "--index-strategy",
-                "unsafe-best-match",
-                "--target",
-                venv_p,
-                "--no-cache",
-                // If we invoke uv pip install, then we want to overwrite existing data
-                "--reinstall",
-            ]
-        };
+            command_args.extend([
+                "--python-preference",
+                "only-system", //
+            ]);
+        }
 
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
@@ -1256,59 +1635,44 @@ async fn spawn_uv_install(
             });
         }
 
+        let mut envs = vec![("PATH", PATH_ENV.as_str())];
+        envs.push(("HOME", HOME_ENV.as_str()));
+
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);
         }
-        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
-            command_args.extend(["--cert", cert_path]);
-        }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
+        if let Some(host) = TRUSTED_HOST.as_ref() {
             command_args.extend(["--trusted-host", &host]);
         }
-
-        let mut envs = vec![("PATH", PATH_ENV.as_str())];
-        envs.push(("HOME", HOME_ENV.as_str()));
+        if *NATIVE_CERT {
+            command_args.extend(["--native-tls"]);
+        }
+        // TODO:
+        // Track https://github.com/astral-sh/uv/issues/6715
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            // Once merged --cert can be used instead
+            //
+            // command_args.extend(["--cert", cert_path]);
+            envs.push(("SSL_CERT_FILE", cert_path));
+        }
 
         tracing::debug!("uv pip install command: {:?}", command_args);
 
         #[cfg(unix)]
         {
-            if no_uv_install {
-                let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
-                flock_cmd
-                    .env_clear()
-                    .envs(PROXY_ENVS.clone())
-                    .envs(envs)
-                    .args([
-                        "-x",
-                        &format!(
-                            "{}/{}-{}.lock",
-                            LOCK_CACHE_DIR,
-                            if no_uv_install { "pip" } else { "py311" },
-                            fssafe_req
-                        ),
-                        "--command",
-                        &command_args.join(" "),
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                start_child_process(flock_cmd, FLOCK_PATH.as_str()).await
-            } else {
-                let mut cmd = Command::new(command_args[0]);
-                cmd.env_clear()
-                    .envs(PROXY_ENVS.clone())
-                    .envs(envs)
-                    .args(&command_args[1..])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                start_child_process(cmd, UV_PATH.as_str()).await
-            }
+            let mut cmd = Command::new(command_args[0]);
+            cmd.env_clear()
+                .envs(PROXY_ENVS.clone())
+                .envs(envs)
+                .args(&command_args[1..])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            start_child_process(cmd, UV_PATH.as_str()).await
         }
 
         #[cfg(windows)]
         {
-            let installer_path = if no_uv_install { command_args[0] } else { "uv" };
-            let mut cmd: Command = Command::new(&installer_path);
+            let mut cmd: Command = Command::new("uv");
             cmd.env_clear()
                 .envs(envs)
                 .envs(PROXY_ENVS.clone())
@@ -1321,7 +1685,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, installer_path).await
+            start_child_process(cmd, "uv").await
         }
     }
 }
@@ -1339,7 +1703,7 @@ fn pad_string(value: &str, total_length: usize) -> String {
     }
 }
 
-/// pip install, include cached or pull from S3
+/// uv pip install, include cached or pull from S3
 pub async fn handle_python_reqs(
     requirements: Vec<&str>,
     job_id: &Uuid,
@@ -1351,10 +1715,10 @@ pub async fn handle_python_reqs(
     job_dir: &str,
     worker_dir: &str,
     _occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    // TODO: Remove (Deprecated)
-    mut no_uv_install: bool,
-    is_ansible: bool,
+    py_version: PyVersion,
 ) -> error::Result<Vec<String>> {
+    let worker_dir = worker_dir.to_string();
+
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
     // Append logs with line like this:
     // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
@@ -1403,19 +1767,10 @@ pub async fn handle_python_reqs(
         .await;
         // Drop lock, so next print success can fire
     }
-    no_uv_install |= *USE_PIP_INSTALL;
 
-    if no_uv_install && !is_ansible {
-        append_logs(&job_id, w_id, "\nFallback to pip (Deprecated!)\n", db).await;
-        tracing::warn!("Fallback to pip");
-    }
     // Parallelism level (N)
-    let parallel_limit = if no_uv_install {
-        1
-    } else {
-        // Semaphore will panic if value less then 1
-        PY_CONCURRENT_DOWNLOADS.clamp(1, 30)
-    };
+    let parallel_limit = // Semaphore will panic if value less then 1
+        PY_CONCURRENT_DOWNLOADS.clamp(1, 30);
 
     tracing::info!(
         workspace_id = %w_id,
@@ -1438,29 +1793,6 @@ pub async fn handle_python_reqs(
             .map(handle_ephemeral_token),
     );
 
-    // Prepare NSJAIL
-    if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "download.config.proto",
-            &(if no_uv_install {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT_FALLBACK
-            } else {
-                NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-            })
-            .replace("{WORKER_DIR}", &worker_dir)
-            .replace(
-                "{CACHE_DIR}",
-                if no_uv_install {
-                    PIP_CACHE_DIR
-                } else {
-                    PY311_CACHE_DIR
-                },
-            )
-            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
-    };
-
     // Cached paths
     let mut req_with_penv: Vec<(String, String)> = vec![];
     // Requirements to pull (not cached)
@@ -1473,12 +1805,7 @@ pub async fn handle_python_reqs(
         if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
         }
-        // TODO: Remove
-        let py_prefix = if no_uv_install {
-            PIP_CACHE_DIR
-        } else {
-            PY311_CACHE_DIR
-        };
+        let py_prefix = &py_version.to_cache_dir();
 
         let venv_p = format!(
             "{py_prefix}/{}",
@@ -1528,7 +1855,7 @@ pub async fn handle_python_reqs(
                         let mut local_mem_peak = 0;
                         for pid_o in pids.lock().await.iter() {
                             if pid_o.is_some(){
-                                let mem = get_mem_peak(*pid_o, !*DISABLE_NSJAIL).await;
+                                let mem = crate::handle_child::get_mem_peak(*pid_o, !*DISABLE_NSJAIL).await;
                                 if mem < 0 {
                                     tracing::warn!(
                                         workspace_id = %w_id_2,
@@ -1563,29 +1890,26 @@ pub async fn handle_python_reqs(
 
                         // Notify server that we are still alive
                         // Detect if job has been canceled
-                        let canceled =
-                            sqlx::query_scalar::<_, bool>
-                            (r#"
-
-                                   UPDATE queue 
-                                      SET last_ping = now()
-                                        , mem_peak = $1
-                                    WHERE id = $2
-                                RETURNING canceled
-
-                                "#)
-                            .bind(mem_peak_actual)
-                            .bind(job_id_2)
-                            .fetch_optional(&db_2)
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
-                                Some(false)
-                            })
-                            .unwrap_or_else(|| {
-                                // if the job is not in queue, it can only be in the completed_job so it is already complete
-                                false
-                            });
+                        let canceled = sqlx::query_scalar!(
+                            "UPDATE v2_job_runtime r SET
+                                memory_peak = $1,
+                                ping = now()
+                            FROM v2_job_queue q
+                            WHERE r.id = $2 AND q.id = r.id
+                            RETURNING canceled_by IS NOT NULL AS \"canceled!\"",
+                            mem_peak_actual,
+                            job_id_2
+                        )
+                        .fetch_optional(&db_2)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::error!(%e, "error updating job {job_id_2}: {e:#}");
+                            Some(false)
+                        })
+                        .unwrap_or_else(|| {
+                            // if the job is not in queue, it can only be in the completed_job so it is already complete
+                            false
+                        });
 
                         if canceled {
 
@@ -1621,13 +1945,7 @@ pub async fn handle_python_reqs(
     let mut req_tl = 0;
     if total_to_install > 0 {
         let mut logs = String::new();
-        // Do we use UV?
-        if no_uv_install {
-            logs.push_str("\n\n--- PIP INSTALL ---\n");
-        } else {
-            logs.push_str("\n\n--- UV PIP INSTALL ---\n");
-        }
-
+        logs.push_str("\n\n--- UV PIP INSTALL ---\n");
         logs.push_str("\nTo be installed: \n\n");
         for (req, _) in &req_with_penv {
             if req.len() > req_tl {
@@ -1659,6 +1977,10 @@ pub async fn handle_python_reqs(
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
     let total_time = std::time::Instant::now();
+    let py_path = py_version
+        .get_python(job_id, mem_peak, db, _worker_name, w_id, _occupancy_metrics)
+        .await?;
+
     let has_work = req_with_penv.len() > 0;
     for ((i, (req, venv_p)), mut kill_rx) in
         req_with_penv.iter().enumerate().zip(kill_rxs.into_iter())
@@ -1688,8 +2010,9 @@ pub async fn handle_python_reqs(
         let venv_p = venv_p.clone();
         let counter_arc = counter_arc.clone();
         let pip_indexes = pip_indexes.clone();
+        let py_path = py_path.clone();
         let pids = pids.clone();
-
+        let worker_dir = worker_dir.clone();
         handles.push(task::spawn(async move {
             // permit will be dropped anyway if this thread exits at any point
             // so we dont have to drop it manually
@@ -1711,7 +2034,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        pull = pull_from_tar(os, venv_p.clone(), no_uv_install) => {
+                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level()) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
@@ -1731,6 +2054,18 @@ pub async fn handle_python_reqs(
                                     db
                                 ).await;
                                 pids.lock().await.get_mut(i).and_then(|e| e.take());
+
+                                // Create a file to indicate that installation was successfull
+                                let valid_path = venv_p.clone() + "/.valid.windmill";
+                                // This is atomic operation, meaning, that it either completes and wheel is valid, 
+                                // or it does not and wheel is invalid and will be reinstalled next run
+                                if let Err(e) = File::create(&valid_path).await{
+                                    tracing::error!(
+                                    workspace_id = %w_id,
+                                    job_id = %job_id,
+                                        "Failed to create {}!\n{e}\n
+                                        This file needed for python jobs to function", valid_path)
+                                };
                                 return Ok(());
                             }
                         }
@@ -1744,7 +2079,8 @@ pub async fn handle_python_reqs(
                 &venv_p,
                 &job_dir,
                 pip_indexes,
-                no_uv_install,
+                py_path,
+                &worker_dir
             ).await {
                 Ok(r) => r,
                 Err(e) => {
@@ -1784,12 +2120,12 @@ pub async fn handle_python_reqs(
                     uv_install_proccess.kill().await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
-                },                
+                },
                 (_, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
                     // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
                     (stderr_future.await, uv_install_proccess.wait().await)
-                 } => match exitstatus {
+                } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(
                             workspace_id = %w_id,
@@ -1828,6 +2164,9 @@ pub async fn handle_python_reqs(
             #[cfg(not(all(feature = "enterprise", feature = "parquet", unix)))]
             let s3_push = false;
 
+            if !*DISABLE_NSJAIL {
+                let _ = std::fs::remove_file(format!("{job_dir}/{req}.config.proto"));
+            }
 
             print_success(
                 false,
@@ -1846,7 +2185,7 @@ pub async fn handle_python_reqs(
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), no_uv_install));
+                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level()));
                 }
             }
 
@@ -1955,7 +2294,7 @@ pub async fn start_worker(
     .to_vec();
 
     let context_envs = build_envs_map(context).await;
-    let additional_python_paths = handle_python_deps(
+    let (_, additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
         inner_content,
@@ -1971,7 +2310,6 @@ pub async fn start_worker(
     )
     .await?;
 
-    let _args = None;
     let (
         import_loader,
         import_base64,
@@ -1983,7 +2321,7 @@ pub async fn start_worker(
         spread,
         _,
         _,
-    ) = prepare_wrapper(job_dir, inner_content, script_path, _args.as_ref(), true).await?;
+    ) = prepare_wrapper(job_dir, false, None, None, inner_content, script_path).await?;
 
     {
         let indented_transforms = transforms
@@ -2079,8 +2417,20 @@ for line in sys.stdin:
         base_internal_url.to_string(),
     );
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
+
+    let py_version = PyVersion::from_instance_version().await;
+    let python_path = get_python_path(
+        py_version,
+        worker_name,
+        &Uuid::nil(),
+        w_id,
+        &mut mem_peak,
+        db,
+        &mut None,
+    )
+    .await?;
     handle_dedicated_process(
-        &*PYTHON_PATH,
+        &python_path,
         job_dir,
         context_envs,
         envs,

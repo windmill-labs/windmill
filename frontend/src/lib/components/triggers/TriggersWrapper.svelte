@@ -2,12 +2,14 @@
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import { capitalize } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
-	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
-	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
+	import RouteEditorConfigSection from './http/RouteEditorConfigSection.svelte'
+	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
+	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
-	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
-	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
+	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
+	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
+	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false
@@ -30,6 +32,14 @@
 			bind:url_runnable_args={args.url_runnable_args}
 			showCapture={false}
 		/>
+	{:else if triggerType === 'postgres'}
+		<PostgresEditorConfigSection
+			can_write={true}
+			headless={true}
+			showCapture={false}
+			bind:publication={args.publication}
+			bind:postgres_resource_path={args.postgres_resource_path}
+		/>
 	{:else if triggerType === 'webhook'}
 		<WebhooksConfigSection
 			{isFlow}
@@ -44,10 +54,9 @@
 		<RouteEditorConfigSection
 			showCapture={false}
 			can_write={true}
-			bind:args
+			bind:route_path={args.route_path}
+			bind:http_method={args.http_method}
 			headless
-			{isFlow}
-			{path}
 		/>
 	{:else if triggerType === 'email'}
 		<EmailTriggerConfigSection
@@ -62,5 +71,14 @@
 		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{:else if triggerType === 'nats'}
 		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
+	{:else if triggerType === 'sqs'}
+		<SqsTriggerEditorConfigSection
+			bind:queue_url={args.queue_url}
+			bind:aws_resource_path={args.aws_resource_path}
+			bind:message_attributes={args.message_attributes}
+			headless={true}
+			can_write={true}
+			showCapture={false}
+		/>
 	{/if}
 </div>

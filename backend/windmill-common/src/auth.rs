@@ -67,7 +67,7 @@ pub async fn is_super_admin_email(db: &DB, email: &str) -> Result<bool> {
     let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
         .fetch_optional(db)
         .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("fetching super admin: {e:#}")))?
         .unwrap_or(false);
 
     Ok(is_admin)
@@ -81,7 +81,7 @@ pub async fn is_devops_email(db: &DB, email: &str) -> Result<bool> {
     let is_devops = sqlx::query_scalar!("SELECT devops FROM password WHERE email = $1", email)
         .fetch_optional(db)
         .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("fetching super admin: {e:#}")))?
         .unwrap_or(false);
 
     Ok(is_devops)
@@ -123,7 +123,7 @@ pub async fn fetch_authed_from_permissioned_as(
                 if let Some(r) = r {
                     (r.is_admin, r.operator)
                 } else {
-                    return Err(Error::InternalErr(format!(
+                    return Err(Error::internal_err(format!(
                         "user {name} not found in workspace {w_id}"
                     )));
                 }

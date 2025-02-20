@@ -14,11 +14,11 @@
 	export let uiOnly: boolean = false
 	export let noPreview: boolean = false
 	export let fullHeight: boolean = true
-	export let lightweightMode: boolean = false
 	export let formatExtension: string | undefined = undefined
 
 	let resourceIsTextFile: boolean = false
 	let addProperty: AddPropertyV2 | undefined = undefined
+	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -90,6 +90,9 @@
 				bind:schema
 				bind:this={addProperty}
 				on:change={() => dispatch('change', schema)}
+				on:addNew={(e) => {
+					editableSchemaForm?.openField(e.detail)
+				}}
 			>
 				<svelte:fragment slot="trigger">
 					<div
@@ -101,6 +104,8 @@
 			</AddPropertyV2>
 		{/if}
 		<EditableSchemaForm
+			onlyMaskPassword
+			bind:this={editableSchemaForm}
 			bind:schema
 			on:change={() => dispatch('change', schema)}
 			isFlowInput
@@ -112,7 +117,6 @@
 			}}
 			{uiOnly}
 			{noPreview}
-			{lightweightMode}
 			editTab="inputEditor"
 		>
 			<svelte:fragment slot="addProperty">

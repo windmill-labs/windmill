@@ -10,6 +10,7 @@
 	import type { SchemaProperty } from '$lib/common'
 
 	export let canEditResourceType: boolean = false
+	export let originalType: string | undefined = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
@@ -42,7 +43,7 @@
 	}
 </script>
 
-{#if canEditResourceType}
+{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 	<Label label="Items type">
 		<select
 			bind:value={selected}
@@ -67,10 +68,12 @@
 		>
 			<option value="string"> Items are strings</option>
 			<option value="enum">Items are strings from an enum</option>
-			<option value="object"> Items are objects (JSON)</option>
-			<option value="resource"> Items are resources</option>
-			<option value="number">Items are numbers</option>
-			<option value="bytes">Items are bytes</option>
+			{#if originalType != 'string[]'}
+				<option value="object"> Items are objects (JSON)</option>
+				<option value="resource"> Items are resources</option>
+				<option value="number">Items are numbers</option>
+				<option value="bytes">Items are bytes</option>
+			{/if}
 		</select>
 	</Label>
 {:else if itemsType?.resourceType}
@@ -121,31 +124,33 @@
 				</div>
 			{/each}
 		</div>
-		<div class="flex flex-row mb-1 mt-2">
-			<Button
-				color="light"
-				variant="border"
-				size="sm"
-				on:click={() => {
-					if (itemsType?.enum) {
-						let enum_ = itemsType.enum
-						let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
-						itemsType.enum = itemsType.enum ? itemsType.enum.concat(choice) : [choice]
-					}
-				}}
-			>
-				<Plus size={14} />
-			</Button>
-			<Button
-				color="light"
-				variant="border"
-				size="sm"
-				btnClasses="ml-2"
-				on:click={() => itemsType?.enum && (itemsType.enum = undefined)}
-			>
-				Clear
-			</Button>
-		</div>
+		{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
+			<div class="flex flex-row mb-1 mt-2">
+				<Button
+					color="light"
+					variant="border"
+					size="sm"
+					on:click={() => {
+						if (itemsType?.enum) {
+							let enum_ = itemsType.enum
+							let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
+							itemsType.enum = itemsType.enum ? itemsType.enum.concat(choice) : [choice]
+						}
+					}}
+				>
+					<Plus size={14} />
+				</Button>
+				<Button
+					color="light"
+					variant="border"
+					size="sm"
+					btnClasses="ml-2"
+					on:click={() => itemsType?.enum && (itemsType.enum = undefined)}
+				>
+					Clear
+				</Button>
+			</div>
+		{/if}
 	</label>
 {/if}
 

@@ -4,15 +4,17 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 	import { onMount } from 'svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	export let name: string
 	export let value: any
 	export let login = true
+	export let eeOnly = false
 
-	$: enabled = value != undefined
+	$: enabled = value != undefined && !(eeOnly && !$enterpriseLicense)
 
 	let tenant: string = ''
-	$: name == 'microsoft' && changeTenantId(tenant)
+	$: (name == 'microsoft' || name == 'teams') && changeTenantId(tenant)
 
 	onMount(() => {
 		try {
@@ -24,6 +26,9 @@
 			) {
 				tenant = value['login_config']['auth_url'].split('/')[3]
 			}
+			if (name === 'teams' && value?.tenant) {
+				tenant = value.tenant
+			}
 		} catch (e) {
 			console.error('Could not set tenantId', e)
 		}
@@ -32,13 +37,20 @@
 	function changeTenantId(tenant: string) {
 		if (value && tenant) {
 			if (tenant != '') {
-				value = {
-					...value,
-					login_config: {
-						auth_url: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
-						token_url: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-						userinfo_url: `https://graph.microsoft.com/oidc/userinfo`,
-						scopes: ['openid', 'profile', 'email']
+				if (name === 'teams') {
+					value = {
+						...value,
+						tenant
+					}
+				} else {
+					value = {
+						...value,
+						login_config: {
+							auth_url: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
+							token_url: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+							userinfo_url: `https://graph.microsoft.com/oidc/userinfo`,
+							scopes: ['openid', 'profile', 'email']
+						}
 					}
 				}
 			} else {
@@ -56,6 +68,7 @@
 		class="text-sm flex gap-4 items-center font-medium text-primary {enabled ? 'rounded py-2' : ''}"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
+			disabled={eeOnly && !$enterpriseLicense}
 			on:change={(e) => {
 				if (e.detail) {
 					value = { id: '', secret: '' }
@@ -63,11 +76,14 @@
 					value = undefined
 				}
 			}}
-		/></label
-	>
+		/>
+		{#if eeOnly && !$enterpriseLicense}
+			<div class="text-xs"> (EE only) </div>
+		{/if}
+	</label>
 	{#if enabled}
 		<div class="p-2 rounded border mb-4">
-			{#if name != 'slack'}
+			{#if name != 'slack' && name != 'teams'}
 				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Custom Name</span>
 					<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
@@ -81,7 +97,7 @@
 				<span class="text-primary font-semibold text-sm">Client Secret</span>
 				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
 			</label>
-			{#if name == 'microsoft'}
+			{#if name == 'microsoft' || name == 'teams'}
 				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Tenant Id</span>
 					<input type="text" placeholder="Tenant Id" bind:value={tenant} />
@@ -164,6 +180,16 @@
 						ID)" in the tenant ID field. Then copy the Client ID from "Application (client) ID" and
 						create a secret in "Client credentials". Last, include "Sign in" and "read user profile"
 						under "Delegated Permissions".
+					</div>
+				</CollapseLink>
+			{:else if name == 'teams'}
+				<CollapseLink text="Instructions">
+					<div class="text-sm text-secondary border p-2">
+						Follow this guide on <a
+							href="https://www.windmill.dev/docs/misc/setup_oauth#microsoft-teams"
+							target="_blank">Windmill Docs</a
+						> to create a new Microsoft Teams App. Then paste Client ID, Tenant ID, and Client Secret
+						here.
 					</div>
 				</CollapseLink>
 			{/if}

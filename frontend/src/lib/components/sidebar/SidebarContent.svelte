@@ -32,7 +32,8 @@
 		UserCog,
 		Plus,
 		Unplug,
-		AlertCircle
+		AlertCircle,
+		Database
 	} from 'lucide-svelte'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import MenuButton from './MenuButton.svelte'
@@ -52,6 +53,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -78,7 +80,6 @@
 			(link) => $usedTriggerKinds.includes(link.kind) || $page.url.pathname.includes(link.href)
 		)
 	]
-
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
 		sendUserToast('You left the workspace')
@@ -86,7 +87,7 @@
 		goto('/user/workspaces')
 	}
 
-	const defaultExtraTriggerLinks = [
+	$: defaultExtraTriggerLinks = [
 		{
 			label: 'HTTP',
 			href: '/routes',
@@ -95,11 +96,18 @@
 			kind: 'http'
 		},
 		{
-			label: 'Websockets',
+			label: 'WebSockets',
 			href: '/websocket_triggers',
 			icon: Unplug,
 			disabled: $userStore?.operator,
 			kind: 'ws'
+		},
+		{
+			label: 'Postgres',
+			href: '/postgres_triggers',
+			icon: Database,
+			disabled: $userStore?.operator,
+			kind: 'postgres'
 		},
 		{
 			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
@@ -114,13 +122,19 @@
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats'
+		},
+		{
+			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/sqs_triggers',
+			icon: AwsIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'sqs'
 		}
 	]
 
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
 		return !$page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 	})
-
 	$: secondaryMenuLinks = [
 		// {
 		// 	label: 'Workspace',
@@ -342,7 +356,6 @@
 											{#if subItem.icon}
 												<svelte:component this={subItem.icon} size={16} />
 											{/if}
-
 											{subItem.label}
 										</div>
 									</a>

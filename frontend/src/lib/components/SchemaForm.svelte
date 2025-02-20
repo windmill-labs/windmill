@@ -12,9 +12,10 @@
 	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { ComponentCustomCSS } from './apps/types'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -25,6 +26,7 @@
 
 	export let isValid: boolean = true
 	export let autofocus = false
+	export let defaultValues: Record<string, any> = {}
 
 	export let shouldHideNoInputs: boolean = false
 	export let compact = false
@@ -38,7 +40,6 @@
 	export let showSchemaExplorer = false
 	export let showReset = false
 	export let onlyMaskPassword = false
-	export let lightweightMode: boolean = false
 	export let dndConfig: DndOptions | undefined = undefined
 	export let items: { id: string; value: string }[] | undefined = undefined
 	export let helperScript:
@@ -46,6 +47,28 @@
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
 	export let lightHeader = false
+	export let diff: Record<string, SchemaDiff> = {}
+	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
+	export let shouldDispatchChanges = false
+	export let nestedClasses = ''
+	export let dynamicEnums: Record<string, any> = {}
+	export let largeGap: boolean = false
+	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
+	export let displayType: boolean = true
+
+	export let appPath: string | undefined = undefined
+
+	export let computeS3ForceViewerPolicies:
+		| (() =>
+				| {
+						allowed_resources: string[]
+						allow_user_resources: boolean
+						allow_workspace_resource: boolean
+						file_key_regex: string
+				  }
+				| undefined)
+		| undefined = undefined
+	export let workspace: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -56,7 +79,7 @@
 	}
 
 	export function setDefaults() {
-		const nargs = {}
+		const nargs = structuredClone(defaultValues)
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
@@ -166,7 +189,9 @@
 {/if}
 
 <div
-	class="w-full {$$props.class} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
+	class="w-full {$$props.class} {flexWrap
+		? 'flex flex-row flex-wrap gap-x-6 '
+		: ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
 	on:finalize
 	on:consider
@@ -174,153 +199,171 @@
 	{#if keys.length > 0}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
-			<div>
+			<div
+				class={typeof diff[argName] === 'object' && diff[argName].diff !== 'same'
+					? 'bg-red-300 dark:bg-red-800 rounded-md'
+					: ''}
+			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && keys.includes(argName)}
+					{#if typeof diff[argName] === 'object' && diff[argName].oldSchema}
+						{@const formerProperty = diff[argName].oldSchema}
+						<div class="px-2">
+							<ArgInput
+								{disablePortal}
+								{resourceTypes}
+								{prettifyHeader}
+								autofocus={i == 0 && autofocus ? true : null}
+								label={argName}
+								description={formerProperty?.description}
+								value={args[argName]}
+								type={formerProperty?.type}
+								oneOf={formerProperty?.oneOf}
+								required={formerProperty?.required}
+								pattern={formerProperty?.pattern}
+								valid={inputCheck[argName]}
+								defaultValue={defaultValues?.[argName] ?? structuredClone(formerProperty?.default)}
+								enum_={dynamicEnums?.[argName] ?? formerProperty?.enum}
+								format={formerProperty?.format}
+								contentEncoding={formerProperty?.contentEncoding}
+								customErrorMessage={formerProperty?.customErrorMessage}
+								properties={formerProperty?.properties}
+								order={formerProperty?.order}
+								nestedRequired={formerProperty?.required}
+								itemsType={formerProperty?.items}
+								disabled={disabledArgs.includes(argName) || disabled || formerProperty?.disabled}
+								{compact}
+								{variableEditor}
+								{itemPicker}
+								{pickForField}
+								password={linkedSecret == argName}
+								extra={formerProperty}
+								{showSchemaExplorer}
+								simpleTooltip={schemaFieldTooltip[argName]}
+								{onlyMaskPassword}
+								nullable={formerProperty?.nullable}
+								title={formerProperty?.title}
+								placeholder={formerProperty?.placeholder}
+								orderEditable={dndConfig != undefined}
+								otherArgs={args}
+								{helperScript}
+								{lightHeader}
+								hideNested={typeof diff[argName].diff === 'object'}
+								diffStatus={undefined}
+								{appPath}
+								{computeS3ForceViewerPolicies}
+								{workspace}
+								{css}
+								{displayType}
+							/>
+						</div>
+					{/if}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
-						class="flex flex-row items-center bg-surface"
+						class="flex flex-row items-center {largeGap ? 'pb-4' : ''} "
 						on:click={() => {
 							dispatch('click', argName)
 						}}
 					>
-						{#if typeof args == 'object' && schema?.properties[argName]}
+						{#if args && typeof args == 'object' && schema?.properties[argName]}
+							<!-- {argName}
+							{args == undefined}
+							{JSON.stringify(args?.[argName])} -->
 							{#if !hidden[argName]}
-								{#if lightweightMode}
-									<LightweightArgInput
-										label={argName}
-										description={schema.properties[argName].description}
-										bind:value={args[argName]}
-										type={schema.properties[argName].type}
-										oneOf={schema.properties[argName].oneOf}
-										required={schema?.required?.includes(argName)}
-										pattern={schema.properties[argName].pattern}
-										bind:valid={inputCheck[argName]}
-										defaultValue={structuredClone(schema.properties[argName].default)}
-										enum_={schema.properties[argName].enum}
-										format={schema.properties[argName].format}
-										contentEncoding={schema.properties[argName].contentEncoding}
-										customErrorMessage={schema.properties[argName].customErrorMessage}
-										bind:properties={schema.properties[argName].properties}
-										nestedRequired={schema.properties[argName]?.required}
-										itemsType={schema.properties[argName].items}
-										extra={schema.properties[argName]}
-										title={schema.properties[argName].title}
-										placeholder={schema.properties[argName].placeholder}
-										disabled={disabledArgs.includes(argName) ||
-											disabled ||
-											schema.properties[argName].disabled}
+								<ArgInput
+									on:change={() => {
+										dispatch('change')
+									}}
+									on:nestedChange={() => {
+										dispatch('nestedChange')
+									}}
+									on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
+									on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
+									{disablePortal}
+									{resourceTypes}
+									{prettifyHeader}
+									autofocus={i == 0 && autofocus ? true : null}
+									label={argName}
+									description={schema.properties[argName].description}
+									bind:value={args[argName]}
+									type={schema.properties[argName].type}
+									oneOf={schema.properties[argName].oneOf}
+									required={schema?.required?.includes(argName)}
+									pattern={schema.properties[argName].pattern}
+									bind:valid={inputCheck[argName]}
+									defaultValue={defaultValues?.[argName] ??
+										structuredClone(schema.properties[argName].default)}
+									enum_={dynamicEnums?.[argName] ?? schema.properties[argName].enum}
+									format={schema.properties[argName].format}
+									contentEncoding={schema.properties[argName].contentEncoding}
+									customErrorMessage={schema.properties[argName].customErrorMessage}
+									bind:properties={schema.properties[argName].properties}
+									bind:order={schema.properties[argName].order}
+									nestedRequired={schema.properties[argName]?.required}
+									itemsType={schema.properties[argName].items}
+									disabled={disabledArgs.includes(argName) ||
+										disabled ||
+										schema.properties[argName].disabled}
+									{compact}
+									{variableEditor}
+									{itemPicker}
+									bind:pickForField
+									password={linkedSecret == argName}
+									extra={schema.properties[argName]}
+									{showSchemaExplorer}
+									simpleTooltip={schemaFieldTooltip[argName]}
+									{onlyMaskPassword}
+									nullable={schema.properties[argName].nullable}
+									title={schema.properties[argName].title}
+									placeholder={schema.properties[argName].placeholder}
+									orderEditable={dndConfig != undefined}
+									otherArgs={args}
+									{helperScript}
+									{lightHeader}
+									diffStatus={diff[argName] ?? undefined}
+									{nestedParent}
+									{shouldDispatchChanges}
+									{nestedClasses}
+									{appPath}
+									{computeS3ForceViewerPolicies}
+									{workspace}
+									{css}
+									{displayType}
+								>
+									<svelte:fragment slot="actions">
+										<slot name="actions" />
+										{#if linkedSecretCandidates?.includes(argName)}
+											<div>
+												<ToggleButtonGroup
+													selected={linkedSecret == argName}
+													on:selected={(e) => {
+														if (e.detail) {
+															linkedSecret = argName
+														} else if (linkedSecret == argName) {
+															linkedSecret = undefined
+														}
+													}}
+												>
+													<ToggleButton
+														value={false}
+														size="sm"
+														label="Inlined"
+														tooltip="The value is inlined in the resource and thus has no special treatment."
+													/>
+													<ToggleButton
+														position="right"
+														value={true}
+														size="sm"
+														label="Secret"
+														tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+													/>
+												</ToggleButtonGroup>
+											</div>{/if}</svelte:fragment
 									>
-										<svelte:fragment slot="actions">
-											<slot name="actions" />
-											{#if linkedSecretCandidates?.includes(argName)}
-												<div>
-													<ToggleButtonGroup
-														selected={linkedSecret == argName}
-														on:selected={(e) => {
-															if (e.detail) {
-																linkedSecret = argName
-															} else if (linkedSecret == argName) {
-																linkedSecret = undefined
-															}
-														}}
-													>
-														<ToggleButton
-															value={false}
-															size="sm"
-															label="Inlined"
-															tooltip="The value is inlined in the resource and thus has no special treatment."
-														/>
-														<ToggleButton
-															position="right"
-															value={true}
-															size="sm"
-															label="Secret"
-															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
-														/>
-													</ToggleButtonGroup>
-												</div>{/if}
-										</svelte:fragment>
-									</LightweightArgInput>
-								{:else}
-									<ArgInput
-										on:change={() => dispatch('change')}
-										{disablePortal}
-										{resourceTypes}
-										{prettifyHeader}
-										autofocus={i == 0 && autofocus ? true : null}
-										label={argName}
-										description={schema.properties[argName].description}
-										bind:value={args[argName]}
-										type={schema.properties[argName].type}
-										oneOf={schema.properties[argName].oneOf}
-										required={schema?.required?.includes(argName)}
-										pattern={schema.properties[argName].pattern}
-										bind:valid={inputCheck[argName]}
-										defaultValue={structuredClone(schema.properties[argName].default)}
-										enum_={schema.properties[argName].enum}
-										format={schema.properties[argName].format}
-										contentEncoding={schema.properties[argName].contentEncoding}
-										customErrorMessage={schema.properties[argName].customErrorMessage}
-										bind:properties={schema.properties[argName].properties}
-										bind:order={schema.properties[argName].order}
-										nestedRequired={schema.properties[argName]?.required}
-										itemsType={schema.properties[argName].items}
-										disabled={disabledArgs.includes(argName) ||
-											disabled ||
-											schema.properties[argName].disabled}
-										{compact}
-										{variableEditor}
-										{itemPicker}
-										bind:pickForField
-										password={linkedSecret == argName}
-										extra={schema.properties[argName]}
-										{showSchemaExplorer}
-										simpleTooltip={schemaFieldTooltip[argName]}
-										{onlyMaskPassword}
-										nullable={schema.properties[argName].nullable}
-										title={schema.properties[argName].title}
-										placeholder={schema.properties[argName].placeholder}
-										orderEditable={dndConfig != undefined}
-										otherArgs={args}
-										{helperScript}
-										{lightHeader}
-									>
-										<svelte:fragment slot="actions">
-											<slot name="actions" />
-											{#if linkedSecretCandidates?.includes(argName)}
-												<div>
-													<ToggleButtonGroup
-														selected={linkedSecret == argName}
-														on:selected={(e) => {
-															if (e.detail) {
-																linkedSecret = argName
-															} else if (linkedSecret == argName) {
-																linkedSecret = undefined
-															}
-														}}
-													>
-														<ToggleButton
-															value={false}
-															size="sm"
-															label="Inlined"
-															tooltip="The value is inlined in the resource and thus has no special treatment."
-														/>
-														<ToggleButton
-															position="right"
-															value={true}
-															size="sm"
-															label="Secret"
-															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
-														/>
-													</ToggleButtonGroup>
-												</div>{/if}</svelte:fragment
-										>
-									</ArgInput>
-								{/if}
-								<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								</ArgInput>
 							{/if}
+							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
 						{/if}
 					</div>
 				{/if}

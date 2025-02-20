@@ -82,9 +82,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-					day: 'numeric',
-					month: 'numeric'
-			  }
+				day: 'numeric',
+				month: 'numeric'
+			}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -353,6 +353,11 @@ export function removeItemAll<T>(arr: T[], value: T) {
 export function emptyString(str: string | undefined | null): boolean {
 	return str === undefined || str === null || str === ''
 }
+
+export function emptyStringTrimmed(str: string | undefined | null): boolean {
+	return str === undefined || str === null || str === '' || str.trim().length === 0
+}
+
 
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
 	return emptyString(str) ? dflt : str!
@@ -700,7 +705,7 @@ export function canWrite(
 	if (user?.is_admin || user?.is_super_admin) {
 		return true
 	}
-	let keys = Object.keys(extra_perms)
+	let keys = Object.keys(extra_perms ?? {})
 	if (!user) {
 		return false
 	}
@@ -708,10 +713,10 @@ export function canWrite(
 		return true
 	}
 	let userOwner = `u/${user.username}`
-	if (keys.includes(userOwner) && extra_perms[userOwner]) {
+	if (keys.includes(userOwner) && extra_perms?.[userOwner]) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1) {
+	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms?.[x]) != -1) {
 		return true
 	}
 	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/') && user.folders[x]) != -1) {
@@ -841,7 +846,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
@@ -1092,6 +1097,14 @@ export function validateFileExtension(ext: string) {
 
 export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 	return !!job_kind && (job_kind === 'flowpreview' || job_kind === 'flownode')
+}
+
+export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
+	return (
+		job_kind !== 'flow' &&
+		job_kind !== 'singlescriptflow' &&
+		!isFlowPreview(job_kind)
+	)
 }
 
 export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {

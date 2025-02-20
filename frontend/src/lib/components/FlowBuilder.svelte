@@ -86,7 +86,6 @@
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
-	import type { AiProviderTypes } from './copilot/lib'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -481,7 +480,14 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
+		| 'webhooks'
+		| 'emails'
+		| 'schedules'
+		| 'cli'
+		| 'routes'
+		| 'websockets'
+		| 'postgres'
+		| 'scheduledPoll'
 	>('webhooks')
 
 	export function getSelectedId() {
@@ -516,6 +522,7 @@
 			| 'cli'
 			| 'routes'
 			| 'websockets'
+			| 'postgres'
 			| 'scheduledPoll'
 	) {
 		selectedTriggerStore.set(selectedTrigger)
@@ -813,7 +820,7 @@
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
-			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
+			const aiProvider = $copilotInfo.ai_provider
 
 			copilotLoading = true
 			copilotStatus = "Generating code for step '" + module.id + "'..."
@@ -1438,6 +1445,7 @@
 							showCaptureHint.set(true)
 						}}
 						bind:this={flowPreviewButtons}
+						{loading}
 					/>
 					<Button
 						loading={loadingDraft}

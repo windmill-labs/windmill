@@ -113,13 +113,17 @@ export async function main() {
 }
 `
 
-const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
+const DENO_INIT_BLOCK = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // Deno uses "npm:" prefix to import from npm (https://deno.land/manual@v1.36.3/node/npm_specifiers)
 // import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
-// type Postgresql = object
+// type Postgresql = object`
+
+const DENO_INIT_CODE =
+	DENO_INIT_BLOCK +
+	`
 
 export async function main(
   a: number,
@@ -134,14 +138,18 @@ export async function main(
 }
 `
 
-const BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+const BUN_INIT_BLOCK = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
 // https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
 
 // import { toWords } from "number-to-words@1"
 import * as wmill from "windmill-client"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
-// type Postgresql = object
+// type Postgresql = object`
+
+const BUN_INIT_CODE =
+	BUN_INIT_BLOCK +
+	`
 
 
 export async function main(
@@ -621,75 +629,95 @@ export async function main(approver?: string) {
 
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		}
-	},
-	/* your other args */ 
+ wm_trigger: {
+   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
+   http?: {
+     route: string // The route path, e.g. "/users/:id"
+     path: string  // The actual path called, e.g. "/users/123"
+     method: string
+     params: Record<string, string> // path parameters
+     query: Record<string, string>  // query parameters
+     headers: Record<string, string>
+   },
+   websocket?: {
+     url: string // The websocket url
+   },
+   kafka?: {
+     brokers: string[]
+     topic: string
+     group_id: string
+   },
+   nats?: {
+     servers: string[]
+     subject: string
+     headers?: Record<string, string[]>
+     status?: number
+     description?: string
+     length: number
+   },
+   sqs?: {
+     queue_url: string,
+     message_id?: string,
+     receipt_handle?: string,
+     attributes: Record<string, string>,
+     message_attributes?: Record<string, {
+       string_value?: string,
+       data_type: string
+     }>
+   }
+ },
+ /* your other args */
 ) {
-	return {
-		// return the args to be passed to the runnable
-	}
+ return {
+   // return the args to be passed to the runnable
+ }
 }
 `
 
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		}
-	},
-	/* your other args */ 
+ wm_trigger: {
+   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
+   http?: {
+     route: string // The route path, e.g. "/users/:id"
+     path: string  // The actual path called, e.g. "/users/123"
+     method: string
+     params: Record<string, string> // path parameters
+     query: Record<string, string>  // query parameters
+     headers: Record<string, string>
+   },
+   websocket?: {
+     url: string // The websocket url
+   },
+   kafka?: {
+     brokers: string[]
+     topic: string
+     group_id: string
+   },
+   nats?: {
+     servers: string[]
+     subject: string
+     headers?: Record<string, string[]>
+     status?: number
+     description?: string
+     length: number
+   },
+   sqs?: {
+     queue_url: string,
+     message_id?: string,
+     receipt_handle?: string,
+     attributes: Record<string, string>,
+     message_attributes?: Record<string, {
+       string_value?: string,
+       data_type: string
+     }>
+   }
+ },
+ /* your other args */
 ) {
-	return {
-		// return the args to be passed to the runnable
-	}
+ return {
+   // return the args to be passed to the runnable
+ }
 }
 `
 
@@ -721,45 +749,56 @@ def main():
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
 export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
-
 class Http(TypedDict):
-	route: str # The route path, e.g. "/users/:id"
-	path: str # The actual path called, e.g. "/users/123"
-	method: str
-	params: dict[str, str]
-	query: dict[str, str]
-	headers: dict[str, str]
+   route: str # The route path, e.g. "/users/:id"
+   path: str  # The actual path called, e.g. "/users/123"
+   method: str
+   params: dict[str, str]
+   query: dict[str, str]
+   headers: dict[str, str]
 
 class Websocket(TypedDict):
-	url: str # The websocket url
+   url: str # The websocket url
 
 class Kafka(TypedDict):
-	topic: str
-	brokers: list[str]
-	group_id: str
+   topic: str
+   brokers: list[str]
+   group_id: str
 
 class Nats(TypedDict):
-	servers: list[str]
-	subject: str
-	headers: dict[str, list[str]] | None
-	status: int | None
-	description: str | None
-	length: int
+   servers: list[str]
+   subject: str
+   headers: dict[str, list[str]] | None
+   status: int | None
+   description: str | None
+   length: int
+
+class MessageAttribute(TypedDict):
+   string_value: str | None
+   data_type: str
+
+class Sqs(TypedDict):
+   queue_url: str
+   message_id: str | None
+   receipt_handle: str | None
+   attributes: dict[str, str]
+   message_attributes: dict[str, MessageAttribute] | None
 
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
-	http: Http | None
-	websocket: Websocket | None
-	kafka: Kafka | None
-	nats: Nats | None
+   kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs"]
+   http: Http | None
+   websocket: Websocket | None
+   kafka: Kafka | None
+   nats: Nats | None
+   sqs: Sqs | None
 
 def preprocessor(
-	wm_trigger: WmTrigger,
-	# your other args
+   wm_trigger: WmTrigger,
+   # your other args
 ):
-	return {
-		# return the args to be passed to the runnable
-	}
+   return {
+       # return the args to be passed to the runnable
+   }
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
@@ -840,6 +879,7 @@ dependencies:
 `
 export const INITIAL_CODE = {
 	bun: {
+		scriptInitCodeBlock: BUN_INIT_BLOCK,
 		script: BUN_INIT_CODE,
 		trigger: BUN_INIT_CODE_TRIGGER,
 		approval: BUN_INIT_CODE_APPROVAL,
@@ -856,6 +896,7 @@ export const INITIAL_CODE = {
 		clear: PYTHON_INIT_CODE_CLEAR
 	},
 	deno: {
+		scriptInitCodeBlock: DENO_INIT_BLOCK,
 		script: DENO_INIT_CODE,
 		trigger: DENO_INIT_CODE_TRIGGER,
 		approval: DENO_INIT_CODE_APPROVAL,
@@ -923,14 +964,13 @@ export const INITIAL_CODE = {
 }
 
 export function isInitialCode(content: string): boolean {
-	Object.values(INITIAL_CODE).forEach((lang) => {
-		Object.values(lang).forEach((code) => {
+	for (const lang of Object.values(INITIAL_CODE)) {
+		for (const code of Object.values(lang)) {
 			if (content === code) {
 				return true
 			}
-		})
-	})
-
+		}
+	}
 	return false
 }
 
@@ -946,7 +986,8 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
-		| undefined
+		| undefined,
+	templateScript?: boolean
 ): string {
 	if (!kind) {
 		kind = 'script'
@@ -1034,6 +1075,8 @@ export function initialCode(
 			return INITIAL_CODE.bun.failure
 		} else if (kind === 'preprocessor') {
 			return INITIAL_CODE.bun.preprocessor
+		} else if (templateScript == true) {
+			return INITIAL_CODE.bun.scriptInitCodeBlock
 		} else if (subkind === 'flow') {
 			return INITIAL_CODE.bun.clear
 		}

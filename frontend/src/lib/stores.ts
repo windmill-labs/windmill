@@ -1,7 +1,14 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
-import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList } from './gen'
+
 import type { IntrospectionQuery } from 'graphql'
+import {
+	type AIProvider,
+	type OperatorSettings,
+	type TokenResponse,
+	type UserWorkspaceList,
+	type WorkspaceDefaultScripts
+} from './gen'
 import { getLocalSetting } from './utils'
 
 export interface UserExt {
@@ -56,6 +63,7 @@ export const userWorkspaces: Readable<
 		name: string
 		username: string
 		color: string | null
+		operator_settings?: OperatorSettings
 	}>
 > = derived([usersWorkspaceStore, superadmin], ([store, superadmin]) => {
 	const originalWorkspaces = store?.workspaces ?? []
@@ -66,7 +74,8 @@ export const userWorkspaces: Readable<
 				id: 'admins',
 				name: 'Admins',
 				username: 'superadmin',
-				color: null
+				color: null,
+				operator_settings: null
 			}
 		]
 	} else {
@@ -74,13 +83,14 @@ export const userWorkspaces: Readable<
 	}
 })
 export const copilotInfo = writable<{
-	ai_provider: string
+	ai_provider: AIProvider
 	exists_ai_resource: boolean
-	code_completion_enabled: boolean
+	code_completion_model?: string
+	ai_models: string[]
 }>({
-	ai_provider: '',
+	ai_provider: 'openai',
 	exists_ai_resource: false,
-	code_completion_enabled: false
+	ai_models: []
 })
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
@@ -94,6 +104,9 @@ export const formatOnSave = writable<boolean>(
 export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
+)
+export const copilotSessionModel = writable<string | undefined>(
+	getLocalSetting(CODE_COMPLETION_SETTING_NAME) ?? undefined
 )
 export const usedTriggerKinds = writable<string[]>([])
 

@@ -1,0 +1,1 @@
+ALTER TABLE websocket_trigger DROP COLUMN can_return_message;

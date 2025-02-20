@@ -2,6 +2,7 @@
 	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
+	import type { TeamInfo } from '$lib/gen/types.gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
@@ -57,8 +58,8 @@
 		initialValues = Object.fromEntries(
 			(
 				await Promise.all(
-					Object.entries(settings).map(
-						async ([_, y]) =>
+					[...Object.values(settings), scimSamlSetting].map(
+						async (y) =>
 							await Promise.all(y.map(async (x) => [x.key, await getValue(x.key, x.storage)]))
 					)
 				)
@@ -83,6 +84,34 @@
 		if (nvalues['indexer_settings'] == undefined) {
 			nvalues['indexer_settings'] = {}
 		}
+
+		if (nvalues['critical_error_channels'] == undefined) {
+			nvalues['critical_error_channels'] = []
+		} else {
+			let teams = ((await SettingService.getGlobal({ key: 'teams' })) as TeamInfo[]) ?? []
+
+			nvalues['teams'] = teams
+
+			nvalues['critical_error_channels'] = nvalues['critical_error_channels'].map((el) => {
+				if (el.teams_channel) {
+					const team = teams.find((team) => team.team_name === el.teams_channel.team_name) || null
+					return {
+						teams_channel: {
+							team_id: team?.team_id,
+							team_name: team?.team_name,
+							channel_id: team?.channels.find(
+								(channel) => channel.channel_id === el.teams_channel.channel_id
+							)?.channel_id,
+							channel_name: team?.channels.find(
+								(channel) => channel.channel_id === el.teams_channel.channel_id
+							)?.channel_name
+						}
+					}
+				}
+				return el
+			})
+		}
+
 		$values = nvalues
 		loading = false
 
@@ -105,7 +134,9 @@
 
 		let shouldReloadPage = false
 		if ($values) {
-			const allSettings = Object.values(settings).flatMap((x) => Object.entries(x))
+			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
+				Object.entries(x)
+			)
 			let licenseKeySet = false
 			await Promise.all(
 				allSettings
@@ -179,8 +210,6 @@
 		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 
-	let to: string = ''
-
 	async function sendStats() {
 		await SettingService.sendStats()
 		sendUserToast('Usage sent')
@@ -247,13 +276,16 @@
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
-								<li>version of your instance</li>
-								<li>number and total duration of jobs</li>
-								<li>accounts usage</li>
-								<li>login type usage</li>
-								<li>workers usage</li>
-								<li>vCPUs usage</li>
+								<li>version of your instances</li>
+								<li>instance base URL</li>
+								<li>job usage (language, total duration, count)</li>
+								<li>login type usage (login type, count)</li>
+								<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+								<li>user usage (author count, operator count)</li>
+								<li>superadmin email addresses</li>
+								<li>vCPU usage</li>
 								<li>memory usage</li>
+								<li>development instance status</li>
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
@@ -305,32 +337,6 @@
 							{/each}
 						</div>
 					</div>
-					{#if category == 'SMTP'}
-						{@const smtp = $values['smtp_settings']}
-						<div class="flex gap-4"
-							><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
-							<Button
-								disabled={to == '' || !smtp}
-								on:click={async () => {
-									await SettingService.testSmtp({
-										requestBody: {
-											to,
-											smtp: {
-												host: smtp['smtp_host'],
-												username: smtp['smtp_username'],
-												password: smtp['smtp_password'],
-												port: smtp['smtp_port'],
-												from: smtp['smtp_from'],
-												tls_implicit: smtp['smtp_tls_implicit'],
-												disable_tls: smtp['smtp_disable_tls']
-											}
-										}
-									})
-									sendUserToast('Test email sent')
-								}}>Test SMTP settings</Button
-							></div
-						>
-					{/if}
 				</TabContent>
 			{/each}
 		</svelte:fragment>

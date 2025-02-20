@@ -5,11 +5,12 @@
 	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnectDrawer.svelte'
+	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
+
 	import { Button } from './common'
 	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
-	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
@@ -120,7 +121,6 @@
 	bind:this={appConnect}
 	{expressOAuthSetup}
 />
-
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
@@ -195,7 +195,7 @@
 					{disabled}
 					color="light"
 					variant="border"
-					size="xs"
+					size="sm"
 					on:click={() => appConnect?.open?.(resourceType)}
 					startIcon={{ icon: Plus }}
 					iconOnly={collection?.length > 0}
@@ -203,6 +203,7 @@
 						Add a {resourceType} resource
 					{/if}</Button
 				>
+				<div class="mx-0.5" />
 			{/if}
 		{/if}
 

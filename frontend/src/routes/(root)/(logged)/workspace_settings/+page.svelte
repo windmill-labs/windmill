@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
@@ -20,7 +20,8 @@
 		WorkspaceService,
 		JobService,
 		ResourceService,
-		SettingService
+		SettingService,
+		type AIProvider
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -29,14 +30,11 @@
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore,
-		hubBaseUrlStore,
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, tryEvery } from '$lib/utils'
 	import {
-		Code2,
-		Slack,
 		XCircle,
 		RotateCw,
 		CheckCircle2,
@@ -46,11 +44,10 @@
 		Save,
 		ExternalLink
 	} from 'lucide-svelte'
-	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestAiKey from '$lib/components/copilot/TestAiKey.svelte'
+	import TestAIKey from '$lib/components/copilot/TestAIKey.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { fade } from 'svelte/transition'
@@ -66,8 +63,12 @@
 	import { hubPaths } from '$lib/hub'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import type { AiProviderTypes } from '$lib/components/copilot/lib'
+	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
 	import Description from '$lib/components/Description.svelte'
+	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
+	import MultiSelect from 'svelte-multiselect'
+	import Label from '$lib/components/Label.svelte'
+	import ArgEnum from '$lib/components/ArgEnum.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -97,15 +98,19 @@
 
 	let s3FileViewer: S3FilePicker
 
-	let initialPath: string
-	let scriptPath: string
-	let team_name: string | undefined
+	let slackInitialPath: string
+	let slackScriptPath: string
+	let teamsInitialPath: string
+	let teamsScriptPath: string
+	let slack_team_name: string | undefined
+	let teams_team_id: string | undefined
+	let teams_team_name: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
 	let webhook: string | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
-	let errorHandlerSelected: 'custom' | 'slack' = 'slack'
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
 	let errorHandlerInitialScriptPath: string
 	let errorHandlerScriptPath: string
 	let errorHandlerItemKind: 'flow' | 'script' = 'script'
@@ -113,8 +118,11 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let criticalAlertUIMuted: boolean | undefined = undefined
 	let initialCriticalAlertUIMuted: boolean | undefined = undefined
-	let aiResourceInitialPath: string | undefined = undefined
-	let aiResourceInitialProvider: string | undefined = undefined
+
+	let aiResourcePath: string | undefined = undefined
+	let aiProvider: AIProvider = 'openai'
+	let aiModels: string[] = []
+	let codeCompletionModel: string | undefined = undefined
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -142,8 +150,7 @@
 	let editedWorkspaceEncryptionKey: string | undefined = undefined
 	let workspaceReencryptionInProgress: boolean = false
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let codeCompletionEnabled: boolean = false
-	let selected: AiProviderTypes = 'openai'
+	let slack_tabs: 'slack_commands' | 'teams_commands' = 'slack_commands'
 	let tab =
 		($page.url.searchParams.get('tab') as
 			| 'users'
@@ -157,21 +164,43 @@
 
 	const latestGitSyncHubScript = hubPaths.gitSync
 
-	async function editSlackCommand(): Promise<void> {
-		initialPath = scriptPath
+	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
+		if (platform === 'slack') {
+			if (slackInitialPath === slackScriptPath) return
+			slackInitialPath = slackScriptPath
+		} else {
+			if (teamsInitialPath === teamsScriptPath) return
+			teamsInitialPath = teamsScriptPath
+		}
+
+		let scriptPath = platform === 'slack' ? slackScriptPath : teamsScriptPath
+		let commandScriptKey = platform === 'slack' ? 'slack_command_script' : 'teams_command_script'
+		let updateCommandScript =
+			platform === 'slack' ? WorkspaceService.editSlackCommand : WorkspaceService.editTeamsCommand
+
 		if (scriptPath) {
-			await WorkspaceService.editSlackCommand({
+			console.log('editWorkspaceCommand', scriptPath)
+			console.log('itemKind', itemKind)
+			await updateCommandScript({
 				workspace: $workspaceStore!,
-				requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
+				requestBody: { [commandScriptKey]: `${itemKind}/${scriptPath}` }
 			})
-			sendUserToast(`slack command script set to ${scriptPath}`)
+			sendUserToast(`${platform} command script set to ${scriptPath}`)
 		} else {
 			await WorkspaceService.editSlackCommand({
 				workspace: $workspaceStore!,
-				requestBody: { slack_command_script: undefined }
+				requestBody: { [commandScriptKey]: undefined }
 			})
-			sendUserToast(`slack command script removed`)
+			sendUserToast(`${platform} command script removed`)
 		}
+	}
+
+	async function editSlackCommand(): Promise<void> {
+		await editWorkspaceCommand('slack')
+	}
+
+	async function editTeamsCommand(): Promise<void> {
+		await editWorkspaceCommand('teams')
 	}
 
 	async function editWebhook(): Promise<void> {
@@ -191,10 +220,7 @@
 		}
 	}
 
-	async function editCopilotConfig(aiResourcePath: string, aiProvider: string): Promise<void> {
-		// in JS, an empty string is also falsy
-		aiResourceInitialPath = aiResourcePath
-		aiResourceInitialProvider = aiProvider
+	async function editCopilotConfig(): Promise<void> {
 		if (aiResourcePath) {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
@@ -203,26 +229,30 @@
 						path: aiResourcePath,
 						provider: aiProvider
 					},
-					code_completion_enabled: codeCompletionEnabled
+					code_completion_model: codeCompletionModel,
+					ai_models: aiModels
 				}
 			})
 			copilotInfo.set({
 				ai_provider: aiProvider,
 				exists_ai_resource: true,
-				code_completion_enabled: codeCompletionEnabled
+				code_completion_model: codeCompletionModel,
+				ai_models: aiModels
 			})
 		} else {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
 					ai_resource: undefined,
-					code_completion_enabled: codeCompletionEnabled
+					code_completion_model: codeCompletionModel,
+					ai_models: []
 				}
 			})
 			copilotInfo.set({
-				ai_provider: '',
+				ai_provider: 'openai',
 				exists_ai_resource: false,
-				code_completion_enabled: codeCompletionEnabled
+				code_completion_model: codeCompletionModel,
+				ai_models: []
 			})
 		}
 		sendUserToast(`Copilot settings updated`)
@@ -382,22 +412,32 @@
 		}, 1000 - (timeEnd - timeStart))
 	}
 
+	let loadedSettings = false
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-		team_name = settings.slack_name
-
+		slack_team_name = settings.slack_name
+		teams_team_id = settings.teams_team_id
+		teams_team_name = settings.teams_team_name
 		if (settings.slack_command_script) {
 			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
 		}
-		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
-		initialPath = scriptPath
+		if (settings.teams_command_script) {
+			itemKind = settings.teams_command_script.split('/')[0] as 'flow' | 'script'
+		}
+		slackScriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		teamsScriptPath = (settings.teams_command_script ?? '').split('/').slice(1).join('/')
+		slackInitialPath = slackScriptPath
+		teamsInitialPath = teamsScriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
-		aiResourceInitialPath = settings.ai_resource?.path
-		aiResourceInitialProvider = settings.ai_resource?.provider
-		selected = aiResourceInitialProvider as AiProviderTypes ?? 'openai'
+
+		aiResourcePath = settings.ai_resource?.path
+		aiProvider = settings.ai_resource?.provider ?? 'openai'
+		codeCompletionModel = settings.code_completion_model
+		aiModels = settings.ai_models
+
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerInitialScriptPath = errorHandlerScriptPath
@@ -407,15 +447,16 @@
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
-			errorHandlerSelected =
-				emptyString(errorHandlerScriptPath) ||
-				(errorHandlerScriptPath.startsWith('hub/') &&
-					errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack'))
-					? 'slack'
-					: 'custom'
+			errorHandlerSelected = emptyString(errorHandlerScriptPath)
+				? 'custom'
+				: errorHandlerScriptPath.startsWith('hub/') &&
+				  errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
+				? 'slack'
+				: errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
+				? 'teams'
+				: 'custom'
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
-		codeCompletionEnabled = settings.code_completion_enabled
 		workspaceDefaultAppPath = settings.default_app
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
@@ -508,6 +549,8 @@
 			workspace: $workspaceStore!,
 			path: 'openai_client_credentials_oauth'
 		})
+
+		loadedSettings = true
 	}
 
 	let deployUiSettings: {
@@ -528,6 +571,8 @@
 		if (errorHandlerScriptPath) {
 			if (errorHandlerScriptPath !== undefined && isSlackHandler(errorHandlerScriptPath)) {
 				errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			} else {
+				errorHandlerExtraArgs['slack'] = undefined
 			}
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
@@ -616,6 +661,14 @@
 			window.location.reload()
 		}, 3000)
 	}
+
+	function updateFromSearchTab(searchTab: string | null) {
+		if (searchTab && searchTab !== tab) {
+			tab = searchTab as typeof tab
+		}
+	}
+
+	$: updateFromSearchTab($page.url.searchParams.get('tab'))
 </script>
 
 <Portal name="workspace-settings">
@@ -657,7 +710,7 @@
 				</Tab>
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab size="xs" value="slack">
-						<div class="flex gap-2 items-center my-1"> Slack </div>
+						<div class="flex gap-2 items-center my-1"> Slack / Teams</div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
@@ -690,7 +743,9 @@
 				</Tab>
 			</Tabs>
 		</div>
-		{#if tab == 'users'}
+		{#if !loadedSettings}
+			<Skeleton layout={[1, [40]]} />
+		{:else if tab == 'users'}
 			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
@@ -699,7 +754,8 @@
 						Link this Workspace to another Staging / Prod Workspace
 					</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/staging_prod">
-						Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace.
+						Connecting this workspace with another staging/production workspace enables web-based
+						deployment to that workspace.
 					</Description>
 				</div>
 			</div>
@@ -717,99 +773,73 @@
 		{:else if tab == 'slack'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Connect Workspace to Slack </div>
+					<div class="text-primary text-lg font-semibold"
+						>Workspace connections to Slack and Teams</div
+					>
 					<Description link="https://www.windmill.dev/docs/integrations/slack">
-						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
-						with a '/windmill' command or to configure Slack error handlers.
+						With workspace connections, you can trigger scripts or flows with a '/windmill' command
+						with your Slack or Teams bot.
 					</Description>
 				</div>
 
-				{#if team_name}
-					<div class="flex flex-col gap-2 max-w-sm">
-						<Button
-							size="sm"
-							endIcon={{ icon: Slack }}
-							btnClasses="mt-2"
-							variant="border"
-							on:click={async () => {
-								await OauthService.disconnectSlack({
-									workspace: $workspaceStore ?? ''
-								})
-								loadSettings()
-								sendUserToast('Disconnected Slack')
-							}}
-						>
-							Disconnect Slack
-						</Button>
-						<Button
-							size="sm"
-							endIcon={{ icon: Code2 }}
-							href="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-						>
-							Create a script to handle slack commands
-						</Button>
-						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="{base}/flows/add?hub=28">
-							Create a flow to handle slack commands
-						</Button>
-					</div>
-				{:else}
-					<div class="flex flex-row gap-2">
-						<Button
-							size="xs"
-							color="dark"
-							href="{base}/api/oauth/connect_slack"
-							startIcon={{ icon: Slack }}
-						>
-							Connect to Slack
-						</Button>
-						<Badge color="red">Not connnected</Badge>
-					</div>
-				{/if}
-			</div>
-			<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
-				<div class="text-primary font-md font-semibold">
-					Script or flow to run on /windmill command
-				</div>
-				<div class="relative">
-					{#if !team_name}
-						<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
-					{/if}
-					<ScriptPicker
-						kinds={['script']}
-						allowFlow
+				<Tabs bind:selected={slack_tabs}>
+					<Tab size="xs" value="slack_commands">
+						<div class="flex gap-2 items-center my-1"> Slack</div>
+					</Tab>
+					<Tab size="xs" value="teams_commands">
+						<div class="flex gap-2 items-center my-1"> Teams</div>
+					</Tab>
+				</Tabs>
+
+				{#if slack_tabs === 'slack_commands'}
+					<ConnectionSection
+						platform="slack"
+						teamName={slack_team_name}
+						bind:scriptPath={slackScriptPath}
+						bind:initialPath={slackInitialPath}
 						bind:itemKind
-						bind:scriptPath
-						{initialPath}
-						on:select={editSlackCommand}
+						onDisconnect={async () => {
+							await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
+							loadSettings()
+							sendUserToast('Disconnected Slack')
+						}}
+						onSelect={editSlackCommand}
+						connectHref="{base}/api/oauth/connect_slack"
+						createScriptHref="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+						createFlowHref="{base}/flows/add?hub=28"
+						documentationLink="https://www.windmill.dev/docs/integrations/slack"
+						onLoadSettings={loadSettings}
+						display_name={slack_team_name}
 					/>
-				</div>
-
-				<div class="prose text-2xs text-tertiary">
-					Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
-					connection, templates for a <a href="{$hubBaseUrlStore}/scripts/slack/1405/">script</a>
-					and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.
-
-					<br /><br />
-
-					The script or flow chosen is passed the parameters `response_url: string` and `text:
-					string` respectively the url to reply directly to the trigger and the text of the command.
-
-					<br /><br />
-
-					It can take additionally the following args: channel_id, user_name, user_id, command,
-					trigger_id, api_app_id
-
-					<br /><br />
-
-					<span class="font-bold text-xs">
-						The script or flow is permissioned as group "slack" that will be automatically created
-						after connection to Slack.
-					</span>
-
-					<br /><br />
-
-					See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
-				</div>
+				{:else if slack_tabs === 'teams_commands'}
+					{#if !$enterpriseLicense}
+						<div class="pt-4" />
+						<Alert type="info" title="Workspace Teams commands is an EE feature">
+							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack
+							/ Teams connection to run a custom script and send notifications.
+						</Alert>
+						<div class="pb-2" />
+					{/if}
+					<ConnectionSection
+						platform="teams"
+						teamName={teams_team_id}
+						bind:scriptPath={teamsScriptPath}
+						bind:initialPath={teamsInitialPath}
+						bind:itemKind
+						onDisconnect={async () => {
+							await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
+							loadSettings()
+							sendUserToast('Disconnected Teams')
+						}}
+						onSelect={editTeamsCommand}
+						connectHref={undefined}
+						createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+						createFlowHref="{base}/flows/add?hub=58"
+						documentationLink="https://www.windmill.dev/docs/integrations/teams"
+						onLoadSettings={loadSettings}
+						display_name={teams_team_name}
+					/>
+				{/if}
 			</div>
 		{:else if tab == 'general'}
 			<div class="flex flex-col gap-4 my-8">
@@ -840,14 +870,8 @@
 
 			<div class="mt-20" />
 			<PageHeader title="Delete workspace" primary={false} />
-			{#if $superadmin}
-				<p class="italic text-xs">
-					When deleting the workspace, it will be archived for a short period of time and then permanently deleted.
-				</p>
-			{:else}
-				<p class="italic text-xs">
-					Only instance superadmins can delete a workspace.
-				</p>
+			{#if !$superadmin}
+				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
 			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
 				<p class="italic text-xs">
@@ -894,7 +918,9 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook">
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
+					>
 						Connect your Windmill workspace to an external service to sync or get notified about any
 						change.
 					</Description>
@@ -925,7 +951,9 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold"> Workspace Error Handler</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler">
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
+					>
 						Define a script or flow to be executed automatically in case of error in the workspace.
 					</Description>
 				</div>
@@ -975,7 +1003,7 @@
 			<div class="flex flex-col mt-5 gap-5 items-start">
 				<Toggle
 					disabled={!$enterpriseLicense ||
-						(errorHandlerSelected === 'slack' &&
+						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
 							!emptyString(errorHandlerScriptPath) &&
 							emptyString(errorHandlerExtraArgs['channel']))}
 					bind:checked={errorHandlerMutedOnCancel}
@@ -983,7 +1011,7 @@
 				/>
 				<Button
 					disabled={!$enterpriseLicense ||
-						(errorHandlerSelected === 'slack' &&
+						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
 							!emptyString(errorHandlerScriptPath) &&
 							emptyString(errorHandlerExtraArgs['channel']))}
 					size="sm"
@@ -996,7 +1024,8 @@
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold"> Workspace Critical Alerts</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/critical_alerts">
-						Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification.
+						Critical alerts within the scope of a workspace are sent to the workspace admins through
+						a UI notification.
 					</Description>
 					<div class="flex flex-col mt-5 gap-5 items-start">
 						<Button
@@ -1025,58 +1054,123 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold"> Windmill AI</div>
-					<Description>
-						Select an OpenAI resource to unlock Windmill AI features.
-					</Description>
+					<Description>Select an OpenAI resource to unlock Windmill AI features.</Description>
 					<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
 						Windmill AI supports integration with your preferred AI provider for all AI features.
 					</Description>
 				</div>
 			</div>
-			<ToggleButtonGroup
-				bind:selected
-				on:selected={() => {
-					aiResourceInitialPath = ''
-					aiResourceInitialProvider = ''
-				}}
-			>
-				<ToggleButton value="openai" label="OpenAI" />
-				<ToggleButton value="anthropic" label="Anthropic" />
-				<ToggleButton value="mistral" label="Mistral" />
-			</ToggleButtonGroup>
-			<div class="mt-5 flex gap-1">
-				{#key [aiResourceInitialPath, aiResourceInitialProvider, usingOpenaiClientCredentialsOauth, selected]}
-					<ResourcePicker
-						resourceType={usingOpenaiClientCredentialsOauth
-							? 'openai_client_credentials_oauth'
-							: selected}
-						initialValue={aiResourceInitialPath}
-						on:change={(ev) => {
-							editCopilotConfig(ev.detail, selected)
-						}}
-					/>
-					<TestAiKey
-						disabled={!aiResourceInitialPath || aiResourceInitialProvider != selected}
-						aiProvider={selected}
-					/>
-				{/key}
-			</div>
-			<div class="mt-3">
-				<Toggle
-					class="mr-2"
-					bind:checked={codeCompletionEnabled}
-					options={{ right: 'Enable code completion' }}
-					on:change={() => {
-						editCopilotConfig(aiResourceInitialPath || '', aiResourceInitialProvider || '')
+
+			<div class="flex flex-col gap-4">
+				<ToggleButtonGroup
+					bind:selected={aiProvider}
+					on:selected={() => {
+						aiResourcePath = ''
+						aiModels = []
+						codeCompletionModel = undefined
 					}}
-				/>
+				>
+					<ToggleButton value="openai" label="OpenAI" />
+					<ToggleButton value="anthropic" label="Anthropic" />
+					<ToggleButton value="mistral" label="Mistral" />
+					<ToggleButton value="deepseek" label="DeepSeek" />
+					<ToggleButton value="googleai" label="Google AI" />
+					<ToggleButton value="groq" label="Groq" />
+					<ToggleButton value="openrouter" label="OpenRouter" />
+					<ToggleButton
+						value="customai"
+						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE)')}
+						disabled={!$enterpriseLicense}
+						tooltip="Configure a custom AI provider that is OpenAI API compatible"
+						showTooltipIcon
+					/>
+				</ToggleButtonGroup>
+				<div class="flex gap-1">
+					{#key aiProvider}
+						<ResourcePicker
+							resourceType={usingOpenaiClientCredentialsOauth
+								? 'openai_client_credentials_oauth'
+								: aiProvider}
+							initialValue={aiResourcePath}
+							bind:value={aiResourcePath}
+							on:change={() => {
+								if (aiResourcePath && aiModels.length === 0) {
+									if (aiProvider !== 'customai') {
+										aiModels = AI_DEFAULT_MODELS[aiProvider].slice(0, 1)
+									}
+								}
+							}}
+						/>
+						<TestAIKey
+							disabled={!aiResourcePath || (aiProvider === 'customai' && aiModels.length === 0)}
+							resourcePath={aiResourcePath}
+							{aiProvider}
+							model={aiProvider === 'customai' ? aiModels[0] : AI_DEFAULT_MODELS[aiProvider][0]}
+						/>
+					{/key}
+				</div>
+
+				{#if aiResourcePath}
+					<Label label="Enabled models">
+						<MultiSelect
+							options={AI_DEFAULT_MODELS[aiProvider]}
+							ulOptionsClass={'!bg-surface-secondary'}
+							allowUserOptions="append"
+							bind:selected={aiModels}
+						/>
+					</Label>
+
+					<div class="flex flex-col gap-2">
+						<Toggle
+							on:change={() => {
+								if (codeCompletionModel != undefined) {
+									codeCompletionModel = undefined
+								} else {
+									codeCompletionModel = AI_DEFAULT_MODELS[aiProvider][0] ?? ''
+								}
+							}}
+							checked={codeCompletionModel != undefined}
+							options={{
+								right: 'Code completion'
+							}}
+						/>
+
+						{#if codeCompletionModel != undefined}
+							<Label label="Code completion model">
+								<ArgEnum
+									enum_={AI_DEFAULT_MODELS[aiProvider]}
+									bind:value={codeCompletionModel}
+									disabled={false}
+									autofocus={false}
+									defaultValue={undefined}
+									valid={true}
+									create={true}
+									required={false}
+								/>
+							</Label>
+						{/if}
+					</div>
+				{/if}
+				<Button
+					disabled={(aiResourcePath && aiModels.length === 0) ||
+						(codeCompletionModel != undefined && codeCompletionModel.length === 0)}
+					size="sm"
+					on:click={editCopilotConfig}
+				>
+					Save
+				</Button>
 			</div>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace Object Storage (S3/Azure Blob)</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage">
-						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable users to read and write from S3 without having to have access to the credentials.
+					<div class="text-primary text-lg font-semibold"
+						>Workspace Object Storage (S3/Azure Blob)</div
+					>
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
+					>
+						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage to enable
+						users to read and write from S3 without having to have access to the credentials.
 					</Description>
 				</div>
 			</div>
@@ -1255,7 +1349,8 @@
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold">Git Sync</div>
 					<Description link="https://www.windmill.dev/docs/advanced/git_sync">
-						Connect the Windmill workspace to a Git repository to automatically commit and push scripts, flows, and apps to the repository on each deploy.
+						Connect the Windmill workspace to a Git repository to automatically commit and push
+						scripts, flows, and apps to the repository on each deploy.
 					</Description>
 				</div>
 			</div>
@@ -1703,10 +1798,12 @@ git push</code
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold">Workspace Default App</div>
 					<Description>
-						If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace.
+						If configured, users who are operators in this workspace will be redirected to this app
+						automatically when logging into this workspace.
 					</Description>
 					<Description link="https://www.windmill.dev/docs/apps/default_app">
-						Make sure the default app is shared with all the operators of this workspace before turning this feature on.
+						Make sure the default app is shared with all the operators of this workspace before
+						turning this feature on.
 					</Description>
 				</div>
 			</div>
@@ -1735,10 +1832,15 @@ git push</code
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold">Workspace Secret Encryption</div>
 					<Description>
-						When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one.
+						When updating the encryption key of a workspace, all secrets will be re-encrypted with
+						the new key and the previous key will be replaced by the new one.
 					</Description>
-					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption">
-						If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances.
+					<Description
+						link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
+					>
+						If you're manually updating the key to match another workspace key from another Windmill
+						instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're
+						using it, make sure it the salt matches across both instances.
 					</Description>
 				</div>
 			</div>

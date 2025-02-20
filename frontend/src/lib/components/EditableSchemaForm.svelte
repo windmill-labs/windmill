@@ -12,7 +12,6 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
-
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -23,6 +22,7 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -35,8 +35,8 @@
 	export let noPreview: boolean = false
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
-	export let lightweightMode: boolean = false
 	export let displayWebhookWarning: boolean = false
+	export let onlyMaskPassword: boolean = false
 	export let dndType: string | undefined = undefined
 	export let editTab:
 		| 'inputEditor'
@@ -49,6 +49,10 @@
 	export let previewSchema: Record<string, any> | undefined = undefined
 	export let editPanelInitialSize: number | undefined = undefined
 	export let editPanelSize = 0
+	export let diff: Record<string, SchemaDiff> = {}
+	export let disableDnd: boolean = false
+	export let shouldDispatchChanges: boolean = false
+	export let isValid: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -230,16 +234,21 @@
 
 	$: !!editTab ? openEditTab() : closeEditTab()
 
-	let pannelButtonWidth: number = 0
+	let panelButtonWidth: number = 0
 	export let pannelExtraButtonWidth: number = 0
+
+	export function updateJson() {
+		schemaString = JSON.stringify(schema, null, '\t')
+		editor?.setCode(schemaString)
+	}
 </script>
 
 <div class="w-full h-full">
 	<div class="relative z-[100000]">
 		<div
 			class="absolute"
-			style="right: calc({editPanelSize}% - 2px - {pannelExtraButtonWidth}px); top: 0px;"
-			bind:clientWidth={pannelButtonWidth}
+			style="right: calc({editPanelSize}% - 1px - {pannelExtraButtonWidth}px); top: 0px;"
+			bind:clientWidth={panelButtonWidth}
 		>
 			<slot name="openEditTab" />
 		</div>
@@ -247,37 +256,61 @@
 	<Splitpanes class="splitter-hidden w-full">
 		{#if !noPreview}
 			<Pane bind:size={inputPanelSize} minSize={20}>
-				<div class="flex flex-col pr-2 gap-2">
+				<div
+					class="h-full flex flex-col gap-2 {$$slots.openEditTab && editPanelSize > 0
+						? 'pr-[38px]'
+						: 'pr-2'}"
+				>
 					{#if $$slots.addProperty}
-						<div class="w-full justify-left pr-2">
-							<div style={`width: calc(100% - ${pannelButtonWidth - pannelExtraButtonWidth}px);`}>
+						<div class="w-full justify-left pr-2 grow-0">
+							<div
+								style={editPanelSize > 0
+									? `width: 100%;`
+									: `width: calc(100% - ${panelButtonWidth - pannelExtraButtonWidth}px);`}
+							>
 								<slot name="addProperty" />
 							</div>
 						</div>
 					{/if}
 
-					<SchemaFormDnd
-						schema={previewSchema ? previewSchema : schema}
-						{dndType}
-						bind:args
-						on:click={(e) => {
-							opened = e.detail
-						}}
-						on:reorder={(e) => {
-							schema.order = e.detail
-							schema = schema
-							dispatch('change', schema)
-						}}
-						on:change={() => {
-							schema = schema
-							dispatch('change', schema)
-						}}
-						{lightweightMode}
-						prettifyHeader={isAppInput}
-						disabled={!!previewSchema}
-					/>
+					<div
+						class="min-h-0 overflow-y-auto grow rounded-md {$$slots.runButton
+							? 'flex flex-col gap-2'
+							: ''}"
+					>
+						<SchemaFormDnd
+							nestedClasses={'flex flex-col gap-1'}
+							schema={previewSchema ? previewSchema : schema}
+							{dndType}
+							{disableDnd}
+							{onlyMaskPassword}
+							bind:args
+							on:click={(e) => {
+								opened = e.detail
+							}}
+							on:reorder={(e) => {
+								schema.order = e.detail
+								schema = schema
+								dispatch('change', schema)
+							}}
+							on:change={() => {
+								schema = schema
+								dispatch('change', schema)
+							}}
+							prettifyHeader={isAppInput}
+							disabled={!!previewSchema}
+							{diff}
+							on:acceptChange
+							on:rejectChange
+							on:nestedChange={() => {
+								dispatch('change', schema)
+							}}
+							{shouldDispatchChanges}
+							bind:isValid
+						/>
 
-					<slot name="runButton" />
+						<slot name="runButton" />
+					</div>
 				</div>
 			</Pane>
 		{/if}
@@ -286,7 +319,7 @@
 			<Pane
 				bind:size={editPanelSize}
 				minSize={noPreview ? 100 : 50}
-				class={twMerge('border rounded-md', pannelButtonWidth > 0 ? 'rounded-tl-none' : '')}
+				class={twMerge('border rounded-md', panelButtonWidth > 0 ? 'rounded-tl-none' : '')}
 			>
 				{#if editTab !== 'inputEditor'}
 					<slot name="extraTab" />
@@ -425,7 +458,6 @@
 															{isAppInput}
 															on:change={() => {
 																schema = schema
-																// console.log('schema', schema)
 																dispatch('change', schema)
 															}}
 														>
@@ -439,8 +471,6 @@
 																			on:selected={(e) => {
 																				const isS3 = e.detail == 'S3'
 																				const isOneOf = e.detail == 'oneOf'
-
-																				selected = e.detail
 
 																				const emptyProperty = {
 																					contentEncoding: undefined,
@@ -508,8 +538,12 @@
 																						type: e.detail
 																					}
 																				}
-																				schema = schema
-																				dispatch('change', schema)
+																				// No better solution than this, needs future rework
+																				setTimeout(() => {
+																					schema = schema
+																					dispatch('change', schema)
+																				}, 100)
+																				dispatch('schemaChange')
 																			}}
 																		>
 																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
@@ -525,7 +559,6 @@
 																	bind:defaultValue={schema.properties[argName].default}
 																	{variableEditor}
 																	{itemPicker}
-																	{lightweightMode}
 																	bind:nullable={schema.properties[argName].nullable}
 																	bind:disabled={schema.properties[argName].disabled}
 																	type={schema.properties[argName].type}
@@ -558,6 +591,7 @@
 																	on:schemaChange={(e) => {
 																		schema = schema
 																		dispatch('change', schema)
+																		dispatch('schemaChange')
 																	}}
 																/>
 															{/if}

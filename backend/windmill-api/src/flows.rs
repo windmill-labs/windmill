@@ -187,7 +187,7 @@ async fn list_flows(
             .fields(&["dm.deployment_msg"]);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableFlow>(&sql)
         .fetch_all(&mut *tx)
@@ -704,7 +704,7 @@ async fn update_flow(
         w_id,
     )
     .execute(&mut *tx)
-    .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to flow update: {e:#}")))?;
+    .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}")))?;
 
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
@@ -721,7 +721,7 @@ async fn update_flow(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!("Error updating flow due to create new flow: {e:#}"))
+            error::Error::internal_err(format!("Error updating flow due to create new flow: {e:#}"))
         })?;
 
         sqlx::query!(
@@ -733,7 +733,7 @@ async fn update_flow(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!(
+            error::Error::internal_err(format!(
                 "Error updating flow due to updating flow history path: {e:#}"
             ))
         })?;
@@ -746,7 +746,7 @@ async fn update_flow(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!(
+            error::Error::internal_err(format!(
                 "Error updating flow due to deleting old flow: {e:#}"
             ))
         })?;
@@ -781,7 +781,7 @@ async fn update_flow(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
-        error::Error::InternalErr(format!(
+        error::Error::internal_err(format!(
             "Error updating flow due to flow history insert: {e:#}"
         ))
     })?;
@@ -805,7 +805,7 @@ async fn update_flow(
             .bind(&flow_path)
             .bind(&w_id)
         .fetch_all(&mut *tx)
-        .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to related schedules update: {e:#}")))?;
+        .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to related schedules update: {e:#}")))?;
 
     let schedule = sqlx::query_as::<_, Schedule>(
         "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *")
@@ -813,7 +813,7 @@ async fn update_flow(
         .bind(&flow_path)
         .bind(&w_id)
     .fetch_optional(&mut *tx)
-    .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to related schedule update: {e:#}")))?;
+    .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to related schedule update: {e:#}")))?;
 
     if let Some(schedule) = schedule {
         clear_schedule(&mut tx, &flow_path, &w_id).await?;
@@ -907,19 +907,23 @@ async fn update_flow(
     .execute(&mut *new_tx)
     .await
     .map_err(|e| {
-        error::Error::InternalErr(format!(
+        error::Error::internal_err(format!(
             "Error updating flow due to updating dependency job field: {e:#}"
         ))
     })?;
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
-            "UPDATE queue SET canceled = true WHERE id = $1",
-            old_dep_job
+            "UPDATE v2_job_queue SET
+                canceled_by = $2,
+                canceled_reason = 're-deployment'
+            WHERE id = $1",
+            old_dep_job,
+            &authed.username
         )
         .execute(&mut *new_tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!(
+            error::Error::internal_err(format!(
                 "Error updating flow due to cancelling dependency job: {e:#}"
             ))
         })?;
@@ -1204,7 +1208,7 @@ async fn delete_flow_by_path(
     .execute(&db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;

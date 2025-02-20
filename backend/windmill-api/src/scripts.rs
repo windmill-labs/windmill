@@ -311,7 +311,7 @@ async fn list_scripts(
             .fields(&["dm.deployment_msg"]);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
@@ -626,6 +626,19 @@ async fn create_script_internal<'c>(
     } else {
         ns.language.clone()
     };
+
+    let (no_main_func, has_preprocessor) = match lang {
+        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+            let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None)?;
+            (args.no_main_func, args.has_preprocessor)
+        }
+        ScriptLang::Python3 => {
+            let args = windmill_parser_py::parse_python_signature(&ns.content, None, true)?;
+            (args.no_main_func, args.has_preprocessor)
+        }
+        _ => (ns.no_main_func, ns.has_preprocessor),
+    };
+
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
@@ -661,9 +674,9 @@ async fn create_script_internal<'c>(
         ns.timeout,
         ns.concurrency_key,
         ns.visible_to_runner_only,
-        ns.no_main_func,
+        no_main_func.filter(|x| *x), // should be Some(true) or None
         codebase,
-        ns.has_preprocessor,
+        has_preprocessor.filter(|x| *x), // should be Some(true) or None
         if ns.on_behalf_of_email.is_some() {
             Some(&authed.email)
         } else {
@@ -1338,7 +1351,7 @@ async fn archive_script_by_path(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
     audit_log(
         &mut *tx,
         &authed,
@@ -1388,7 +1401,7 @@ async fn archive_script_by_hash(
     .bind(&hash.0)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1428,7 +1441,7 @@ async fn delete_script_by_hash(
     .bind(&w_id)
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1488,7 +1501,7 @@ async fn delete_script_by_path(
         )
         .fetch_one(&db)
         .await
-        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     } else {
         // If the script is draft only, we can delete it without admin permissions but we still need write permissions
         sqlx::query_scalar!(
@@ -1498,7 +1511,7 @@ async fn delete_script_by_path(
         )
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     };
 
     sqlx::query!(
@@ -1560,7 +1573,7 @@ async fn delete_script_by_path(
     .execute(&db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;

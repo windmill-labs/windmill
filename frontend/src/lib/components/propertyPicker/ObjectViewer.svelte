@@ -6,10 +6,11 @@
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import { Download, PanelRightOpen } from 'lucide-svelte'
+	import { Download, PanelRightOpen, TriangleAlertIcon } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import Popover from '../Popover.svelte'
 
 	export let json: any
 	export let level = 0
@@ -93,7 +94,7 @@
 					size="xs2"
 					variant="border"
 					on:click={collapse}
-					wrapperClasses="inline-flex w-fit"
+					wrapperClasses="!inline-flex w-fit"
 					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
 					>-</Button
 				>
@@ -166,6 +167,17 @@
 									<span class="text-2xs">null</span>
 								{:else if typeof json[key] == 'string'}
 									<span class="text-2xs">"{truncate(json[key], 200)}"</span>
+								{:else if typeof json[key] == 'number' && Number.isInteger(json[key]) && !Number.isSafeInteger(json[key])}
+									<span class="inline-flex flex-row gap-1 items-center text-2xs">
+										{truncate(JSON.stringify(json[key]), 200)}
+										<Popover>
+											<TriangleAlertIcon size={14} class="text-yellow-500 mb-0.5" />
+											<svelte:fragment slot="text">
+												This number is too large for the frontend to handle correctly and may be
+												rounded.
+											</svelte:fragment>
+										</Popover>
+									</span>
 								{:else}
 									<span class="text-2xs">
 										{truncate(JSON.stringify(json[key]), 200)}
@@ -218,7 +230,7 @@
 				size="xs2"
 				variant="border"
 				on:click={collapse}
-				wrapperClasses="inline-flex w-fit"
+				wrapperClasses="!inline-flex w-fit"
 				btnClasses="h-4 text-[9px] px-1  text-primary rounded-[0.275rem]"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}

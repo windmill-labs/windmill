@@ -25,6 +25,7 @@
 	import { Pen } from 'lucide-svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
+	import type { SchemaProperty } from '$lib/common'
 
 	export let step = 1
 	export let resourceType = ''
@@ -55,18 +56,20 @@
 	let args: any = {}
 	let renderDescription = true
 
-	function computeCandidates(resourceType: string, argsKeys: string[]) {
+	function computeCandidates(resourceType: string, argsKeys: string[], passwords: string[]) {
 		return apiTokenApps[resourceType]?.linkedSecret
 			? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
-			: argsKeys.filter((x) =>
-					['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
+			: argsKeys.filter(
+					(x) =>
+						passwords.includes(x) ||
+						['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
 			  )
 	}
 
 	let linkedSecret: string | undefined = undefined
 	let linkedSecretCandidates: string[] | undefined = undefined
-	function computeLinkedSecret(resourceType: string, argsKeys: string[]) {
-		linkedSecretCandidates = computeCandidates(resourceType, argsKeys)
+	function computeLinkedSecret(resourceType: string, argsKeys: string[], passwords: string[]) {
+		linkedSecretCandidates = computeCandidates(resourceType, argsKeys, passwords)
 		return (
 			forceSecretValue(resourceType) ??
 			linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
@@ -75,7 +78,6 @@
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
-
 	let path: string
 	let description = ''
 
@@ -109,7 +111,12 @@
 
 	async function loadConnects() {
 		if (!connects) {
-			connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+			try {
+				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+			} catch (e) {
+				connects = []
+				console.error('Error loading OAuth connects', e)
+			}
 		}
 	}
 
@@ -170,13 +177,21 @@
 	}
 
 	function popupListener(event) {
+		console.log('Received oauth popup message')
 		let data = event.data
 		if (event.origin == null || event.origin !== window.location.origin) {
+			console.log(
+				'Received oauth popup message from different origin',
+				event.origin,
+				window.location.origin
+			)
 			return
 		}
 
-		window.removeEventListener('message', popupListener)
-		processPopupData(data)
+		if (data.type == 'success' || data.type == 'error') {
+			window.removeEventListener('message', popupListener)
+			processPopupData(data)
+		}
 	}
 
 	function handleStorageEvent(event) {
@@ -201,6 +216,7 @@
 	})
 
 	function processPopupData(data) {
+		console.log('Processing oauth popup data')
 		if (data.type === 'error') {
 			sendUserToast(data.error, true)
 			step = 2
@@ -227,9 +243,13 @@
 			workspace: $workspaceStore!,
 			path: resourceType
 		})
-		const newArgsKeys = Object.keys(resourceTypeInfo?.schema?.['properties'] ?? {}) ?? []
+		const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
+		const newArgsKeys = Object.keys(props) ?? []
+		const passwords = newArgsKeys.filter((x) => {
+			return props?.[x]?.password
+		})
 		if (!linkedSecret) {
-			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys)
+			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys, passwords)
 		}
 	}
 	export async function next() {

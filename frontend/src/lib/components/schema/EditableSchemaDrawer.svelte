@@ -154,8 +154,11 @@
 							<div class="flex flex-col w-full mt-2">
 								<Label label="Nested properties">
 									<svelte:self
-										on:change={() => (schema = schema)}
-										schema={schema.properties[item.value]}
+										on:change={() => {
+											schema = schema
+											dispatch('change', schema)
+										}}
+										bind:schema={schema.properties[item.value]}
 										parentId={item.value}
 									/>
 								</Label>
@@ -182,12 +185,17 @@
 				on:delete={(e) => {
 					addProperty?.handleDeleteArgument([e.detail])
 				}}
-				lightweightMode
 				dndType="drawer"
 				editTab="inputEditor"
 			>
 				<svelte:fragment slot="addProperty">
-					<AddPropertyV2 bind:schema on:change>
+					<AddPropertyV2
+						bind:schema
+						on:change
+						on:addNew={(e) => {
+							editableSchemaForm?.openField(e.detail)
+						}}
+					>
 						<svelte:fragment slot="trigger">
 							<div
 								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"

@@ -1,15 +1,12 @@
 #[cfg(feature = "deno_core")]
 use std::time::Instant;
-use std::{collections::HashMap, fs, io, path::Path, process::Stdio};
+use std::{collections::HashMap, fs, process::Stdio};
 
 use base64::Engine;
 use itertools::Itertools;
 
-#[cfg(not(feature = "deno_core"))]
-use serde_json::value::to_raw_value;
 use serde_json::value::RawValue;
 
-use sha2::Digest;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
 use windmill_queue::{append_logs, CanceledBy};
@@ -19,14 +16,13 @@ use crate::common::build_envs_map;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_main_override, get_reserved_variables, parse_npm_config,
-        read_file, read_file_content, read_result, start_child_process, write_file_binary,
-        OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
+        read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
-    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
+    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -45,7 +41,7 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::{QueuedJob, PREPROCESSOR_FAKE_ENTRYPOINT},
+    jobs::QueuedJob,
     scripts::ScriptLang,
     worker::{exists_in_cache, save_cache, write_file},
     DB,
@@ -62,24 +58,37 @@ const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
+pub const BUN_LOCK_SPLIT: &str = "\n//bun.lock\n";
 pub const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
+pub const BUN_LOCK_SPLIT_WINDOWS: &str = "\r\n//bun.lock\r\n";
 pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
 
 pub const EMPTY_FILE: &str = "<empty>";
 
-fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool) {
-    if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT) {
+/// Returns (package.json, bun.lock(b), is_empty, is_binary)
+fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
+    if let Some(index) = lockfile.find(BUN_LOCK_SPLIT) {
+        // Split using "\n//bun.lock\n"
+        let (before, after_with_sep) = lockfile.split_at(index);
+        let after = &after_with_sep[BUN_LOCK_SPLIT.len()..];
+        (before, Some(after), after == EMPTY_FILE, false)
+    } else if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT) {
         // Split using "\n//bun.lockb\n"
         let (before, after_with_sep) = lockfile.split_at(index);
         let after = &after_with_sep[BUN_LOCKB_SPLIT.len()..];
-        (before, Some(after), after == EMPTY_FILE)
+        (before, Some(after), after == EMPTY_FILE, true)
+    } else if let Some(index) = lockfile.find(BUN_LOCK_SPLIT_WINDOWS) {
+        // Split using "\r\n//bun.lock\r\n"
+        let (before, after_with_sep) = lockfile.split_at(index);
+        let after = &after_with_sep[BUN_LOCK_SPLIT_WINDOWS.len()..];
+        (before, Some(after), after == EMPTY_FILE, false)
     } else if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT_WINDOWS) {
         // Split using "\r\n//bun.lockb\r\n"
         let (before, after_with_sep) = lockfile.split_at(index);
         let after = &after_with_sep[BUN_LOCKB_SPLIT_WINDOWS.len()..];
-        (before, Some(after), after == EMPTY_FILE)
+        (before, Some(after), after == EMPTY_FILE, true)
     } else {
-        (lockfile, None, false)
+        (lockfile, None, false, false)
     }
 }
 
@@ -199,18 +208,18 @@ pub async fn gen_bun_lockfile(
         }
         if !npm_mode {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            content.push_str(BUN_LOCKB_SPLIT);
+            content.push_str(BUN_LOCK_SPLIT);
 
             #[cfg(target_os = "windows")]
-            content.push_str(BUN_LOCKB_SPLIT_WINDOWS);
+            content.push_str(BUN_LOCK_SPLIT_WINDOWS);
 
             {
-                let file = format!("{job_dir}/bun.lockb");
+                let file = format!("{job_dir}/bun.lock");
                 if !empty_deps && tokio::fs::metadata(&file).await.is_ok() {
                     let mut file = File::open(&file).await?;
-                    let mut buf = vec![];
-                    file.read_to_end(&mut buf).await?;
-                    content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
+                    let mut buf = String::default();
+                    file.read_to_string(&mut buf).await?;
+                    content.push_str(&buf);
                 } else {
                     content.push_str(&EMPTY_FILE);
                 }
@@ -277,7 +286,7 @@ pub async fn install_bun_lockfile(
         .env_clear()
         .envs(PROXY_ENVS.clone())
         .envs(common_bun_proc_envs)
-        .args(vec!["install"])
+        .args(vec!["install", "--save-text-lockfile"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -518,7 +527,7 @@ pub async fn generate_wrapper_mjs(
         format!("{job_dir}/wrapper.js"),
         format!("{job_dir}/wrapper.mjs"),
     )
-    .map_err(|e| error::Error::InternalErr(format!("Could not move wrapper to mjs: {e:#}")))?;
+    .map_err(|e| error::Error::internal_err(format!("Could not move wrapper to mjs: {e:#}")))?;
     Ok(())
 }
 
@@ -624,45 +633,6 @@ pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()>
     return Err(error::Error::ExecutionErr(
         "codebase is an EE feature".to_string(),
     ));
-}
-
-#[cfg(unix)]
-pub fn copy_recursively(
-    source: impl AsRef<Path>,
-    destination: impl AsRef<Path>,
-    skip: Option<&Vec<String>>,
-) -> io::Result<()> {
-    let mut stack = Vec::new();
-    stack.push((
-        source.as_ref().to_path_buf(),
-        destination.as_ref().to_path_buf(),
-        0,
-    ));
-    while let Some((current_source, current_destination, level)) = stack.pop() {
-        for entry in fs::read_dir(&current_source)? {
-            let entry = entry?;
-            let filetype = entry.file_type()?;
-            let destination = current_destination.join(entry.file_name());
-            if level == 0 {
-                if let Some(skip) = skip {
-                    if skip.contains(&entry.file_name().to_string_lossy().to_string()) {
-                        continue;
-                    }
-                }
-            }
-
-            let original = entry.path();
-
-            if filetype.is_dir() {
-                fs::create_dir_all(&destination)?;
-                stack.push((entry.path(), destination, level + 1));
-            } else {
-                fs::hard_link(&original, &destination)?
-            }
-        }
-    }
-
-    Ok(())
 }
 
 pub async fn prebundle_bun_script(
@@ -785,26 +755,30 @@ async fn compute_bundle_local_and_remote_path(
 }
 
 pub async fn prepare_job_dir(reqs: &str, job_dir: &str) -> Result<()> {
-    let (pkg, lock, empty) = split_lockfile(reqs);
+    let (pkg, lock, empty, is_binary) = split_lockfile(reqs);
     let _ = write_file(job_dir, "package.json", pkg)?;
 
     if !empty {
         if let Some(lock) = lock {
-            let _ = write_lockb(lock, job_dir).await?;
+            let _ = write_lock(lock, job_dir, is_binary).await?;
         }
     }
 
     Ok(())
 }
-async fn write_lockb(splitted_lockb_2: &str, job_dir: &str) -> Result<()> {
-    write_file_binary(
-        job_dir,
-        "bun.lockb",
-        &base64::engine::general_purpose::STANDARD
-            .decode(splitted_lockb_2)
-            .map_err(|_| error::Error::InternalErr("Could not decode bun.lockb".to_string()))?,
-    )
-    .await?;
+async fn write_lock(splitted_lockb_2: &str, job_dir: &str, is_binary: bool) -> Result<()> {
+    if is_binary {
+        write_file_binary(
+            job_dir,
+            "bun.lockb",
+            &base64::engine::general_purpose::STANDARD
+                .decode(splitted_lockb_2)
+                .map_err(|_| error::Error::internal_err(format!("Could not decode bun.lockb")))?,
+        )
+        .await?;
+    } else {
+        write_file(job_dir, "bun.lock", splitted_lockb_2)?;
+    };
     Ok(())
 }
 
@@ -858,16 +832,8 @@ pub async fn handle_bun_job(
     if codebase.is_some() {
         annotation.nodejs = true
     }
-    let (main_override, apply_preprocessor) = match get_main_override(job.args.as_ref()) {
-        Some(main_override) => {
-            if main_override == PREPROCESSOR_FAKE_ENTRYPOINT {
-                (None, true)
-            } else {
-                (Some(main_override), false)
-            }
-        }
-        None => (None, false),
-    };
+    let main_override = job.script_entrypoint_override.as_deref();
+    let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
 
     #[cfg(not(feature = "enterprise"))]
     if annotation.nodejs || annotation.npm {
@@ -876,7 +842,6 @@ pub async fn handle_bun_job(
         ));
     }
 
-    let mut gbuntar_name: Option<String> = None;
     if has_bundle_cache {
         let target;
         let symlink;
@@ -889,7 +854,7 @@ pub async fn handle_bun_job(
         #[cfg(windows)]
         {
             target = format!("{job_dir}\\main.js");
-            symlink = std::os::windows::fs::symlink_dir(&local_path, &target);
+            symlink = std::fs::hard_link(&local_path, &target);
         }
 
         symlink.map_err(|e| {
@@ -900,78 +865,34 @@ pub async fn handle_bun_job(
     } else if let Some(codebase) = codebase.as_ref() {
         pull_codebase(&job.workspace_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o.as_ref() {
-        let (pkg, lock, empty) = split_lockfile(reqs);
+        let (pkg, lock, empty, is_binary) = split_lockfile(reqs);
 
         if lock.is_none() && !annotation.npm {
             return Err(error::Error::ExecutionErr(
-                format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
+                format!("Invalid requirements, expected to find //bun.lock{} split pattern in reqs. Found: |{reqs}|", if is_binary {"b"} else {""})
             ));
         }
 
         let _ = write_file(job_dir, "package.json", pkg)?;
-        let lockb = if annotation.npm { "" } else { lock.unwrap() };
+        let lock = if annotation.npm { "" } else { lock.unwrap() };
         if !empty {
-            let mut skip_install = false;
-            let mut create_buntar = false;
-            let mut buntar_path = "".to_string();
-
             if !annotation.npm {
-                let _ = write_lockb(lockb, job_dir).await?;
-
-                let mut sha_path = sha2::Sha256::new();
-                sha_path.update(lockb.as_bytes());
-
-                let buntar_name =
-                    base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
-                buntar_path = format!("{BUN_DEPSTAR_CACHE_DIR}/{buntar_name}");
-
-                #[cfg(unix)]
-                if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                    if let Err(e) = copy_recursively(&buntar_path, job_dir, None) {
-                        tracing::error!("Could not extract buntar: {e:#}");
-                    } else {
-                        gbuntar_name = Some(buntar_name.clone());
-                        skip_install = true;
-                    }
-                } else {
-                    create_buntar = true;
-                }
+                let _ = write_lock(lock, job_dir, is_binary).await?;
             }
 
-            if !skip_install {
-                install_bun_lockfile(
-                    mem_peak,
-                    canceled_by,
-                    &job.id,
-                    &job.workspace_id,
-                    Some(db),
-                    job_dir,
-                    worker_name,
-                    common_bun_proc_envs.clone(),
-                    annotation.npm,
-                    &mut Some(occupancy_metrics),
-                )
-                .await?;
-
-                #[cfg(unix)]
-                if create_buntar {
-                    fs::create_dir_all(&buntar_path)?;
-                    if let Err(e) = copy_recursively(
-                        job_dir,
-                        &buntar_path,
-                        Some(&vec![
-                            "main.ts".to_string(),
-                            "package.json".to_string(),
-                            "bun.lockb".to_string(),
-                            "shared".to_string(),
-                            "bunfig.toml".to_string(),
-                        ]),
-                    ) {
-                        fs::remove_dir_all(&buntar_path)?;
-                        tracing::error!("Could not create buntar: {e}");
-                    }
-                }
-            }
+            install_bun_lockfile(
+                mem_peak,
+                canceled_by,
+                &job.id,
+                &job.workspace_id,
+                Some(db),
+                job_dir,
+                worker_name,
+                common_bun_proc_envs.clone(),
+                annotation.npm,
+                &mut Some(occupancy_metrics),
+            )
+            .await?;
         }
     } else {
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
@@ -1018,13 +939,6 @@ pub async fn handle_bun_job(
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
 
-    if let Some(gbuntar_name) = gbuntar_name {
-        init_logs = format!(
-            "\nskipping install, using cached buntar based on lockfile hash: {gbuntar_name}{}",
-            init_logs
-        );
-    }
-
     if has_bundle_cache {
         init_logs = format!("\n{}{}", cache_logs, init_logs);
     }
@@ -1034,15 +948,20 @@ pub async fn handle_bun_job(
             return Ok(()) as error::Result<()>;
         }
         // let mut start = Instant::now();
-        let args =
-            windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
-                .args;
+        let args = windmill_parser_ts::parse_deno_signature(
+            inner_content,
+            true,
+            false,
+            main_override.map(ToString::to_string),
+        )?
+        .args;
 
         let pre_args = if apply_preprocessor {
             Some(
                 windmill_parser_ts::parse_deno_signature(
                     inner_content,
                     true,
+                    false,
                     Some("preprocessor".to_string()),
                 )?
                 .args,
@@ -1070,7 +989,7 @@ pub async fn handle_bun_job(
         let spread = args.into_iter().map(|x| x.name).join(",");
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-        let main_name = main_override.unwrap_or("main".to_string());
+        let main_name = main_override.unwrap_or("main");
 
         let main_import = if codebase.is_some() || has_bundle_cache {
             "./main.js"
@@ -1280,7 +1199,7 @@ try {{
             tracing::error!(
                 r#""deno_core" feature is not activated, but "//native" annotation used. Returning empty value..."#
             );
-            return Ok(to_raw_value("").unwrap());
+            return Err(error::Error::internal_err("deno_core feature is not activated, but //native annotation used. Returning empty value...".to_string()));
         }
 
         #[cfg(feature = "deno_core")]
@@ -1338,7 +1257,6 @@ try {{
             &NSJAIL_CONFIG_RUN_BUN_CONTENT
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
                     "{SHARED_MOUNT}",
@@ -1479,13 +1397,13 @@ try {{
         let args = read_file(&format!("{job_dir}/args.json"))
             .await
             .map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while reading args from preprocessing: {e:#}"
                 ))
             })?;
         let args: HashMap<String, Box<RawValue>> =
             serde_json::from_str(args.get()).map_err(|e| {
-                error::Error::InternalErr(format!(
+                error::Error::internal_err(format!(
                     "error while deserializing args from preprocessing: {e:#}"
                 ))
             })?;
@@ -1592,25 +1510,29 @@ pub async fn start_worker(
     if let Some(codebase) = codebase.as_ref() {
         pull_codebase(w_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o {
-        let (pkg, lock, empty) = split_lockfile(&reqs);
+        let (pkg, lock, empty, is_binary) = split_lockfile(&reqs);
         if lock.is_none() {
             return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
         let _ = write_file(job_dir, "package.json", pkg)?;
-        let lockb = lock.unwrap();
+        let lock = lock.unwrap();
         if !empty {
-            let _ = write_file_binary(
-                job_dir,
-                "bun.lockb",
-                &base64::engine::general_purpose::STANDARD
-                    .decode(lockb)
-                    .map_err(|_| {
-                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                    })?,
-            )
-            .await?;
+            if is_binary {
+                let _ = write_file_binary(
+                    job_dir,
+                    "bun.lockb",
+                    &base64::engine::general_purpose::STANDARD
+                        .decode(lock)
+                        .map_err(|_| {
+                            error::Error::internal_err("Could not decode bun.lockb".to_string())
+                        })?,
+                )
+                .await?;
+            } else {
+                write_file(job_dir, "bun.lock", lock)?;
+            }
 
             install_bun_lockfile(
                 &mut mem_peak,
@@ -1653,7 +1575,7 @@ pub async fn start_worker(
 
     {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, None)?.args;
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
         let dates = args
             .iter()
             .filter_map(|x| {

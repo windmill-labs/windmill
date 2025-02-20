@@ -22,8 +22,6 @@ pub type JsonResult<T> = std::result::Result<Json<T>, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Uuid Error {0}")]
-    UuidErr(#[from] uuid::Error),
     #[error("Bad config: {0}")]
     BadConfig(String),
     #[error("Connecting to database: {0}")]
@@ -40,36 +38,99 @@ pub enum Error {
     RequireAdmin(String),
     #[error("{0}")]
     ExecutionErr(String),
-    #[error("IO error: {0}")]
-    IoErr(#[from] io::Error),
-    #[error("Sql error: {0}")]
-    SqlErr(#[from] sqlx::Error),
+    #[error("IoErr: {error:#} @{location:#}")]
+    IoErr { error: io::Error, location: String },
+    #[error("Utf8Err: {error:#} @{location:#}")]
+    Utf8Err { error: std::string::FromUtf8Error, location: String },
+    #[error("UuidErr: {error:#} @{location:#}")]
+    UuidErr { error: uuid::Error, location: String },
+    #[error("SqlErr: {error:#} @{location:#}")]
+    SqlErr { error: sqlx::Error, location: String },
+    #[error("SerdeJson: {error:#} @{location:#}")]
+    SerdeJson { error: serde_json::Error, location: String },
     #[error("Bad request: {0}")]
     BadRequest(String),
     #[error("Quota exceeded: {0}")]
     QuotaExceeded(String),
     #[error("Internal: {0}")]
     InternalErr(String),
+    #[error("Internal: {message} @{location}")]
+    InternalErrLoc { message: String, location: String },
     #[error("Internal: {0}: {1}")]
     InternalErrAt(&'static Location<'static>, String),
-    #[error("Hexadecimal decoding error: {0}")]
-    HexErr(#[from] hex::FromHexError),
+    #[error("HexErr: {error:#} @{location:#}")]
+    HexErr { error: hex::FromHexError, location: String },
     #[error("Migrating database: {0}")]
     DatabaseMigration(#[from] MigrateError),
-    #[error("Non-zero exit status: {0}")]
-    ExitStatus(i32),
-    #[error("Err: {0:#}")]
-    Anyhow(#[from] anyhow::Error),
+    #[error("Non-zero exit status for {0}: {1}")]
+    ExitStatus(String, i32),
+    #[error("Error: {error:#} @{location:#}")]
+    Anyhow { error: anyhow::Error, location: String },
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
     #[error("{0}")]
     AiError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
-    #[error("{0}")]
-    Utf8(#[from] std::string::FromUtf8Error),
-    #[error("Encoding/decoding error: {0}")]
-    SerdeJson(#[from] serde_json::Error),
+    #[error("Find python error: {0}")]
+    FindPythonError(String),
+}
+
+fn prettify_location(location: &'static Location<'static>) -> String {
+    location
+        .to_string()
+        .split("/")
+        .last()
+        .unwrap_or("unknown")
+        .to_string()
+}
+impl From<anyhow::Error> for Error {
+    #[track_caller]
+    fn from(e: anyhow::Error) -> Self {
+        Self::Anyhow { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    #[track_caller]
+    fn from(e: sqlx::Error) -> Self {
+        Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<uuid::Error> for Error {
+    #[track_caller]
+    fn from(e: uuid::Error) -> Self {
+        Self::UuidErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for Error {
+    #[track_caller]
+    fn from(e: std::string::FromUtf8Error) -> Self {
+        Self::Utf8Err { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<io::Error> for Error {
+    #[track_caller]
+    fn from(e: io::Error) -> Self {
+        Self::IoErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<hex::FromHexError> for Error {
+    #[track_caller]
+    fn from(e: hex::FromHexError) -> Self {
+        Self::HexErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    #[track_caller]
+    fn from(e: serde_json::Error) -> Self {
+        Self::SerdeJson { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
 }
 
 impl Error {
@@ -84,8 +145,18 @@ impl Error {
 
     pub fn relocate_internal(self, loc: &'static Location<'static>) -> Self {
         match self {
-            Self::InternalErr(s) | Self::InternalErrAt(_, s) => Self::InternalErrAt(loc, s),
+            Self::InternalErrLoc { message, .. }
+            | Self::InternalErrAt(_, message)
+            | Self::InternalErr(message) => Self::InternalErrAt(loc, message),
             _ => self,
+        }
+    }
+
+    #[track_caller]
+    pub fn internal_err<T: AsRef<str>>(msg: T) -> Self {
+        Self::InternalErrLoc {
+            message: msg.as_ref().to_string(),
+            location: prettify_location(std::panic::Location::caller()),
         }
     }
 }
@@ -107,9 +178,10 @@ impl IntoResponse for Error {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
-            Self::SqlErr(_) | Self::BadRequest(_) | Self::AiError(_) | Self::QuotaExceeded(_) => {
-                axum::http::StatusCode::BAD_REQUEST
-            }
+            Self::SqlErr { .. }
+            | Self::BadRequest(_)
+            | Self::AiError(_)
+            | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 

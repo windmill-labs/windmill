@@ -44,7 +44,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
-	import { initAllAiWorkspace } from '$lib/components/copilot/lib'
+	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
@@ -191,10 +191,12 @@
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used, kafka_used, nats_used } =
-			await WorkspaceService.getUsedTriggers({
-				workspace: $workspaceStore ?? ''
-			})
+		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used , sqs_used} =
+			await WorkspaceService.getUsedTriggers(
+			{
+					workspace: $workspaceStore ?? ''
+				}
+		)
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -204,8 +206,14 @@
 		if (kafka_used) {
 			usedKinds.push('kafka')
 		}
+		if (postgres_used) {
+			usedKinds.push('postgres')
+		}
 		if (nats_used) {
 			usedKinds.push('nats')
+		}
+		if (sqs_used) {
+			usedKinds.push('sqs')
 		}
 		$usedTriggerKinds = usedKinds
 	}
@@ -237,15 +245,19 @@
 	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
-		initAllAiWorkspace(workspace)
+		workspaceAIClients.init(workspace)
 		try {
-			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
-		} catch (err) {
-			console.log(err)
+			const info = await WorkspaceService.getCopilotInfo({ workspace })
 			copilotInfo.set({
-				ai_provider: '',
+				...info,
+				ai_provider: info.ai_provider ?? 'openai'
+			})
+		} catch (err) {
+			copilotInfo.set({
+				ai_provider: 'openai',
 				exists_ai_resource: false,
-				code_completion_enabled: false
+				code_completion_model: undefined,
+				ai_models: []
 			})
 			console.error('Could not get copilot info')
 		}
@@ -289,7 +301,13 @@
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
-		if ($enterpriseLicense && $workspaceStore && $userStore && $devopsRole !== undefined && ($devopsRole || $userStore.is_admin)) {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			$devopsRole !== undefined &&
+			($devopsRole || $userStore.is_admin)
+		) {
 			mountModal = true
 			loadCriticalAlertsMuted()
 		}
