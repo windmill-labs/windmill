@@ -107,6 +107,8 @@ mod slack_approvals;
 mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
+#[cfg(feature = "enterprise")]
+mod git_sync_ee;
 mod static_assets;
 mod stripe_ee;
 mod teams_ee;
@@ -448,7 +450,16 @@ pub async fn run_server(
                         .nest("/kafka_triggers", kafka_triggers_service)
                         .nest("/nats_triggers", nats_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service),
+                        .nest("/postgres_triggers", postgres_triggers_service)
+                        .nest("/git_sync", {
+                            #[cfg(feature = "enterprise")]
+                            {
+                                git_sync_ee::workspaced_service()
+                            }
+
+                            #[cfg(not(feature = "enterprise"))]
+                            Router::new()
+                        })
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
