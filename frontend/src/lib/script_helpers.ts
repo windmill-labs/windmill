@@ -580,7 +580,7 @@ export async function main(approver?: string) {
 export const BUN_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
  wm_trigger: {
-   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs', 'mqtt',
+   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs' | 'mqtt',
    http?: {
      route: string // The route path, e.g. "/users/:id"
      path: string  // The actual path called, e.g. "/users/123"
@@ -616,7 +616,18 @@ export async function preprocessor(
      }>
    },
    mqtt?: {
-	 topic: string
+     topic: string,
+     retain: boolean,
+     pkid: number,
+     v5?: {
+       payload_format_indicator?: number,
+       topic_alias?: number,
+       response_topic?: string,
+       correlation_data?: Array<number>,
+       user_properties?:  Array<[string, string]>,
+       subscription_identifiers?: Array<number>,
+       content_type?: string
+     }
    }
  },
  /* your other args */
@@ -630,7 +641,7 @@ export async function preprocessor(
 const DENO_PREPROCESSOR_MODULE_CODE = `
 export async function preprocessor(
  wm_trigger: {
-   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs', 'mqtt',
+   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs' | 'mqtt',
    http?: {
      route: string // The route path, e.g. "/users/:id"
      path: string  // The actual path called, e.g. "/users/123"
@@ -666,7 +677,18 @@ export async function preprocessor(
      }>
    },
    mqtt?: {
-	 topic: string
+     topic: string,
+     retain: boolean,
+     pkid: number,
+     v5?: {
+       payload_format_indicator?: number,
+       topic_alias?: number,
+       response_topic?: string,
+       correlation_data?: Array<number>,
+       user_properties?:  Array<[string, string]>,
+       subscription_identifiers?: Array<number>,
+       content_type?: string
+     }
    }
  },
  /* your other args */
@@ -740,8 +762,21 @@ class Sqs(TypedDict):
    attributes: dict[str, str]
    message_attributes: dict[str, MessageAttribute] | None
 
+class V5Properties:
+   payload_format_indicator: int | None
+   topic_alias: int | None
+   response_topic: str | None
+   correlation_data: list[int] | None
+   user_properties: list[tuple[str, str]] | None
+   subscription_identifiers: list[int] | None
+   content_type: str | None
+
 class Mqtt(TypeDict):
-	topic: str
+   topic: str
+   retain: bool
+   pkid: int
+   v5: V5Properties | None
+
 
 class WmTrigger(TypedDict):
    kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs", "mqtt"]
