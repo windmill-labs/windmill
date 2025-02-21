@@ -318,7 +318,7 @@ async fn parse_python_imports_inner(
     }
 }
 
-const STDIMPORTS: [&str; 302] = [
+const STDIMPORTS: [&str; 303] = [
     "--future--",
     "-abc",
     "-aix-support",
@@ -620,5 +620,6 @@ const STDIMPORTS: [&str; 302] = [
     "zipapp",
     "zipfile",
     "zipimport",
+    "zlib",
     "",
 ];
