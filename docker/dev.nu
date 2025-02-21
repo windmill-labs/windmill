@@ -75,6 +75,9 @@ def patch_docker_compose [
   if ($custom_dockerfile | default 'none' | path basename) == "DockerfileNsjail" {
     $compose.services.windmill_worker.privileged = true
     $compose.services.windmill_worker_native.privileged = true
+
+    $compose.services.windmill_worker.environment ++= ["DISABLE_NSJAIL=false"]
+    $compose.services.windmill_worker_native.environment ++= ["DISABLE_NSJAIL=false"]
   }
   return ($compose | to yaml)
 }
@@ -118,13 +121,16 @@ def "main up" [
 
   if $rebuild or not (docker images | into string | str contains $ident) {
     let base_ident = get_ident -f $features;
-    print $"Building base image with ident: ($base_ident)"
-    docker build . -t ($base_ident) -f (wrap "Dockerfile" (patch_main_dockerfile $features $wasm_pkg)) --build-arg features=($features)
+
+    if $rebuild or not (docker images | into string | str contains $base_ident) {
+      print $"Building base image with ident: ($base_ident)"
+      docker build . -t ($base_ident) -f (wrap "Dockerfile" (patch_main_dockerfile $features $wasm_pkg)) --build-arg features=($features)
+    }
 
     if $custom_dockerfile != null {
       # let ident = get_ident $custom_dockerfile -f $features;
       print $"Building image by path ($custom_dockerfile) with ident: ($ident)"
-      docker build -f (wrap "DockerfileCustom" (patch_custom_dockerfile $custom_dockerfile $features)) -t $ident ./ --wasm-pkg $wasm_pkg
+      docker build -f (wrap "DockerfileCustom" (patch_custom_dockerfile $custom_dockerfile $features)) -t $ident / 
     }
   } else {
     print $"($ident) was found"
@@ -141,10 +147,7 @@ def clone_ee_private [] {
   # git checkout ddcfdfc18a9833a5fc4e62ad62a265ef1e06a0aa)
 }
 
-def get_ident [
-  custom_dockerfile?: path  # Any dockerfile that depends on root Dockerfile
-  --features(-f): string  # Features that will be passed to base Dockerfile to compile windmill
-] {
+def get_ident [ custom_dockerfile?: path, --features(-f): string ] {
     let feat_postfix = if $features != null {
       $features |  split row ',' | each { |e| $e | str trim --left --right } | sort | str join "-";
     } else {
