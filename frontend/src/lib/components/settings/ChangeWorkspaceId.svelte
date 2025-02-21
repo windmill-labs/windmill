@@ -41,6 +41,7 @@
 					new_id: newId
 				}
 			})
+			open = false
 
 			sendUserToast(`Renamed workspace to ${newName}. Reloading...`)
 			await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -49,7 +50,6 @@
 			sendUserToast(`Error renaming workspace: ${err}`, true)
 		} finally {
 			loading = false
-			open = false
 		}
 	}
 
