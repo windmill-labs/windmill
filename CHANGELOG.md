@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.467.0](https://github.com/windmill-labs/windmill/compare/v1.466.3...v1.467.0) (2025-02-21)
+
+
+### Features
+
+* enable rust AI gen/fix/edit ([#5349](https://github.com/windmill-labs/windmill/issues/5349)) ([d9844fd](https://github.com/windmill-labs/windmill/commit/d9844fd7f7cf89a0914176944d4af0b485ed3f3c))
+* provision from SSO preferred_username ([#5347](https://github.com/windmill-labs/windmill/issues/5347)) ([19d33bd](https://github.com/windmill-labs/windmill/commit/19d33bdc7c4633f0c338c77de1d316f733e4304a))
+
+
+### Bug Fixes
+
+* disable toggle is more consistently applied on arg inputs ([3188bee](https://github.com/windmill-labs/windmill/commit/3188bee46e3dc46a699096bd3c2668df0cbdb9a1))
+* do not pin python patch version in docker preinstalled python ([f058782](https://github.com/windmill-labs/windmill/commit/f05878271becb28f83678c5b0ae498d0192b2458))
+* fix app component header buttons ([ab1c15d](https://github.com/windmill-labs/windmill/commit/ab1c15d92f3f86f4bd8d782fa6a806a59f30fdf1))
+* fix schedule run now args ([3430f9c](https://github.com/windmill-labs/windmill/commit/3430f9c4390b6c630086394ddfaf1a1b2030c78f))
+* **frontend:** improve rename workspace id UX ([#5353](https://github.com/windmill-labs/windmill/issues/5353)) ([521b6ba](https://github.com/windmill-labs/windmill/commit/521b6ba92c86a55b9977463ae05ecd4fca400ce4))
+* **frontend:** invalid username for superadmin in some workspaces ([#5350](https://github.com/windmill-labs/windmill/issues/5350)) ([7d73dec](https://github.com/windmill-labs/windmill/commit/7d73decd8dc7039ef84915994074c07dc51280c9))
+* **frontend:** missing config for Custom AI ([#5351](https://github.com/windmill-labs/windmill/issues/5351)) ([8a7730e](https://github.com/windmill-labs/windmill/commit/8a7730efa06283e72292d894584b279c908a7604))
+* handle better forced value propagation in apps ([3ac912f](https://github.com/windmill-labs/windmill/commit/3ac912fa308fbbf6cf41562cfdbe8eea7c1cc372))
+* **image:** use debian image instead of python image as base ([676b78b](https://github.com/windmill-labs/windmill/commit/676b78b15db8e1c749107fa41c4c98ab3a37154e))
+* initialize s3 file input if value already present ([c6601da](https://github.com/windmill-labs/windmill/commit/c6601da3d8557af9d32b0202bf50c40b89d481a9))
+* schedules do not accept 5 units cron syntax on update/create anymore ([c90fe38](https://github.com/windmill-labs/windmill/commit/c90fe387e882f7767c3b3621e5e230fc8acd80b0))
+
 ## [1.466.3](https://github.com/windmill-labs/windmill/compare/v1.466.2...v1.466.3) (2025-02-20)
 
 
