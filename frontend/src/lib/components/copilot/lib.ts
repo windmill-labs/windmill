@@ -92,6 +92,7 @@ export const OPENAI_COMPATIBLE_COMPLETION_CONFIG = {
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
+	customai: DEFAULT_COMPLETION_CONFIG,
 	googleai: {
 		...DEFAULT_COMPLETION_CONFIG,
 		seed: undefined // not supported by gemini
