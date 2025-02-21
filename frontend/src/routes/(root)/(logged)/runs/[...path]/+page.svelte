@@ -89,7 +89,7 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	let lastFetchWentToEnd = false
 
 	function loadFromQuery() {
@@ -135,7 +135,7 @@
 		maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
 	let queue_count: Tweened<number> | undefined = undefined
@@ -639,13 +639,12 @@
 	}}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.runs}
-<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-	<p class="font-bold">Unauthorized</p>
-	<p>Page not available for operators</p>
-</div>
-{:else}
-{#if innerWidth > 900}
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.runs}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
+	</div>
+{:else if innerWidth > 900}
 	<div class="w-full h-screen">
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
@@ -1376,5 +1375,4 @@
 			/>
 		</div>
 	</div>
-{/if}
 {/if}

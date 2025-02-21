@@ -316,10 +316,12 @@
 		}
 	}
 
-	function onValueChange(newValue: any): void {
+	function onValueChange(newValue: any, force?: boolean): void {
 		if (iterContext && $iterContext.disabled) return
-
-		if (lastInput?.type === 'connected' && newValue !== undefined && newValue !== null) {
+		if (
+			lastInput?.type === 'connected' &&
+			((newValue !== undefined && newValue !== null) || force)
+		) {
 			const { connection } = lastInput
 			if (!connection) {
 				// No connection
