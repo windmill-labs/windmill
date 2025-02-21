@@ -45,6 +45,25 @@ prompts:
       Naming conventions are guidelines, but follow the user's naming choices in the existing code.
       </contextual_information>
       My instructions: {description}
+  rust:
+    prompt: |-
+      Here's my Rust code:
+      ```rust
+      {code}
+      ```
+      <contextual_information>
+      Please define a `main` function in Rust with this signature:
+      ```rust
+      pub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>
+      ```
+      but do not call it. Favor idiomatic Rust patterns, ensuring safe handling of ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading). 
+      
+      Follow these guidelines:
+      - Include necessary imports and modules only when needed.
+      - Add comments explaining important operations and any unsafe usage (if absolutely required).
+      - The generated code should be easily executable and testable in an integrated terminal.
+      </contextual_information>
+      My instructions: {description}  
   go:
     prompt: |-
       Here's my go code: 
