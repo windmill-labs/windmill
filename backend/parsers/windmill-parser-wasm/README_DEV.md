@@ -1,3 +1,4 @@
+
 ### Windmill parser wasm
 
 How to build
@@ -14,7 +15,20 @@ Install wasm-pack
 cargo install wasm-pack
 ```
 
-#### To use it on a dev environment
+Or enter nix devshell
+
+```
+nix develop ../../#wasm
+```
+
+#### Dev locally
+
+```
+./dev.nu {LANG}
+```
+
+
+#### Or how to use it on a dev environment manually
 
 Go to frontend and run:
 
