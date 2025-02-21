@@ -62,8 +62,8 @@
               ];
               targets = [ "wasm32-unknown-unknown" ];
             })
-            rust-wasm
             wasm-pack
+            deno
           ]);
         };
 
