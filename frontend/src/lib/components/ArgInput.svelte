@@ -448,6 +448,7 @@
 					bind:value
 					currency={extra?.currency}
 					locale={extra?.currencyLocale ?? 'en-US'}
+					{disabled}
 				/>
 			{:else}
 				<div class="relative w-full">
@@ -982,29 +983,33 @@
 			</div>
 		{:else if inputCat == 'date'}
 			{#if format === 'date'}
-				<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+				<DateInput {disabled} {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
 			{:else}
-				<DateTimeInput useDropdown {autofocus} bind:value />
+				<DateTimeInput {disabled} useDropdown {autofocus} bind:value />
 			{/if}
 		{:else if inputCat == 'sql' || inputCat == 'yaml'}
-			<div class="border my-1 mb-4 w-full border-primary">
-				{#await import('$lib/components/SimpleEditor.svelte')}
-					<Loader2 class="animate-spin" />
-				{:then Module}
-					<Module.default
-						on:focus={(e) => {
-							dispatch('focus')
-						}}
-						on:blur={(e) => {
-							dispatch('blur')
-						}}
-						bind:this={editor}
-						lang={inputCat}
-						bind:code={value}
-						autoHeight
-					/>
-				{/await}
-			</div>
+			{#if disabled}
+				<textarea disabled />
+			{:else}
+				<div class="border my-1 mb-4 w-full border-secondary">
+					{#await import('$lib/components/SimpleEditor.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							on:blur={(e) => {
+								dispatch('blur')
+							}}
+							bind:this={editor}
+							lang={inputCat}
+							bind:code={value}
+							autoHeight
+						/>
+					{/await}
+				</div>
+			{/if}
 		{:else if inputCat == 'base64'}
 			<div class="flex flex-col my-6 w-full">
 				<input

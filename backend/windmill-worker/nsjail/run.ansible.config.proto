@@ -38,6 +38,12 @@ mount {
 }
 
 mount {
+    src: "/root/.local/share/uv/tools/ansible"
+    dst: "/root/.local/share/uv/tools/ansible"
+    is_bind: true
+}
+
+mount {
     src: "/usr"
     dst: "/usr"
     is_bind: true
