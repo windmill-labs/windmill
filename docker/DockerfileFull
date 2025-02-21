@@ -1,10 +1,16 @@
 FROM ghcr.io/windmill-labs/windmill:dev
 
+# Rust
 COPY --from=rust:1.81.0 /usr/local/cargo /usr/local/cargo
 COPY --from=rust:1.81.0 /usr/local/rustup /usr/local/rustup
 
+# Ansible
 RUN pip3 install ansible
 
+# C#
 COPY --from=bitnami/dotnet-sdk:9.0.101-debian-12-r0 /opt/bitnami/dotnet-sdk /opt/dotnet-sdk
 RUN ln -s /opt/dotnet-sdk/bin/dotnet /usr/bin/dotnet
 ENV DOTNET_ROOT="/opt/dotnet-sdk/bin"
+
+# Nushell
+COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
