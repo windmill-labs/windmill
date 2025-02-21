@@ -936,18 +936,18 @@ pub async fn save_in_cache(
 
 fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     #[cfg(unix)]
-    let err_msg = "No such file or directory (os error 2)";
+    let err_msgs = vec!["os error 2", "os error 3", "No such file or directory"];
 
     #[cfg(windows)]
-    let err_msg = "program not found";
+    let err_msgs = vec!["program not found", "os error 2", "os error 3"];
 
-    if err.to_string().contains(&err_msg) {
+    if err_msgs.iter().any(|msg| err.to_string().contains(msg)) {
         return Error::internal_err(format!(
             "Executable {executable} not found on worker. PATH: {}",
             *PATH_ENV
         ));
     }
-    return err;
+    return Error::ExecutionErr(format!("Error executing {executable}: {err:#}"));
 }
 
 pub async fn clean_cache() -> error::Result<()> {
