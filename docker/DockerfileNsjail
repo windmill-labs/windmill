@@ -1,6 +1,4 @@
-ARG DEBIAN_IMAGE=debian:bookworm-slim
-
-FROM ${DEBIAN_IMAGE} as nsjail
+FROM debian:bookworm-slim AS nsjail
 
 WORKDIR /nsjail
 
