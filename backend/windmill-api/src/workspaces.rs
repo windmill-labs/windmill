@@ -1362,7 +1362,7 @@ struct UsedTriggers {
     pub kafka_used: bool,
     pub nats_used: bool,
     pub postgres_used: bool,
-    pub sqs_used: bool
+    pub sqs_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1446,7 +1446,12 @@ async fn user_workspaces(
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
-async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
+pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
+    if w_id == "global" {
+        return Err(windmill_common::error::Error::BadRequest(
+            "'global' is not allowed as a workspace ID".to_string(),
+        ));
+    }
     let exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)", w_id)
         .fetch_one(&mut **tx)
         .await?
@@ -1504,7 +1509,7 @@ async fn create_workspace(
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    check_name_conflict(&mut tx, &nw.id).await?;
+    check_w_id_conflict(&mut tx, &nw.id).await?;
     sqlx::query!(
         "INSERT INTO workspace
             (id, name, owner)
