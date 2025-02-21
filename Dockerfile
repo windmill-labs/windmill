@@ -103,7 +103,9 @@ ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
-ENV PATH /usr/local/bin:$PATH
+ENV PATH /usr/local/bin:/root/.local/bin:$PATH
+
+RUN uv venv
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1  software-properties-common \
