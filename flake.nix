@@ -137,6 +137,7 @@
           GO_PATH = "${pkgs.go}/bin/go";
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
+          NU_PATH = "${pkgs.nushell}/bin/nu";
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
