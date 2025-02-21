@@ -14810,6 +14810,8 @@ components:
     WorkspaceGitSyncSettings:
       type: object
       properties:
+        github_app_installation_id:
+          type: string
         include_path:
           type: array
           items:

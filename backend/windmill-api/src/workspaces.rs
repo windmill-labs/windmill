@@ -169,7 +169,6 @@ pub fn global_service() -> Router {
             "/create_workspace_require_superadmin",
             get(create_workspace_require_superadmin),
         )
-        .route("/get_github_app_token", post(crate::workspaces_ee::get_github_app_token))
 }
 
 #[derive(FromRow, Serialize)]

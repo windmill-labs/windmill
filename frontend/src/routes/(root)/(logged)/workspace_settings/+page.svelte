@@ -21,6 +21,7 @@
 		JobService,
 		ResourceService,
 		SettingService,
+		GitSyncService,
 		type AIProvider
 	} from '$lib/gen'
 	import {
@@ -40,6 +41,7 @@
 		CheckCircle2,
 		X,
 		Plus,
+		Github,
 		Loader2,
 		Save,
 		ExternalLink
@@ -132,6 +134,7 @@
 	}
 	let gitSyncSettings: {
 		include_path: string[]
+		github_app_installation_id: string | undefined
 		repositories: {
 			exclude_types_override: GitSyncTypeMap
 			script_path: string
@@ -464,6 +467,7 @@
 		if (settings.git_sync !== undefined && settings.git_sync !== null) {
 			gitSyncTestJobs = []
 			gitSyncSettings = {
+				github_app_installation_id: settings.git_sync.github_app_installation_id,
 				include_path:
 					settings.git_sync.include_path?.length ?? 0 > 0
 						? settings.git_sync.include_path ?? []
@@ -511,6 +515,7 @@
 			gitSyncSettings = {
 				include_path: ['f/**'],
 				repositories: [],
+				github_app_installation_id: undefined,
 				include_type: {
 					scripts: true,
 					flows: true,
@@ -1748,6 +1753,27 @@
 					>
 						Add connection
 					</Button>
+					{#if $workspaceStore && gitSyncSettings.github_app_installation_id == undefined}
+						<Button
+							color="none"
+							variant="border"
+							size="xs"
+							btnClasses="mt-1"
+							on:click={async () => {
+								const url = await GitSyncService.getGithubAppInstallationUrl({
+									workspace: $workspaceStore
+								})
+								if (url) {
+									window.open(url.installation_url, '_blank')
+								} else {
+									sendUserToast('Failed to get GitHub app installation URL', true)
+								}
+							}}
+							startIcon={{ icon: Github }}
+						>
+							Install GitHub App
+						</Button>
+					{/if}
 				</div>
 
 				<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
