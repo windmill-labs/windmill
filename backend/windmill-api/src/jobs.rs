@@ -915,7 +915,16 @@ impl<'a> GetQuery<'a> {
                     .fetch_queued(db, job_id, workspace_id)
                     .await?
                     .map(Job::QueuedJob);
-                not_found_if_none(job_maybe, "Job", job_id.to_string())
+                // potential race condition here, if the job was in queue and completed right after the fetch completed, so we need to check one last time
+                if let Some(job) = job_maybe {
+                    return Ok(job);
+                } else {
+                    let cjob2 = self
+                        .fetch_completed(db, job_id, workspace_id)
+                        .await?
+                        .map(Job::CompletedJob);
+                    not_found_if_none(cjob2, "Job", job_id.to_string())
+                }
             }
         }
     }
