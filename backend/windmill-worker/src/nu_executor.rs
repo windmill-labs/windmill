@@ -229,7 +229,7 @@ async fn run<'a>(
 ) -> Result<(), Error> {
     let client = &client.get_authed().await;
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    let child = if !*DISABLE_NSJAIL {
+    let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -249,27 +249,23 @@ async fn run<'a>(
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
-            .current_dir(job_dir)
             .env_clear()
+            .current_dir(job_dir)
             .env("PATH", PATH_ENV.as_str())
-            .envs(PROXY_ENVS.clone())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .envs(reserved_variables)
             .envs(envs)
+            .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
             .args(vec![
                 "--config",
                 "run.config.proto",
                 "--",
-                // "/tmp/bin/nu",
                 NU_PATH.as_str(),
                 "/tmp/main.nu",
                 "--wrapped",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-
-        #[cfg(windows)]
-        nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
@@ -281,21 +277,25 @@ async fn run<'a>(
         )
         .await;
 
-        let plugin_registry = format!("{job_dir}/plugin-registry");
-        File::create(&plugin_registry).await?;
-
-        let mut run_cmd = Command::new(NU_PATH.as_str());
-        run_cmd
+        // let plugin_registry = format!("{job_dir}/plugin-registry");
+        // File::create(&plugin_registry).await?;
+        //
+        let mut cmd = Command::new(if cfg!(windows) {
+            "nu"
+        } else {
+            NU_PATH.as_str()
+        });
+        cmd.env_clear()
             .current_dir(job_dir.to_owned())
-            .env_clear()
             .env("PATH", PATH_ENV.as_str())
-            .envs(PROXY_ENVS.clone())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .envs(reserved_variables)
             .envs(envs)
+            .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
             .args(&[
-                // "--plugin-config",
-                // &plugin_registry,
+                "main.nu",
+                "--wrapped",
+                // TODO(v1):
                 // "--plugins",
                 // &format!(
                 //     "[{}]",
@@ -305,15 +305,20 @@ async fn run<'a>(
                 //         .collect_vec()
                 //         .join(",")
                 // ),
-                "main.nu",
-                "--wrapped",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
-        nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-        start_child_process(run_cmd, NU_PATH.as_str()).await?
+        {
+            cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+        start_child_process(cmd, "nu").await?
     };
     handle_child::handle_child(
         &job.id,
