@@ -32,6 +32,29 @@
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
 	export let disabled = false
+	export let initialValue:
+		| {
+				s3: string
+				filename: string
+		  }
+		| undefined = undefined
+
+	init()
+	function init() {
+		if (initialValue) {
+			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
+				$fileUploads = [
+					...$fileUploads,
+					{
+						name: initialValue.filename,
+						size: 0,
+						progress: 100,
+						path: initialValue?.s3
+					}
+				]
+			}
+		}
+	}
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
