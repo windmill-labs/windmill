@@ -4,8 +4,33 @@
 // deno-fmt-ignore-file
 /// <reference types="./windmill_parser_wasm.generated.d.ts" />
 
-// source-hash: f0b1d0be016a3874b6824c3458a87cf04fc171fd
+// source-hash: 6fa52bb354da6feea9a77d82849885878b16bfa1
 let wasm;
+
+import * as import0 from "env";
+import * as import1 from "env";
+import * as import2 from "env";
+import * as import3 from "env";
+import * as import4 from "env";
+import * as import5 from "env";
+import * as import6 from "env";
+import * as import7 from "env";
+import * as import8 from "env";
+import * as import9 from "env";
+import * as import10 from "env";
+import * as import11 from "env";
+import * as import12 from "env";
+import * as import13 from "env";
+import * as import14 from "env";
+import * as import15 from "env";
+import * as import16 from "env";
+import * as import17 from "env";
+import * as import18 from "env";
+import * as import19 from "env";
+import * as import20 from "env";
+import * as import21 from "env";
+import * as import22 from "env";
+import * as import23 from "env";
 
 const heap = new Array(128).fill(undefined);
 
@@ -214,9 +239,10 @@ function debugString(val) {
 /**
  * @param {string} code
  * @param {string | undefined} [main_override]
+ * @param {boolean | undefined} [skip_params]
  * @returns {string}
  */
-export function parse_deno(code, main_override) {
+export function parse_deno(code, main_override, skip_params) {
   let deferred3_0;
   let deferred3_1;
   try {
@@ -235,7 +261,14 @@ export function parse_deno(code, main_override) {
         wasm.__wbindgen_realloc,
       );
     var len1 = WASM_VECTOR_LEN;
-    wasm.parse_deno(retptr, ptr0, len0, ptr1, len1);
+    wasm.parse_deno(
+      retptr,
+      ptr0,
+      len0,
+      ptr1,
+      len1,
+      isLikeNone(skip_params) ? 0xFFFFFF : skip_params ? 1 : 0,
+    );
     var r0 = getInt32Memory0()[retptr / 4 + 0];
     var r1 = getInt32Memory0()[retptr / 4 + 1];
     deferred3_0 = r0;
@@ -742,6 +775,33 @@ export function parse_csharp(code) {
   }
 }
 
+/**
+ * @param {string} code
+ * @returns {string}
+ */
+export function parse_nu(code) {
+  let deferred2_0;
+  let deferred2_1;
+  try {
+    const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+    const ptr0 = passStringToWasm0(
+      code,
+      wasm.__wbindgen_malloc,
+      wasm.__wbindgen_realloc,
+    );
+    const len0 = WASM_VECTOR_LEN;
+    wasm.parse_nu(retptr, ptr0, len0);
+    var r0 = getInt32Memory0()[retptr / 4 + 0];
+    var r1 = getInt32Memory0()[retptr / 4 + 1];
+    deferred2_0 = r0;
+    deferred2_1 = r1;
+    return getStringFromWasm0(r0, r1);
+  } finally {
+    wasm.__wbindgen_add_to_stack_pointer(16);
+    wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+  }
+}
+
 function handleError(f, args) {
   try {
     return f.apply(this, args);
@@ -920,6 +980,10 @@ const imports = {
     __wbindgen_throw: function (arg0, arg1) {
       throw new Error(getStringFromWasm0(arg0, arg1));
     },
+    __wbg_eval_b420a596db0b3116: function (arg0, arg1) {
+      const ret = eval(getStringFromWasm0(arg0, arg1));
+      return addHeapObject(ret);
+    },
     __wbindgen_is_bigint: function (arg0) {
       const ret = typeof (getObject(arg0)) === "bigint";
       return ret;
@@ -940,11 +1004,31 @@ const imports = {
       const ret = BigInt.asUintN(64, arg0);
       return addHeapObject(ret);
     },
-    __wbg_eval_73a4cb0af5990ab1: function (arg0, arg1) {
-      const ret = eval(getStringFromWasm0(arg0, arg1));
-      return addHeapObject(ret);
-    },
   },
+  "env": import0,
+  "env": import1,
+  "env": import2,
+  "env": import3,
+  "env": import4,
+  "env": import5,
+  "env": import6,
+  "env": import7,
+  "env": import8,
+  "env": import9,
+  "env": import10,
+  "env": import11,
+  "env": import12,
+  "env": import13,
+  "env": import14,
+  "env": import15,
+  "env": import16,
+  "env": import17,
+  "env": import18,
+  "env": import19,
+  "env": import20,
+  "env": import21,
+  "env": import22,
+  "env": import23,
 };
 
 class WasmBuildLoader {
@@ -1095,6 +1179,7 @@ function getWasmInstanceExports() {
     parse_rust,
     parse_ansible,
     parse_csharp,
+    parse_nu,
   };
 }
 

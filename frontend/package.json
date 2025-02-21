@@ -144,6 +144,7 @@
 		"vscode-ws-jsonrpc": "~3.4.0",
 		"windmill-parser-wasm-csharp": "^1.437.1",
 		"windmill-parser-wasm-go": "^1.429.0",
+		"windmill-parser-wasm-nu": "file:../backend/parsers/windmill-parser-wasm/pkg-nu",
 		"windmill-parser-wasm-php": "^1.429.0",
 		"windmill-parser-wasm-py": "^1.429.0",
 		"windmill-parser-wasm-regex": "^1.439.0",

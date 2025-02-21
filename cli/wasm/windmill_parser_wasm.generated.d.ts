@@ -22,7 +22,8 @@ export interface InstantiateResult {
     parse_php: typeof parse_php;
     parse_rust: typeof parse_rust;
     parse_ansible: typeof parse_ansible;
-    parse_csharp: typeof parse_csharp
+    parse_csharp: typeof parse_csharp;
+    parse_nu: typeof parse_nu
   };
 }
 
@@ -50,9 +51,10 @@ export function instantiateWithInstance(opts?: InstantiateOptions): Promise<Inst
 /**
 * @param {string} code
 * @param {string | undefined} [main_override]
+* @param {boolean | undefined} [skip_params]
 * @returns {string}
 */
-export function parse_deno(code: string, main_override?: string): string;
+export function parse_deno(code: string, main_override?: string, skip_params?: boolean): string;
 /**
 * @param {string} code
 * @returns {string}
@@ -144,3 +146,8 @@ export function parse_ansible(code: string): string;
 * @returns {string}
 */
 export function parse_csharp(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_nu(code: string): string;
