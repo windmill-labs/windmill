@@ -2044,7 +2044,7 @@ pub struct LoginUserInfo {
     pub email: Option<String>,
     pub name: Option<String>,
     pub company: Option<String>,
-
+    pub preferred_username: Option<String>,
     pub displayName: Option<String>,
 }
 
