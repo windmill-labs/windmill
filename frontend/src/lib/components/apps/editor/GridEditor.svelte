@@ -261,6 +261,12 @@
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
+							on:expand={() => {
+								push(history, $app)
+								$selectedComponent = [dataItem.id]
+								expandGriditem($app.grid, dataItem.id, $breakpoint)
+								$app = $app
+							}}
 							{overlapped}
 							{moveMode}
 							{componentDraggedId}

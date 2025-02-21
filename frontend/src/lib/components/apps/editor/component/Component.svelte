@@ -19,6 +19,9 @@
 
 {#if everRender}
 	<ComponentRendered
+		on:expand
+		on:lock
+		on:fillHeight
 		{moveMode}
 		{componentDraggedId}
 		{overlapped}
