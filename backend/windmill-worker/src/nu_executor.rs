@@ -311,7 +311,7 @@ async fn run<'a>(
 
         #[cfg(windows)]
         {
-            cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env(
                     "TMP",
