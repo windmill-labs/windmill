@@ -103,8 +103,6 @@ ARG LATEST_STABLE_PY=3.11.10
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 
-RUN pip install --upgrade pip==24.2
-
 RUN apt-get update \
     && apt-get install -y ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1  software-properties-common \
     && apt-get clean \
@@ -181,8 +179,6 @@ RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
 
 ENV TZ=Etc/UTC
-
-RUN /usr/local/bin/python3 -m pip install pip-tools
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
