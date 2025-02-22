@@ -2,6 +2,7 @@ import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
+import type { GlobalUiConfig } from './components/custom_ui'
 import {
 	type AIProvider,
 	type OperatorSettings,
@@ -144,3 +145,5 @@ export const dbSchemas = writable<DBSchemas>({})
 export const instanceSettingsSelectedTab = writable('Core')
 
 export const isCriticalAlertsUIOpen = writable(false)
+
+export const globalUiConfig = writable<GlobalUiConfig | undefined>(undefined)
