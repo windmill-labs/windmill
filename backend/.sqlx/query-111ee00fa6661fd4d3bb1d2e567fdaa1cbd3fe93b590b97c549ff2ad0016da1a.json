@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT kind AS \"kind: JobKind\", runnable_id, runnable_path,\n                    flow_status AS \"flow_status: Json<Box<RawValue>>\"\n                FROM v2_job JOIN v2_job_completed USING (id)\n                WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlescriptflow",
+                "flowscript",
+                "flownode",
+                "appscript"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "flow_status: Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "111ee00fa6661fd4d3bb1d2e567fdaa1cbd3fe93b590b97c549ff2ad0016da1a"
+}

@@ -29,12 +29,12 @@ use windmill_audit::ActionKind;
 use windmill_common::utils::now_from_db;
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
-    cache::{self, FlowData},
+    cache,
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
     flow_status::{
-        BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
-        Iterator as FlowIterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS,
+        BranchAllStatus, FlowStatus, FlowStatusModule, FlowStatusModuleWParent, Iterator as FlowIterator,
+        JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS,
         MAX_RETRY_INTERVAL,
     },
     flows::{
@@ -634,7 +634,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             )
             .execute(&mut *tx)
             .await
-            .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("Could not update job labels: {e:#}")))?;
         }
 
         if !queued_job.is_flow_step {
@@ -923,7 +923,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     #[cfg(feature = "enterprise")]
     if !success {
         async fn has_failure_module(db: &Pool<Postgres>, job: &QueuedJob) -> bool {
-            if let Ok(flow) = cache::job::fetch_flow(db, job.job_kind, job.script_hash).await {
+            if let Ok(flow) =
+                cache::job::fetch_flow(db, job.job_kind, job.script_hash.map(|x| x.0), None).await
+            {
                 return flow.value().failure_module.is_some();
             }
             sqlx::query_scalar!(
@@ -3245,41 +3247,20 @@ pub async fn push<'c, 'd>(
         JobPayload::RawFlow { mut value, path, restarted_from } => {
             add_virtual_items_if_necessary(&mut value.modules);
 
-            let flow_status: FlowStatus = match restarted_from {
-                Some(restarted_from_val) => {
-                    let (_, _, _, step_n, truncated_modules, user_states, cleanup_module) =
-                        restarted_flows_resolution(
-                            _db,
-                            workspace_id,
-                            restarted_from_val.flow_job_id,
-                            restarted_from_val.step_id.as_str(),
-                            restarted_from_val.branch_or_iteration_n,
-                        )
-                        .await?;
-                    FlowStatus {
-                        step: step_n,
-                        modules: truncated_modules,
-                        // failure_module is reset
-                        failure_module: Box::new(FlowStatusModuleWParent {
-                            parent_module: None,
-                            module_status: FlowStatusModule::WaitingForPriorSteps {
-                                id: "failure".to_string(),
-                            },
-                        }),
-                        cleanup_module,
-                        // retry status is reset
-                        retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
-                        // TODO: for now, flows with approval conditions aren't supported for restart
-                        approval_conditions: None,
-                        restarted_from: Some(RestartedFrom {
-                            flow_job_id: restarted_from_val.flow_job_id,
-                            step_id: restarted_from_val.step_id,
-                            branch_or_iteration_n: restarted_from_val.branch_or_iteration_n,
-                        }),
-                        user_states,
-                        preprocessor_module: None,
-                    }
-                }
+            let flow_status = match restarted_from {
+                Some(restarted_from) => restarted_flows_resolution(
+                    workspace_id,
+                    &value,
+                    sqlx::query_scalar!(
+                        "SELECT flow_status AS \"flow_status: Json<Box<RawValue>>\"
+                            FROM v2_job_completed WHERE id = $1",
+                        restarted_from.flow_job_id,
+                    )
+                    .fetch_optional(_db)
+                    .await?
+                    .flatten(),
+                    restarted_from,
+                )?,
                 _ => {
                     value.preprocessor_module = None;
                     FlowStatus::new(&value)
@@ -3459,45 +3440,26 @@ pub async fn push<'c, 'd>(
             )
         }
         JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
-            let (
-                version,
-                flow_path,
-                flow_data,
-                step_n,
-                truncated_modules,
-                user_states,
-                cleanup_module,
-            ) = restarted_flows_resolution(
-                _db,
-                workspace_id,
-                completed_job_id,
-                step_id.as_str(),
-                branch_or_iteration_n,
+            let (job_kind, runnable_id, runnable_path, flow_status) = sqlx::query!(
+                "SELECT kind AS \"kind: JobKind\", runnable_id, runnable_path,
+                    flow_status AS \"flow_status: Json<Box<RawValue>>\"
+                FROM v2_job JOIN v2_job_completed USING (id)
+                WHERE id = $1",
+                completed_job_id
             )
-            .await?;
-            let restarted_flow_status = FlowStatus {
-                step: step_n,
-                modules: truncated_modules,
-                // failure_module is reset
-                failure_module: Box::new(FlowStatusModuleWParent {
-                    parent_module: None,
-                    module_status: FlowStatusModule::WaitingForPriorSteps {
-                        id: "failure".to_string(),
-                    },
-                }),
-                cleanup_module,
-                // retry status is reset
-                retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
-                // TODO: for now, flows with approval conditions aren't supported for restart
-                approval_conditions: None,
-                restarted_from: Some(RestartedFrom {
-                    flow_job_id: completed_job_id,
-                    step_id,
-                    branch_or_iteration_n,
-                }),
-                user_states,
-                preprocessor_module: None,
-            };
+            .map(|r| (r.kind, r.runnable_id, r.runnable_path, r.flow_status))
+            .fetch_optional(_db)
+            .await?
+            .ok_or_else(|| {
+                Error::internal_err(format!("{:?}: completed job not found", completed_job_id))
+            })?;
+            let flow_data = cache::job::fetch_flow(_db, job_kind, runnable_id, None).await?;
+            let flow_status = restarted_flows_resolution(
+                workspace_id,
+                flow_data.value(),
+                flow_status,
+                RestartedFrom { flow_job_id: completed_job_id, step_id, branch_or_iteration_n },
+            )?;
             let value = flow_data.value();
             let priority = value.priority;
             let concurrency_key = value.concurrency_key.clone();
@@ -3506,19 +3468,19 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if version.is_none() || !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if runnable_id.is_none() || !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
                 None
             };
             (
-                version,
-                flow_path,
+                runnable_id,
+                runnable_path,
                 None,
                 JobKind::Flow,
                 value_o,
-                Some(restarted_flow_status),
+                Some(flow_status),
                 None,
                 concurrency_key,
                 concurrent_limit,
@@ -3949,50 +3911,19 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
 
-async fn restarted_flows_resolution(
-    db: &Pool<Postgres>,
+fn restarted_flows_resolution(
     workspace_id: &str,
-    completed_flow_id: Uuid,
-    restart_step_id: &str,
-    branch_or_iteration_n: Option<usize>,
-) -> Result<
-    (
-        Option<i64>,
-        Option<String>,
-        Arc<FlowData>,
-        i32,
-        Vec<FlowStatusModule>,
-        HashMap<String, serde_json::Value>,
-        FlowCleanupModule,
-    ),
-    Error,
-> {
-    let row = sqlx::query!(
-        "SELECT
-            script_path, script_hash AS \"script_hash: ScriptHash\",
-            job_kind AS \"job_kind!: JobKind\",
-            flow_status AS \"flow_status: Json<Box<RawValue>>\",
-            raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-        FROM v2_as_completed_job WHERE id = $1 and workspace_id = $2",
-        completed_flow_id,
-        workspace_id,
-    )
-    .fetch_one(db) // TODO: should we try to use the passed-in `tx` here?
-    .await
-    .map_err(|err| {
-        Error::internal_err(format!(
-            "completed job not found for UUID {} in workspace {}: {}",
-            completed_flow_id, workspace_id, err
-        ))
-    })?;
+    flow_value: &FlowValue,
+    flow_status: Option<Json<Box<RawValue>>>,
+    restart_from: RestartedFrom,
+) -> error::Result<FlowStatus> {
+    let RestartedFrom {
+        flow_job_id: completed_flow_id,
+        step_id: restart_step_id,
+        branch_or_iteration_n,
+    } = &restart_from;
 
-    let flow_data = cache::job::fetch_flow(db, row.job_kind, row.script_hash)
-        .or_else(|_| cache::job::fetch_preview_flow(db, &completed_flow_id, row.raw_flow))
-        .await?;
-    let flow_value = flow_data.value();
-    let flow_status = row
-        .flow_status
-        .as_ref()
+    let mut flow_status = flow_status
         .and_then(|v| serde_json::from_str::<FlowStatus>(v.get()).ok())
         .ok_or(Error::internal_err(format!(
             "Unable to parse flow status for job {} in workspace {}",
@@ -4003,20 +3934,21 @@ async fn restarted_flows_resolution(
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];
     for module in flow_status.modules {
+        let id = module.id();
         let Some(module_definition) = flow_value
             .modules
             .iter()
-            .find(|flow_value_module| flow_value_module.id == module.id())
+            .find(|flow_value_module| &flow_value_module.id == &id)
         else {
             // skip module as it doesn't appear in the flow_value anymore
             continue;
         };
-        if module.id() == restart_step_id {
+        if &id == restart_step_id {
             // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
             // set the module as WaitingForPriorSteps as it needs to be re-run
             if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
                 // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
-                truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+                truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id });
             } else {
                 // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
                 let branch_or_iteration_n = branch_or_iteration_n.unwrap();
@@ -4045,7 +3977,7 @@ async fn restarted_flows_resolution(
                             new_flow_jobs_success.truncate(branch_or_iteration_n);
                         }
                         truncated_modules.push(FlowStatusModule::InProgress {
-                            id: module.id(),
+                            id,
                             job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
                             iterator: None,
                             flow_jobs: Some(new_flow_jobs),
@@ -4083,7 +4015,7 @@ async fn restarted_flows_resolution(
                             new_flow_jobs_success.truncate(branch_or_iteration_n);
                         }
                         truncated_modules.push(FlowStatusModule::InProgress {
-                            id: module.id(),
+                            id,
                             job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
                             iterator: Some(FlowIterator {
                                 index: branch_or_iteration_n - 1, // same deal as above, this refers to the last finished job
@@ -4109,7 +4041,7 @@ async fn restarted_flows_resolution(
             }
             dependent_module = true;
         } else if dependent_module {
-            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id });
         } else {
             // else we simply "transfer" the module from the completed flow to the new one if it's a success
             step_n = step_n + 1;
@@ -4130,13 +4062,19 @@ async fn restarted_flows_resolution(
         )));
     }
 
-    Ok((
-        row.script_hash.map(|x| x.0),
-        row.script_path,
-        flow_data,
-        step_n,
-        truncated_modules,
-        flow_status.user_states,
-        flow_status.cleanup_module,
-    ))
+    flow_status.modules = truncated_modules;
+    flow_status.step = step_n;
+    flow_status.restarted_from = Some(restart_from);
+    // failure_module is reset
+    flow_status.failure_module = Box::new(FlowStatusModuleWParent {
+        parent_module: None,
+        module_status: FlowStatusModule::WaitingForPriorSteps { id: "failure".to_string() },
+    });
+    // retry status is reset
+    flow_status.retry = RetryStatus { fail_count: 0, failed_jobs: vec![] };
+    // no preprocessor module
+    flow_status.preprocessor_module = None;
+    // TODO: for now, flows with approval conditions aren't supported for restart
+    flow_status.approval_conditions = None;
+    Ok(flow_status)
 }

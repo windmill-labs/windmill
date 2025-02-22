@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            v2_as_queue.job_kind AS \"job_kind!: JobKind\",\n            v2_as_queue.script_hash,\n            v2_as_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",\n            v2_as_completed_job.parent_job AS \"parent_job: Uuid\",\n            v2_as_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",\n            v2_as_completed_job.created_by AS \"created_by!\",\n            v2_as_queue.script_path,\n            v2_as_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"\n        FROM v2_as_queue\n        JOIN v2_as_completed_job ON v2_as_completed_job.parent_job = v2_as_queue.id\n        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2\n        LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_kind!: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlescriptflow",
+                "flowscript",
+                "flownode",
+                "appscript"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "script_hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "raw_flow: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_job: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!: chrono::NaiveDateTime",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "args: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f3d8c6804a4d3ebf69704ebe7956c38ca756fdc998cb1fe3e79f54269a914b49"
+}
