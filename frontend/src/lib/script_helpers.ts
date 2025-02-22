@@ -619,6 +619,7 @@ export async function preprocessor(
      topic: string,
      retain: boolean,
      pkid: number,
+     qos: number,
      v5?: {
        payload_format_indicator?: number,
        topic_alias?: number,
@@ -680,6 +681,7 @@ export async function preprocessor(
      topic: string,
      retain: boolean,
      pkid: number,
+     qos: number,
      v5?: {
        payload_format_indicator?: number,
        topic_alias?: number,
@@ -775,6 +777,7 @@ class Mqtt(TypeDict):
    topic: str
    retain: bool
    pkid: int
+   qos: int
    v5: V5Properties | None
 
 

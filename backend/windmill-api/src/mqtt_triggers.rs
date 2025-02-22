@@ -6,6 +6,7 @@ use crate::{
     users::fetch_api_authed,
 };
 use axum::{
+    async_trait,
     extract::{Path, Query},
     Extension, Json,
 };
@@ -706,8 +707,8 @@ async fn loop_ping(db: &DB, mqtt: &MqttConfig, error: Option<&str>) {
 }
 
 enum MqttClientResult {
-    V3((V3AsyncClient, V3EventLoop)),
-    V5((V5AsyncClient, V5EventLoop)),
+    V3((V3AsyncClient, V3EventLoop, V3Mqtt)),
+    V5((V5AsyncClient, V5EventLoop, V5Mqtt)),
 }
 
 async fn get_mqtt_async_client(
@@ -816,7 +817,7 @@ async fn get_mqtt_async_client(
 
             async_client.subscribe_many(subscribe_filters).await?;
 
-            Ok(MqttClientResult::V5((async_client, event_loop)))
+            Ok(MqttClientResult::V5((async_client, event_loop, V5Mqtt)))
         }
         _ => {
             let mut mqtt_options = V3MqttOptions::new(
@@ -824,7 +825,7 @@ async fn get_mqtt_async_client(
                 &mqtt_resource.host,
                 mqtt_resource.port,
             );
-            
+
             match (
                 mqtt_resource.username.as_deref(),
                 mqtt_resource.password.as_deref(),
@@ -876,7 +877,192 @@ async fn get_mqtt_async_client(
 
             async_client.subscribe_many(subscribe_filters).await?;
 
-            Ok(MqttClientResult::V3((async_client, event_loop)))
+            Ok(MqttClientResult::V3((async_client, event_loop, V3Mqtt)))
+        }
+    }
+}
+
+trait MqttEvent {
+    type IncomingPacket;
+    type PublishPacket;
+    type Event;
+
+    fn handle_publish_packet(publish_packet: Self::PublishPacket) -> PublishData;
+    fn handle_event(&self, event: Self::Event) -> Result<Option<(Bytes, PublishData)>, String>;
+}
+
+struct V5Mqtt;
+
+impl MqttEvent for V5Mqtt {
+    type IncomingPacket = V5Incoming;
+    type PublishPacket = rumqttc::v5::mqttbytes::v5::Publish;
+    type Event = V5Event;
+
+    fn handle_publish_packet(publish_packet: Self::PublishPacket) -> PublishData {
+        PublishData::new(
+            String::from_utf8(publish_packet.topic.as_ref().to_vec()).unwrap_or("".to_string()),
+            publish_packet.retain,
+            publish_packet.pkid,
+            publish_packet.properties,
+            publish_packet.qos as u8,
+        )
+    }
+
+    fn handle_event(&self, event: Self::Event) -> Result<Option<(Bytes, PublishData)>, String> {
+        tracing::debug!("Inside V5 event");
+        match event {
+            Self::Event::Incoming(packet) => match packet {
+                Self::IncomingPacket::Publish(publish_packet) => {
+                    return Ok(Some((
+                        publish_packet.payload.clone(),
+                        Self::handle_publish_packet(publish_packet),
+                    )))
+                }
+                Self::IncomingPacket::Disconnect(disconnect) => {
+                    let err_message = disconnect
+                        .properties
+                        .map(|properties| properties.reason_string)
+                        .flatten();
+                    let reason_code = disconnect.reason_code as u8;
+                    return Err(format!(
+                        "Disconnected by the broker, reason code: {}, {}",
+                        reason_code,
+                        err_message
+                            .map(|err| format!("message: {}", err))
+                            .unwrap_or("".to_string())
+                    ));
+                }
+                packet => {
+                    tracing::debug!("Received = {:#?}", packet);
+                }
+            },
+            Self::Event::Outgoing(packet) => {
+                tracing::debug!("Outgoing Received = {:#?}", packet);
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+struct V3Mqtt;
+
+impl MqttEvent for V3Mqtt {
+    type IncomingPacket = V3Incoming;
+    type PublishPacket = rumqttc::mqttbytes::v4::Publish;
+    type Event = V3Event;
+
+    fn handle_publish_packet(publish_packet: Self::PublishPacket) -> PublishData {
+        PublishData::new(
+            publish_packet.topic,
+            publish_packet.retain,
+            publish_packet.pkid,
+            None,
+            publish_packet.qos as u8,
+        )
+    }
+
+    fn handle_event(&self, event: Self::Event) -> Result<Option<(Bytes, PublishData)>, String> {
+        tracing::debug!("Inside V3 event");
+        match event {
+            Self::Event::Incoming(packet) => match packet {
+                Self::IncomingPacket::Publish(publish_packet) => {
+                    return Ok(Some((
+                        publish_packet.payload.clone(),
+                        Self::handle_publish_packet(publish_packet),
+                    )))
+                }
+                packet => {
+                    tracing::debug!("Received = {:?}", packet);
+                }
+            },
+            Self::Event::Outgoing(packet) => {
+                tracing::debug!("Outgoing Received = {:?}", packet);
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+#[async_trait]
+trait EventLoop {
+    type Event;
+    type Error;
+
+    async fn poll(&mut self) -> Result<Self::Event, Self::Error>;
+}
+
+#[async_trait]
+impl EventLoop for V5EventLoop {
+    type Event = V5Event;
+    type Error = rumqttc::v5::ConnectionError;
+
+    async fn poll(&mut self) -> Result<Self::Event, Self::Error> {
+        self.poll().await
+    }
+}
+
+#[async_trait]
+impl EventLoop for V3EventLoop {
+    type Event = V3Event;
+    type Error = rumqttc::ConnectionError;
+
+    async fn poll(&mut self) -> Result<Self::Event, Self::Error> {
+        self.poll().await
+    }
+}
+
+async fn handle_publish_packet(db: &DB, mqtt: &MqttConfig, payload: Bytes, publish: PublishData) {
+    let args = HashMap::from([("payload".to_string(), to_raw_value(&payload.as_ref()))]);
+    let extra = Some(HashMap::from([(
+        "wm_trigger".to_string(),
+        to_raw_value(&serde_json::json!({
+            "kind": "mqtt",
+            "mqtt": {
+                "topic": publish.topic,
+                "retain": publish.retain,
+                "pkid": publish.pkid,
+                "qos": publish.qos,
+                "v5": publish.v5.map(|properties| {
+                    serde_json::json!({
+                        "payload_format_indicator": properties.payload_format_indicator,
+                        "topic_alias": properties.topic_alias,
+                        "response_topic": properties.response_topic,
+                        "correlation_data": properties.correlation_data.as_deref(),
+                        "user_properties": properties.user_properties,
+                        "subscription_identifiers": properties.subscription_identifiers,
+                        "content_type": properties.content_type,
+                    })
+                })
+            }
+        })),
+    )]));
+    mqtt.handle(&db, Some(args), extra).await;
+}
+
+async fn main_loop<E, H>(db: &DB, mqtt: &MqttConfig, mut event_loop: E, handler: H) -> ()
+where
+    H: MqttEvent,
+    E: EventLoop<Event = H::Event>,
+    E::Error: ToString,
+{
+    loop {
+        let event = event_loop.poll().await;
+
+        match event {
+            Ok(event) => {
+                let publish_data = handler.handle_event(event);
+                if let Ok(Some((payload, publish_data))) = publish_data {
+                    handle_publish_packet(db, mqtt, payload, publish_data).await;
+                }
+            }
+            Err(err) => {
+                let err = err.to_string();
+                tracing::debug!("Error: {}", &err);
+                mqtt.disable_with_error(&db, err).await;
+                return;
+            }
         }
     }
 }
@@ -1166,39 +1352,19 @@ struct PublishData {
     retain: bool,
     pkid: u16,
     v5: Option<PublishProperties>,
+    qos: u8,
 }
 
 impl PublishData {
-    fn new(topic: String, retain: bool, pkid: u16, v5: Option<PublishProperties>) -> PublishData {
-        PublishData { topic, retain, pkid, v5 }
+    fn new(
+        topic: String,
+        retain: bool,
+        pkid: u16,
+        v5: Option<PublishProperties>,
+        qos: u8,
+    ) -> PublishData {
+        PublishData { topic, retain, pkid, v5, qos }
     }
-}
-
-async fn handle_publish_packet(db: &DB, mqtt: &MqttConfig, payload: Bytes, publish: PublishData) {
-    let args = HashMap::from([("payload".to_string(), to_raw_value(&payload.as_ref()))]);
-    let extra = Some(HashMap::from([(
-        "wm_trigger".to_string(),
-        to_raw_value(&serde_json::json!({
-            "kind": "mqtt",
-            "mqtt": {
-                "topic": publish.topic,
-                "retain": publish.retain,
-                "pkid": publish.pkid,
-                "v5": publish.v5.map(|properties| {
-                    serde_json::json!({
-                        "payload_format_indicator": properties.payload_format_indicator,
-                        "topic_alias": properties.topic_alias,
-                        "response_topic": properties.response_topic,
-                        "correlation_data": properties.correlation_data.as_deref(),
-                        "user_properties": properties.user_properties,
-                        "subscription_identifiers": properties.subscription_identifiers,
-                        "content_type": properties.content_type,
-                    })
-                })
-            }
-        })),
-    )]));
-    mqtt.handle(&db, Some(args), extra).await;
 }
 
 async fn listen_to_messages(
@@ -1233,88 +1399,8 @@ async fn listen_to_messages(
                     match result {
                         Ok(connection) => {
                             match connection {
-                                MqttClientResult::V5((_, mut event_loop)) => {
-                                    loop {
-                                        match event_loop.poll().await {
-                                            Ok(notification) => {
-                                                match notification {
-                                                    V5Event::Incoming(packet) => {
-                                                        match packet {
-                                                            V5Incoming::Publish(publish) => {
-                                                                let publish_data = PublishData::new(
-                                                                    String::from_utf8(publish.topic.as_ref().to_vec())
-                                                                        .unwrap_or("".to_string()),
-                                                                    publish.retain,
-                                                                    publish.pkid,
-                                                                    publish.properties
-                                                                );
-                                                                handle_publish_packet(&db, &mqtt, publish.payload, publish_data).await;
-                                                            }
-                                                            V5Incoming::Disconnect(disconnect) => {
-                                                                let err_message = disconnect.properties
-                                                                    .map(|properties| properties.reason_string)
-                                                                    .flatten();
-                                                                let reason_code = disconnect.reason_code as u8;
-                                                                mqtt.disable_with_error(
-                                                                    &db,
-                                                                    format!(
-                                                                        "Disconnected by the broker, reason code: {}, {}",
-                                                                        reason_code,
-                                                                        err_message
-                                                                            .map(|err| format!("message: {}", err))
-                                                                            .unwrap_or("".to_string())
-                                                                    )
-                                                                ).await;
-                                                                return;
-                                                            }
-                                                            packet => {
-                                                                tracing::debug!("Received = {:#?}", packet);
-                                                            }
-                                                        }
-                                                    }
-                                                    V5Event::Outgoing(packet) => {
-                                                        tracing::debug!("Outgoing Received = {:#?}", packet);
-                                                    }
-                                                }
-                                            }
-                                            Err(err) => {
-                                                mqtt.disable_with_error(&db, err.to_string()).await
-                                            }
-                                        }
-                                    }
-                                }
-                                MqttClientResult::V3((_, mut event_loop)) => {
-                                    loop {
-                                        match event_loop.poll().await {
-                                            Ok(notification) => {
-                                                match notification {
-                                                    V3Event::Incoming(packet) => {
-                                                        match packet {
-                                                            V3Incoming::Publish(publish) => {
-                                                                let publish_data = PublishData::new(
-                                                                    publish.topic,
-                                                                    publish.retain,
-                                                                    publish.pkid,
-                                                                    None
-                                                                );
-                                                                handle_publish_packet(&db, &mqtt, publish.payload, publish_data).await;
-                                                            }
-                                                            packet => {
-                                                                tracing::debug!("Received = {:?}", packet);
-                                                            }
-                                                        }
-                                                    }
-                                                    V3Event::Outgoing(packet) => {
-                                                        tracing::debug!("Outgoing Received = {:?}", packet);
-                                                    }
-                                                }
-                                            }
-                                            Err(err) => {
-                                                mqtt.disable_with_error(&db, err.to_string()).await
-                                            }
-                                        }
-                                    }
-                                }
+                                MqttClientResult::V3((_, event_loop, v3_handler)) => main_loop(&db, &mqtt, event_loop, v3_handler).await,
+                                MqttClientResult::V5((_, event_loop, v5_handler)) => main_loop(&db, &mqtt, event_loop, v5_handler).await,
                             }
                         }
                         Err(err) => {
