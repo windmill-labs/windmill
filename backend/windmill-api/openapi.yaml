@@ -5366,6 +5366,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/Flow"
 
+  /w/{workspace}/flows/deployment_status/p/{path}:
+    get:
+      summary: get flow deployment status
+      operationId: getFlowDeploymentStatus
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lock_error_logs:
+                    type: string
+
+
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
       summary: get triggers count of flow
@@ -14336,6 +14357,10 @@ components:
       allOf:
         - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - $ref: "#/components/schemas/FlowMetadata"
+        - type: object
+          properties:
+            lock_error_logs:
+              type: string
 
     ExtraPerms:
       type: object
