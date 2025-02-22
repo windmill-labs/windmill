@@ -105,7 +105,6 @@ ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
 ENV PATH /usr/local/bin:/root/.local/bin:$PATH
 
-RUN uv venv
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1  software-properties-common \
@@ -174,6 +173,9 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 # Preinstall python runtimes
 RUN uv python install 3.11
 RUN uv python install $LATEST_STABLE_PY
+
+RUN uv venv
+
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
