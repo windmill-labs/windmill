@@ -18,11 +18,12 @@ use serde_json::Value;
 use sqlx::{types::Uuid, FromRow};
 use std::{
     fmt::{Display, Formatter},
+    str::FromStr,
     vec,
 };
 use windmill_common::{
     db::UserDB,
-    error::JsonResult,
+    error::{self, JsonResult},
     jobs::JobKind,
     scripts::to_i64,
     utils::{not_found_if_none, paginate, Pagination},
@@ -118,6 +119,7 @@ pub struct CompletedJobMini {
 #[derive(Deserialize)]
 struct GetInputHistory {
     include_preview: Option<bool>,
+    since: Option<String>,
 }
 
 async fn get_input_history(
@@ -135,7 +137,8 @@ async fn get_input_history(
     let sql = &format!(
         "select id, v2_job.created_at, created_by, 'null'::jsonb as args, status = 'success' as success from v2_job JOIN v2_job_completed USING (id) \
         where {} = $1 and kind = any($2) and v2_job.workspace_id = $3 AND v2_job_completed.status != 'skipped' \
-        order by v2_job.created_at desc limit $4 offset $5",
+        AND v2_job_completed.started_at >= $4 \
+        order by v2_job.created_at desc limit $5 offset $6",
         r.runnable_type.column_name()
     );
 
@@ -156,9 +159,16 @@ async fn get_input_history(
         kind => vec![kind],
     };
 
+    let since: DateTime<chrono::Local> = if let Some(date) = g.since {
+        DateTime::from_str(date.as_str()).map_err(|e| error::Error::BadRequest(format!("{e}")))?
+    } else {
+        DateTime::default()
+    };
+
     let rows = query
         .bind(job_kinds)
         .bind(&w_id)
+        .bind(since)
         .bind(per_page as i32)
         .bind(offset as i32)
         .fetch_all(&mut *tx)
