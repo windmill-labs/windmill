@@ -9,7 +9,7 @@
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
-	import AwsIcon from '../icons/AwsIcon.svelte'
+	import { MqttIcon, AwsIcon } from '../icons'
 
 	export let small = false
 
@@ -128,6 +128,15 @@
 				<div class="flex flex-row items-center gap-2">
 					<NatsIcon size={16} />
 					<p class="text-xs text-secondary">Nats</p>
+				</div>
+			</button>
+			<button
+				class="hover:bg-surface-hover p-2 transition-colors duration-150"
+				on:click={() => handleClick('mqtt')}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<MqttIcon size={16} />
+					<p class="text-xs text-secondary">MQTT</p>
 				</div>
 			</button>
 		</div>

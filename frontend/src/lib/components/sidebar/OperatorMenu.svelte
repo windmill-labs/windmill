@@ -44,7 +44,10 @@
 	].filter(
 		(link) =>
 			link.id === 'home' ||
-			($userWorkspaces && $workspaceStore && $userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] === true)
+			($userWorkspaces &&
+				$workspaceStore &&
+				$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] ===
+					true)
 	)
 
 	$: secondMenuLinks = [
@@ -89,6 +92,11 @@
 			href: `${base}/sqs_triggers`
 		},
 		{
+			label: 'MQTT triggers',
+			id: 'triggers',
+			href: `${base}/mqtt_triggers`
+		},
+		{
 			label: 'Audit logs',
 			id: 'audit_logs',
 			href: `${base}/audit_logs`
@@ -109,8 +117,10 @@
 			href: `${base}/workers`
 		}
 	].filter((link) => {
-		if (!$userWorkspaces || !$workspaceStore) return false;
-		return $userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] === true
+		if (!$userWorkspaces || !$workspaceStore) return false
+		return (
+			$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] === true
+		)
 	})
 
 	let moreOpen = false

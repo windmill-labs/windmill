@@ -28,7 +28,8 @@
                 "email",
                 "nats",
                 "postgres",
-                "sqs"
+                "sqs",
+                "mqtt"
               ]
             }
           }
@@ -62,7 +63,8 @@
                 "email",
                 "nats",
                 "postgres",
-                "sqs"
+                "sqs",
+                "mqtt"
               ]
             }
           }
