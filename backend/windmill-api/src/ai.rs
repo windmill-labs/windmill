@@ -422,7 +422,7 @@ impl TryFrom<&str> for AIProvider {
 
 #[derive(Deserialize, Debug)]
 pub struct AIResource {
-    pub path: String,
+    pub path: Option<String>,
     pub provider: AIProvider,
 }
 
@@ -485,22 +485,26 @@ async fn proxy(
                 let ai_resource = serde_json::from_value::<AIResource>(ai_resource.unwrap())
                     .map_err(|e| Error::BadRequest(e.to_string()))?;
 
+                let path = ai_resource.path.unwrap_or("".to_string());
+                if path.is_empty() {
+                    return Err(Error::BadRequest("Resource path is empty".to_string()));
+                }
                 let resource = sqlx::query_scalar!(
                     "SELECT value
                     FROM resource
                     WHERE path = $1 AND workspace_id = $2",
-                    &ai_resource.path,
+                    &path,
                     &w_id
                 )
                 .fetch_optional(&db)
                 .await?
                 .ok_or_else(|| {
                     Error::NotFound(format!(
-                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", ai_resource.provider, ai_resource.path
+                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", ai_resource.provider, path
                     ))
                 })?;
 
-                (resource, ai_resource.path, ai_resource.provider)
+                (resource, path, ai_resource.provider)
             };
 
             if resource.is_none() {
