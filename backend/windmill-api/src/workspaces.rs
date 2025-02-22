@@ -732,7 +732,8 @@ async fn edit_copilot_config(
         .await?;
 
         if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
-            if cached.path != parsed_ai_resource.path {
+            if parsed_ai_resource.path.is_none() || parsed_ai_resource.path.unwrap() != cached.path
+            {
                 AI_KEY_CACHE.remove(&w_id);
             }
         }

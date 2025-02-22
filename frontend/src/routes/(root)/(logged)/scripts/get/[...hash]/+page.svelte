@@ -289,7 +289,7 @@
 		}
 
 		buttons.push({
-			label: `View runs`,
+			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${script.path}`,
 				size: 'xs',

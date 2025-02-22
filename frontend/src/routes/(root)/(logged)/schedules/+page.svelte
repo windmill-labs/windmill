@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
+	import { ScheduleService, JobService, type ScheduleWJobs } from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -88,12 +88,17 @@
 
 	async function runScheduleNow(
 		path: string,
-		args: ScriptArgs | undefined,
+		schedulePath: string,
 		isFlow: boolean
 	): Promise<void> {
 		try {
 			const runByPath = isFlow ? JobService.runFlowByPath : JobService.runScriptByPath
-
+			const args = (
+				await ScheduleService.getSchedule({
+					workspace: $workspaceStore!,
+					path: schedulePath
+				})
+			).args
 			const run = await runByPath({
 				path,
 				requestBody: args ?? {},
@@ -300,7 +305,7 @@
 				<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs, paused_until } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, marked, jobs, paused_until } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -442,7 +447,7 @@
 												displayName: 'Run now',
 												icon: Play,
 												action: () => {
-													runScheduleNow(script_path, args, is_flow)
+													runScheduleNow(script_path, path, is_flow)
 												}
 											},
 											{
