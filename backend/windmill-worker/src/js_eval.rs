@@ -967,6 +967,9 @@ fn write_error_expr(expr: &str, uuid: &Uuid) {
         }
     };
 
+    if std::env::var("PRINT_NATIVE_ERRORS").is_ok() {
+        tracing::info!("native error for job {uuid}: {expr}");
+    }
     if dir_entries >= 100 {
         tracing::info!("Too many error files in {ERROR_DIR}, skipping write");
         return;
