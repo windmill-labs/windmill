@@ -23,7 +23,6 @@
 	let goingTo: URL | undefined = undefined
 
 	beforeNavigate(async (newNavigationState) => {
-		// console.log('beforeNavigate', newNavigationState, bypassBeforeNavigate)
 		if (
 			!bypassBeforeNavigate &&
 			newNavigationState.to &&
@@ -32,9 +31,13 @@
 		) {
 			// console.log('going to', newNavigationState.to.url)
 			goingTo = newNavigationState.to.url
-			newNavigationState.cancel()
-			if (newNavigationState.type != 'popstate') {
-				await tick() // make sure saved value is updated when clicking on save draft or deploy
+
+			async function openModal() {
+				newNavigationState.cancel()
+				if (newNavigationState.type != 'popstate') {
+					await tick() // make sure saved value is updated when clicking on save draft or deploy
+				}
+				open = true
 			}
 			if (savedValue && modifiedValue) {
 				const draftOrDeployed = cleanValueProperties({
@@ -48,12 +51,11 @@
 				) {
 					bypassBeforeNavigate = true
 					additionalExitAction?.()
-					gotoUrl(goingTo)
 				} else {
-					open = true
+					await openModal()
 				}
 			} else {
-				open = true
+				await openModal()
 			}
 		} else if (bypassBeforeNavigate) {
 			bypassBeforeNavigate = false
