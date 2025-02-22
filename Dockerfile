@@ -189,7 +189,7 @@ ENV TZ=Etc/UTC
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
-COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 COPY --from=oven/bun:1.2.3 /usr/local/bin/bun /usr/bin/bun
 
