@@ -221,7 +221,7 @@
 		}
 
 		buttons.push({
-			label: `View runs`,
+			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
 				size: 'xs',

@@ -6,6 +6,8 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Section from '$lib/components/Section.svelte'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
+	import { Button } from './common'
+	import { ExternalLink } from 'lucide-svelte'
 	const dispatch = createEventDispatcher()
 
 	export let scriptHash: string | null = null
@@ -89,6 +91,19 @@
 
 		<Pane class="px-4 py-4 h-full">
 			<Section label="History" wrapperClass="h-full" small={true}>
+				<svelte:fragment slot="action">
+					<Button
+						size="xs2"
+						color="light"
+						btnClasses="!text-tertiary"
+						endIcon={{ icon: ExternalLink }}
+						on:click={() => {
+							window.open(`/runs/${runnableId}`, '_blank')
+						}}
+					>
+						All runs
+					</Button>
+				</svelte:fragment>
 				<HistoricInputs
 					bind:this={historicInputs}
 					{runnableId}
