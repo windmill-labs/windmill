@@ -366,6 +366,7 @@ impl PyVersion {
                 "python",
                 "find",
                 self.to_string_with_dot(),
+                "--system",
                 "--python-preference=only-managed",
             ])
             .envs([

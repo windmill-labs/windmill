@@ -174,6 +174,8 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 RUN uv python install 3.11
 RUN uv python install $LATEST_STABLE_PY
 
+RUN uv venv
+
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
