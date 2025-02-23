@@ -499,6 +499,7 @@ jobs:
     if:
       (github.event_name != 'pull_request') && (github.event_name !=
       'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/v')) 
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
