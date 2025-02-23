@@ -225,17 +225,17 @@ async fn windmill_main() -> anyhow::Result<()> {
         .map(|x| x.to_lowercase())
         .map(|x| {
             if &x == "server" {
-                println!("Binary is in 'server' mode");
+                println!("server mode");
                 Mode::Server
             } else if &x == "worker" {
-                tracing::info!("Binary is in 'worker' mode");
+                tracing::info!("worker mode");
                 #[cfg(windows)]
                 {
                     println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
                 }
                 Mode::Worker
             } else if &x == "agent" {
-                println!("Binary is in 'agent' mode");
+                println!("worker agent mode");
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
@@ -250,7 +250,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                 #[cfg(feature = "enterprise")]
                 Mode::Agent
             } else if &x == "indexer" {
-                tracing::info!("Binary is in 'indexer' mode");
+                tracing::info!("indexer mode");
                 #[cfg(not(feature = "tantivy"))]
                 {
                     eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
@@ -260,14 +260,14 @@ async fn windmill_main() -> anyhow::Result<()> {
                 Mode::Indexer
             } else if &x == "standalone+search"{
                     enable_standalone_indexer = true;
-                    println!("Binary is in 'standalone' mode with search enabled");
+                    println!("standalone mode with search enabled");
                     Mode::Standalone
             }
             else {
                 if &x != "standalone" {
                     eprintln!("mode not recognized, defaulting to standalone: {x}");
                 } else {
-                    println!("Binary is in 'standalone' mode");
+                    println!("standalone mode");
                 }
                 Mode::Standalone
             }
