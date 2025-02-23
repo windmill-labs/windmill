@@ -13,7 +13,7 @@
 	export let customCss: ComponentCustomCSS<'htmlcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -38,7 +38,9 @@
 {#if render}
 	<div
 		on:pointerdown={(e) => {
-			e?.preventDefault()
+			if ($mode !== 'preview') {
+				e?.preventDefault()
+			}
 		}}
 		class="h-full w-full"
 	>
