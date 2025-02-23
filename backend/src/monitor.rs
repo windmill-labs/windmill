@@ -731,6 +731,19 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting log file: {:?}", e),
     }
 
+    #[cfg(not(feature = "enterprise"))]
+    {
+        if let Err(e) = sqlx::query_scalar!(
+            "DELETE FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval",
+            SERVICE_LOG_RETENTION_SECS,
+        )
+        .fetch_all(db)
+        .await
+        {
+            tracing::error!("Error deleting audit log on CE: {:?}", e);
+        }
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {
