@@ -29,7 +29,6 @@
 		Trash,
 		ChevronUpSquare,
 		Share,
-		Badge,
 		Loader2,
 		GitFork,
 		Play,
