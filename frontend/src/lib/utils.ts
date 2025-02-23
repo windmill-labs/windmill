@@ -15,6 +15,7 @@ import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
+import type { AnyMeltElement } from '@melt-ui/svelte'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
@@ -1114,9 +1115,9 @@ export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
 	)
 }
 
-export function conditionalMelt(node: HTMLElement, meltElement: any) {
-	if (meltElement) {
-		return meltElement.action(node)
+export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | undefined) {
+	if (meltItem) {
+		return meltItem(node)
 	}
 	return { destroy: () => {} }
 }

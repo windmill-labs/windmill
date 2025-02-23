@@ -3,6 +3,8 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import type { MenubarBuilders } from '@melt-ui/svelte'
+
 	export let lightMode: boolean = false
 
 	export let isCollapsed: boolean = false
@@ -11,7 +13,7 @@
 		href: string
 		kind: 'script' | 'flow' | 'app' | 'raw_app'
 	}[]
-	export let createMenu: any
+	export let createMenu: MenubarBuilders['createMenu']
 </script>
 
 <Menu {createMenu} let:item usePointerDownOutside>

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { melt } from '@melt-ui/svelte'
+	import { melt, type MenubarBuilders } from '@melt-ui/svelte'
 
-	export let createMenu: () => any
+	export let createMenu: MenubarBuilders['createMenu']
 
 	const menu = createMenu()
 
@@ -11,8 +11,8 @@
 </script>
 
 <div class="hover:z-50 flex w-full h-8">
-	<slot name="trigger" trigger={$trigger} />
+	<slot name="trigger" {trigger} />
 	<div use:melt={$menuElement}>
-		<slot item={$item} />
+		<slot {item} />
 	</div>
 </div>

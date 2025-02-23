@@ -274,14 +274,6 @@
 					</Label>
 				</div>
 
-				<WebsocketEditorConfigSection
-					bind:url
-					bind:url_runnable_args
-					{dirtyUrl}
-					{can_write}
-					bind:isValid
-				/>
-
 				<Section label="Runnable" class="flex flex-col gap-4">
 					<div>
 						<p class="text-xs mb-1 text-tertiary">
@@ -313,6 +305,14 @@
 						}}
 					/>
 				</Section>
+
+				<WebsocketEditorConfigSection
+					bind:url
+					bind:url_runnable_args
+					{dirtyUrl}
+					{can_write}
+					bind:isValid
+				/>
 
 				<Section label="Initial messages">
 					<p class="text-xs mb-1 text-tertiary">

@@ -61,6 +61,8 @@
 	let renewing = false
 	let opening = false
 
+	let to: string = ''
+
 	async function reloadKeyrenewalAttemptInfo() {
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
@@ -747,6 +749,30 @@
 				{:else if setting.fieldType == 'smtp_connect'}
 					<div class="flex flex-col gap-4 border rounded p-4">
 						{#if $values[setting.key]}
+							<div class="flex gap-4"
+								><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
+								<Button
+									disabled={to == ''}
+									on:click={async () => {
+										let smtp = $values[setting.key]
+										await SettingService.testSmtp({
+											requestBody: {
+												to,
+												smtp: {
+													host: smtp['smtp_host'],
+													username: smtp['smtp_username'],
+													password: smtp['smtp_password'],
+													port: smtp['smtp_port'],
+													from: smtp['smtp_from'],
+													tls_implicit: smtp['smtp_tls_implicit'],
+													disable_tls: smtp['smtp_disable_tls']
+												}
+											}
+										})
+										sendUserToast('Test email sent')
+									}}>Test SMTP settings</Button
+								></div
+							>
 							<div>
 								<label for="smtp_host" class="block text-sm font-medium">Host</label>
 								<input

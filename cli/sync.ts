@@ -640,7 +640,8 @@ export async function elementsToMap(
         path.endsWith(".websocket_trigger" + ext) ||
         path.endsWith(".kafka_trigger" + ext) ||
         path.endsWith(".nats_trigger" + ext) ||
-        path.endsWith(".postgres_trigger" + ext))
+        path.endsWith(".postgres_trigger" + ext) ||
+        path.endsWith(".sqs_trigger" + ext))
     )
       continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
@@ -885,7 +886,8 @@ function getOrderFromPath(p: string) {
     typ == "websocket_trigger" ||
     typ == "kafka_trigger" ||
     typ == "nats_trigger" ||
-    typ == "postgres_trigger"
+    typ == "postgres_trigger" ||
+    typ == "sqs_trigger"
   ) {
     return 8;
   } else if (typ == "variable") {
@@ -1717,6 +1719,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   await wmill.deletePostgresTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".postgres_trigger.json"),
+                  });
+                  break;
+                case "sqs_trigger":
+                  await wmill.deleteSqsTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".sqs_trigger.json"),
                   });
                   break;
                 case "variable":

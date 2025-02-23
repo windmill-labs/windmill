@@ -50,9 +50,16 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
-	import { Menubar, Menu, MenuSingleItem, MenuItem } from '$lib/components/meltComponents'
-	import { melt } from '@melt-ui/svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
+	import {
+		Menubar,
+		Menu,
+		MenuSingleItem,
+		MenuItem,
+		MeltButton
+	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
+
 	export let numUnacknowledgedCriticalAlerts = 0
 
 	$: mainMenuLinks = [
@@ -120,6 +127,13 @@
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats'
+		},
+		{
+			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/sqs_triggers',
+			icon: AwsIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'sqs'
 		}
 	]
 
@@ -328,16 +342,15 @@
 				{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
 					<Menu {createMenu} let:item usePointerDownOutside>
 						<svelte:fragment slot="trigger" let:trigger>
-							<div
-								slot="trigger"
+							<MeltButton
 								class={twMerge(
 									'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
 									'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'
 								)}
-								use:melt={trigger}
+								meltElement={trigger}
 							>
 								<Plus size={14} />
-							</div>
+							</MeltButton>
 						</svelte:fragment>
 						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
 							<MenuItem

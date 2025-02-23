@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { Menu, Menubar } from '$lib/components/meltComponents'
-	import { melt } from '@melt-ui/svelte'
+	import { Menu, Menubar, MenuItem, MeltButton } from '$lib/components/meltComponents'
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -64,7 +63,7 @@
 <Menubar let:createMenu>
 	<Menu {createMenu} let:item placement="bottom" bind:this={menu} usePointerDownOutside>
 		<svelte:fragment slot="trigger" let:trigger>
-			<button
+			<MeltButton
 				title="Pick an iteration"
 				id={`flow-editor-iteration picker-${id}`}
 				type="button"
@@ -74,11 +73,11 @@
 					'flex items-center justify-center',
 					flowJobsSuccess?.[selected] == false ? 'text-red-400' : 'text-secondary'
 				)}
-				use:melt={trigger}
+				meltElement={trigger}
 			>
 				#{selected == -1 ? '?' : selected + 1}
 				<ListFilter size={15} />
-			</button>
+			</MeltButton>
 		</svelte:fragment>
 
 		<div class="flex flex-col px-1">
@@ -87,7 +86,7 @@
 			<div class="overflow-y-auto max-h-[300px]">
 				{#each flowJobs ?? [] as id, idx (id)}
 					{#if filter == undefined || (idx + 1).toString().includes(filter.toString())}
-						<button
+						<MenuItem
 							class={twMerge(
 								'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
 								flowJobsSuccess?.[idx] == false ? 'text-red-400' : '',
@@ -96,12 +95,10 @@
 							on:click={() => {
 								dispatch('selectedIteration', { index: idx, id, manuallySet: true })
 							}}
-							role="menuitem"
-							tabindex="-1"
-							use:melt={item}
+							{item}
 						>
 							#{idx + 1}
-						</button>
+						</MenuItem>
 					{/if}
 				{/each}
 			</div>
