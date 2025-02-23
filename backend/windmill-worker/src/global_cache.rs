@@ -13,24 +13,27 @@ use windmill_common::error;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use std::sync::Arc;
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub const TARGET: &str = const_format::concatcp!(std::env::consts::OS, "_", std::env::consts::ARCH);
+
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
-    no_uv: bool,
+    // python_311
+    python_xyz: String,
 ) -> error::Result<()> {
     use object_store::path::Path;
 
-    use crate::{TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR};
+    use crate::TAR_PYBASE_CACHE_DIR;
 
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
+
+    // e.g. tiny==1.0.0
     let folder_name = folder.split("/").last().unwrap();
-    let prefix = if no_uv {
-        TAR_PIP_CACHE_DIR
-    } else {
-        TAR_PY311_CACHE_DIR
-    };
+
+    let prefix = &format!("{TAR_PYBASE_CACHE_DIR}/{}", python_xyz);
     let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
@@ -51,10 +54,7 @@ pub async fn build_tar_and_push(
     // })?;
     if let Err(e) = s3_client
         .put(
-            &Path::from(format!(
-                "/tar/{}/{folder_name}.tar",
-                if no_uv { "pip" } else { "python_311" }
-            )),
+            &Path::from(format!("/tar/{TARGET}/{python_xyz}/{folder_name}.tar")),
             std::fs::read(&tar_path)?.into(),
         )
         .await
@@ -82,7 +82,8 @@ pub async fn build_tar_and_push(
 pub async fn pull_from_tar(
     client: Arc<dyn ObjectStore>,
     folder: String,
-    no_uv: bool,
+    // python_311
+    python_xyz: String,
 ) -> error::Result<()> {
     use windmill_common::s3_helpers::attempt_fetch_bytes;
 
@@ -91,13 +92,9 @@ pub async fn pull_from_tar(
     tracing::info!("Attempting to pull piptar {folder_name} from bucket");
 
     let start = Instant::now();
-    let tar_path = format!(
-        "tar/{}/{folder_name}.tar",
-        if no_uv { "pip" } else { "python_311" }
-    );
-    let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
-    // tracing::info!("B: {target} {folder}");
+    let tar_path = format!("tar/{TARGET}/{python_xyz}/{folder_name}.tar");
+    let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
     extract_tar(bytes, &folder).await.map_err(|e| {
         tracing::error!("Failed to extract piptar {folder_name}. Error: {:?}", e);

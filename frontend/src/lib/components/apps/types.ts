@@ -139,13 +139,13 @@ export type HiddenRunnable = {
 
 export type AppTheme =
 	| {
-			type: 'path'
-			path: string
-	  }
+		type: 'path'
+		path: string
+	}
 	| {
-			type: 'inlined'
-			css: string
-	  }
+		type: 'inlined'
+		css: string
+	}
 
 export type App = {
 	grid: GridItem[]
@@ -162,6 +162,7 @@ export type App = {
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 	theme: AppTheme | undefined
+	lazyInitRequire?: string[] | undefined
 	hideLegacyTopBar?: boolean | undefined
 	mobileViewOnSmallerScreens?: boolean | undefined
 	version?: number

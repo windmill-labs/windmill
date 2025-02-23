@@ -34,7 +34,12 @@ use http::HeaderValue;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
+use tokio::task::JoinHandle;
+use windmill_common::global_settings::load_value_from_global_settings;
+use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
+use windmill_common::worker::HUB_CACHE_DIR;
 
+use std::fs::DirBuilder;
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
@@ -73,6 +78,8 @@ mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
+#[cfg(feature = "postgres_trigger")]
+mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
@@ -96,12 +103,13 @@ mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
-#[cfg(feature = "enterprise")]
-mod teams_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+mod sqs_triggers_ee;
 mod static_assets;
 mod stripe_ee;
+mod teams_ee;
 mod tracing_init;
 mod triggers;
 mod users;
@@ -201,6 +209,13 @@ pub async fn run_server(
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
+    for x in [HUB_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .expect("could not create initial server dir");
+    }
+
     #[cfg(feature = "enterprise")]
     let ext_jwks = ExternalJwks::load().await;
     let auth_cache = Arc::new(crate::auth::AuthCache::new(
@@ -240,16 +255,32 @@ pub async fn run_server(
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
 
-        #[cfg(feature = "smtp")]
+        let mut start_smtp_server = false;
+        if let Some(smtp_settings) =
+            load_value_from_global_settings(&db, EMAIL_DOMAIN_SETTING).await?
         {
-            let smtp_server = Arc::new(SmtpServer {
-                db: db.clone(),
-                user_db: user_db,
-                auth_cache: auth_cache.clone(),
-                base_internal_url: base_internal_url.clone(),
-            });
-            if let Err(err) = smtp_server.start_listener_thread(addr).await {
-                tracing::error!("Error starting SMTP server: {err:#}");
+            if smtp_settings.as_str().unwrap_or("") != "" {
+                start_smtp_server = true;
+            }
+        }
+        if !start_smtp_server {
+            tracing::info!("SMTP server not started because email domain is not set");
+        } else {
+            #[cfg(feature = "smtp")]
+            {
+                let smtp_server = Arc::new(SmtpServer {
+                    db: db.clone(),
+                    user_db: user_db,
+                    auth_cache: auth_cache.clone(),
+                    base_internal_url: base_internal_url.clone(),
+                });
+                if let Err(err) = smtp_server.start_listener_thread(addr).await {
+                    tracing::error!("Error starting SMTP server: {err:#}");
+                }
+            }
+            #[cfg(not(feature = "smtp"))]
+            {
+                tracing::info!("SMTP server not started because SMTP feature is not enabled");
             }
         }
     }
@@ -290,23 +321,77 @@ pub async fn run_server(
         }
     };
 
+    let sqs_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        {
+            sqs_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
+        {
+            Router::new()
+        }
+    };
+
+    let websocket_triggers_service = {
+        #[cfg(feature = "websocket")]
+        {
+            websocket_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "websocket"))]
+        Router::new()
+    };
+
+    let http_triggers_service = {
+        #[cfg(feature = "http_trigger")]
+        {
+            http_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "http_trigger"))]
+        Router::new()
+    };
+
+    let postgres_triggers_service = {
+        #[cfg(feature = "postgres_trigger")]
+        {
+            postgres_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "postgres_trigger"))]
+        Router::new()
+    };
+
     if !*CLOUD_HOSTED {
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx).await;
+            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
             let kafka_killpill_rx = rx.resubscribe();
-            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx).await;
+            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
             let nats_killpill_rx = rx.resubscribe();
-            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx).await;
+            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
+        }
+
+        #[cfg(feature = "postgres_trigger")]
+        {
+            let db_killpill_rx = rx.resubscribe();
+            postgres_triggers::start_database(db.clone(), db_killpill_rx);
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        {
+            let sqs_killpill_rx = rx.resubscribe();
+            sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
         }
     }
 
@@ -358,26 +443,12 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", {
-                            #[cfg(feature = "http_trigger")]
-                            {
-                                http_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "http_trigger"))]
-                            Router::new()
-                        })
-                        .nest("/websocket_triggers", {
-                            #[cfg(feature = "websocket")]
-                            {
-                                websocket_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "websocket"))]
-                            Router::new()
-                        })
+                        .nest("/http_triggers", http_triggers_service)
+                        .nest("/websocket_triggers", websocket_triggers_service)
                         .nest("/kafka_triggers", kafka_triggers_service)
-                        .nest("/nats_triggers", nats_triggers_service),
+                        .nest("/nats_triggers", nats_triggers_service)
+                        .nest("/sqs_triggers", sqs_triggers_service)
+                        .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -438,7 +509,7 @@ pub async fn run_server(
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
                 .nest("/teams", {
-                    #[cfg(feature = "enterprise")]  
+                    #[cfg(feature = "enterprise")]
                     {
                         teams_ee::teams_service()
                     }
@@ -599,7 +670,8 @@ async fn openapi_json() -> &'static str {
     include_str!("../openapi-deref.json")
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    db::migrate(db).await?;
-    Ok(())
+pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }

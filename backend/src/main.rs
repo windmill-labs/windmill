@@ -9,20 +9,19 @@
 use anyhow::Context;
 use monitor::{
     load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_nuget_config_setting, reload_timeout_wait_result_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store,
+    reload_instance_python_version_setting, reload_nuget_config_setting,
+    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
+    send_logs_to_object_store,
 };
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     collections::HashMap,
+    fs::{create_dir_all, DirBuilder},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::{
-    fs::{create_dir_all, DirBuilder, File},
-    io::AsyncReadExt,
-};
+use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -33,19 +32,20 @@ use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, TEAMS_SETTING
+        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION},
-    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
+    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
 
@@ -59,18 +59,15 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(feature = "enterprise")]
-use windmill_common::METRICS_ADDR;
-
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
-    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, PY311_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY311_CACHE_DIR,
-    TMP_LOGS_DIR, UV_CACHE_DIR,
+    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
+    DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
+    TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -137,8 +134,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
         )
     })?;
 
-    create_dir_all(HUB_CACHE_DIR).await?;
-    create_dir_all(BUN_BUNDLE_CACHE_DIR).await?;
+    create_dir_all(HUB_CACHE_DIR)?;
+    create_dir_all(BUN_BUNDLE_CACHE_DIR)?;
 
     for path in paths.values() {
         tracing::info!("Caching hub script at {path}");
@@ -149,7 +146,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             .is_some_and(|x| x == &ScriptLang::Deno)
         {
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
-            create_dir_all(&job_dir).await?;
+            create_dir_all(&job_dir)?;
             let _ = windmill_worker::generate_deno_lock(
                 &Uuid::nil(),
                 &res.content,
@@ -167,7 +164,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
         } else if res.language.as_ref().is_some_and(|x| x == &ScriptLang::Bun) {
             let job_id = Uuid::new_v4();
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
-            create_dir_all(&job_dir).await?;
+            create_dir_all(&job_dir)?;
             if let Some(lockfile) = res.lockfile {
                 let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
                 let envs = windmill_worker::get_common_bun_proc_envs(None).await;
@@ -319,7 +316,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
-    if num_workers > 1 {
+    if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
         println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
         );
@@ -343,8 +340,17 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     println!("Connecting to database...");
-    let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
+    let db = windmill_common::initial_connection().await?;
 
+    let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
+
+    tracing::info!(
+        "PostgreSQL version: {} (windmill require PG >= 14)",
+        num_version
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "UNKNOWN".to_string())
+    );
     load_otel(&db).await;
 
     tracing::info!("Database connected");
@@ -361,35 +367,36 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
-    let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
-
-    tracing::info!(
-        "PostgreSQL version: {} (windmill require PG >= 14)",
-        num_version
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "UNKNOWN".to_string())
-    );
-
     let is_agent = mode == Mode::Agent;
 
-    if !is_agent {
+    let mut migration_handle: Option<JoinHandle<()>> = None;
+    #[cfg(feature = "parquet")]
+    let disable_s3_store = std::env::var("DISABLE_S3_STORE")
+        .ok()
+        .is_some_and(|x| x == "1" || x == "true");
+
+    if !is_agent && !indexer_mode {
         let skip_migration = std::env::var("SKIP_MIGRATION")
             .map(|val| val == "true")
             .unwrap_or(false);
 
         if !skip_migration {
             // migration code to avoid break
-            windmill_api::migrate_db(&db).await?;
+            migration_handle = windmill_api::migrate_db(&db).await?;
         } else {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
     }
 
+    drop(db);
+    let worker_mode = num_workers > 0;
+
+    let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
+
     let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
-    let server_killpill_rx = killpill_tx.subscribe();
     let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let server_killpill_rx = killpill_phase2_tx.subscribe();
 
     let shutdown_signal =
         windmill_common::shutdown_signal(killpill_tx.clone(), killpill_tx.subscribe());
@@ -449,8 +456,6 @@ Windmill Community Edition {GIT_VERSION}
         }
     }
 
-    let worker_mode = num_workers > 0;
-
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
@@ -473,7 +478,15 @@ Windmill Community Edition {GIT_VERSION}
             default_base_internal_url.clone()
         };
 
-        initial_load(&db, killpill_tx.clone(), worker_mode, server_mode, is_agent).await;
+        initial_load(
+            &db,
+            killpill_tx.clone(),
+            worker_mode,
+            server_mode,
+            #[cfg(feature = "parquet")]
+            disable_s3_store,
+        )
+        .await;
 
         monitor_db(
             &db,
@@ -502,7 +515,6 @@ Windmill Community Edition {GIT_VERSION}
         DirBuilder::new()
             .recursive(true)
             .create("/tmp/windmill")
-            .await
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]
@@ -635,7 +647,7 @@ Windmill Community Edition {GIT_VERSION}
                         killpill_tx.clone(),
                         num_workers,
                         base_internal_url.clone(),
-                        mode.clone() == Mode::Agent,
+                        is_agent,
                         hostname.clone(),
                     )
                     .await?;
@@ -646,9 +658,13 @@ Windmill Community Edition {GIT_VERSION}
                 }
             }
             if killpill_phase2_tx.receiver_count() > 0 {
-                tracing::info!("Starting phase 2 of shutdown");
+                if worker_mode {
+                    tracing::info!("Starting phase 2 of shutdown");
+                }
                 killpill_phase2_tx.send(())?;
-                tracing::info!("Phase 2 of shutdown completed");
+                if worker_mode {
+                    tracing::info!("Phase 2 of shutdown completed");
+                }
             }
             Ok(())
         };
@@ -664,6 +680,14 @@ Windmill Community Edition {GIT_VERSION}
                 loop {
                     tokio::select! {
                         biased;
+                        Some(_) = async { if let Some(jh) = migration_handle.take() {
+                            tracing::info!("migration job finished");
+                            Some(jh.await)
+                        } else {
+                            None
+                        }} => {
+                           continue;
+                        },
                         _ = monitor_killpill_rx.recv() => {
                             tracing::info!("received killpill for monitor job");
                             break;
@@ -753,8 +777,10 @@ Windmill Community Edition {GIT_VERSION}
                                                     reload_job_default_timeout_setting(&db).await
                                                 },
                                                 #[cfg(feature = "parquet")]
-                                                OBJECT_STORE_CACHE_CONFIG_SETTING if !is_agent => {
-                                                    reload_s3_cache_setting(&db).await
+                                                OBJECT_STORE_CACHE_CONFIG_SETTING => {
+                                                    if !disable_s3_store {
+                                                        reload_s3_cache_setting(&db).await
+                                                    }
                                                 },
                                                 SCIM_TOKEN_SETTING => {
                                                     reload_scim_token_setting(&db).await
@@ -764,6 +790,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 PIP_INDEX_URL_SETTING => {
                                                     reload_pip_index_url_setting(&db).await
+                                                },
+                                                INSTANCE_PYTHON_VERSION_SETTING => {
+                                                    reload_instance_python_version_setting(&db).await
                                                 },
                                                 NPM_CONFIG_REGISTRY_SETTING => {
                                                     reload_npm_config_registry_setting(&db).await
@@ -782,11 +811,12 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 EXPOSE_METRICS_SETTING  => {
                                                     tracing::info!("Metrics setting changed, restarting");
-                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::thread_rng().gen_range(0..40);
-                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill to server");
+                                                    send_delayed_killpill(&tx, 40, "metrics setting change").await;
+                                                },
+                                                EMAIL_DOMAIN_SETTING => {
+                                                    tracing::info!("Email domain setting changed");
+                                                    if server_mode {
+                                                        send_delayed_killpill(&tx, 4, "email domain setting change").await;
                                                     }
                                                 },
                                                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -796,29 +826,17 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 OTEL_SETTING => {
                                                     tracing::info!("OTEL setting changed, restarting");
-                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
-                                                    let rd_delay = rand::thread_rng().gen_range(0..4);
-                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill");
-                                                    }
+                                                    send_delayed_killpill(&tx, 4, "OTEL setting change").await;
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {
                                                     if server_mode {
                                                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                                                        // we wait a bit randomly to avoid having all servers shutdown at same time
-                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
-                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                        if let Err(e) = tx.send(()) {
-                                                            tracing::error!(error = %e, "Could not send killpill to server");
-                                                        }
+                                                        send_delayed_killpill(&tx, 4, "request size limit change").await;
                                                     }
                                                 },
                                                 SAML_METADATA_SETTING => {
                                                     tracing::info!("SAML metadata change detected, killing server expecting to be restarted");
-                                                    if let Err(e) = tx.send(()) {
-                                                        tracing::error!(error = %e, "Could not send killpill to server");
-                                                    }
+                                                    send_delayed_killpill(&tx, 0, "SAML metadata change").await;
                                                 },
                                                 HUB_BASE_URL_SETTING => {
                                                     if let Err(e) = reload_hub_base_url_setting(&db, server_mode).await {
@@ -880,14 +898,25 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
-                tracing::error!("Metrics are only available in the EE, ignoring...");
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
+            #[cfg(not(all(feature = "enterprise", feature = "prometheus")))]
+            if enabled {
+                tracing::error!("Metrics are only available in the EE, ignoring...");
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            if let Err(e) = windmill_common::serve_metrics(
+                *windmill_common::METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await
+            {
+                tracing::error!("Error serving metrics: {e:#}");
+            }
+
             Ok(()) as anyhow::Result<()>
         };
 
@@ -1012,18 +1041,20 @@ pub async fn run_workers(
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for x in [
-        LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
-        TAR_PIP_CACHE_DIR,
-        TAR_PY311_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
         BUN_CACHE_DIR,
+        PY310_CACHE_DIR,
         PY311_CACHE_DIR,
-        PIP_CACHE_DIR,
-        BUN_DEPSTAR_CACHE_DIR,
+        PY312_CACHE_DIR,
+        PY313_CACHE_DIR,
+        TAR_PY310_CACHE_DIR,
+        TAR_PY311_CACHE_DIR,
+        TAR_PY312_CACHE_DIR,
+        TAR_PY313_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
@@ -1035,7 +1066,6 @@ pub async fn run_workers(
         DirBuilder::new()
             .recursive(true)
             .create(x)
-            .await
             .expect("could not create initial worker dir");
     }
 
@@ -1085,4 +1115,19 @@ pub async fn run_workers(
 
     futures::future::try_join_all(handles).await?;
     Ok(())
+}
+
+async fn send_delayed_killpill(
+    tx: &tokio::sync::broadcast::Sender<()>,
+    max_delay_secs: u64,
+    context: &str,
+) {
+    // Random delay to avoid all servers/workers shutting down simultaneously
+    let rd_delay = rand::rng().random_range(0..max_delay_secs);
+    tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
+    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+
+    if let Err(e) = tx.send(()) {
+        tracing::error!(error = %e, "Could not send killpill for {context}");
+    }
 }

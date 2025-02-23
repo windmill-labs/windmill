@@ -72,7 +72,10 @@ pub async fn do_mssql(
 
     let mut config = Config::new();
 
-    config.host(database.host);
+    let host_ref = &database.host;
+    let port_ref = database.port;
+
+    config.host(host_ref.clone());
     config.database(database.dbname);
     let use_instance_name = database.instance_name.as_ref().is_some_and(|x| x != "");
     if use_instance_name {
@@ -101,12 +104,28 @@ pub async fn do_mssql(
     };
     tcp.set_nodelay(true)?;
 
-    // To be able to use Tokio's tcp, we're using the `compat_write` from
-    // the `TokioAsyncWriteCompatExt` to get a stream compatible with the
-    // traits from the `futures` crate.
-    let mut client = Client::connect(config, tcp.compat_write())
-        .await
-        .map_err(to_anyhow)?;
+    // NOTE Azure default behavior with SQL Server is to redirect:
+    // https://learn.microsoft.com/en-us/azure/azure-sql/database/connectivity-architecture?view=azuresql#connection-policy
+    // https://github.com/prisma/tiberius?tab=readme-ov-file#redirects
+    let mut client = match Client::connect(config.clone(), tcp.compat_write()).await {
+        Ok(client) => {
+            tracing::debug!("Connected to host: {:#?}, port: {:#?}", host_ref, port_ref);
+            client
+        }
+        Err(tiberius::error::Error::Routing { host, port }) => {
+            tracing::debug!("Redirecting to host: {:#?}, port: {:#?}", host, port);
+            config.host(&host);
+            config.port(port);
+
+            let tcp = TcpStream::connect(config.get_addr()).await?;
+            tcp.set_nodelay(true)?;
+
+            Client::connect(config, tcp.compat_write())
+                .await
+                .map_err(to_anyhow)?
+        }
+        Err(e) => return Err(to_anyhow(e).into()),
+    };
 
     let sig = parse_mssql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?

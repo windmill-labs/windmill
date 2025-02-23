@@ -12,13 +12,12 @@ use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
 
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
-use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
+use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
     to_raw_value, write_file, CLOUD_HOSTED, ROOT_CACHE_DIR, WORKER_CONFIG,
 };
@@ -63,10 +62,10 @@ pub fn check_executor_binary_exists(
 ) -> Result<(), Error> {
     if !Path::new(executor_path).exists() {
         #[cfg(feature = "enterprise")]
-        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run {language} jobs.", executor_path);
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-ee-full image. Please use the image `ghcr.io/windmill-labs/windmill-ee-full` for your instance in order to run {language} jobs.", executor_path);
 
         #[cfg(not(feature = "enterprise"))]
-        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run {language} jobs.", executor_path);
+        let msg = format!("Couldn't find {executor} at {}. This probably means that you are not using the windmill-full image. Please use the image `ghcr.io/windmill-labs/windmill-full` for your instance in order to run {language} jobs.", executor_path);
         return Err(Error::NotFound(msg));
     }
 
@@ -149,13 +148,13 @@ pub async fn transform_json<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -177,13 +176,13 @@ pub async fn transform_json_as_values<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
+                error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -215,6 +214,25 @@ pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
 }
 
 #[async_recursion]
+pub async fn get_root_job_id(job: &Uuid, db: &Pool<Postgres>) -> anyhow::Result<Uuid> {
+    let njob = sqlx::query_scalar!(
+        "SELECT flow_innermost_root_job FROM v2_job WHERE id = $1",
+        job
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if let Some(root_job) = njob {
+        if root_job == *job {
+            return Ok(job.to_owned());
+        }
+        get_root_job_id(&root_job, db).await
+    } else {
+        Ok(job.to_owned())
+    }
+}
+
+#[async_recursion]
 pub async fn transform_json_value(
     name: &str,
     client: &AuthedClient,
@@ -237,7 +255,7 @@ pub async fn transform_json_value(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(format!(
+                return Err(Error::internal_err(format!(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
@@ -253,19 +271,19 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$encrypted:") => {
             let encrypted = y.strip_prefix("$encrypted:").unwrap();
-            let mc =
-                build_crypt_with_key_suffix(&db, &job.workspace_id, &job.id.to_string()).await?;
-            decrypt_value_with_mc(encrypted.to_string(), mc)
-                .await
-                .and_then(|x| {
-                    serde_json::from_str(&x).map_err(|e| Error::InternalErr(e.to_string()))
-                })
+
+            let root_job_id = get_root_job_id(&job.root_job.unwrap_or_else(|| job.id), db).await?;
+            let mc = build_crypt_with_key_suffix(&db, &job.workspace_id, &root_job_id.to_string())
+                .await?;
+            decrypt(&mc, encrypted.to_string()).and_then(|x| {
+                serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
+            })
 
             // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {
-                sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+                sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_optional(db)
                     .await?
                     .flatten()
@@ -336,7 +354,8 @@ pub fn unsafe_raw(json: String) -> Box<RawValue> {
 fn check_result_too_big(size: usize) -> error::Result<()> {
     if *CLOUD_HOSTED && size > MAX_RESULT_SIZE {
         return Err(error::Error::ExecutionErr("Result is too large for the cloud app (limit 2MB).
-        If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
+We highly recommend using object to store and pass heavy data (https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#read-a-file-from-s3-within-a-script)
+Alternatively, if using this script as part of a flow, activate shared folder and use the shared folder to pass heavy data between steps.".to_owned()));
     };
     Ok(())
 }
@@ -399,7 +418,7 @@ pub async fn get_reserved_variables(
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if let Some(uuid) = job.parent_job {
-        sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+        sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
             .fetch_optional(db)
             .await?
             .flatten()
@@ -440,15 +459,6 @@ pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String,
     }
 
     r
-}
-
-pub fn get_main_override(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> Option<String> {
-    return args
-        .map(|x| {
-            x.0.get(ENTRYPOINT_OVERRIDE)
-                .map(|x| x.get().to_string().replace("\"", ""))
-        })
-        .flatten();
 }
 
 pub fn sizeof_val(v: &serde_json::Value) -> usize {
@@ -572,7 +582,7 @@ impl OccupancyMetrics {
 pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
     return cmd
         .spawn()
-        .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+        .map_err(|err| tentatively_improve_error(err.into(), executable));
 }
 
 pub async fn resolve_job_timeout(
@@ -926,18 +936,18 @@ pub async fn save_in_cache(
 
 fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     #[cfg(unix)]
-    let err_msg = "No such file or directory (os error 2)";
+    let err_msgs = vec!["os error 2", "os error 3", "No such file or directory"];
 
     #[cfg(windows)]
-    let err_msg = "program not found";
+    let err_msgs = vec!["program not found", "os error 2", "os error 3"];
 
-    if err.to_string().contains(&err_msg) {
-        return Error::InternalErr(format!(
+    if err_msgs.iter().any(|msg| err.to_string().contains(msg)) {
+        return Error::internal_err(format!(
             "Executable {executable} not found on worker. PATH: {}",
             *PATH_ENV
         ));
     }
-    return err;
+    return Error::ExecutionErr(format!("Error executing {executable}: {err:#}"));
 }
 
 pub async fn clean_cache() -> error::Result<()> {
@@ -969,5 +979,5 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
         .timeout(timeout_duration)
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| Error::InternalErr(format!("Error building http client: {e:#}")))
+        .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }

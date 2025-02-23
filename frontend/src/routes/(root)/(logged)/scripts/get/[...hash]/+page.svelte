@@ -41,8 +41,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
-	import SavedInputs from '$lib/components/SavedInputs.svelte'
-	import WebhooksPanel from '$lib/components/triggers/WebhooksPanel.svelte'
+	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
+	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
@@ -78,14 +78,18 @@
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import RoutesPanel from '$lib/components/triggers/RoutesPanel.svelte'
+	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
-	import WebsocketTriggersPanel from '$lib/components/triggers/WebsocketTriggersPanel.svelte'
-	import KafkaTriggersPanel from '$lib/components/triggers/KafkaTriggersPanel.svelte'
-	import NatsTriggersPanel from '$lib/components/triggers/NatsTriggersPanel.svelte'
+	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
+	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
+	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
+	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -98,6 +102,8 @@
 	let scheduledForStr: string | undefined = undefined
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
+	let inputSelected: 'saved' | 'history' | undefined = undefined
+	let jsonView = false
 
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
@@ -282,7 +288,7 @@
 		}
 
 		buttons.push({
-			label: `View runs`,
+			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${script.path}`,
 				size: 'xs',
@@ -491,6 +497,8 @@
 
 	let token = 'TOKEN_TO_CREATE'
 	let rightPaneSelected = 'saved_inputs'
+
+	let savedInputsV2: SavedInputsV2 | undefined = undefined
 </script>
 
 <MoveDrawer
@@ -593,7 +601,7 @@
 			</svelte:fragment>
 			<svelte:fragment slot="form">
 				<div class="p-8 w-full max-w-3xl mx-auto">
-					<div class="flex flex-col gap-0.5 mb-4">
+					<div class="flex flex-col gap-0.5 mb-1">
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
 								{#if script.lock_error_logs}
@@ -645,21 +653,46 @@
 						</Badge>
 					{/if}
 
-					<RunForm
-						bind:scheduledForStr
-						bind:invisible_to_owner
-						bind:overrideTag
-						viewKeybinding
-						loading={runLoading}
-						autofocus
-						detailed={false}
-						bind:isValid
-						runnable={script}
-						runAction={runScript}
-						bind:args
-						schedulable={true}
-						bind:this={runForm}
-					/>
+					<div class="flex flex-col align-left">
+						<div class="flex flex-row justify-between">
+							<InputSelectedBadge
+								on:click={() => {
+									savedInputsV2?.resetSelected()
+								}}
+								{inputSelected}
+							/>
+							<Toggle
+								bind:checked={jsonView}
+								label="JSON View"
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={(e) => {
+									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
+						</div>
+
+						<RunForm
+							bind:scheduledForStr
+							bind:invisible_to_owner
+							bind:overrideTag
+							viewKeybinding
+							loading={runLoading}
+							autofocus
+							detailed={false}
+							bind:isValid
+							runnable={script}
+							runAction={runScript}
+							bind:args
+							schedulable={true}
+							bind:this={runForm}
+							{jsonView}
+						/>
+					</div>
 
 					<div class="py-10" />
 					{#if !emptyString(script.summary)}
@@ -689,14 +722,16 @@
 			</svelte:fragment>
 			<svelte:fragment slot="save_inputs">
 				{#if args}
-					<SavedInputs
+					<SavedInputsV2
+						bind:this={savedInputsV2}
 						scriptPath={script?.path}
 						scriptHash={topHash}
 						{isValid}
+						{jsonView}
 						{args}
+						bind:inputSelected
 						on:selected_args={(e) => {
 							const nargs = JSON.parse(JSON.stringify(e.detail))
-							runForm?.setArgs(nargs)
 							args = nargs
 						}}
 					/>
@@ -723,6 +758,11 @@
 					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
+			<svelte:fragment slot="postgres">
+				<div class="p-2">
+					<PostgresTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
 			<svelte:fragment slot="kafka">
 				<div class="p-2">
 					<KafkaTriggersPanel path={script.path ?? ''} isFlow={false} />
@@ -731,6 +771,11 @@
 			<svelte:fragment slot="nats">
 				<div class="p-2">
 					<NatsTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="sqs">
+				<div class="p-2">
+					<SqsTriggerPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="emails">

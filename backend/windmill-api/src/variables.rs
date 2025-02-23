@@ -31,9 +31,9 @@ use windmill_common::{
 };
 
 use lazy_static::lazy_static;
-use windmill_common::variables::{decrypt, encrypt};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
+use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 lazy_static! {
@@ -196,7 +196,7 @@ async fn get_variable(
                     )
                 }
                 #[cfg(not(feature = "oauth2"))]
-                return Err(Error::InternalErr("Require oauth2 feature".to_string()));
+                return Err(Error::internal_err("Require oauth2 feature".to_string()));
             } else if !value.is_empty() && decrypt_secret {
                 let _ = tx.commit().await;
                 let mc = build_crypt(&db, &w_id).await?;
@@ -558,7 +558,7 @@ async fn update_variable(
         }
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
 
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
@@ -662,7 +662,7 @@ pub async fn get_value_internal<'c>(
                 .await?
             }
             #[cfg(not(feature = "oauth2"))]
-            return Err(Error::InternalErr("Require oauth2 feature".to_string()));
+            return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
             tx.commit().await?;
             let mc = build_crypt(&db, &w_id).await?;
@@ -675,4 +675,29 @@ pub async fn get_value_internal<'c>(
     };
 
     Ok(r)
+}
+
+pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let path = path.strip_prefix("$var:").unwrap().to_string();
+
+    let record = sqlx::query!(
+        "SELECT value, is_secret 
+         FROM variable 
+         WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
+    )
+    .fetch_one(db)
+    .await?;
+
+    let mut value = record.value;
+    if record.is_secret {
+        let mc = build_crypt(db, w_id).await?;
+        value = decrypt(&mc, value)?;
+    }
+
+    Ok(value)
 }

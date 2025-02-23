@@ -90,12 +90,26 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job}, bun_executor::handle_bun_job, common::{
+    bash_executor::{handle_bash_job, handle_powershell_job},
+    bun_executor::handle_bun_job,
+    common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
-    }, csharp_executor::handle_csharp_job, deno_executor::handle_deno_job, go_executor::handle_go_job, graphql_executor::do_graphql, handle_child::SLOW_LOGS, handle_job_error, job_logger::NO_LOGS_AT_ALL, js_eval::{eval_fetch_timeout, transpile_ts}, pg_executor::do_postgresql, result_processor::{process_result, start_background_processor}, worker_flow::{handle_flow, update_flow_status_in_progress}, worker_lockfiles::{
+    },
+    csharp_executor::handle_csharp_job,
+    deno_executor::handle_deno_job,
+    go_executor::handle_go_job,
+    graphql_executor::do_graphql,
+    handle_child::SLOW_LOGS,
+    handle_job_error,
+    job_logger::NO_LOGS_AT_ALL,
+    js_eval::{eval_fetch_timeout, transpile_ts},
+    pg_executor::do_postgresql,
+    result_processor::{process_result, start_background_processor},
+    worker_flow::{handle_flow, update_flow_status_in_progress},
+    worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    }
+    },
 };
 
 #[cfg(feature = "rust")]
@@ -105,7 +119,7 @@ use crate::rust_executor::handle_rust_job;
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::python_executor::handle_python_job;
+use crate::python_executor::{handle_python_job, PyVersion};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -132,7 +146,7 @@ use crate::mssql_executor::do_mssql;
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
-use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
+use crate::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
@@ -194,7 +208,7 @@ pub async fn create_token_for_owner(
     let jwt_secret = JWT_SECRET.read().await;
 
     if jwt_secret.is_empty() {
-        return Err(Error::InternalErr("No JWT secret found".to_string()));
+        return Err(Error::internal_err("No JWT secret found".to_string()));
     }
 
     let job_authed = match sqlx::query_as!(
@@ -212,7 +226,7 @@ pub async fn create_token_for_owner(
             fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
                 .await
                 .map_err(|e| {
-                    Error::InternalErr(format!(
+                    Error::internal_err(format!(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
                 })?
@@ -240,7 +254,7 @@ pub async fn create_token_for_owner(
         &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
     .map_err(|err| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "Could not encode JWT token for job {job_id}: {:?}",
             err
         ))
@@ -248,22 +262,21 @@ pub async fn create_token_for_owner(
     Ok(format!("jwt_{}", token))
 }
 
-pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
-
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
-pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
-// Used as fallback now
-pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
-
-// pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
+pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
 pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
-// pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
-// pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
+pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
+pub const PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_313");
+
+pub const TAR_PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_310");
+pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
+pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
+pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
 
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
-pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
-pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311");
+pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
+pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
@@ -273,7 +286,6 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
-pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
 
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
@@ -283,7 +295,6 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
-const INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK: &str = include_str!("../nsjail/download_deps.py.pip.sh");
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
@@ -324,7 +335,6 @@ lazy_static::lazy_static! {
 const DOTNET_DEFAULT_PATH: &str = "C:\\Program Files\\dotnet\\dotnet.exe";
 #[cfg(unix)]
 const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
-
 
 lazy_static::lazy_static! {
 
@@ -399,6 +409,7 @@ lazy_static::lazy_static! {
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref INSTANCE_PYTHON_VERSION: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
     static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
@@ -765,6 +776,41 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker = %worker_name, hostname = %hostname, worker_dir = %worker_dir, "Creating worker dir");
 
+    #[cfg(feature = "python")]
+    {
+        let (db, worker_name, hostname, worker_dir) = (
+            db.clone(),
+            worker_name.clone(),
+            hostname.to_owned(),
+            worker_dir.clone(),
+        );
+        tokio::spawn(async move {
+            if let Err(e) = PyVersion::from_instance_version()
+                .await
+                .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
+                .await
+            {
+                tracing::error!(
+                    worker = %worker_name,
+                    hostname = %hostname,
+                    worker_dir = %worker_dir,
+                    "Cannot preinstall or find Instance Python version to worker: {e}"//
+                );
+            }
+            if let Err(e) = PyVersion::Py311
+                .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
+                .await
+            {
+                tracing::error!(
+                    worker = %worker_name,
+                    hostname = %hostname,
+                    worker_dir = %worker_dir,
+                    "Cannot preinstall or find default 311 version to worker: {e}"//
+                );
+            }
+        });
+    }
+
     if let Some(ref netrc) = *NETRC {
         tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
@@ -780,13 +826,6 @@ pub async fn run_worker(
             &worker_dir,
             "download_deps.py.sh",
             INCLUDE_DEPS_PY_SH_CONTENT,
-        );
-
-        // TODO: Remove (Deprecated)
-        let _ = write_file(
-            &worker_dir,
-            "download_deps.py.pip.sh",
-            INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK,
         );
     }
 
@@ -1040,7 +1079,7 @@ pub async fn run_worker(
     #[cfg(feature = "benchmark")]
     let mut infos = BenchmarkInfo::new();
 
-    let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
+    let vacuum_shift = rand::rng().random_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
     tracing::info!(
@@ -1225,7 +1264,7 @@ pub async fn run_worker(
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
+                    if let Err(e) = sqlx::query!("VACUUM v2_job_queue, v2_job_runtime, v2_job_status")
                         .execute(&db2)
                         .await
                     {
@@ -1272,12 +1311,28 @@ pub async fn run_worker(
                     same_worker_job.job_id
                 );
                 let r = sqlx::query_as::<_, PulledJob>(
-                    "UPDATE queue SET last_ping = now() WHERE id = $1 RETURNING *",
+                    "
+                    WITH ping AS (
+                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 RETURNING id
+                    )
+                    SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)
+                    ",
                 )
                 .bind(same_worker_job.job_id)
                 .fetch_optional(db)
                 .await
-                .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()));
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Impossible to fetch same_worker job {}: {}",
+                        same_worker_job.job_id, e
+                    ))
+                });
+                let _ = sqlx::query!(
+                    "UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1",
+                    same_worker_job.job_id
+                )
+                .execute(db)
+                .await;
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
                         worker = %worker_name, hostname = %hostname,
@@ -1324,7 +1379,7 @@ pub async fn run_worker(
                     last_suspend_first = Instant::now();
                 }
 
-                let job = pull(&db, suspend_first).await;
+                let job = pull(&db, suspend_first, &worker_name).await;
 
                 add_time!(bench, "job pulled from DB");
                 let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -1431,6 +1486,7 @@ pub async fn run_worker(
                             job: Arc::new(job.job),
                             success: true,
                             result: Arc::new(empty_result()),
+                            result_columns: None,
                             mem_peak: 0,
                             cached_res_path: None,
                             token: "".to_string(),
@@ -1827,6 +1883,7 @@ pub enum SendResult {
 pub struct JobCompleted {
     pub job: Arc<QueuedJob>,
     pub result: Arc<Box<RawValue>>,
+    pub result_columns: Option<Vec<String>>,
     pub mem_peak: i32,
     pub success: bool,
     pub cached_res_path: Option<String>,
@@ -1941,23 +1998,36 @@ async fn handle_queued_job(
             db,
             &job.workspace_id,
             job.parent_job
-                .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?,
+                .ok_or_else(|| Error::internal_err(format!("expected parent job")))?,
             job.id,
         )
         .warn_after_seconds(5)
         .await?;
     } else if let Some(parent_job) = job.parent_job {
-        if let Err(e) = sqlx::query_scalar!(
-            "UPDATE queue SET flow_status = jsonb_set(jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], COALESCE(flow_status->$1, '{}'::jsonb)), array[$1, 'started_at'], to_jsonb(now()::text)) WHERE id = $2 AND workspace_id = $3",
+        let _ = sqlx::query_scalar!(
+            "UPDATE v2_job_status SET
+                workflow_as_code_status = jsonb_set(
+                    jsonb_set(
+                        COALESCE(workflow_as_code_status, '{}'::jsonb),
+                        array[$1],
+                        COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
+                    ),
+                    array[$1, 'started_at'],
+                    to_jsonb(now()::text)
+                )
+            WHERE id = $2",
             &job.id.to_string(),
-            parent_job,
-            &job.workspace_id
+            parent_job
         )
         .execute(db)
         .warn_after_seconds(5)
-        .await {
-            tracing::error!("Could not update parent job started_at flow_status: {}", e);
-        }
+        .await
+        .inspect_err(|e| {
+            tracing::error!(
+                "Could not update parent job `started_at` in workflow as code status: {}",
+                e
+            )
+        });
     }
 
     let started = Instant::now();
@@ -2003,6 +2073,7 @@ async fn handle_queued_job(
                 .send(JobCompleted {
                     job,
                     result,
+                    result_columns: None,
                     mem_peak: 0,
                     canceled_by: None,
                     success: true,
@@ -2031,6 +2102,7 @@ async fn handle_queued_job(
             same_worker_tx,
             worker_dir,
             job_completed_tx.0.clone(),
+            worker_name,
         )
         .warn_after_seconds(10)
         .await?;
@@ -2061,7 +2133,7 @@ async fn handle_queued_job(
         #[cfg(not(feature = "enterprise"))]
         if job.concurrent_limit.is_some() {
             logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are going to become an Enterprise Edition feature in the near future.\n");
+            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
             logs.push_str("---\n");
         }
 
@@ -2227,7 +2299,7 @@ pub async fn get_hub_script_content_and_requirements(
 ) -> error::Result<ContentReqLangEnvs> {
     let script_path = script_path
         .clone()
-        .ok_or_else(|| Error::InternalErr(format!("expected script path for hub script")))?;
+        .ok_or_else(|| Error::internal_err(format!("expected script path for hub script")))?;
 
     let script =
         get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, db).await?;
@@ -2278,7 +2350,7 @@ async fn handle_code_execution_job(
 ) -> error::Result<Box<RawValue>> {
     let script_hash = || {
         job.script_hash
-            .ok_or_else(|| Error::InternalErr("expected script hash".into()))
+            .ok_or_else(|| Error::internal_err("expected script hash"))
     };
     let (arc_data, arc_metadata, data, metadata): (
         Arc<ScriptData>,
@@ -2296,7 +2368,8 @@ async fn handle_code_execution_job(
                 _ => None,
             };
 
-            arc_data = preview.ok_or_else(|| Error::InternalErr("expected preview".to_string()))?;
+            arc_data =
+                preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
             metadata = ScriptMetadata { language: job.language, codebase, envs: None };
             (arc_data.as_ref(), &metadata)
         }
@@ -2325,7 +2398,7 @@ async fn handle_code_execution_job(
             let script_path = job
                 .script_path
                 .as_ref()
-                .ok_or_else(|| Error::InternalErr("expected script path".to_string()))?;
+                .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
             if script_path.starts_with("hub/") {
                 let ContentReqLangEnvs { content, lockfile, language, envs, codebase } =
                     get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
@@ -2341,7 +2414,7 @@ async fn handle_code_execution_job(
                 )
                 .fetch_optional(db)
                 .await?
-                .ok_or_else(|| Error::InternalErr("expected script hash".to_string()))?;
+                .ok_or_else(|| Error::internal_err("expected script hash".to_string()))?;
 
                 (arc_data, arc_metadata) = cache::script::fetch(db, ScriptHash(hash)).await?;
                 (arc_data.as_ref(), arc_metadata.as_ref())
@@ -2368,7 +2441,7 @@ async fn handle_code_execution_job(
         .await;
     } else if language == Some(ScriptLang::Mysql) {
         #[cfg(not(feature = "mysql"))]
-        return Err(Error::InternalErr(
+        return Err(Error::internal_err(
             "MySQL requires the mysql feature to be enabled".to_string(),
         ));
 
@@ -2396,7 +2469,7 @@ async fn handle_code_execution_job(
         #[allow(unreachable_code)]
         #[cfg(not(feature = "bigquery"))]
         {
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Bigquery requires the bigquery feature to be enabled".to_string(),
             ));
         }
@@ -2450,7 +2523,7 @@ async fn handle_code_execution_job(
         #[allow(unreachable_code)]
         #[cfg(not(feature = "mssql"))]
         {
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Microsoft SQL server requires the mssql feature to be enabled".to_string(),
             ));
         }
@@ -2480,7 +2553,7 @@ async fn handle_code_execution_job(
         #[allow(unreachable_code)]
         #[cfg(not(feature = "oracledb"))]
         {
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Oracle DB requires the oracledb feature to be enabled".to_string(),
             ));
         }
@@ -2591,7 +2664,7 @@ mount {{
         }
         Some(ScriptLang::Python3) => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Python requires the python feature to be enabled".to_string(),
             ));
 
@@ -2708,7 +2781,7 @@ mount {{
         }
         Some(ScriptLang::Php) => {
             #[cfg(not(feature = "php"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "PHP requires the php feature to be enabled".to_string(),
             ));
 
@@ -2732,7 +2805,7 @@ mount {{
         }
         Some(ScriptLang::Rust) => {
             #[cfg(not(feature = "rust"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
             ));
 
@@ -2756,7 +2829,7 @@ mount {{
         }
         Some(ScriptLang::Ansible) => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Ansible requires the python feature to be enabled".to_string(),
             ));
 

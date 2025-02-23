@@ -245,7 +245,9 @@
 	{#if !noInitialize}
 		<InitializeComponent {id} />
 	{/if}
-	<slot />
+	{#if render}
+		<slot />
+	{/if}
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
 		{noInitialize}

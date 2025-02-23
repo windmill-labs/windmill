@@ -5,15 +5,18 @@
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
-	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
-	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
+	import RouteEditorConfigSection from './http/RouteEditorConfigSection.svelte'
+	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
+	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
-	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
+	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
-	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
+	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
+	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
+	import { invalidRelations } from './postgres/utils'
 
 	export let isFlow: boolean
 	export let path: string
@@ -26,16 +29,37 @@
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
-	export async function setConfig() {
-		await CaptureService.setCaptureConfig({
-			requestBody: {
-				trigger_kind: captureType,
-				path,
-				is_flow: isFlow,
-				trigger_config: args && Object.keys(args).length > 0 ? args : undefined
-			},
-			workspace: $workspaceStore!
-		})
+	export async function setConfig(): Promise<boolean> {
+		if (captureType === 'postgres') {
+			if (!args?.publication?.table_to_track) {
+				sendUserToast('Table to track must be set', true)
+				return false
+			}
+
+			if (
+				invalidRelations(args.publication.table_to_track, {
+					showError: true,
+					trackSchemaTableError: true
+				}) === true
+			) {
+				return false
+			}
+		}
+		try {
+			await CaptureService.setCaptureConfig({
+				requestBody: {
+					trigger_kind: captureType,
+					path,
+					is_flow: isFlow,
+					trigger_config: args && Object.keys(args).length > 0 ? args : undefined
+				},
+				workspace: $workspaceStore!
+			})
+			return true
+		} catch (error) {
+			sendUserToast(error.body, true)
+			return false
+		}
 	}
 
 	let captureActive = false
@@ -55,7 +79,10 @@
 			return acc
 		}, {})
 
-		if ((captureType === 'websocket' || captureType === 'kafka') && captureActive) {
+		if (
+			(captureType === 'postgres' || captureType === 'websocket' || captureType === 'kafka' || captureType === 'sqs') &&
+			captureActive
+		) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -110,28 +137,25 @@
 		)
 	}
 
-	export async function handleCapture() {
-		if (!captureActive) {
-			await setConfig()
-			capture()
-		} else {
+	export async function handleCapture(e: CustomEvent<{ disableOnly?: boolean }>) {
+		if (captureActive || e.detail.disableOnly) {
 			captureActive = false
+		} else {
+			const configSet = await setConfig()
+
+			if (configSet) {
+				capture()
+			}
 		}
 	}
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-
-	let cloudDisabled =
-		(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-		isCloudHosted()
+	const streamingCaptures = ['sqs', 'websocket', 'postgres', 'kafka', 'nats']
+	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (
-			(captureType === 'websocket' || captureType === 'kafka' || captureType === 'nats') &&
-			config &&
-			captureActive
-		) {
+		if (streamingCaptures.includes(captureType) && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
@@ -178,9 +202,22 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'postgres'}
+			<PostgresEditorConfigSection
+				bind:postgres_resource_path={args.postgres_resource_path}
+				bind:publication={args.publication}
+				{showCapture}
+				{captureInfo}
+				can_write={true}
+				headless={true}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'webhook'}
@@ -197,28 +234,23 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'http'}
 			<RouteEditorConfigSection
-				{isFlow}
-				{path}
 				{showCapture}
 				can_write={true}
 				runnableArgs={data?.args}
-				bind:args
+				bind:route_path={args.route_path}
+				bind:http_method={args.http_method}
 				headless
 				{captureInfo}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'email'}
@@ -235,9 +267,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'kafka'}
@@ -252,9 +282,7 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
 				on:testWithArgs
 			/>
 		{:else if captureType === 'nats'}
@@ -269,9 +297,23 @@
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
-				on:captureToggle={() => {
-					handleCapture()
-				}}
+				on:captureToggle={handleCapture}
+			/>
+		{:else if captureType === 'sqs'}
+			<SqsTriggerEditorConfigSection
+				can_write={true}
+				headless={true}
+				bind:queue_url={args.queue_url}
+				bind:aws_resource_path={args.aws_resource_path}
+				bind:message_attributes={args.message_attributes}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{/if}
 	</div>

@@ -15,7 +15,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -26,10 +26,10 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onDestroy, onMount } from 'svelte'
-	import KafkaTriggerEditor from '$lib/components/triggers/KafkaTriggerEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 
 	type TriggerW = KafkaTrigger & { canWrite: boolean }
 
@@ -81,7 +81,7 @@
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` kafka trigger: ${err.body}`,
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` Kafka trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -208,217 +208,231 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
-<CenteredPage>
-	<PageHeader
-		title="Kafka triggers"
-		tooltip="Windmill can consume kafka events and trigger scripts or flows based on them."
-	>
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => kafkaTriggerEditor.openNew(false)}>
-			New&nbsp;kafka trigger
-		</Button>
-	</PageHeader>
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.triggers}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
+	</div>
+{:else}
+	<CenteredPage>
+		<PageHeader
+			title="Kafka triggers"
+			tooltip="Windmill can consume kafka events and trigger scripts or flows based on them."
+		>
+			<Button
+				size="md"
+				startIcon={{ icon: Plus }}
+				on:click={() => kafkaTriggerEditor.openNew(false)}
+			>
+				New&nbsp;Kafka trigger
+			</Button>
+		</PageHeader>
 
-	{#if isCloudHosted()}
-		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			Kafka triggers are disabled in the multi-tenant cloud.
-		</Alert>
-		<div class="py-4" />
-	{/if}
-	<div class="w-full h-full flex flex-col">
-		<div class="w-full pb-4 pt-6">
-			<input
-				type="text"
-				placeholder="Search kafka triggers"
-				bind:value={filter}
-				class="search-item"
-			/>
-			<div class="flex flex-row items-center gap-2 mt-6">
-				<div class="text-sm shrink-0"> Filter by path of </div>
-				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} />
-					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
-				</ToggleButtonGroup>
+		{#if isCloudHosted()}
+			<Alert title="Not compatible with multi-tenant cloud" type="warning">
+				Kafka triggers are disabled in the multi-tenant cloud.
+			</Alert>
+			<div class="py-4" />
+		{/if}
+		<div class="w-full h-full flex flex-col">
+			<div class="w-full pb-4 pt-6">
+				<input
+					type="text"
+					placeholder="Search Kafka triggers"
+					bind:value={filter}
+					class="search-item"
+				/>
+				<div class="flex flex-row items-center gap-2 mt-6">
+					<div class="text-sm shrink-0"> Filter by path of </div>
+					<ToggleButtonGroup bind:selected={selectedFilterKind}>
+						<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} />
+						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+					</ToggleButtonGroup>
+				</div>
+				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+
+				<div class="flex flex-row items-center justify-end gap-4">
+					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+						<Toggle
+							size="xs"
+							bind:checked={filterUserFolders}
+							options={{ right: `Only u/${$userStore.username} and f/*` }}
+						/>
+					{/if}
+				</div>
 			</div>
-			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+			{#if loading}
+				{#each new Array(6) as _}
+					<Skeleton layout={[[6], 0.4]} />
+				{/each}
+			{:else if !triggers?.length}
+				<div class="text-center text-sm text-tertiary mt-2"> No Kafka triggers </div>
+			{:else if items?.length}
+				<div class="border rounded-md divide-y">
+					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, enabled } (path)}
+						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+						{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
+						{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
 
-			<div class="flex flex-row items-center justify-end gap-4">
-				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-					<Toggle
-						size="xs"
-						bind:checked={filterUserFolders}
-						options={{ right: `Only u/${$userStore.username} and f/*` }}
-					/>
-				{/if}
-			</div>
-		</div>
-		{#if loading}
-			{#each new Array(6) as _}
-				<Skeleton layout={[[6], 0.4]} />
-			{/each}
-		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No kafka triggers </div>
-		{:else if items?.length}
-			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, enabled } (path)}
-					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
-					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
-
-					<div
-						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+						<div
+							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
-					>
-						<div class="w-full flex gap-5 items-center">
-							<RowIcon kind={is_flow ? 'flow' : 'script'} />
+						>
+							<div class="w-full flex gap-5 items-center">
+								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-							<a
-								href="#{path}"
-								on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
-								class="min-w-0 grow hover:underline decoration-gray-400"
-							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
-									{#if marked}
-										<span class="text-xs">
-											{@html marked}
-										</span>
-									{:else}
-										{kafka_resource_path} - {topics.join(', ')}
+								<a
+									href="#{path}"
+									on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
+									class="min-w-0 grow hover:underline decoration-gray-400"
+								>
+									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+										{#if marked}
+											<span class="text-xs">
+												{@html marked}
+											</span>
+										{:else}
+											{kafka_resource_path} - {topics.join(', ')}
+										{/if}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-light">
+										{path}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-light">
+										runnable: {script_path}
+									</div>
+								</a>
+
+								<div class="hidden lg:flex flex-row gap-1 items-center">
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+								</div>
+
+								<div class="w-10">
+									{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-red-600 animate-ping absolute inline-flex fill-current"
+													size={12}
+												/>
+												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
+											</span>
+											<div slot="text">
+												{#if enabled}
+													{#if !server_id}
+														Consumer is starting...
+													{:else}
+														Consumer is not connected{error ? ': ' + error : ''}
+													{/if}
+												{:else}
+													Consumer was disabled because of an error: {error}
+												{/if}
+											</div>
+										</Popover>
+									{:else if enabled}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-green-600 relative inline-flex fill-current"
+													size={12}
+												/>
+											</span>
+											<div slot="text"> Consumer is connected </div>
+										</Popover>
 									{/if}
 								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									{path}
-								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									runnable: {script_path}
-								</div>
-							</a>
 
-							<div class="hidden lg:flex flex-row gap-1 items-center">
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</div>
-
-							<div class="w-10">
-								{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
-									<Popover notClickable>
-										<span class="flex h-4 w-4">
-											<Circle
-												class="text-red-600 animate-ping absolute inline-flex fill-current"
-												size={12}
-											/>
-											<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
-										</span>
-										<div slot="text">
-											{#if enabled}
-												{#if !server_id}
-													Consumer is starting...
-												{:else}
-													Consumer is not connected{error ? ': ' + error : ''}
-												{/if}
-											{:else}
-												Consumer was disabled because of an error: {error}
-											{/if}
-										</div>
-									</Popover>
-								{:else if enabled}
-									<Popover notClickable>
-										<span class="flex h-4 w-4">
-											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
-										</span>
-										<div slot="text"> Consumer is connected </div>
-									</Popover>
-								{/if}
-							</div>
-
-							<Toggle
-								checked={enabled}
-								disabled={!canWrite}
-								on:change={(e) => {
-									setTriggerEnabled(path, e.detail)
-								}}
-							/>
-
-							<div class="flex gap-2 items-center justify-end">
-								<Button
-									on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
-									size="xs"
-									startIcon={canWrite
-										? { icon: Pen }
-										: {
-												icon: Eye
-										  }}
-									color="dark"
-								>
-									{canWrite ? 'Edit' : 'View'}
-								</Button>
-								<Dropdown
-									items={[
-										{
-											displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
-											icon: Eye,
-											action: () => {
-												goto(href)
-											}
-										},
-										{
-											displayName: 'Delete',
-											type: 'delete',
-											icon: Trash,
-											disabled: !canWrite,
-											action: async () => {
-												await KafkaTriggerService.deleteKafkaTrigger({
-													workspace: $workspaceStore ?? '',
-													path
-												})
-												loadTriggers()
-											}
-										},
-										{
-											displayName: canWrite ? 'Edit' : 'View',
-											icon: canWrite ? Pen : Eye,
-											action: () => {
-												kafkaTriggerEditor?.openEdit(path, is_flow)
-											}
-										},
-										{
-											displayName: 'Audit logs',
-											icon: Eye,
-											href: `${base}/audit_logs?resource=${path}`
-										},
-										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
-											action: () => {
-												shareModal.openDrawer(path, 'kafka_trigger')
-											}
-										}
-									]}
+								<Toggle
+									checked={enabled}
+									disabled={!canWrite}
+									on:change={(e) => {
+										setTriggerEnabled(path, e.detail)
+									}}
 								/>
+
+								<div class="flex gap-2 items-center justify-end">
+									<Button
+										on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
+										size="xs"
+										startIcon={canWrite
+											? { icon: Pen }
+											: {
+													icon: Eye
+											  }}
+										color="dark"
+									>
+										{canWrite ? 'Edit' : 'View'}
+									</Button>
+									<Dropdown
+										items={[
+											{
+												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
+												icon: Eye,
+												action: () => {
+													goto(href)
+												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: Trash,
+												disabled: !canWrite,
+												action: async () => {
+													await KafkaTriggerService.deleteKafkaTrigger({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													loadTriggers()
+												}
+											},
+											{
+												displayName: canWrite ? 'Edit' : 'View',
+												icon: canWrite ? Pen : Eye,
+												action: () => {
+													kafkaTriggerEditor?.openEdit(path, is_flow)
+												}
+											},
+											{
+												displayName: 'Audit logs',
+												icon: Eye,
+												href: `${base}/audit_logs?resource=${path}`
+											},
+											{
+												displayName: canWrite ? 'Share' : 'See Permissions',
+												icon: Share,
+												action: () => {
+													shareModal.openDrawer(path, 'kafka_trigger')
+												}
+											}
+										]}
+									/>
+								</div>
 							</div>
-						</div>
-						<div class="w-full flex justify-between items-baseline">
-							<div
-								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
-								><div class="truncate">edited by {edited_by}</div><div class="truncate"
-									>the {displayDate(edited_at)}</div
+							<div class="w-full flex justify-between items-baseline">
+								<div
+									class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
+									><div class="truncate">edited by {edited_by}</div><div class="truncate"
+										>the {displayDate(edited_at)}</div
+									></div
 								></div
-							></div
-						>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<NoItemFound />
+							>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<NoItemFound />
+			{/if}
+		</div>
+		{#if items && items?.length > 15 && nbDisplayed < items.length}
+			<span class="text-xs"
+				>{nbDisplayed} items out of {items.length}
+				<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+			>
 		{/if}
-	</div>
-	{#if items && items?.length > 15 && nbDisplayed < items.length}
-		<span class="text-xs"
-			>{nbDisplayed} items out of {items.length}
-			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
-		>
-	{/if}
-</CenteredPage>
+	</CenteredPage>
+{/if}
 
 <ShareModal
 	bind:this={shareModal}

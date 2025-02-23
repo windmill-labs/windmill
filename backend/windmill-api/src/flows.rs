@@ -59,6 +59,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_triggers_count/*path", get(get_triggers_count))
         .route("/list_tokens/*path", get(list_tokens))
         .route("/get/*path", get(get_flow_by_path))
+        .route("/deployment_status/p/*path", get(get_deployment_status))
         .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
@@ -187,7 +188,7 @@ async fn list_flows(
             .fields(&["dm.deployment_msg"]);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableFlow>(&sql)
         .fetch_all(&mut *tx)
@@ -356,8 +357,8 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, \
-         dependency_job, draft_only, tag, dedicated_worker, visible_to_runner_only, on_behalf_of_email, value, schema, edited_by, edited_at) 
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11::text::json, $12, now())",
+         dependency_job, lock_error_logs, draft_only, tag, dedicated_worker, visible_to_runner_only, on_behalf_of_email, value, schema, edited_by, edited_at) 
+         VALUES ($1, $2, $3, $4, NULL, '', $5, $6, $7, $8, $9, $10, $11::text::json, $12, now())",
         w_id,
         nf.path,
         nf.summary,
@@ -683,7 +684,7 @@ async fn update_flow(
 
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3,\
-        dependency_job = NULL, draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, on_behalf_of_email = $7, \
+        dependency_job = NULL, lock_error_logs = '', draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, on_behalf_of_email = $7, \
         value = $8, schema = $9::text::json, edited_by = $10, edited_at = now()
         WHERE path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path }, // if new path, do not rename directly (to avoid flow_version foreign key constraint)
@@ -704,7 +705,7 @@ async fn update_flow(
         w_id,
     )
     .execute(&mut *tx)
-    .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to flow update: {e:#}")))?;
+    .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}")))?;
 
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
@@ -721,7 +722,7 @@ async fn update_flow(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!("Error updating flow due to create new flow: {e:#}"))
+            error::Error::internal_err(format!("Error updating flow due to create new flow: {e:#}"))
         })?;
 
         sqlx::query!(
@@ -733,7 +734,7 @@ async fn update_flow(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!(
+            error::Error::internal_err(format!(
                 "Error updating flow due to updating flow history path: {e:#}"
             ))
         })?;
@@ -746,7 +747,7 @@ async fn update_flow(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!(
+            error::Error::internal_err(format!(
                 "Error updating flow due to deleting old flow: {e:#}"
             ))
         })?;
@@ -781,7 +782,7 @@ async fn update_flow(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
-        error::Error::InternalErr(format!(
+        error::Error::internal_err(format!(
             "Error updating flow due to flow history insert: {e:#}"
         ))
     })?;
@@ -805,7 +806,7 @@ async fn update_flow(
             .bind(&flow_path)
             .bind(&w_id)
         .fetch_all(&mut *tx)
-        .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to related schedules update: {e:#}")))?;
+        .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to related schedules update: {e:#}")))?;
 
     let schedule = sqlx::query_as::<_, Schedule>(
         "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *")
@@ -813,7 +814,7 @@ async fn update_flow(
         .bind(&flow_path)
         .bind(&w_id)
     .fetch_optional(&mut *tx)
-    .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to related schedule update: {e:#}")))?;
+    .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to related schedule update: {e:#}")))?;
 
     if let Some(schedule) = schedule {
         clear_schedule(&mut tx, &flow_path, &w_id).await?;
@@ -907,19 +908,23 @@ async fn update_flow(
     .execute(&mut *new_tx)
     .await
     .map_err(|e| {
-        error::Error::InternalErr(format!(
+        error::Error::internal_err(format!(
             "Error updating flow due to updating dependency job field: {e:#}"
         ))
     })?;
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
-            "UPDATE queue SET canceled = true WHERE id = $1",
-            old_dep_job
+            "UPDATE v2_job_queue SET
+                canceled_by = $2,
+                canceled_reason = 're-deployment'
+            WHERE id = $1",
+            old_dep_job,
+            &authed.username
         )
         .execute(&mut *new_tx)
         .await
         .map_err(|e| {
-            error::Error::InternalErr(format!(
+            error::Error::internal_err(format!(
                 "Error updating flow due to cancelling dependency job: {e:#}"
             ))
         })?;
@@ -946,6 +951,31 @@ async fn list_tokens(
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
+#[derive(FromRow, Serialize)]
+struct DeploymentStatus {
+    lock_error_logs: Option<String>,
+}
+async fn get_deployment_status(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<DeploymentStatus> {
+    let path = path.to_path();
+    let mut tx = db.begin().await?;
+    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
+        DeploymentStatus,
+        "SELECT lock_error_logs FROM flow WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let status = not_found_if_none(status_o, "DeploymentStatus", path)?;
+
+    tx.commit().await?;
+    Ok(Json(status))
+}
+
 async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -957,7 +987,7 @@ async fn get_flow_by_path(
 
     let flow_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
+            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
             FROM flow
             LEFT JOIN favorite
             ON favorite.favorite_kind = 'flow' 
@@ -974,7 +1004,7 @@ async fn get_flow_by_path(
             .await?
     } else {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
+            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
             FROM flow
             LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
             WHERE flow.path = $1 AND flow.workspace_id = $2"
@@ -1204,7 +1234,7 @@ async fn delete_flow_by_path(
     .execute(&db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;

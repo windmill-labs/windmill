@@ -12,7 +12,7 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 
 	import type { AuditLog } from '$lib/gen'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 
 	let username: string = $page.url.searchParams.get('username') ?? 'all'
@@ -32,6 +32,12 @@
 	let auditLogDrawer: Drawer
 </script>
 
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.audit_logs}
+<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+	<p class="font-bold">Unauthorized</p>
+	<p>Page not available for operators</p>
+</div>
+{:else}
 <div class="w-full h-screen">
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
@@ -118,6 +124,7 @@
 		/>
 	</div>
 </div>
+{/if}
 
 <Drawer bind:this={auditLogDrawer}>
 	<DrawerContent title="Log details" on:close={auditLogDrawer.closeDrawer}>

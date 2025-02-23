@@ -7,7 +7,6 @@
 	import CustomPopover from '../CustomPopover.svelte'
 	import { Webhook, Route, Unplug, Mail, Play } from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-	import { isObject } from '$lib/utils'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { type TriggerKind } from '../triggers'
 	import { CaptureService } from '$lib/gen'
@@ -15,9 +14,10 @@
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import InfiniteList from '../InfiniteList.svelte'
-	import { sendUserToast } from '$lib/utils'
+	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import { clickOutside } from '$lib/utils'
+	import type { Capture } from '$lib/gen'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -57,6 +57,11 @@
 		testWithArgs: any
 	}>()
 
+	interface CaptureWithPayload extends Capture {
+		getFullCapture?: () => Promise<any>
+		payloadData?: any
+	}
+
 	export async function loadCaptures(refresh: boolean = false) {
 		await infiniteList?.loadData(refresh ? 'refresh' : 'loadMore')
 	}
@@ -71,19 +76,36 @@
 				page,
 				perPage
 			})
-			let capturesWithPayload = captures.map((capture) => {
-				const payload = isObject(capture.payload) ? capture.payload : {}
-				const triggerExtra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}
-				return {
-					...capture,
-					payloadData:
-						testKind === 'preprocessor'
-							? {
-									...payload,
-									...triggerExtra
-							  }
-							: { ...payload }
+
+			let capturesWithPayload: CaptureWithPayload[] = captures.map((capture) => {
+				let newCapture: CaptureWithPayload = { ...capture }
+				if (capture.payload === 'WINDMILL_TOO_BIG') {
+					newCapture = {
+						...capture,
+						getFullCapture: () =>
+							CaptureService.getCapture({
+								workspace: $workspaceStore!,
+								id: capture.id
+							})
+					}
 				}
+				const trigger_extra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}
+				newCapture.payloadData =
+					testKind === 'preprocessor'
+						? capture.payload === 'WINDMILL_TOO_BIG'
+							? {
+									payload: capture.payload,
+									...trigger_extra
+							  }
+							: typeof capture.payload === 'object'
+							? {
+									...capture.payload,
+									...trigger_extra
+							  }
+							: trigger_extra
+						: capture.payload
+
+				return newCapture
 			})
 			return capturesWithPayload
 		}
@@ -98,13 +120,31 @@
 		infiniteList?.setDeleteItemFn(deleteInputFn)
 	}
 
-	function handleSelect(capture: any) {
+	async function handleSelect(capture: any) {
 		if (selected === capture.id) {
 			deselect()
 		} else {
+			const payloadData = await getPayload(capture)
 			selected = capture.id
-			dispatch('select', capture.payloadData)
+			dispatch('select', structuredClone(payloadData))
 		}
+	}
+
+	async function getPayload(capture: any) {
+		let payloadData = {}
+		if (capture.getFullCapture) {
+			const fullCapture = await capture.getFullCapture()
+			payloadData =
+				testKind === 'preprocessor'
+					? {
+							...(typeof fullCapture.payload === 'object' ? fullCapture.payload : {}),
+							...(typeof fullCapture.trigger_extra === 'object' ? fullCapture.trigger_extra : {})
+					  }
+					: fullCapture.payload
+		} else {
+			payloadData = structuredClone(capture.payloadData)
+		}
+		return payloadData
 	}
 
 	function deselect() {
@@ -209,7 +249,7 @@
 			<svelte:fragment slot="columns">
 				<colgroup>
 					<col class="w-8" />
-					<col class="w-20" />
+					<col class="w-16" />
 					<col />
 				</colgroup>
 			</svelte:fragment>
@@ -265,9 +305,10 @@
 										dropdownItems={[
 											{
 												label: 'Use as input schema',
-												onClick: () => {
+												onClick: async () => {
+													const payloadData = await getPayload(item)
 													dispatch('updateSchema', {
-														payloadData: item.payloadData,
+														payloadData,
 														redirect: true,
 														args: true
 													})
@@ -275,20 +316,23 @@
 												disabled: !isFlow || testKind !== 'main'
 											}
 										].filter((item) => !item.disabled)}
-										on:click={() => {
+										on:click={async () => {
+											const payloadData = await getPayload(item)
 											if (isFlow && testKind === 'main') {
-												dispatch('testWithArgs', item.payloadData)
+												dispatch('testWithArgs', payloadData)
 											} else {
 												dispatch('applyArgs', {
 													kind: testKind,
-													args: item.payloadData
+													args: payloadData
 												})
 											}
 										}}
 										disabled={testKind === 'preprocessor' && !hasPreprocessor}
 										title={isFlow && testKind === 'main'
 											? 'Test flow with args'
-											: 'Apply args to preprocessor'}
+											: testKind === 'preprocessor'
+											? 'Apply args to preprocessor'
+											: 'Apply args to inputs'}
 										startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 									>
 										{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}

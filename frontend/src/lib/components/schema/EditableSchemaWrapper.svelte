@@ -14,7 +14,6 @@
 	export let uiOnly: boolean = false
 	export let noPreview: boolean = false
 	export let fullHeight: boolean = true
-	export let lightweightMode: boolean = false
 	export let formatExtension: string | undefined = undefined
 
 	let resourceIsTextFile: boolean = false
@@ -105,6 +104,7 @@
 			</AddPropertyV2>
 		{/if}
 		<EditableSchemaForm
+			onlyMaskPassword
 			bind:this={editableSchemaForm}
 			bind:schema
 			on:change={() => dispatch('change', schema)}
@@ -117,7 +117,6 @@
 			}}
 			{uiOnly}
 			{noPreview}
-			{lightweightMode}
 			editTab="inputEditor"
 		>
 			<svelte:fragment slot="addProperty">

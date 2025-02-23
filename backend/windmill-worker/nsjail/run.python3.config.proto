@@ -16,6 +16,7 @@ clone_newuser: {CLONE_NEWUSER}
 
 keep_caps: false
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -111,9 +112,22 @@ mount {
 }
 
 mount {
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
+    is_bind: true
+}
+
+mount {
     src: "/dev/urandom"
     dst: "/dev/urandom"
     is_bind: true
+}
+
+mount {
+    src: "{GLOBAL_SITE_PACKAGES}"
+    dst: "{GLOBAL_SITE_PACKAGES}"
+    is_bind: true
+   	mandatory: false
 }
 
 {SHARED_MOUNT}

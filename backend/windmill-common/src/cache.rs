@@ -389,7 +389,7 @@ pub mod flow {
         async move {
             fetch_node.await.and_then(|data| match data {
                 RawData::Script(data) => Ok(data),
-                RawData::Flow(_) => Err(error::Error::InternalErr(format!(
+                RawData::Flow(_) => Err(error::Error::internal_err(format!(
                     "Flow node ({:x}) isn't a script node.",
                     node.0
                 ))),
@@ -410,7 +410,7 @@ pub mod flow {
         async move {
             fetch_node.await.and_then(|data| match data {
                 RawData::Flow(data) => Ok(data),
-                RawData::Script(_) => Err(error::Error::InternalErr(format!(
+                RawData::Script(_) => Err(error::Error::internal_err(format!(
                     "Flow node ({:x}) isn't a flow node.",
                     node.0
                 ))),
@@ -529,7 +529,7 @@ pub mod script {
                     lock AS \"lock: String\", \
                     language AS \"language: Option<ScriptLang>\", \
                     envs AS \"envs: Vec<String>\", \
-                    codebase AS \"codebase: String\" \
+                    codebase LIKE '%.tar' as use_tar \
                 FROM script WHERE hash = $1 LIMIT 1",
                 hash.0
             )
@@ -543,7 +543,16 @@ pub mod script {
                 meta: Some(ScriptMetadata {
                     language: r.language,
                     envs: r.envs,
-                    codebase: r.codebase,
+                    codebase: if let Some(use_tar) = r.use_tar {
+                        let sh = hash.to_string();
+                        if use_tar {
+                            Some(format!("{sh}.tar"))
+                        } else {
+                            Some(sh)
+                        }
+                    } else {
+                        None
+                    },
                 }),
             })
         });
@@ -630,7 +639,7 @@ pub mod job {
         async move {
             fetch_preview.await.and_then(|data| match data {
                 RawData::Flow(data) => Ok(data),
-                RawData::Script(_) => Err(error::Error::InternalErr(format!(
+                RawData::Script(_) => Err(error::Error::internal_err(format!(
                     "Job ({job}) isn't a flow job."
                 ))),
             })
@@ -650,7 +659,7 @@ pub mod job {
         async move {
             fetch_preview.await.and_then(|data| match data {
                 RawData::Script(data) => Ok(data),
-                RawData::Flow(_) => Err(error::Error::InternalErr(format!(
+                RawData::Flow(_) => Err(error::Error::internal_err(format!(
                     "Job ({job}) isn't a script job."
                 ))),
             })
@@ -672,7 +681,7 @@ pub mod job {
             match (raw_lock, raw_code, raw_flow) {
                 (None, None, None) => sqlx::query!(
                     "SELECT raw_code, raw_lock, raw_flow AS \"raw_flow: Json<Box<RawValue>>\" \
-                    FROM job WHERE id = $1 LIMIT 1",
+                    FROM v2_job WHERE id = $1 LIMIT 1",
                     job
                 )
                 .fetch_optional(e)
@@ -714,7 +723,7 @@ pub mod job {
                     .await
                     .map(|(data, _meta)| data),
                 (AppScript, Some(id)) => app::fetch_script(e, AppScriptId(id)).await,
-                _ => Err(error::Error::InternalErr(format!(
+                _ => Err(error::Error::internal_err(format!(
                     "Isn't a script job: {:?}",
                     kind
                 ))),
@@ -739,7 +748,7 @@ pub mod job {
                     Ok(raw_flow) => Ok(raw_flow),
                     Err(_) => flow::fetch_version(e, id).await,
                 },
-                _ => Err(error::Error::InternalErr(format!(
+                _ => Err(error::Error::internal_err(format!(
                     "Isn't a flow job {:?}",
                     kind
                 ))),
@@ -798,7 +807,7 @@ const _: () = {
 
         fn resolve(mut src: Self::Untrusted) -> error::Result<Self> {
             let Some(meta) = src.meta.take() else {
-                return Err(error::Error::InternalErr("Invalid script src".to_string()));
+                return Err(error::Error::internal_err("Invalid script src".to_string()));
             };
             Ok(ScriptFull {
                 data: Arc::new(ScriptData { code: src.content, lock: src.lock }),
@@ -833,7 +842,7 @@ const _: () = {
                 RawNode { raw_code: Some(code), raw_lock: lock, .. } => {
                     Ok(Self::Script(Arc::new(ScriptData { code, lock })))
                 }
-                _ => Err(error::Error::InternalErr(
+                _ => Err(error::Error::internal_err(
                     "Invalid raw data src".to_string(),
                 )),
             }

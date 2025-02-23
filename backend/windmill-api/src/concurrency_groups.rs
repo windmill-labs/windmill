@@ -16,7 +16,7 @@ use sql_builder::bind::Bind;
 use sql_builder::SqlBuilder;
 use uuid::Uuid;
 use windmill_common::db::UserDB;
-use windmill_common::error::Error::{InternalErr, PermissionDenied};
+use windmill_common::error::Error::PermissionDenied;
 use windmill_common::error::{self, JsonResult};
 use windmill_common::utils::require_admin;
 
@@ -82,7 +82,7 @@ async fn prune_concurrency_group(
 
     if n_job_uuids > 0 {
         tx.commit().await?;
-        return Err(InternalErr(
+        return Err(error::Error::internal_err(
             "Concurrency group is currently in use, unable to remove it. Retry later.".to_string(),
         ));
     }
@@ -157,22 +157,22 @@ async fn get_concurrent_intervals(
     let lq = ListCompletedQuery { order_desc: Some(true), ..lq };
     let lqc = lq.clone();
     let lqq: ListQueueQuery = lqc.into();
-    let mut sqlb_q = SqlBuilder::select_from("queue")
+    let mut sqlb_q = SqlBuilder::select_from("v2_as_queue")
         .fields(UnifiedJob::queued_job_fields())
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
-    let mut sqlb_c = SqlBuilder::select_from("completed_job")
+    let mut sqlb_c = SqlBuilder::select_from("v2_as_completed_job")
         .fields(UnifiedJob::completed_job_fields())
         .order_by("started_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
-    let mut sqlb_q_user = SqlBuilder::select_from("queue")
+    let mut sqlb_q_user = SqlBuilder::select_from("v2_as_queue")
         .fields(&["id"])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
-    let mut sqlb_c_user = SqlBuilder::select_from("completed_job")
+    let mut sqlb_c_user = SqlBuilder::select_from("v2_as_completed_job")
         .fields(&["id"])
         .order_by("started_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)

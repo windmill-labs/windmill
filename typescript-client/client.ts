@@ -6,6 +6,7 @@ import {
   MetricsService,
   OidcService,
   UserService,
+  TeamsService
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -25,6 +26,7 @@ export {
   SettingsService,
   UserService,
   WorkspaceService,
+  TeamsService,
 } from "./index";
 
 export type Sql = string;
@@ -33,6 +35,8 @@ export type Base64 = string;
 export type Resource<S extends string> = any;
 
 export const SHARED_FOLDER = "/shared";
+
+let mockedApi: MockedApi | undefined = undefined;
 
 export function setClient(token?: string, baseUrl?: string) {
   if (baseUrl === undefined) {
@@ -76,8 +80,20 @@ export async function getResource(
   path?: string,
   undefinedIfEmpty?: boolean
 ): Promise<any> {
-  const workspace = getWorkspace();
   path = path ?? getStatePath();
+  const mockedApi = await getMockedApi();
+  if (mockedApi) {
+    if (mockedApi.resources[path]) {
+      return mockedApi.resources[path];
+    } else {
+      console.log(
+        `MockedAPI present, but resource not found at ${path}, falling back to real API`
+      );
+    }
+  }
+
+  const workspace = getWorkspace();
+
   try {
     return await ResourceService.getResourceValueInterpolated({
       workspace,
@@ -351,6 +367,11 @@ export async function setResource(
   initializeToTypeIfNotExist?: string
 ): Promise<void> {
   path = path ?? getStatePath();
+  const mockedApi = await getMockedApi();
+  if (mockedApi) {
+    mockedApi.resources[path] = value;
+    return;
+  }
   const workspace = getWorkspace();
   if (await ResourceService.existsResource({ workspace, path })) {
     await ResourceService.updateResourceValue({
@@ -529,6 +550,16 @@ export async function getState(): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string> {
+  const mockedApi = await getMockedApi();
+  if (mockedApi) {
+    if (mockedApi.variables[path]) {
+      return mockedApi.variables[path];
+    } else {
+      console.log(
+        `MockedAPI present, but variable not found at ${path}, falling back to real API`
+      );
+    }
+  }
   const workspace = getWorkspace();
   try {
     return await VariableService.getVariableValue({ workspace, path });
@@ -552,6 +583,11 @@ export async function setVariable(
   isSecretIfNotExist?: boolean,
   descriptionIfNotExist?: string
 ): Promise<void> {
+  const mockedApi = await getMockedApi();
+  if (mockedApi) {
+    mockedApi.variables[path] = value;
+    return;
+  }
   const workspace = getWorkspace();
   if (await VariableService.existsVariable({ workspace, path })) {
     await VariableService.updateVariable({
@@ -859,7 +895,7 @@ interface SlackApprovalOptions {
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
  *
- * **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form** 
+ * **[Enterprise Edition Only]** To include form fields in the Slack approval request, go to **Advanced -> Suspend -> Form**
  * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
  *
  * @param {Object} options - The configuration options for the Slack approval request.
@@ -869,12 +905,12 @@ interface SlackApprovalOptions {
  * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
  * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
  * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
- * 
+ *
  * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
- * 
+ *
  * @throws {Error} If the function is not called within a flow or flow preview.
  * @throws {Error} If the `JobService.getSlackApprovalPayload` call fails.
- * 
+ *
  * **Usage Example:**
  * ```typescript
  * await requestInteractiveSlackApproval({
@@ -886,8 +922,8 @@ interface SlackApprovalOptions {
  *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
  * });
  * ```
- * 
- * **Note:** This function requires execution within a Windmill flow or flow preview. 
+ *
+ * **Note:** This function requires execution within a Windmill flow or flow preview.
  */
 export async function requestInteractiveSlackApproval({
   slackResourcePath,
@@ -946,4 +982,52 @@ export async function requestInteractiveSlackApproval({
     ...params,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
   });
+}
+
+async function getMockedApi(): Promise<MockedApi | undefined> {
+  if (mockedApi) {
+    return mockedApi;
+  }
+
+  const mockedPath = getEnv("WM_MOCKED_API_FILE");
+
+  if (mockedPath) {
+    console.info("Using mocked API from", mockedPath);
+  } else {
+    return undefined;
+  }
+
+  try {
+    const fs = await import("node:fs/promises");
+    const file = await fs.readFile(mockedPath, "utf-8");
+    try {
+      mockedApi = JSON.parse(file) as MockedApi;
+      if (!mockedApi.variables) {
+        mockedApi.variables = {};
+      }
+      if (!mockedApi.resources) {
+        mockedApi.resources = {};
+      }
+      return mockedApi;
+    } catch {
+      console.warn("Error parsing mocked API file at path", mockedPath);
+    }
+  } catch {
+    console.warn("Error reading mocked API file at path", mockedPath);
+  }
+  if (!mockedApi) {
+    console.warn(
+      "No mocked API file path provided at env variable WM_MOCKED_API_FILE. Using empty mocked API."
+    );
+    mockedApi = {
+      variables: {},
+      resources: {},
+    };
+    return mockedApi;
+  }
+}
+
+interface MockedApi {
+  variables: Record<string, string>;
+  resources: Record<string, any>;
 }

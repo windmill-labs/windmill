@@ -154,7 +154,7 @@ async fn create_schedule(
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     // Check schedule for error
-    ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref())?;
+    ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
 
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
@@ -196,7 +196,7 @@ async fn create_schedule(
         .bind(&ns.cron_version.unwrap_or("v2".to_string()))
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -249,7 +249,7 @@ async fn edit_schedule(
     let mut tx = user_db.begin(&authed).await?;
 
     // Check schedule for error
-    ScheduleType::from_str(&es.schedule, es.cron_version.as_deref())?;
+    ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
     let schedule = sqlx::query_as::<_, Schedule>(
@@ -282,7 +282,7 @@ async fn edit_schedule(
         .bind(&es.cron_version)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -329,16 +329,30 @@ pub struct ListScheduleQuery {
     pub path_start: Option<String>,
 }
 
+#[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
+pub struct ScheduleLight {
+    pub workspace_id: String,
+    pub path: String,
+    pub edited_by: String,
+    pub edited_at: DateTime<chrono::Utc>,
+    pub schedule: String,
+    pub timezone: String,
+    pub enabled: bool,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub summary: Option<String>,
+    pub extra_perms: serde_json::Value,
+}
 async fn list_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(lsq): Query<ListScheduleQuery>,
-) -> JsonResult<Vec<Schedule>> {
+) -> JsonResult<Vec<ScheduleLight>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lsq.per_page, page: lsq.page });
     let mut sqlb = SqlBuilder::select_from("schedule")
-        .field("*")
+        .field("workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, summary, extra_perms")
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)
@@ -356,8 +370,8 @@ async fn list_schedule(
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
     }
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    let rows = sqlx::query_as::<_, Schedule>(&sql)
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
+    let rows = sqlx::query_as::<_, ScheduleLight>(&sql)
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -366,36 +380,8 @@ async fn list_schedule(
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ScheduleWJobs {
-    pub workspace_id: String,
     pub path: String,
-    pub edited_by: String,
-    pub edited_at: DateTime<chrono::Utc>,
-    pub schedule: String,
-    pub timezone: String,
-    pub enabled: bool,
-    pub script_path: String,
-    pub is_flow: bool,
-    pub args: Option<serde_json::Value>,
-    pub extra_perms: serde_json::Value,
-    pub email: String,
-    pub error: Option<String>,
-    pub on_failure: Option<String>,
-    pub on_failure_times: Option<i32>,
-    pub on_failure_exact: Option<bool>,
-    pub on_failure_extra_args: Option<serde_json::Value>,
-    pub on_recovery: Option<String>,
-    pub on_recovery_times: Option<i32>,
-    pub on_recovery_extra_args: Option<serde_json::Value>,
-    pub on_success: Option<String>,
-    pub on_success_extra_args: Option<serde_json::Value>,
-    pub ws_error_handler_muted: bool,
-    pub retry: Option<serde_json::Value>,
     pub jobs: Option<Vec<serde_json::Value>>,
-    pub summary: Option<String>,
-    pub no_flow_overlap: bool,
-    pub tag: Option<String>,
-    pub paused_until: Option<DateTime<Utc>>,
-    pub cron_version: Option<String>,
 }
 
 async fn list_schedule_with_jobs(
@@ -407,9 +393,27 @@ async fn list_schedule_with_jobs(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
     let rows = sqlx::query_as!(ScheduleWJobs,
-        "SELECT schedule.*, t.jobs FROM schedule, LATERAL ( SELECT ARRAY (SELECT json_build_object('id', id, 'success', success, 'duration_ms', duration_ms) FROM completed_job WHERE
-        completed_job.schedule_path = schedule.path AND completed_job.workspace_id = $1 AND parent_job IS NULL AND is_skipped = False ORDER BY started_at DESC LIMIT 20) AS jobs ) t
-        WHERE schedule.workspace_id = $1 ORDER BY schedule.edited_at desc LIMIT $2 OFFSET $3",
+        // Query plan:
+        // - use of the `ix_completed_job_workspace_id_started_at_new_2` index first, then;
+        // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
+        // - both `workspace_id = $1` checks are required to hit both indexes.
+        "SELECT
+            schedule.path, t.jobs FROM schedule,
+            LATERAL(SELECT ARRAY(
+                SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
+                FROM v2_job_completed c JOIN v2_job j USING (id)
+                WHERE trigger_kind = 'schedule'
+                    AND trigger = schedule.path
+                    AND c.workspace_id = $1
+                    AND j.workspace_id = $1
+                    AND parent_job IS NULL AND runnable_path = schedule.script_path
+                    AND status <> 'skipped'
+                ORDER BY created_at DESC
+                LIMIT 20
+            ) AS jobs) t
+        WHERE workspace_id = $1
+        ORDER BY edited_at DESC
+        LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -464,7 +468,8 @@ pub struct PreviewPayload {
 pub async fn preview_schedule(
     Json(payload): Json<PreviewPayload>,
 ) -> JsonResult<Vec<DateTime<Utc>>> {
-    let schedule = ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref())?;
+    let schedule =
+        ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref(), true)?;
 
     let tz =
         chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -832,17 +837,30 @@ pub struct EditSchedule {
 }
 
 pub async fn clear_schedule<'c>(
-    db: &mut Transaction<'c, Postgres>,
+    tx: &mut Transaction<'c, Postgres>,
     path: &str,
     w_id: &str,
 ) -> Result<()> {
     tracing::info!("Clearing schedule {}", path);
     sqlx::query!(
-        "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false",
+        "WITH to_delete AS (
+            SELECT id FROM v2_job_queue
+                JOIN v2_job j USING (id)
+            WHERE trigger_kind = 'schedule'
+                AND trigger = $1
+                AND j.workspace_id = $2
+                AND flow_step_id IS NULL
+                AND running = false
+            FOR UPDATE
+        ), deleted AS (
+            DELETE FROM v2_job_queue
+            WHERE id IN (SELECT id FROM to_delete)
+            RETURNING id
+        ) DELETE FROM v2_job WHERE id IN (SELECT id FROM deleted)",
         path,
         w_id
     )
-    .execute(&mut **db)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }

@@ -48,7 +48,7 @@
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import { initAllAiWorkspace } from './copilot/lib'
+	import { workspaceAIClients } from './copilot/lib'
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	$: token = $page.url.searchParams.get('wm_token') ?? undefined
@@ -110,14 +110,19 @@
 
 	async function setCopilotInfo() {
 		if (workspace) {
-			initAllAiWorkspace(workspace)
+			workspaceAIClients.init(workspace)
 			try {
-				copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
+				const info = await WorkspaceService.getCopilotInfo({ workspace })
+				copilotInfo.set({
+					...info,
+					ai_provider: info.ai_provider ?? 'openai'
+				})
 			} catch (err) {
 				copilotInfo.set({
-					ai_provider: '',
+					ai_provider: 'openai',
 					exists_ai_resource: false,
-					code_completion_enabled: false
+					code_completion_model: undefined,
+					ai_models: []
 				})
 
 				console.error('Could not get copilot info')
@@ -202,7 +207,6 @@
 			runTest()
 			event.preventDefault()
 		} else if (event.data.type == 'replaceScript') {
-			mode = 'script'
 			replaceScript(event.data)
 		} else if (event.data.type == 'testBundle') {
 			if (event.data.id == lastCommandId) {
@@ -230,7 +234,6 @@
 				true
 			)
 		} else if (event.data.type == 'replaceFlow') {
-			mode = 'flow'
 			lockChanges = true
 			replaceFlow(event.data)
 			timeout && clearTimeout(timeout)
@@ -328,6 +331,13 @@
 	})
 
 	function connectWs() {
+		try {
+			if (socket) {
+				socket.close()
+			}
+		} catch (e) {
+			console.error('Failed to close websocket', e)
+		}
 		const port = searchParams?.get('port') || '3001'
 		try {
 			socket = new WebSocket(`ws://localhost:${port}/ws`)
@@ -345,7 +355,13 @@
 					console.log('Received invalid JSON: ' + msg)
 					return
 				}
-				replaceScript(data)
+				if (data.type == 'script') {
+					replaceScript(data)
+				} else if (data.type == 'flow') {
+					replaceFlow(data)
+				} else {
+					sendUserToast(`Received invalid message type ${data.type}`, true)
+				}
 			}
 		} catch (e) {
 			sendUserToast('Failed to connect to local server', true)
@@ -414,6 +430,7 @@
 	let relativePaths: any[] = []
 	let lastPath: string | undefined = undefined
 	async function replaceScript(lastEdit: LastEditScript) {
+		mode = 'script'
 		currentScript = lastEdit
 		if (lastPath !== lastEdit.path) {
 			schema = emptySchema()
@@ -450,6 +467,7 @@
 	}
 	let lastUriPath: string | undefined = undefined
 	async function replaceFlow(lastEdit: LastEditFlow) {
+		mode = 'flow'
 		lastUriPath = lastEdit.uriPath
 		// sendUserToast(JSON.stringify(lastEdit.flow), true)
 		// return
@@ -710,6 +728,7 @@
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
 						{#if $flowStore?.value?.modules}
+							<div id="flow-editor" />
 							<FlowModuleSchemaMap
 								bind:modules={$flowStore.value.modules}
 								disableAi

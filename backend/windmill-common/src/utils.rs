@@ -19,7 +19,8 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use rand::distr::Alphanumeric;
+use rand::{rng, Rng};
 use reqwest::Client;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -46,8 +47,11 @@ lazy_static::lazy_static! {
         .connect_timeout(std::time::Duration::from_secs(10))
         .build().unwrap();
     pub static ref GIT_SEM_VERSION: Version = Version::parse(
-        // skip first `v` character.
-        GIT_VERSION.split_at(1).1
+        if GIT_VERSION.starts_with('v') {
+            &GIT_VERSION[1..]
+        } else {
+            GIT_VERSION
+        }
     ).unwrap_or(Version::new(0, 1, 0));
 }
 
@@ -205,7 +209,7 @@ pub async fn http_get_from_hub(
 }
 
 pub fn rd_string(len: usize) -> String {
-    thread_rng()
+    rng()
         .sample_iter(&Alphanumeric)
         .take(len)
         .map(char::from)
@@ -394,7 +398,7 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
                 workspace_id,
                 err
             );
-            Err(Error::SqlErr(err))
+            return Err(err.into());
         }
     }
 }
@@ -420,7 +424,11 @@ impl ScheduleType {
         }
     }
 
-    pub fn from_str(schedule_str: &str, version: Option<&str>) -> Result<ScheduleType> {
+    pub fn from_str(
+        schedule_str: &str,
+        version: Option<&str>,
+        seconds_required: bool,
+    ) -> Result<ScheduleType> {
         tracing::debug!(
             "Attempting to parse schedule string: {}, with version: {:?}",
             schedule_str,
@@ -444,7 +452,13 @@ impl ScheduleType {
             Some("v2") | Some(_) => {
                 // Use Croner for v2
                 let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
-                    Cron::new(schedule_str).with_seconds_optional().parse()
+                    let mut croner = Cron::new(schedule_str);
+                    if seconds_required {
+                        croner.with_seconds_required();
+                    } else {
+                        croner.with_seconds_optional();
+                    };
+                    croner.parse()
                 }))
                 .map_err(|_| {
                     tracing::error!(

@@ -43,6 +43,7 @@
 	export let initialFileKey: { s3: string } | undefined = undefined
 	let initialFileKeyInternalCopy: { s3: string }
 	export let selectedFileKey: { s3: string } | undefined = undefined
+	export let folderOnly = false
 
 	let csvSeparatorChar: string = ','
 	let csvHasHeader: boolean = true
@@ -369,6 +370,11 @@
 		let item_key = displayedFileKeys[index]
 		let item = allFilesByKey[item_key]
 		if (item.type === 'folder') {
+			if (folderOnly) {
+				selectedFileKey = {
+					s3: item_key
+				}
+			}
 			if (toggleCollapsed) {
 				item.collapsed = !item.collapsed
 			}
@@ -709,7 +715,9 @@
 				>
 				{#if !fromWorkspaceSettings}
 					<Button
-						disable={selectedFileKey === undefined || emptyString(selectedFileKey.s3)}
+						disabled={selectedFileKey === undefined ||
+							emptyString(selectedFileKey.s3) ||
+							(folderOnly && allFilesByKey[selectedFileKey.s3]?.type !== 'folder')}
 						on:click={selectAndClose}>Select</Button
 					>
 				{/if}

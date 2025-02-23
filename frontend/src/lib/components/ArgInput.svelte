@@ -6,18 +6,17 @@
 		emptyString,
 		getSchemaFromProperties
 	} from '$lib/utils'
-	import { DollarSign, Pipette, Plus, X, Check } from 'lucide-svelte'
+	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher, onMount, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
-	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -38,6 +37,7 @@
 	import DynSelect from './DynSelect.svelte'
 	import type { Script } from '$lib/gen'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { ComponentCustomCSS } from './apps/types'
 
 	export let label: string = ''
 	export let value: any
@@ -101,6 +101,20 @@
 	export let hideNested = false
 	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
 	export let nestedClasses = ''
+	export let displayType = true
+	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
+	export let appPath: string | undefined = undefined
+	export let computeS3ForceViewerPolicies:
+		| (() =>
+				| {
+						allowed_resources: string[]
+						allow_user_resources: boolean
+						allow_workspace_resource: boolean
+						file_key_regex: string
+				  }
+				| undefined)
+		| undefined = undefined
+	export let workspace: string | undefined = undefined
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
@@ -216,7 +230,11 @@
 
 	let oldDefaultValue = structuredClone(defaultValue)
 	function handleDefaultValueChange() {
-		if (deepEqual(value, oldDefaultValue)) {
+		if (
+			deepEqual(value, oldDefaultValue) &&
+			!deepEqual(value, defaultValue) &&
+			!deepEqual(defaultValue, oldDefaultValue)
+		) {
 			value = defaultValue
 		}
 		oldDefaultValue = structuredClone(defaultValue)
@@ -354,8 +372,9 @@
 <!-- svelte-ignore a11y-autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md px-2 relative',
+		'flex flex-col w-full rounded-md relative',
 		minW ? 'min-w-[250px]' : '',
+		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
 			? 'bg-green-300 dark:bg-green-800'
 			: diffStatus?.diff === 'removed'
@@ -366,11 +385,11 @@
 			? 'border-2 border-green-500 bg-surface'
 			: ''
 	)}
+	data-schema-picker
 >
 	{#if diffStatus && typeof diffStatus === 'object' && diffStatus.diff !== 'same'}
 		<div
 			class="absolute top-0 right-2 rounded-md rounded-t-none flex flex-row overflow-hidden bg-surface"
-			data-schema-picker
 		>
 			<button
 				class="p-1 bg-green-500 text-white hover:bg-green-600"
@@ -401,11 +420,13 @@
 			{format}
 			{simpleTooltip}
 			{lightHeader}
+			{displayType}
+			labelClass={css?.label?.class}
 		/>
 	{/if}
 
 	{#if description}
-		<div class="text-xs italic pb-1 text-secondary">
+		<div class={twMerge('text-xs italic pb-1 text-secondary', css?.description?.class)}>
 			<pre class="font-main whitespace-normal">{description}</pre>
 		</div>
 	{/if}
@@ -427,6 +448,7 @@
 					bind:value
 					currency={extra?.currency}
 					locale={extra?.currencyLocale ?? 'en-US'}
+					{disabled}
 				/>
 			{:else}
 				<div class="relative w-full">
@@ -472,6 +494,7 @@
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
+								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
@@ -485,6 +508,7 @@
 						<div class="items-start">
 							<Multiselect
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
+								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}
@@ -511,7 +535,11 @@
 														multiple={false}
 													/>
 												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
-													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+													{#await import('$lib/components/JsonEditor.svelte')}
+														<Loader2 class="animate-spin" />
+													{:then Module}
+														<Module.default code={JSON.stringify(v, null, 2)} bind:value={v} />
+													{/await}
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
 														required
@@ -538,17 +566,21 @@
 														defaultValue={undefined}
 													/>
 												{:else if itemsType?.type == 'resource'}
-													<JsonEditor
-														bind:editor
-														on:focus={(e) => {
-															dispatch('focus')
-														}}
-														on:blur={(e) => {
-															dispatch('blur')
-														}}
-														code={JSON.stringify(v, null, 2)}
-														bind:value={v}
-													/>
+													{#await import('$lib/components/JsonEditor.svelte')}
+														<Loader2 class="animate-spin" />
+													{:then Module}
+														<Module.default
+															bind:editor
+															on:focus={(e) => {
+																dispatch('focus')
+															}}
+															on:blur={(e) => {
+																dispatch('blur')
+															}}
+															code={JSON.stringify(v, null, 2)}
+															bind:value={v}
+														/>
+													{/await}
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
 													<div class="p-8 border rounded-md w-full">
 														<SchemaForm
@@ -669,17 +701,21 @@
 					options={{ left: 'Raw S3 object input' }}
 				/>
 				{#if s3FileUploadRawMode}
-					<JsonEditor
-						bind:editor
-						on:focus={(e) => {
-							dispatch('focus')
-						}}
-						on:blur={(e) => {
-							dispatch('blur')
-						}}
-						code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
-						bind:value
-					/>
+					{#await import('$lib/components/JsonEditor.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							bind:editor
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							on:blur={(e) => {
+								dispatch('blur')
+							}}
+							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
+							bind:value
+						/>
+					{/await}
 					<Button
 						variant="border"
 						color="light"
@@ -694,6 +730,9 @@
 					</Button>
 				{:else}
 					<FileUpload
+						{appPath}
+						computeForceViewerPolicies={computeS3ForceViewerPolicies}
+						{workspace}
 						allowMultiple={false}
 						randomFileKey={true}
 						on:addition={(evt) => {
@@ -708,6 +747,7 @@
 							}
 						}}
 						defaultValue={defaultValue?.s3}
+						initialValue={value}
 					/>
 				{/if}
 			</div>
@@ -787,33 +827,41 @@
 							{:else if disabled}
 								<textarea disabled />
 							{:else}
-								<JsonEditor
-									bind:editor
-									on:focus={(e) => {
-										dispatch('focus')
-									}}
-									on:blur={(e) => {
-										dispatch('blur')
-									}}
-									code={rawValue}
-									bind:value
-								/>
+								{#await import('$lib/components/JsonEditor.svelte')}
+									<Loader2 class="animate-spin" />
+								{:then Module}
+									<Module.default
+										bind:editor
+										on:focus={(e) => {
+											dispatch('focus')
+										}}
+										on:blur={(e) => {
+											dispatch('blur')
+										}}
+										code={rawValue}
+										bind:value
+									/>
+								{/await}
 							{/if}
 						{/if}
 					{:else if disabled}
 						<textarea disabled />
 					{:else}
-						<JsonEditor
-							bind:editor
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
-							on:blur={(e) => {
-								dispatch('blur')
-							}}
-							code={rawValue}
-							bind:value
-						/>
+						{#await import('$lib/components/JsonEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:editor
+								on:focus={(e) => {
+									dispatch('focus')
+								}}
+								on:blur={(e) => {
+									dispatch('blur')
+								}}
+								code={rawValue}
+								bind:value
+							/>
+						{/await}
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
@@ -884,17 +932,21 @@
 			{:else if disabled}
 				<textarea disabled />
 			{:else}
-				<JsonEditor
-					bind:editor
-					on:focus={(e) => {
-						dispatch('focus')
-					}}
-					on:blur={(e) => {
-						dispatch('blur')
-					}}
-					code={rawValue}
-					bind:value
-				/>
+				{#await import('$lib/components/JsonEditor.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default
+						bind:editor
+						on:focus={(e) => {
+							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
+						code={rawValue}
+						bind:value
+					/>
+				{/await}
 			{/if}
 			{#if inputCat == 'list'}
 				<div class="block">
@@ -931,25 +983,33 @@
 			</div>
 		{:else if inputCat == 'date'}
 			{#if format === 'date'}
-				<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+				<DateInput {disabled} {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
 			{:else}
-				<DateTimeInput useDropdown {autofocus} bind:value />
+				<DateTimeInput {disabled} useDropdown {autofocus} bind:value />
 			{/if}
 		{:else if inputCat == 'sql' || inputCat == 'yaml'}
-			<div class="border my-1 mb-4 w-full border-primary">
-				<SimpleEditor
-					on:focus={(e) => {
-						dispatch('focus')
-					}}
-					on:blur={(e) => {
-						dispatch('blur')
-					}}
-					bind:this={editor}
-					lang={inputCat}
-					bind:code={value}
-					autoHeight
-				/>
-			</div>
+			{#if disabled}
+				<textarea disabled />
+			{:else}
+				<div class="border my-1 mb-4 w-full border-secondary">
+					{#await import('$lib/components/SimpleEditor.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							on:blur={(e) => {
+								dispatch('blur')
+							}}
+							bind:this={editor}
+							lang={inputCat}
+							bind:code={value}
+							autoHeight
+						/>
+					{/await}
+				</div>
+			{/if}
 		{:else if inputCat == 'base64'}
 			<div class="flex flex-col my-6 w-full">
 				<input

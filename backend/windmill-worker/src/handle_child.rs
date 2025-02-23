@@ -206,17 +206,14 @@ pub async fn handle_child(
 
         let set_reason = async {
             if matches!(kill_reason, KillReason::Timeout { .. }) {
-                if let Err(err) = sqlx::query(
-                    r#"
-                       UPDATE queue
-                          SET canceled = true
-                            , canceled_by = 'timeout'
-                            , canceled_reason = $1
-                        WHERE id = $2
-                    "#,
+                if let Err(err) = sqlx::query!(
+                    "UPDATE v2_job_queue
+                        SET canceled_by = 'timeout'
+                          , canceled_reason = $1
+                    WHERE id = $2",
+                    format!("duration > {}", timeout_duration.as_secs()),
+                    job_id
                 )
-                .bind(format!("duration > {}", timeout_duration.as_secs()))
-                .bind(job_id)
                 .execute(&db)
                 .await
                 {
@@ -426,7 +423,7 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => process_status(status),
+        Ok(Ok(status)) => process_status(&child_name, status),
         Ok(Err(kill_reason)) => match kill_reason {
             KillReason::AlreadyCompleted => {
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
@@ -644,23 +641,31 @@ where
                     }
                 }
                 if job_id != Uuid::nil() {
-                    let (canceled, canceled_by, canceled_reason, already_completed) = sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason, false")
-                        .bind(*mem_peak)
-                        .bind(job_id)
+                    let (canceled_by, canceled_reason, already_completed) = sqlx::query!(
+                            "UPDATE v2_job_runtime r SET
+                                memory_peak = $1,
+                                ping = now()
+                            FROM v2_job_queue q
+                            WHERE r.id = $2 AND q.id = r.id
+                            RETURNING canceled_by, canceled_reason",
+                            *mem_peak,
+                            job_id
+                        )
+                        .map(|x| (x.canceled_by, x.canceled_reason, false))
                         .fetch_optional(&db)
                         .await
                         .unwrap_or_else(|e| {
                             tracing::error!(%e, "error updating job {job_id}: {e:#}");
-                            Some((false, None, None, false))
+                            Some((None, None, false))
                         })
                         .unwrap_or_else(|| {
                             // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            (false, None, None, true)
+                            (None, None, true)
                         });
                     if already_completed {
                         return UpdateJobPollingExit::AlreadyCompleted
                     }
-                    if canceled {
+                    if canceled_by.is_some() {
                         canceled_by_ref.replace(CanceledBy {
                             username: canceled_by.clone(),
                             reason: canceled_reason.clone(),
@@ -714,11 +719,11 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
-pub fn process_status(status: ExitStatus) -> error::Result<()> {
+pub fn process_status(program: &str, status: ExitStatus) -> error::Result<()> {
     if status.success() {
         Ok(())
     } else if let Some(code) = status.code() {
-        Err(error::Error::ExitStatus(code))
+        Err(error::Error::ExitStatus(program.to_string(), code))
     } else {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         return Err(error::Error::ExecutionErr(format!(

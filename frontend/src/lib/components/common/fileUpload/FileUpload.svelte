@@ -14,7 +14,10 @@
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
 	export let allowMultiple: boolean = true
-	export let containerText: string = allowMultiple
+	export let folderOnly = false
+	export let containerText: string = folderOnly
+		? 'Drag and drop a folder here or click to browse'
+		: allowMultiple
 		? 'Drag and drop files here or click to browse'
 		: 'Drag and drop a file here or click to browse'
 	export let customResourcePath: string | undefined = undefined
@@ -29,6 +32,29 @@
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
 	export let disabled = false
+	export let initialValue:
+		| {
+				s3: string
+				filename: string
+		  }
+		| undefined = undefined
+
+	init()
+	function init() {
+		if (initialValue) {
+			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
+				$fileUploads = [
+					...$fileUploads,
+					{
+						name: initialValue.filename,
+						size: 0,
+						progress: 100,
+						path: initialValue?.s3
+					}
+				]
+			}
+		}
+	}
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
@@ -53,20 +79,61 @@
 	}
 
 	async function handleChange(files: File[] | undefined) {
-		for (const file of files ?? []) {
-			uploadFileToS3(file, file.name)
+		if (folderOnly) {
+			uniqueFolderPrefix = getRandomFolderPrefix()
+			uploadedFolderRoot = undefined
+			await Promise.all(
+				files?.map(async (file) => {
+					await uploadFileToS3(file, file.name)
+				}) ?? []
+			)
+			if (uploadedFolderRoot) {
+				dispatch('addition', {
+					path: uniqueFolderPrefix + uploadedFolderRoot,
+					filename: undefined
+				})
+				sendUserToast('Folder uploaded!')
+			}
+		} else {
+			for (const file of files ?? []) {
+				uploadFileToS3(file, file.name)
+			}
 		}
 	}
 
 	let activeUploads: { xhr: XMLHttpRequest; fileName: string }[] = []
 
-	async function uploadFileToS3(fileToUpload: File, fileToUploadKey: string) {
+	function getRandomFolderPrefix(): string {
+		const now = Date.now()
+		const randomNum = Math.floor(Math.random() * 65536)
+		return `windmill_uploads/upload_${now}_${randomNum}/`
+	}
+
+	let uniqueFolderPrefix = getRandomFolderPrefix()
+	let uploadedFolderRoot: string | undefined = undefined
+
+	async function uploadFileToS3(fileToUpload: File & { path?: string }, fileToUploadKey: string) {
 		if (fileToUpload === undefined || fileToUploadKey === undefined) {
 			return
 		}
 		let path: string | undefined = undefined
 		let fileExtension: string | undefined = undefined
-		if (randomFileKey) {
+		if (folderOnly) {
+			const relativePath = fileToUpload.webkitRelativePath || fileToUpload.path
+			if (!relativePath) {
+				throw new Error('Missing file relative path')
+			}
+			const rootFolder = relativePath.split('/')[0]
+			if (!rootFolder) {
+				throw new Error('Missing root folder')
+			}
+			if (uploadedFolderRoot && rootFolder !== uploadedFolderRoot) {
+				throw new Error('Uploading a file in a different root folder than the previous files')
+			} else {
+				uploadedFolderRoot = rootFolder
+			}
+			path = uniqueFolderPrefix + relativePath
+		} else if (randomFileKey) {
 			fileExtension = fileToUpload.name.split('.').pop()
 			if (emptyString(fileExtension)) {
 				fileExtension = undefined
@@ -219,8 +286,10 @@
 			})
 			return
 		}
-		dispatch('addition', { path: uploadData.path, filename: fileToUpload.name })
-		sendUserToast('File upload finished!')
+		if (!folderOnly) {
+			dispatch('addition', { path: uploadData.path, filename: fileToUpload.name })
+			sendUserToast('File uploaded!')
+		}
 
 		uploadData.progress = 100
 		$fileUploads = $fileUploads.map((fileUpload) => {
@@ -442,6 +511,7 @@
 		</div>
 	{:else}
 		<FileInput
+			{folderOnly}
 			{disabled}
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Button } from '$lib/components/common'
-	import { Webhook, Route, Unplug, Mail, Plus } from 'lucide-svelte'
+	import { Webhook, Route, Unplug, Mail, Plus, Database } from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
@@ -9,6 +9,7 @@
 	import { captureTriggerKindToTriggerKind } from '../triggers'
 	import CaptureIcon from './CaptureIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
 
 	export let small = false
 
@@ -80,6 +81,24 @@
 				<div class="flex flex-row items-center gap-2">
 					<Unplug size={16} />
 					<p class="text-xs text-secondary">Websocket</p>
+				</div>
+			</button>
+			<button
+				class="hover:bg-surface-hover p-2 transition-colors duration-150"
+				on:click={() => handleClick('sqs')}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<AwsIcon size={16} />
+					<p class="text-xs text-secondary">SQS</p>
+				</div>
+			</button>
+			<button 
+				class="hover:bg-surface-hover p-2 transition-colors duration-150"
+				on:click={() => handleClick('postgres')}
+			>
+				<div class="flex flex-row items-center gap-2">
+					<Database size={16} />
+					<p class="text-xs text-secondary">Postgres</p>
 				</div>
 			</button>
 			<button

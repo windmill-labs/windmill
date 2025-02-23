@@ -10,6 +10,9 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
+
+	export let loading = false
+
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
@@ -17,6 +20,7 @@
 	export async function openPreview(test: boolean = false) {
 		if (!previewOpen) {
 			previewOpen = true
+			flowPreviewContent?.refresh()
 			if (!test) return
 		}
 		flowPreviewContent?.test()
@@ -27,6 +31,7 @@
 	let flowPreviewContent: FlowPreviewContent
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
+	let preventEscape = false
 
 	$: upToDisabled =
 		$selectedId == undefined ||
@@ -79,6 +84,9 @@
 	on:click={() => {
 		previewMode = 'whole'
 		previewOpen = !previewOpen
+		if (previewOpen) {
+			flowPreviewContent?.refresh()
+		}
 	}}
 	startIcon={{ icon: Play }}
 	id="flow-editor-test-flow"
@@ -86,19 +94,22 @@
 	Test flow
 </Button>
 
-<Drawer bind:open={previewOpen} alwaysOpen size="75%">
-	<FlowPreviewContent
-		bind:this={flowPreviewContent}
-		open={previewOpen}
-		bind:previewMode
-		bind:job
-		bind:jobId
-		on:close={() => {
-			previewOpen = false
-		}}
-		on:openTriggers={(e) => {
-			previewOpen = false
-			dispatch('openTriggers', e.detail)
-		}}
-	/>
-</Drawer>
+{#if !loading}
+	<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
+		<FlowPreviewContent
+			bind:this={flowPreviewContent}
+			open={previewOpen}
+			bind:previewMode
+			bind:job
+			bind:jobId
+			on:close={() => {
+				previewOpen = false
+			}}
+			on:openTriggers={(e) => {
+				previewOpen = false
+				dispatch('openTriggers', e.detail)
+			}}
+			bind:preventEscape
+		/>
+	</Drawer>
+{/if}
