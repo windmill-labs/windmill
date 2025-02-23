@@ -621,7 +621,8 @@ pub async fn handle_flow_dependency_job(
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
     let modified_ids;
-    (flow.modules, tx, modified_ids) = lock_modules(
+    let errors;
+    (flow.modules, tx, modified_ids, errors) = lock_modules(
         flow.modules,
         job,
         mem_peak,
@@ -638,6 +639,43 @@ pub async fn handle_flow_dependency_job(
         occupancy_metrics,
     )
     .await?;
+    if !errors.is_empty() {
+        let error_message = errors
+            .iter()
+            .map(|e| format!("{}: {}", e.id, e.error))
+            .collect::<Vec<String>>()
+            .join("\n");
+        let logs2 = sqlx::query_scalar!(
+            "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+            &job.id,
+            &job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_else(|| "no logs".to_string());
+        sqlx::query!(
+            "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+            &format!("{logs2}\n{error_message}"),
+            &job.script_path(),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+        return Err(Error::ExecutionErr(format!(
+            "Error locking flow modules:\n{}\n\nlogs:\n{}",
+            error_message,
+            remove_ansi_codes(&logs2)
+        )));
+    } else {
+        sqlx::query!(
+            "UPDATE flow SET lock_error_logs = NULL WHERE path = $1 AND workspace_id = $2",
+            &job.script_path(),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    }
     let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
@@ -772,6 +810,7 @@ async fn lock_modules<'c>(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
     Vec<String>,
+    Vec<LockModuleError>,
 )> {
     let mut new_flow_modules = Vec::new();
     let mut modified_ids = Vec::new();
@@ -802,7 +841,7 @@ async fn lock_modules<'c>(
                     parallelism,
                 } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
+                    (nmodules, tx, modified_ids, errors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -835,7 +874,8 @@ async fn lock_modules<'c>(
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
-                        (nmodules, tx, inner_modified_ids) = Box::pin(lock_modules(
+                        let inner_errors;
+                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
@@ -853,6 +893,7 @@ async fn lock_modules<'c>(
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
+                        errors.extend(inner_errors);
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
@@ -860,7 +901,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
+                    (nmodules, tx, nmodified_ids, errors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -890,8 +931,8 @@ async fn lock_modules<'c>(
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
-
-                        (nmodules, tx, inner_modified_ids) = Box::pin(lock_modules(
+                        let inner_errors;
+                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
@@ -909,11 +950,13 @@ async fn lock_modules<'c>(
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
+                        errors.extend(inner_errors);
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
                     let ndefault;
-                    (ndefault, tx, nmodified_ids) = Box::pin(lock_modules(
+                    let ninner_errors;
+                    (ndefault, tx, nmodified_ids, ninner_errors) = Box::pin(lock_modules(
                         default,
                         job,
                         mem_peak,
@@ -930,6 +973,7 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
+                    errors.extend(ninner_errors);
                     e.value = FlowModuleValue::BranchOne {
                         branches: nbranches,
                         default: ndefault,
@@ -1048,29 +1092,8 @@ async fn lock_modules<'c>(
         new_flow_modules.push(e);
         continue;
     }
-    if !errors.is_empty() {
-        let error_message = errors
-            .iter()
-            .map(|e| format!("{}: {}", e.id, e.error))
-            .collect::<Vec<String>>()
-            .join("\n");
-        let logs2 = sqlx::query_scalar!(
-            "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
-            &job.id,
-            &job.workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten()
-        .unwrap_or_else(|| "no logs".to_string());
 
-        return Err(Error::ExecutionErr(format!(
-            "Error locking flow modules:\n{}\n\nlogs:\n{}",
-            error_message,
-            remove_ansi_codes(&logs2)
-        )));
-    }
-    Ok((new_flow_modules, tx, modified_ids))
+    Ok((new_flow_modules, tx, modified_ids, errors))
 }
 
 async fn insert_flow_node<'c>(
