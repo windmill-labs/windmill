@@ -44,6 +44,7 @@ jobs:
     uses: ./.github/workflows/multi-build-arch.yml
     with:
       registry: ghcr.io
+      name: windmill
       image_name:
         ${{ github.event_name != 'pull_request' && github.event_name !=
         'workflow_dispatch' && github.repository ||
@@ -127,6 +128,7 @@ jobs:
     uses: ./.github/workflows/multi-build-arch.yml
     with:
       registry: ghcr.io
+      name: windmill-ee
       image_name:
         ${{ github.event_name != 'pull_request' && github.event_name !=
         'workflow_dispatch' && github.repository ||

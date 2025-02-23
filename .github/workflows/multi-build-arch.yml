@@ -9,6 +9,9 @@ on:
       image_name:
         required: true
         type: string
+      name:
+        required: true
+        type: string
       metadata_flavor:
         default: |
           latest=auto
@@ -124,7 +127,7 @@ jobs:
         if: ${{ inputs.push_image }}
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.runner }}-${{ inputs.image_name }}
+          name: digests-${{ matrix.runner }}-${{ inputs.name }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
