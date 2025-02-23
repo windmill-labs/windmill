@@ -606,6 +606,18 @@
 			completorDisposable.dispose()
 		}
 		const autocompletor = new Autocompletor(editor, $copilotInfo.ai_provider, lang)
+
+		let lastTs = Date.now()
+		editor.onDidChangeModelContent((e) => {
+			const thisTs = Date.now()
+			lastTs = thisTs
+			setTimeout(() => {
+				if (thisTs === lastTs) {
+					autocompletor.savePatch()
+				}
+			}, 150)
+		})
+
 		completorDisposable = editor.onDidChangeCursorPosition((e) => {
 			autocompletor.reject()
 
@@ -616,21 +628,16 @@
 				endLineNumber: position.lineNumber,
 				endColumn: position.column
 			})
-			const afterText = editor.getModel()?.getValueInRange({
-				startLineNumber: position.lineNumber,
-				startColumn: position.column,
-				endLineNumber: position.lineNumber,
-				endColumn: 10000
-			})
+
 			const lastChar = upToText ? upToText[upToText.length - 1] : ''
-			if (!lastChar || lastChar.match(/[\(\{\s:="']/) || !afterText) {
+			if (!lastChar || lastChar.match(/[\(\{\s:="',]/)) {
 				autocompletor.autocomplete()
 			}
 		})
 		editor.addCommand(KeyCode.Tab, () => {
 			if (autocompletor.hasChanges()) {
 				autocompletor.accept()
-				autocompletor.autocomplete()
+				// autocompletor.autocomplete()
 			} else {
 				editor.trigger('keyboard', 'tab', {})
 			}

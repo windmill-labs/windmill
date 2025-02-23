@@ -1,0 +1,118 @@
+<script lang="ts">
+	import autosize from '$lib/autosize'
+	import { copilotInfo } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
+	import { AIChatHandler } from './core'
+	import Markdown from 'svelte-exmarkdown'
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import CodeDisplay from './CodeDisplay.svelte'
+
+	export let code: string
+	export let lang: string | undefined = undefined
+
+	let instructions = ''
+
+	$: chatHandler = new AIChatHandler($copilotInfo.ai_provider, lang ?? 'typescript')
+	let messages: {
+		role: 'user' | 'assistant'
+		content: string
+	}[] = [
+		{
+			role: 'assistant',
+			content: `
+Hey
+\`\`\`typescript
+${code}
+\`\`\`
+`
+		}
+	]
+
+	let currentReply: string | undefined = undefined
+	async function send() {
+		currentReply = ''
+		messages = [...messages, { role: 'user', content: instructions }]
+		scrollDown()
+		const oldInstructions = instructions
+		instructions = ''
+		await chatHandler.sendRequest(
+			{
+				instructions: oldInstructions,
+				code
+			},
+			(token) => {
+				currentReply += token
+			}
+		)
+		messages = [...messages, { role: 'assistant', content: currentReply }]
+		currentReply = undefined
+		scrollDown()
+	}
+
+	let scrollEl: HTMLDivElement
+	function scrollDown() {
+		scrollEl?.scrollTo({
+			top: scrollEl.scrollHeight,
+			behavior: 'smooth'
+		})
+	}
+
+	$: currentReply && scrollDown()
+
+	$: messagesWithCurrent = currentReply
+		? [...messages, { role: 'assistant', content: currentReply }]
+		: messages
+</script>
+
+<div class="flex flex-col h-full overflow-y-hidden">
+	<div class="flex flex-col overflow-y-scroll pt-2 px-2" bind:this={scrollEl}>
+		{#each messagesWithCurrent as message}
+			<div
+				class={twMerge(
+					'text-sm px-2 py-1',
+					message.role === 'user' &&
+						'border border-gray-300 bg-gray-50 dark:bg-gray-900 dark:border-gray-700 rounded-lg mb-2',
+					message.role === 'assistant' && 'mb-6'
+				)}
+			>
+				{#if message.role === 'assistant'}
+					<div class="prose prose-sm dark:prose-invert">
+						<Markdown
+							md={message.content}
+							plugins={[
+								gfmPlugin(),
+								{
+									renderer: {
+										pre: CodeDisplay,
+										code: 'div'
+									}
+								}
+							]}
+						/>
+					</div>
+				{:else}
+					{message.content}
+				{/if}
+			</div>
+		{/each}
+	</div>
+	<div class="pb-2 px-2">
+		<textarea
+			on:keypress={(e) => {
+				if (!instructions) {
+					return
+				}
+				if (e.key === 'Enter' && !e.shiftKey) {
+					e.preventDefault()
+					send()
+				}
+			}}
+			bind:value={instructions}
+			use:autosize
+			rows={3}
+			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
+			class="resize-none"
+		/>
+	</div>
+</div>

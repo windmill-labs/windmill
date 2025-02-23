@@ -30,6 +30,7 @@
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
+	import AIChat from './copilot/chat/AIChat.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -334,7 +335,7 @@
 </div>
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
-		<Pane size={60} minSize={10} class="!overflow-visible">
+		<Pane size={55} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38]">
 				{#key lang}
 					<Editor
@@ -380,7 +381,10 @@
 				{/key}
 			</div>
 		</Pane>
-		<Pane size={40} minSize={10}>
+		<Pane size={10} minSize={5}>
+			<AIChat {code} {lang} />
+		</Pane>
+		<Pane size={35} minSize={10}>
 			<div class="flex flex-col h-full">
 				{#if showTabs}
 					<div transition:slide={{ duration: 200 }}>

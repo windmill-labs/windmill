@@ -1,4 +1,4 @@
-import { type Change, diffLines, diffWordsWithSpace } from 'diff'
+import { type Change, createTwoFilesPatch, diffLines, diffWordsWithSpace } from 'diff'
 import { type editor as meditor } from 'monaco-editor'
 import { autocompleteRequest } from './request'
 import type { AIProvider } from '$lib/gen'
@@ -265,7 +265,6 @@ async function displayVisualChanges(
 			ids.push(id)
 		}
 	}
-	console.log('decorations', decorations)
 	const collection = editor.createDecorationsCollection(decorations)
 	setAutocompleteGlobalCSS(VISUAL_CHANGES_CSS + css)
 	return { collection, ids }
@@ -279,10 +278,13 @@ function getLines(code: string) {
 	return lines
 }
 
+const MAX_PATCHES = 4
+
 export class Autocompletor {
 	editor: meditor.IStandaloneCodeEditor
 	aiProvider: AIProvider
 	language: string
+
 	viewZoneIds: string[] = []
 	decorationsCollection: meditor.IEditorDecorationsCollection | undefined = undefined
 	visualChanges: VisualChange[] = []
@@ -310,10 +312,38 @@ export class Autocompletor {
 	abortController: AbortController | undefined = undefined
 	lastTs = Date.now()
 
+	lastCodeValue: string
+	patches: string[] = []
+
 	constructor(editor: meditor.IStandaloneCodeEditor, aiProvider: AIProvider, language: string) {
 		this.editor = editor
 		this.aiProvider = aiProvider
 		this.language = language
+		this.lastCodeValue = editor.getModel()?.getValue() || ''
+	}
+
+	savePatch() {
+		const currentCode = this.editor.getModel()?.getValue() || ''
+		const patch = createTwoFilesPatch(
+			'',
+			'',
+			this.lastCodeValue,
+			currentCode,
+			undefined,
+			undefined,
+			{
+				context: 1
+			}
+		)
+			.split('\n')
+			.slice(4)
+			.join('\n')
+
+		this.patches.push(patch)
+		this.lastCodeValue = currentCode
+		if (this.patches.length > MAX_PATCHES) {
+			this.patches.shift()
+		}
 	}
 
 	async autocomplete() {
@@ -355,21 +385,16 @@ export class Autocompletor {
 		}
 
 		let modifiableEnd = Math.min(model.getLineCount(), position.lineNumber + 7)
-		console.log(modifiableEnd, position.lineNumber)
 		while (true) {
 			if (modifiableEnd <= position.lineNumber) {
 				break
 			}
 			const line = model.getLineContent(modifiableEnd)
 			if (line.trim().length > 0) {
-				console.log('not empty', modifiableEnd)
 				break
 			}
 			modifiableEnd--
 		}
-		console.log(modifiableEnd, position.lineNumber)
-
-		console.log(modifiableStart, modifiableEnd)
 
 		this.applyZone = {
 			startLineNumber: modifiableStart,
@@ -410,7 +435,8 @@ export class Autocompletor {
 				modifiablePrefix,
 				modifiableSuffix,
 				suffix,
-				language: this.language
+				language: this.language,
+				events: this.patches
 			},
 			this.abortController,
 			this.aiProvider
@@ -476,9 +502,6 @@ export class Autocompletor {
 				text: this.modifiedCode
 			}
 		])
-		const newLines = getLines(this.modifiedCode)
-		console.log(newLines)
-		console.log(this.applyZone.startLineNumber, newLines.length)
 		if (this.lastChangePosition) {
 			this.editor.setPosition(this.lastChangePosition)
 		}
