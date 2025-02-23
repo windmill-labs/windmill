@@ -86,7 +86,6 @@ async fn handle_ansible_python_deps(
                     &mut Some(occupancy_metrics),
                     PyVersion::Py311,
                     false,
-                    false,
                 )
                 .await
                 .map_err(|e| {
@@ -113,7 +112,6 @@ async fn handle_ansible_python_deps(
             worker_dir,
             &mut Some(occupancy_metrics),
             crate::python_executor::PyVersion::Py311,
-            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);

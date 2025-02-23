@@ -15,12 +15,13 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
+	import { type MenubarBuilders } from '@melt-ui/svelte'
 
 	let darkMode: boolean = false
 
 	export let isCollapsed: boolean = false
 	export let lightMode: boolean = false
-	export let createMenu: (any) => any
+	export let createMenu: MenubarBuilders['createMenu']
 
 	const itemClass = twMerge(
 		'text-secondary text-left font-normal text-xs ',

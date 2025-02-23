@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { melt, createSync } from '@melt-ui/svelte'
+	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { pointerDownOutside } from '$lib/utils'
 	import { zIndexes } from '$lib/zIndexes'
@@ -12,7 +13,7 @@
 	export let lightMode: boolean = false
 	export let maxHeight: number = 900
 	export let disabled = false
-	export let createMenu: (any) => any
+	export let createMenu: MenubarBuilders['createMenu']
 	export let invisible: boolean = false
 	export let usePointerDownOutside: boolean = false
 
@@ -65,7 +66,7 @@
 		}}
 		data-menu
 	>
-		<slot name="trigger" trigger={$trigger} />
+		<slot name="trigger" {trigger} />
 	</button>
 
 	<div use:melt={$menuElement} data-menu class={`z-[${zIndex}]`}>
@@ -77,7 +78,7 @@
 			)}
 			style="max-height: {maxHeight}px; "
 		>
-			<slot item={$item} />
+			<slot {item} />
 		</div>
 	</div>
 </div>

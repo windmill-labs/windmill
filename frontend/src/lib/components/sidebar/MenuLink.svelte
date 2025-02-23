@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { classNames, conditionalMelt } from '$lib/utils'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { navigating, page } from '$app/stores'
 	import Popover from '../Popover.svelte'
 	import { base } from '$app/paths'
@@ -10,7 +11,7 @@
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
 	export let lightMode: boolean = false
-	export let item: any | undefined = undefined
+	export let item: MenubarMenuElements['item'] | undefined = undefined
 
 	let isSelected = false
 
@@ -43,6 +44,7 @@
 			target={href.includes('http') ? '_blank' : null}
 			title={isCollapsed ? undefined : label}
 			use:conditionalMelt={item}
+			{...$item}
 		>
 			{#if icon}
 				<svelte:component

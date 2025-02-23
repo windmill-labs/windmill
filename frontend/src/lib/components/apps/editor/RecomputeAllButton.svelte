@@ -54,7 +54,9 @@
 
 		<Dropdown {items} class="w-fit h-auto">
 			<svelte:fragment slot="buttonReplacement">
-				<div class="flex flex-row gap-2 text-xs hover:bg-surface-hover px-2 items-center h-7">
+				<div
+					class="flex flex-row gap-2 text-xs bg-surface hover:bg-surface-hover px-2 items-center h-7"
+				>
 					{#if interval}
 						<Badge color="blue" small>
 							{interval ? `Every ${interval / 1000}s` : 'Once'}

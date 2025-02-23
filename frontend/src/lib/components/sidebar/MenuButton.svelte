@@ -5,6 +5,8 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { goto } from '$app/navigation'
 	import { conditionalMelt } from '$lib/utils'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
+
 	export let label: string | undefined = undefined
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
@@ -14,7 +16,7 @@
 	export let shortcut: string = ''
 	export let notificationsCount: number = 0
 	export let color: string | null = null
-	export let trigger: any | undefined = undefined
+	export let trigger: MenubarMenuElements['trigger'] | undefined = undefined
 	export let href: string | undefined = undefined
 
 	let dispatch = createEventDispatcher()
@@ -48,7 +50,7 @@
 			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 4px);` : ''}
 			use:conditionalMelt={trigger}
 			title={isCollapsed ? undefined : label}
-			{...trigger}
+			{...$trigger}
 		>
 			{#if icon}
 				<svelte:component

@@ -80,7 +80,7 @@
 </script>
 
 {#key $tutorialsToDo}
-	<Dropdown items={getTutorialItems} hasPadding={false}>
+	<Dropdown items={getTutorialItems}>
 		<svelte:fragment slot="buttonReplacement">
 			<Button
 				nonCaptureEvent
