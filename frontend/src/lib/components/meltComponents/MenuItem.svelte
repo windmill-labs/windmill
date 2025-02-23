@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { melt } from '@melt-ui/svelte'
 	import { createEventDispatcher } from 'svelte'
-
-	const dispatch = createEventDispatcher()
-
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	export let href: string | undefined = undefined
 	export let disabled: boolean = false
 	export let target: string | undefined = undefined
 	export let item: MenubarMenuElements['item']
+
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if href}

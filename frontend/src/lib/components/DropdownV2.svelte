@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { MoreVertical } from 'lucide-svelte'
-	import { Menu, Menubar } from '$lib/components/meltComponents'
-	import { melt } from '@melt-ui/svelte'
+	import { Menu, Menubar, MeltButton } from '$lib/components/meltComponents'
 	import type { Placement } from '@floating-ui/core'
 	import type { Item } from '$lib/utils'
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
@@ -14,7 +13,8 @@
 
 	async function computeItems(): Promise<Item[]> {
 		if (typeof items === 'function') {
-			return ((await items()) ?? []).filter((item) => !item.hide)
+			const result = await items()
+			return Array.isArray(result) ? result.filter((item) => !item.hide) : []
 		} else {
 			return items.filter((item) => !item.hide)
 		}
@@ -34,16 +34,16 @@
 		{usePointerDownOutside}
 	>
 		<svelte:fragment slot="trigger" let:trigger>
-			<button use:melt={trigger} on:click={(e) => e?.stopPropagation()}>
+			<MeltButton meltElement={trigger} on:click={(e) => e.stopPropagation()}>
 				{#if $$slots.buttonReplacement}
 					<slot name="buttonReplacement" />
 				{:else}
 					<MoreVertical
 						size={16}
-						class="w-8  h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+						class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
 					/>
 				{/if}
-			</button>
+			</MeltButton>
 		</svelte:fragment>
 
 		<DropdownV2Inner items={computeItems} meltItem={item} />
