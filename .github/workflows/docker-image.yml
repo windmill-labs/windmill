@@ -56,7 +56,7 @@ jobs:
       metadata_labels: |
         org.opencontainers.image.licenses=AGPLv3
       build_args: |
-        features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,oracledb,websocket,python,smtp,csharp,static_frontend,rust
+        features=embedding,parquet,jemalloc,deno_core,license,http_trigger,zip,dind,php,mysql,websocket,python,smtp,csharp,static_frontend,rust
       checkout_ee: true
     secrets: inherit # that makes secrets available to the called workflow
 
@@ -122,6 +122,26 @@ jobs:
     #       labels: |
     #         ${{ steps.meta-public.outputs.labels }}
     #         org.opencontainers.image.licenses=AGPLv3
+
+  build_ee_ubi:
+    uses: ./.github/workflows/multi-build-arch.yml
+    with:
+      registry: ghcr.io
+      image_name:
+        ${{ github.event_name != 'pull_request' && github.event_name !=
+        'workflow_dispatch' && github.repository ||
+        'windmill-labs/windmill-ee-test' }}
+      fetch_depth: 0
+      push_image: true
+      build_runner_cpus: 16
+      metadata_flavor: |
+        latest=false
+      metadata_labels: |
+        org.opencontainers.image.licenses=AGPLv3
+      build_args: |
+        features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,websocket,python,smtp,csharp,static_frontend,rust
+      checkout_ee: true
+    secrets: inherit # that makes secrets available to the called workflow
 
   build_ee:
     runs-on: ubicloud
@@ -478,7 +498,7 @@ jobs:
     runs-on: ubicloud-standard-2-arm
     if:
       (github.event_name != 'pull_request') && (github.event_name !=
-      'workflow_dispatch')
+      'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
