@@ -18,13 +18,9 @@ use bytes::Bytes;
 use http::StatusCode;
 use itertools::Itertools;
 use rumqttc::{
-    v4::LastWill as V3LastWill,
     v5::{
         mqttbytes::{
-            v5::{
-                ConnectProperties, Filter, LastWill as V5LastWill,
-                LastWillProperties as V5LastWillProperties, PublishProperties,
-            },
+            v5::{Filter, PublishProperties},
             QoS as V5QoS,
         },
         AsyncClient as V5AsyncClient, Event as V5Event, EventLoop as V5EventLoop,
@@ -64,6 +60,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_mqtt_trigger))
         .route("/exists/*path", get(exists_mqtt_trigger))
         .route("/setenabled/*path", post(set_enabled))
+        .route("/test", post(test_mqtt_connection))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -130,32 +127,6 @@ async fn run_job(
     Ok(())
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct LastWillProperties {
-    pub delay_interval: Option<u32>,
-    pub payload_format_indicator: Option<u8>,
-    pub message_expiry_interval: Option<u32>,
-    pub content_type: Option<String>,
-    pub response_topic: Option<String>,
-    pub correlation_data: Option<Vec<u8>>,
-    pub user_properties: Vec<(String, String)>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct LastWillConfig {
-    topic: String,
-    payload: Vec<u8>,
-    qos: QualityOfService,
-    retain: bool,
-    properties: Option<LastWillProperties>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CommonMqttConfig {
-    keep_alive: Option<u16>,
-    will: Option<LastWillConfig>,
-}
-
 #[derive(Clone, Debug, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum QualityOfService {
@@ -186,19 +157,12 @@ impl Into<V5QoS> for QualityOfService {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MqttV3Config {
-    #[serde(flatten)]
-    base: CommonMqttConfig,
     clean_session: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MqttV5Config {
-    #[serde(flatten)]
-    base: CommonMqttConfig,
     clean_start: Option<bool>,
-    session_expiration: Option<u32>,
-    receive_maximum: Option<u16>,
-    maximum_packet_size: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Type)]
@@ -288,6 +252,70 @@ pub struct ListMqttTriggerQuery {
 #[derive(Deserialize)]
 pub struct SetEnabled {
     enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TestMqttConnection {
+    mqtt_resource_path: String,
+    subscribe_topics: Vec<SubscribeTopic>,
+    client_version: Option<MqttClientVersion>,
+    client_id: Option<String>,
+    v3_config: Option<MqttV3Config>,
+    v5_config: Option<MqttV5Config>,
+}
+
+pub async fn test_mqtt_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(workspace_id): Path<String>,
+    Json(test_postgres): Json<TestMqttConnection>,
+) -> error::Result<()> {
+    let TestMqttConnection {
+        mqtt_resource_path,
+        subscribe_topics,
+        client_version,
+        v3_config,
+        v5_config,
+        client_id,
+    } = test_postgres;
+
+    let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
+        authed,
+        Some(user_db),
+        &db,
+        &mqtt_resource_path,
+        &workspace_id,
+    )
+    .await?;
+
+    let connect_f = async {
+        get_mqtt_async_client(
+            &mqtt_resource,
+            client_version.as_ref(),
+            client_id.as_deref(),
+            subscribe_topics,
+            v3_config.as_ref(),
+            v5_config.as_ref(),
+            true,
+        )
+        .await
+        .map_err(|err| {
+            error::Error::BadConfig(format!(
+                "Error connecting to mqtt broker: {}",
+                err.to_string()
+            ))
+        })
+    };
+    tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
+        .await
+        .map_err(|_| {
+            error::Error::BadConfig(format!(
+                "Timeout connecting to mqtt broker after 30 seconds"
+            ))
+        })??;
+
+    Ok(())
 }
 
 pub async fn create_mqtt_trigger(
@@ -707,9 +735,11 @@ async fn loop_ping(db: &DB, mqtt: &MqttConfig, error: Option<&str>) {
 }
 
 enum MqttClientResult {
-    V3((V3AsyncClient, V3EventLoop, V3Mqtt)),
-    V5((V5AsyncClient, V5EventLoop, V5Mqtt)),
+    V3((V3MqttHandler, V3EventLoop)),
+    V5((V5MqttHandler, V5EventLoop)),
 }
+
+const KEEP_ALIVE: u64 = 60;
 
 async fn get_mqtt_async_client(
     mqtt_resource: &MqttResource,
@@ -718,6 +748,7 @@ async fn get_mqtt_async_client(
     subscribe_topics: Vec<SubscribeTopic>,
     v3_config: Option<&MqttV3Config>,
     v5_config: Option<&MqttV5Config>,
+    test_connection: bool,
 ) -> Result<MqttClientResult, Error> {
     match client_version {
         Some(&MqttClientVersion::V5) | None => {
@@ -747,66 +778,19 @@ async fn get_mqtt_async_client(
             }
 
             if let Some(v5_config) = v5_config {
-                mqtt_options.set_keep_alive(Duration::from_secs(
-                    v5_config.base.keep_alive.unwrap_or(60) as u64,
-                ));
                 mqtt_options.set_clean_start(v5_config.clean_start.unwrap_or(true));
-
-                let connect_properties = ConnectProperties {
-                    session_expiry_interval: v5_config.session_expiration.clone(),
-                    max_packet_size: v5_config.maximum_packet_size.clone(),
-                    receive_maximum: v5_config.receive_maximum.clone(),
-                    topic_alias_max: None,
-                    request_problem_info: None,
-                    request_response_info: None,
-                    user_properties: vec![],
-                    authentication_data: None,
-                    authentication_method: None,
-                };
-
-                mqtt_options.set_connect_properties(connect_properties);
-
-                if let Some(last_will) = v5_config.base.will.as_ref() {
-                    let last_will_properties = {
-                        if let Some(last_will_properties) = last_will.properties.as_ref() {
-                            let last_will_properties = V5LastWillProperties {
-                                delay_interval: last_will_properties.delay_interval.clone(),
-                                payload_format_indicator: last_will_properties
-                                    .payload_format_indicator
-                                    .clone(),
-                                message_expiry_interval: last_will_properties
-                                    .message_expiry_interval
-                                    .clone(),
-                                content_type: last_will_properties.content_type.clone(),
-                                response_topic: last_will_properties.response_topic.clone(),
-                                correlation_data: last_will_properties
-                                    .correlation_data
-                                    .as_ref()
-                                    .map(|data| Bytes::copy_from_slice(data)),
-                                user_properties: last_will_properties.user_properties.clone(),
-                            };
-
-                            Some(last_will_properties)
-                        } else {
-                            None
-                        }
-                    };
-
-                    let last_will = V5LastWill::new(
-                        &last_will.topic,
-                        last_will.payload.clone(),
-                        last_will.qos.clone().into(),
-                        last_will.retain,
-                        last_will_properties,
-                    );
-                    mqtt_options.set_last_will(last_will);
-                }
             }
+
+            mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
 
             let (async_client, mut event_loop) =
                 V5AsyncClient::new(mqtt_options, subscribe_topics.len());
 
-            event_loop.poll().await?;
+            let res = event_loop.poll().await;
+
+            println!("{:?}", &res);
+
+            res?;
 
             let subscribe_filters = subscribe_topics
                 .into_iter()
@@ -817,7 +801,7 @@ async fn get_mqtt_async_client(
 
             async_client.subscribe_many(subscribe_filters).await?;
 
-            Ok(MqttClientResult::V5((async_client, event_loop, V5Mqtt)))
+            Ok(MqttClientResult::V5((V5MqttHandler, event_loop)))
         }
         _ => {
             let mut mqtt_options = V3MqttOptions::new(
@@ -847,21 +831,8 @@ async fn get_mqtt_async_client(
 
             if let Some(v3_config) = v3_config {
                 mqtt_options.set_clean_session(v3_config.clean_session.unwrap_or(true));
-                mqtt_options.set_keep_alive(Duration::from_secs(
-                    v3_config.base.keep_alive.unwrap_or(60) as u64,
-                ));
-
-                if let Some(last_will) = v3_config.base.will.as_ref() {
-                    let last_will = V3LastWill::new(
-                        &last_will.topic,
-                        last_will.payload.clone(),
-                        last_will.qos.clone().into(),
-                        last_will.retain,
-                    );
-
-                    mqtt_options.set_last_will(last_will);
-                }
             }
+            mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
 
             let (async_client, mut event_loop) =
                 V3AsyncClient::new(mqtt_options, subscribe_topics.len());
@@ -877,7 +848,7 @@ async fn get_mqtt_async_client(
 
             async_client.subscribe_many(subscribe_filters).await?;
 
-            Ok(MqttClientResult::V3((async_client, event_loop, V3Mqtt)))
+            Ok(MqttClientResult::V3((V3MqttHandler, event_loop)))
         }
     }
 }
@@ -891,9 +862,9 @@ trait MqttEvent {
     fn handle_event(&self, event: Self::Event) -> Result<Option<(Bytes, PublishData)>, String>;
 }
 
-struct V5Mqtt;
+struct V5MqttHandler;
 
-impl MqttEvent for V5Mqtt {
+impl MqttEvent for V5MqttHandler {
     type IncomingPacket = V5Incoming;
     type PublishPacket = rumqttc::v5::mqttbytes::v5::Publish;
     type Event = V5Event;
@@ -945,9 +916,9 @@ impl MqttEvent for V5Mqtt {
     }
 }
 
-struct V3Mqtt;
+struct V3MqttHandler;
 
-impl MqttEvent for V3Mqtt {
+impl MqttEvent for V3MqttHandler {
     type IncomingPacket = V3Incoming;
     type PublishPacket = rumqttc::mqttbytes::v4::Publish;
     type Event = V3Event;
@@ -1041,7 +1012,7 @@ async fn handle_publish_packet(db: &DB, mqtt: &MqttConfig, payload: Bytes, publi
     mqtt.handle(&db, Some(args), extra).await;
 }
 
-async fn main_loop<E, H>(db: &DB, mqtt: &MqttConfig, mut event_loop: E, handler: H) -> ()
+async fn handle_event<E, H>(db: &DB, mqtt: &MqttConfig, handler: H, mut event_loop: E) -> ()
 where
     H: MqttEvent,
     E: EventLoop<Event = H::Event>,
@@ -1143,6 +1114,7 @@ impl MqttConfig {
             subscribe_topics.into_iter().collect_vec(),
             v3_config,
             v5_config,
+            false,
         )
         .await?;
         Ok(client)
@@ -1399,8 +1371,8 @@ async fn listen_to_messages(
                     match result {
                         Ok(connection) => {
                             match connection {
-                                MqttClientResult::V3((_, event_loop, v3_handler)) => main_loop(&db, &mqtt, event_loop, v3_handler).await,
-                                MqttClientResult::V5((_, event_loop, v5_handler)) => main_loop(&db, &mqtt, event_loop, v5_handler).await,
+                                MqttClientResult::V3((v3_handler, event_loop)) => handle_event(&db, &mqtt, v3_handler, event_loop).await,
+                                MqttClientResult::V5((v5_handler, event_loop)) => handle_event(&db, &mqtt, v5_handler, event_loop).await,
                             }
                         }
                         Err(err) => {

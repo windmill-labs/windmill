@@ -145,45 +145,9 @@
 							options={{
 								right: 'Clean start',
 								rightTooltip: '',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mqtt_trigger'
+								rightDocumentationLink: ''
 							}}
 							class="py-1"
-						/>
-
-						<input
-							type="number"
-							min={10}
-							bind:value={v5_config.keep_alive}
-							disabled={!can_write}
-							placeholder="keep alive"
-							autocomplete="off"
-						/>
-
-						<input
-							type="number"
-							min={10}
-							bind:value={v5_config.session_expiration}
-							disabled={!can_write}
-							placeholder="session expiration"
-							autocomplete="off"
-						/>
-
-						<input
-							type="number"
-							min={10}
-							bind:value={v5_config.receive_maximum}
-							disabled={!can_write}
-							placeholder="receive maximum"
-							autocomplete="off"
-						/>
-
-						<input
-							type="number"
-							min={10}
-							bind:value={v5_config.maximum_packet_size}
-							disabled={!can_write}
-							placeholder="maximum packet_size"
-							autocomplete="off"
 						/>
 					{:else if client_version === 'v3'}
 						<Toggle
@@ -197,7 +161,7 @@
 							options={{
 								right: 'Clean session',
 								rightTooltip: '',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mqtt_trigger'
+								rightDocumentationLink: ''
 							}}
 							class="py-1"
 						/>

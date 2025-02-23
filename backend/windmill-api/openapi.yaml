@@ -13920,46 +13920,17 @@ components:
       type: number
       enum: [0, 1, 2]
   
-    CommonMqttConfig:
-      type: object
-      properties:
-        will:
-          type: object
-          properties:
-            topic:
-              type: string
-            message:
-              type: array
-              items:
-                type: number
-            qos:
-              $ref: "#/components/schemas/QoS"
-            retain:
-              type: boolean
-
     MqttV3Config:
-      allOf:
-        - $ref: "#/components/schemas/CommonMqttConfig"
       type: object
       properties:
         clean_session:
           type: boolean
 
     MqttV5Config:
-      allOf:
-        - $ref: "#/components/schemas/CommonMqttConfig"
       type: object
       properties:
         clean_start:
           type: boolean
-        keep_alive:
-          type: number
-        session_expiration:
-          type: number
-        receive_maximum:
-          type: number
-        maximum_packet_size:
-          type: number
 
     SubscribeTopic:
       type: object
