@@ -56,7 +56,7 @@ jobs:
       metadata_labels: |
         org.opencontainers.image.licenses=AGPLv3
       build_args: |
-        features=embedding,parquet,jemalloc,deno_core,license,http_trigger,zip,dind,php,mysql,websocket,python,smtp,csharp,static_frontend,rust
+        features=embedding,parquet,jemalloc,deno_core,license,http_trigger,zip,dind,php,mysql,websocket,oapython,python,smtp,csharp,static_frontend,rust
       checkout_ee: true
     secrets: inherit # that makes secrets available to the called workflow
 
