@@ -35,6 +35,18 @@ prompts:
       The resource type name has to be exactly as specified (no resource suffix). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.
       </contextual_information>
       My instructions: {description}
+  rust:
+    prompt: |-
+      <contextual_information>
+      You have to write Rust code and define a `main` function like this (without calling it):
+      ```rust
+      pub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>
+      ```
+      Favor idiomatic Rust patterns, ensuring safe ownership and borrowing, robust error handling with `Result`, and concurrency if needed (`async`/`tokio` or std threading).
+
+      Include only necessary imports and modules, and add comments explaining important operations. Provide at least one unit test using Rust's built-in test framework (`#[cfg(test)] mod tests { ... }`) to demonstrate correctness. Make the code well-formatted (similar to `cargo fmt` style). The generated code should be easily executable and testable in an integrated terminal.
+      </contextual_information>
+      My instructions: {description}
   go:
     prompt: |-
       Here's my go code: 
