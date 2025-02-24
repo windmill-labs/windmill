@@ -22,8 +22,8 @@ jobs:
             -c work_mem=32MB \
             -c effective_cache_size=4GB" \
             postgres
-          sleep 30
+          sleep 5
 
           docker run -d -it --network=host -e DATABASE_URL=postgres://postgres:changeme@localhost/windmill  ghcr.io/windmill-labs/windmill:main
-          sleep 30
+          sleep 10
           deno run --unstable -A -r https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts -c https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
