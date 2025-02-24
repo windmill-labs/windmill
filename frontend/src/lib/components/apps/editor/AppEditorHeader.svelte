@@ -24,7 +24,6 @@
 		History,
 		Laptop2,
 		Loader2,
-		MoreVertical,
 		RefreshCw,
 		Save,
 		Smartphone,
@@ -1671,11 +1670,7 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<Dropdown items={moreItems} class="center-center">
-			<svelte:fragment slot="buttonReplacement">
-				<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
-			</svelte:fragment>
-		</Dropdown>
+		<Dropdown items={moreItems} />
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
 		<div class="hidden md:inline relative overflow-visible">
