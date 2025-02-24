@@ -2,7 +2,6 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
-	import { globalUiConfig } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
@@ -37,6 +36,7 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
+	import { getContext, hasContext } from 'svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -369,6 +369,10 @@
 	let globalForceJson: boolean = false
 
 	let seeS3PreviewFileFromList = ''
+
+	const disableTooltips = hasContext('disableTooltips')
+		? getContext('disableTooltips') === true
+		: false
 </script>
 
 <HighlightTheme />
@@ -429,22 +433,24 @@
 					{/if}
 				</div>
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
-					{#if !customUi?.aiFix?.disabled}
+					{#if customUi?.disableAiFix !== true}
 						<slot name="copilot-fix" />
 					{/if}
 					{#if !disableExpand && !noControls}
-						<a
-							download="{filename ?? 'result'}.json"
-							class="-mt-1 text-current"
-							href={workspaceId && jobId
-								? nodeId
-									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						>
-							<Download size={14} />
-						</a>
-						{#if !$globalUiConfig?.tooltips?.disabled}
+						{#if customUi?.disableDownload !== true}
+							<a
+								download="{filename ?? 'result'}.json"
+								class="-mt-1 text-current"
+								href={workspaceId && jobId
+									? nodeId
+										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							>
+								<Download size={14} />
+							</a>
+						{/if}
+						{#if disableTooltips !== true}
 							<Popover
 								documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 							>
@@ -863,19 +869,21 @@
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
-					<Button
-						download="{filename ?? 'result'}.json"
-						href={workspaceId && jobId
-							? nodeId
-								? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-								: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						startIcon={{ icon: Download }}
-						color="light"
-						size="xs"
-					>
-						Download
-					</Button>
+					{#if customUi?.disableDownload !== true}
+						<Button
+							download="{filename ?? 'result'}.json"
+							href={workspaceId && jobId
+								? nodeId
+									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							startIcon={{ icon: Download }}
+							color="light"
+							size="xs"
+						>
+							Download
+						</Button>
+					{/if}
 					<Button
 						on:click={() => copyToClipboard(toJsonStr(result))}
 						color="light"

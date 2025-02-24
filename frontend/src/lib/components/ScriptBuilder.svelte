@@ -651,21 +651,23 @@
 	let dirtyPath = false
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = (() => {
-		if (!customUi?.settingsPanel?.metadata?.disabled) {
+		if (customUi?.settingsPanel?.disableMetadata !== true) {
 			// first option: either no custom UI or metadata is enabled
 			return 'metadata'
 		}
-		if (!customUi?.settingsPanel?.runtime?.disabled) {
+		if (customUi?.settingsPanel?.disableRuntime !== true) {
 			return 'runtime'
 		}
-		if (!customUi?.settingsPanel?.generatedUi?.disabled) {
+		if (customUi?.settingsPanel?.disableGeneratedUi !== true) {
 			return 'ui'
 		}
-		if (!customUi?.settingsPanel?.triggers?.disabled) {
+		if (customUi?.settingsPanel?.disableTriggers !== true) {
 			return 'triggers'
 		}
 		return 'metadata'
 	})()
+
+	setContext('disableTooltips', customUi?.disableTooltips === true)
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
@@ -739,13 +741,13 @@
 			<!-- svelte-ignore a11y-autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
-					{#if !customUi?.settingsPanel?.metadata?.disabled}
+					{#if customUi?.settingsPanel?.disableMetadata !== true}
 						<Tab value="metadata">Metadata</Tab>
 					{/if}
-					{#if !customUi?.settingsPanel?.runtime?.disabled}
+					{#if customUi?.settingsPanel?.disableRuntime !== true}
 						<Tab value="runtime">Runtime</Tab>
 					{/if}
-					{#if !customUi?.settingsPanel?.generatedUi?.disabled}
+					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
 						<Tab value="ui">
 							Generated UI
 							<Tooltip
@@ -756,7 +758,7 @@
 							</Tooltip>
 						</Tab>
 					{/if}
-					{#if !customUi?.settingsPanel?.triggers?.disabled}
+					{#if customUi?.settingsPanel?.disableTriggers !== true}
 						<Tab value="triggers">
 							Triggers
 							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
@@ -771,7 +773,7 @@
 								<div class="flex flex-col gap-8 px-4 py-2">
 									<Section label="Metadata">
 										<svelte:fragment slot="action">
-											{#if !customUi?.settingsPanel?.metadata?.mute?.disabled}
+											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
 												<div class="flex flex-row items-center gap-2">
 													<ErrorHandlerToggleButton
 														kind="script"
@@ -914,7 +916,7 @@
 										</div>
 									</Section>
 
-									{#if !customUi?.settingsPanel?.metadata?.scriptKind?.disabled}
+									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
 										<Section label="Script kind">
 											<svelte:fragment slot="header">
 												<Tooltip

@@ -37,22 +37,17 @@ export type FlowBuilderWhitelabelCustomUi = {
 }
 
 export type DisplayResultUi = {
-	aiFix?: { disabled?: boolean }
+	disableAiFix?: boolean
+	disableDownload?: boolean
 }
 
 export type PreviewPanelUi = {
-	disabled?: boolean
-	history?: {
-		disabled?: boolean
-	}
-	triggerCaptures?: {
-		disabled?: boolean
-	}
-	triggerButton?: {
-		disabled?: boolean
-	}
+	disableHistory?: boolean
+	disableTriggerCaptures?: boolean
+	disableTriggerButton?: boolean
 	displayResult?: DisplayResultUi
-	variablePicker?: { disabled?: boolean }
+	disableVariablePicker?: boolean
+	disableDownload?: boolean
 }
 
 export type EditorBarUi = {
@@ -71,43 +66,30 @@ export type EditorBarUi = {
 	useVsCode?: boolean
 }
 
-export type GlobalUiConfig = {
-	tooltips?: { disabled?: boolean }
-}
-
 export type EditableSchemaFormUi = {
 	jsonOnly?: boolean
-	variablePicker?: { disabled: boolean }
+	disableVariablePicker?: boolean
 }
 
 export type SettingsPanelMetadataUi = {
-	disabled?: boolean
 	languages?: SupportedLanguage[]
-	scriptKind?: {
-		disabled?: boolean
-	}
+	disableScriptKind?: boolean
 	editableSchemaForm?: EditableSchemaFormUi
-	mute?: { disabled?: boolean }
+	disableMute?: boolean
 }
 
 export type SettingsPanelUi = {
-	disabled?: boolean
 	metadata?: SettingsPanelMetadataUi
-	runtime?: {
-		disabled?: boolean
-	}
-	generatedUi?: {
-		disabled?: boolean
-		fields?: 'file'[]
-	}
-	triggers?: {
-		disabled?: boolean
-	}
+	disableMetadata?: boolean
+	disableRuntime?: boolean
+	disableGeneratedUi?: boolean
+	disableTriggers?: boolean
 }
 
 export type ScriptEditorWhitelabelCustomUi = {
 	editorBar?: EditorBarUi
 	previewPanel?: PreviewPanelUi
+	disableTooltips?: boolean
 }
 
 export type ScriptBuilderWhitelabelCustomUi = {
@@ -120,7 +102,7 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		diff?: boolean
 	}
 	settingsPanel?: SettingsPanelUi
-	tooltips?: { disabled?: boolean }
+	disableTooltips?: boolean
 
 	editorBar?: EditorBarUi
 	previewPanel?: PreviewPanelUi

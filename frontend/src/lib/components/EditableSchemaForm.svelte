@@ -58,7 +58,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const noVariablePickerOnPreview = noVariablePicker || customUi?.variablePicker?.disabled
+	const noVariablePickerOnPreview = noVariablePicker || customUi?.disableVariablePicker === true
 
 	let clazz: string = ''
 	export { clazz as class }

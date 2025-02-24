@@ -30,6 +30,7 @@
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
+	import { setContext } from 'svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -258,6 +259,8 @@
 	}
 
 	let setFocusToLogs = () => {}
+
+	setContext('disableTooltips', customUi?.disableTooltips === true)
 </script>
 
 <TestJobLoader
@@ -407,7 +410,7 @@
 							/>
 							Cancel
 						</Button>
-					{:else if !customUi?.previewPanel?.triggerButton?.disabled}
+					{:else if customUi?.previewPanel?.disableTriggerButton !== true}
 						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
 							<Button
 								color="dark"
@@ -470,7 +473,7 @@
 										{schema}
 										bind:args
 										bind:isValid
-										noVariablePicker={customUi?.previewPanel?.variablePicker?.disabled}
+										noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
 										showSchemaExplorer
 									/>
 								{/key}

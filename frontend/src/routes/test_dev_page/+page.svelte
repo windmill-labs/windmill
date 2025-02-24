@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { globalUiConfig } from '$lib/stores'
 	import type { ScriptBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 
@@ -59,26 +58,22 @@
 		settingsPanel: {
 			metadata: {
 				languages: ['python3'],
-				scriptKind: { disabled: true },
-				editableSchemaForm: { jsonOnly: true, variablePicker: { disabled: true } },
-				mute: { disabled: true }
+				disableScriptKind: true,
+				editableSchemaForm: { jsonOnly: true, disableVariablePicker: true },
+				disableMute: true
 			},
-			runtime: {
-				disabled: true
-			},
-
-			triggers: {
-				disabled: true
-			}
+			disableRuntime: true,
+			disableTriggers: true
 		},
 		previewPanel: {
-			triggerButton: { disabled: true },
-			displayResult: { aiFix: { disabled: true } },
-			triggerCaptures: { disabled: true },
-			history: { disabled: true },
-			variablePicker: { disabled: true }
+			disableTriggerButton: true,
+			displayResult: { disableAiFix: true, disableDownload: true },
+			disableTriggerCaptures: true,
+			disableHistory: true,
+			disableVariablePicker: true,
+			disableDownload: true
 		},
-		tooltips: { disabled: true }
+		disableTooltips: true
 	}
 
 	$: customUi =
@@ -87,17 +82,6 @@
 			: showWhiteLabelUI === 'new'
 			? newWhiteLabelUIConfig
 			: noWhiteLabelUIConfig
-
-	$: if (customUi?.tooltips?.disabled) {
-		globalUiConfig.set({
-			...$globalUiConfig,
-			tooltips: {
-				disabled: true
-			}
-		})
-	} else {
-		globalUiConfig.set({ ...$globalUiConfig, tooltips: undefined })
-	}
 </script>
 
 <select bind:value={showWhiteLabelUI} placeholder="Select UI Type">

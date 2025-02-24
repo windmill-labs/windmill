@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { globalUiConfig } from '$lib/stores'
 	import Markdown from 'svelte-exmarkdown'
 	import type { PopoverPlacement } from './Popover.model'
 	import Popover from './Popover.svelte'
 	import { ExternalLink, InfoIcon } from 'lucide-svelte'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import { getContext, hasContext } from 'svelte'
 	export let light = false
 	export let wrapperClass = ''
 	export let placement: PopoverPlacement | undefined = undefined
@@ -13,9 +13,13 @@
 	export let markdownTooltip: string | undefined = undefined
 	export let customSize: string = '100%'
 	const plugins = [gfmPlugin()]
+
+	const disableTooltips = hasContext('disableTooltips')
+		? getContext('disableTooltips') === true
+		: false
 </script>
 
-{#if !$globalUiConfig?.tooltips?.disabled}
+{#if disableTooltips !== true}
 	<Popover
 		notClickable
 		{placement}

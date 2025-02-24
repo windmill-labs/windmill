@@ -94,10 +94,10 @@
 <div class="h-full flex flex-col">
 	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
 		<Tab value="logs" size="xs">Logs & Result</Tab>
-		{#if !customUi?.history?.disabled}
+		{#if customUi?.disableHistory !== true}
 			<Tab value="history" size="xs">History</Tab>
 		{/if}
-		{#if showCaptures && !customUi?.triggerCaptures?.disabled}
+		{#if showCaptures && customUi?.disableTriggerCaptures !== true}
 			<Tab value="captures" size="xs">Trigger captures</Tab>
 		{/if}
 
@@ -122,6 +122,7 @@
 									content={previewJob?.logs}
 									isLoading={previewJob?.['running'] == false && previewIsLoading}
 									tag={previewJob?.tag}
+									download={customUi?.disableDownload !== true}
 								/>
 							</Pane>
 							<Pane>
