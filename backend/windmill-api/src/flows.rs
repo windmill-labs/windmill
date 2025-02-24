@@ -333,6 +333,7 @@ async fn check_path_conflict<'c>(
 struct FlowWorkspaceRunnable {
     runnable_path: String,
     runnable_is_flow: bool,
+    script_hash: Option<i64>,
 }
 
 fn get_flow_workspace_runnables_from_modules(
@@ -341,11 +342,19 @@ fn get_flow_workspace_runnables_from_modules(
     let mut result = Vec::new();
     for m in modules {
         match m.get_value()? {
-            FlowModuleValue::Script { path, .. } => {
-                result.push(FlowWorkspaceRunnable { runnable_path: path, runnable_is_flow: false });
+            FlowModuleValue::Script { path, hash, .. } => {
+                result.push(FlowWorkspaceRunnable {
+                    runnable_path: path,
+                    runnable_is_flow: false,
+                    script_hash: hash.map(|h| h.0),
+                });
             }
             FlowModuleValue::Flow { path, .. } => {
-                result.push(FlowWorkspaceRunnable { runnable_path: path, runnable_is_flow: true });
+                result.push(FlowWorkspaceRunnable {
+                    runnable_path: path,
+                    runnable_is_flow: true,
+                    script_hash: None,
+                });
             }
             FlowModuleValue::ForloopFlow { modules, .. } => {
                 result.extend(get_flow_workspace_runnables_from_modules(modules)?);
@@ -403,9 +412,10 @@ async fn create_flow_workspace_runnables<'c>(
 
     for runnable in workspace_runnables {
         sqlx::query!(
-            "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4, $5)",
             path,
             runnable.runnable_path,
+            runnable.script_hash,
             runnable.runnable_is_flow,
             w_id
         )
