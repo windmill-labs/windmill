@@ -1,5 +1,76 @@
 # Changelog
 
+## [1.467.1](https://github.com/windmill-labs/windmill/compare/v1.467.0...v1.467.1) (2025-02-22)
+
+
+### Bug Fixes
+
+* add uv bin path to PATH ([85993cc](https://github.com/windmill-labs/windmill/commit/85993ccac2abc2295e0f1b21544a6674fcf43411))
+* app markdown is selectable in preview mode ([0aa6a39](https://github.com/windmill-labs/windmill/commit/0aa6a39cad16bff74adf3326d47ba0ba9851ccf6))
+* init_script do not need to use nsjail even in nsjail mode ([e92a46b](https://github.com/windmill-labs/windmill/commit/e92a46b088088148d13a8e625a828657bcf44fe3))
+
+## [1.467.0](https://github.com/windmill-labs/windmill/compare/v1.466.3...v1.467.0) (2025-02-21)
+
+
+### Features
+
+* enable rust AI gen/fix/edit ([#5349](https://github.com/windmill-labs/windmill/issues/5349)) ([d9844fd](https://github.com/windmill-labs/windmill/commit/d9844fd7f7cf89a0914176944d4af0b485ed3f3c))
+* provision from SSO preferred_username ([#5347](https://github.com/windmill-labs/windmill/issues/5347)) ([19d33bd](https://github.com/windmill-labs/windmill/commit/19d33bdc7c4633f0c338c77de1d316f733e4304a))
+
+
+### Bug Fixes
+
+* disable toggle is more consistently applied on arg inputs ([3188bee](https://github.com/windmill-labs/windmill/commit/3188bee46e3dc46a699096bd3c2668df0cbdb9a1))
+* do not pin python patch version in docker preinstalled python ([f058782](https://github.com/windmill-labs/windmill/commit/f05878271becb28f83678c5b0ae498d0192b2458))
+* fix app component header buttons ([ab1c15d](https://github.com/windmill-labs/windmill/commit/ab1c15d92f3f86f4bd8d782fa6a806a59f30fdf1))
+* fix schedule run now args ([3430f9c](https://github.com/windmill-labs/windmill/commit/3430f9c4390b6c630086394ddfaf1a1b2030c78f))
+* **frontend:** improve rename workspace id UX ([#5353](https://github.com/windmill-labs/windmill/issues/5353)) ([521b6ba](https://github.com/windmill-labs/windmill/commit/521b6ba92c86a55b9977463ae05ecd4fca400ce4))
+* **frontend:** invalid username for superadmin in some workspaces ([#5350](https://github.com/windmill-labs/windmill/issues/5350)) ([7d73dec](https://github.com/windmill-labs/windmill/commit/7d73decd8dc7039ef84915994074c07dc51280c9))
+* **frontend:** missing config for Custom AI ([#5351](https://github.com/windmill-labs/windmill/issues/5351)) ([8a7730e](https://github.com/windmill-labs/windmill/commit/8a7730efa06283e72292d894584b279c908a7604))
+* handle better forced value propagation in apps ([3ac912f](https://github.com/windmill-labs/windmill/commit/3ac912fa308fbbf6cf41562cfdbe8eea7c1cc372))
+* **image:** use debian image instead of python image as base ([676b78b](https://github.com/windmill-labs/windmill/commit/676b78b15db8e1c749107fa41c4c98ab3a37154e))
+* initialize s3 file input if value already present ([c6601da](https://github.com/windmill-labs/windmill/commit/c6601da3d8557af9d32b0202bf50c40b89d481a9))
+* schedules do not accept 5 units cron syntax on update/create anymore ([c90fe38](https://github.com/windmill-labs/windmill/commit/c90fe387e882f7767c3b3621e5e230fc8acd80b0))
+
+## [1.466.3](https://github.com/windmill-labs/windmill/compare/v1.466.2...v1.466.3) (2025-02-20)
+
+
+### Bug Fixes
+
+* **frontend:** add warning when integer number if too big for frontend ([#5340](https://github.com/windmill-labs/windmill/issues/5340)) ([03f8834](https://github.com/windmill-labs/windmill/commit/03f88349c8730bfbb4613105c35482b4f3fadd64))
+* remove db streaming to avoid backpressure on db ([#5342](https://github.com/windmill-labs/windmill/issues/5342)) ([9ba66ea](https://github.com/windmill-labs/windmill/commit/9ba66eacd28175607900a7d2294584662b4c26a2))
+
+## [1.466.2](https://github.com/windmill-labs/windmill/compare/v1.466.1...v1.466.2) (2025-02-20)
+
+
+### Bug Fixes
+
+* add proxy envs (http_proxy) to uv install ([affb0b4](https://github.com/windmill-labs/windmill/commit/affb0b4c720551f7f1c7fa5315e3b39e5580b732))
+
+## [1.466.1](https://github.com/windmill-labs/windmill/compare/v1.466.0...v1.466.1) (2025-02-20)
+
+
+### Bug Fixes
+
+* **cli:** improve cli dependency error clarity ([dcc0d35](https://github.com/windmill-labs/windmill/commit/dcc0d35e971ab3df6a0122dc881b968e8221f40f))
+* **cli:** improve dependency job error message (logs in result) ([2c67e84](https://github.com/windmill-labs/windmill/commit/2c67e84abe98a3c43972cf5555536104119c6527))
+* **cli:** improve flow cli dependency error clarity ([d5b3a04](https://github.com/windmill-labs/windmill/commit/d5b3a04b0ab5f003c4c512cc9ba74eb620a3afc1))
+* **python:** PYTHON_PATH overrides python from uv ([39c0dd3](https://github.com/windmill-labs/windmill/commit/39c0dd3736da0722c7e18d84183c0e9b06cf2839))
+
+## [1.466.0](https://github.com/windmill-labs/windmill/compare/v1.465.0...v1.466.0) (2025-02-19)
+
+
+### Features
+
+* add support for gemini ([#5235](https://github.com/windmill-labs/windmill/issues/5235)) ([35d5293](https://github.com/windmill-labs/windmill/commit/35d5293fba47d368e503e9781719e6e9ccc96713))
+* remove `pip` fallback option for python and ansible ([#5186](https://github.com/windmill-labs/windmill/issues/5186)) ([4ad654f](https://github.com/windmill-labs/windmill/commit/4ad654fcf0c603aefc5a9b5c41da1ffa24b99d2d))
+
+
+### Bug Fixes
+
+* **apps:** font-size of title text not screen dependent ([44a6a62](https://github.com/windmill-labs/windmill/commit/44a6a62fbe3a9cae79e2d7ab7efd119f559aa374))
+* improve app db explorer handling of always identity columns ([74c0a10](https://github.com/windmill-labs/windmill/commit/74c0a10c3a8a4848341456635f36c0c2061b7943))
+
 ## [1.465.0](https://github.com/windmill-labs/windmill/compare/v1.464.0...v1.465.0) (2025-02-18)
 
 

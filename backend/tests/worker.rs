@@ -2900,7 +2900,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
         .await
         .unwrap()
         .into_inner()
-        .subtype_0
+        .open_flow
         .value
         .modules;
     modules.into_iter()

@@ -69,7 +69,8 @@
 		<slot name="trigger" {trigger} />
 	</button>
 
-	<div use:melt={$menuElement} data-menu class={`z-[${zIndex}]`}>
+	<!--svelte-ignore a11y-no-static-element-interactions-->
+	<div use:melt={$menuElement} data-menu class={`z-[${zIndex}]`} on:click|stopPropagation>
 		<div
 			class={twMerge(
 				'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',

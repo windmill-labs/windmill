@@ -4,7 +4,7 @@ import { deepEqual } from 'fast-equals'
 import sum from 'hash-sum'
 export interface Subscriber<T> {
 	id?: string
-	next(v: T): void
+	next(v: T, force?: boolean): void
 }
 
 export interface Observable<T> {
@@ -23,7 +23,7 @@ export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
 	connect: <T>(
 		connection: InputConnectionEval,
-		next: (x: T) => void,
+		next: (x: T, force?: boolean) => void,
 		id: string,
 		previousValue: any
 	) => Input<T>
@@ -79,7 +79,7 @@ export function buildObservableWorld() {
 			return {
 				id,
 				peak: () => undefined,
-				next: () => {}
+				next: () => { }
 			}
 		}
 
@@ -95,7 +95,7 @@ export function buildObservableWorld() {
 			}
 			return {
 				peak: () => undefined,
-				next: () => {}
+				next: () => { }
 			}
 		}
 
@@ -119,16 +119,16 @@ export function buildObservableWorld() {
 		newOutput
 	}
 }
-export function cachedInput<T>(nextParan: (x: T) => void, id?: string): Input<T> {
+export function cachedInput<T>(nextParam: (x: T, force?: boolean) => void, id?: string): Input<T> {
 	let value: T | undefined = undefined
 
 	function peak(): T | undefined {
 		return value
 	}
 
-	function next(x: T): void {
+	function next(x: T, force?: boolean): void {
 		value = x
-		nextParan(x)
+		nextParam(x, force)
 	}
 
 	return {
@@ -152,7 +152,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 
 		// Send the current value to the new subscriber if it already exists
 		if (value !== undefined && !deepEqual(value, npreviousValue)) {
-			x.next(value)
+			x.next(value, false)
 		}
 
 		// return a callback to unsubscribe
@@ -180,7 +180,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 			} else {
 				value = x
 			}
-			subscribers.forEach((x) => x.next(value!))
+			subscribers.forEach((x) => x.next(value!, force))
 		}
 	}
 
