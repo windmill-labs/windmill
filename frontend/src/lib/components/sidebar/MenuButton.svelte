@@ -3,6 +3,10 @@
 	import Popover from '../Popover.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import SideBarNotification from './SideBarNotification.svelte'
+	import { goto } from '$app/navigation'
+	import { conditionalMelt } from '$lib/utils'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
+
 	export let label: string | undefined = undefined
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
@@ -12,27 +16,41 @@
 	export let shortcut: string = ''
 	export let notificationsCount: number = 0
 	export let color: string | null = null
+	export let trigger: MenubarMenuElements['trigger'] | undefined = undefined
+	export let href: string | undefined = undefined
+
 	let dispatch = createEventDispatcher()
 </script>
 
 {#if !disabled}
-	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
+	<Popover
+		appearTimeout={0}
+		disappearTimeout={0}
+		class="w-full"
+		disablePopup={!isCollapsed}
+		placement="right"
+	>
 		<button
 			on:click={(e) => {
 				if (stopPropagationOnClick) e.preventDefault()
+				if (href) {
+					goto(href)
+				}
 				dispatch('click')
 			}}
 			class={twMerge(
 				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
 				lightMode
-					? 'text-primary hover:bg-surface-hover '
-					: 'hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
+					? 'text-primary data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
+					: 'data-[highlighted]:bg-[#2A3648] hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
 				color ? 'border-4' : '',
-				'transition-all',
+				'transition-all relative',
 				$$props.class
 			)}
 			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 4px);` : ''}
-			title={label}
+			use:conditionalMelt={trigger}
+			title={isCollapsed ? undefined : label}
+			{...$trigger}
 		>
 			{#if icon}
 				<svelte:component
