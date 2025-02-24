@@ -14,6 +14,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 
 	let version: undefined | number = undefined
 	let nodraft = $page.url.searchParams.get('nodraft')
