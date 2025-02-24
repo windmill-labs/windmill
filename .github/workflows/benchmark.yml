@@ -19,8 +19,8 @@ jobs:
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
           --shm-size=2g
-          --network host
-
+        ports:
+          - 5432:5432
 
       windmill:
         image: ghcr.io/windmill-labs/windmill-ee:main
