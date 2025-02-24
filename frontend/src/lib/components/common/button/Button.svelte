@@ -2,10 +2,9 @@
 	import { createEventDispatcher } from 'svelte'
 	import { ButtonType } from './model'
 	import { twMerge } from 'tailwind-merge'
-	import ButtonDropdown from './ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { classNames, getModifierKey } from '$lib/utils'
-	import { Loader2 } from 'lucide-svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
+	import { getModifierKey, type Item } from '$lib/utils'
+	import { Loader2, ChevronDown } from 'lucide-svelte'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -30,7 +29,6 @@
 	export let title: string | undefined = undefined
 	export let style: string = ''
 	export let download: string | undefined = undefined
-	export let portalTarget: string | undefined = undefined
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 	export let shortCut:
@@ -45,12 +43,14 @@
 	}
 	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
 
-	function computeDropdowns(): MenuItem[] | undefined {
-		if (typeof dropdownItems === 'function') {
-			return dropdownItems()
-		} else {
-			return dropdownItems
-		}
+	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
+		const items = typeof menuItems === 'function' ? menuItems() : menuItems
+		return items.map((item) => ({
+			displayName: item.label,
+			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
+			icon: item.icon,
+			href: item.href
+		}))
 	}
 
 	export function focus() {
@@ -230,32 +230,19 @@
 	{/if}
 
 	{#if dropdownItems && dropdownItems.length > 0}
-		<div
-			class={twMerge(
-				buttonClass,
-				'rounded-md m-0 p-0 h-auto !w-10',
-				variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
-				'rounded-r-md !rounded-l-none'
-			)}
-		>
-			<ButtonDropdown target={portalTarget}>
-				<svelte:fragment slot="items">
-					{#each computeDropdowns() ?? [] as item}
-						<MenuItem on:click={item.onClick} href={item.href}>
-							<div
-								class={classNames(
-									'!text-secondary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-								)}
-							>
-								{#if item.icon}
-									<svelte:component this={item.icon} class="w-4 h-4" size={lucideIconSize} />
-								{/if}
-								{item.label}
-							</div>
-						</MenuItem>
-					{/each}
-				</svelte:fragment>
-			</ButtonDropdown>
-		</div>
+		<Dropdown items={computeDropdowns(dropdownItems)} class="h-auto w-fit">
+			<svelte:fragment slot="buttonReplacement">
+				<div
+					class={twMerge(
+						buttonClass,
+						'rounded-md m-0 p-0 !w-10 center-center h-full',
+						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
+						'rounded-r-md !rounded-l-none'
+					)}
+				>
+					<ChevronDown class="w-5 h-5" />
+				</div>
+			</svelte:fragment>
+		</Dropdown>
 	{/if}
 </div>

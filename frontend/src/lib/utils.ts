@@ -83,9 +83,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-				day: 'numeric',
-				month: 'numeric'
-			}
+					day: 'numeric',
+					month: 'numeric'
+			  }
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -848,7 +848,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) { }
+		} catch (err) {}
 		i++
 	}
 	if (i >= times) {
@@ -1102,11 +1102,7 @@ export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 }
 
 export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
-	return (
-		job_kind !== 'flow' &&
-		job_kind !== 'singlescriptflow' &&
-		!isFlowPreview(job_kind)
-	)
+	return job_kind !== 'flow' && job_kind !== 'singlescriptflow' && !isFlowPreview(job_kind)
 }
 
 export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
@@ -1120,4 +1116,15 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 		return meltItem(node)
 	}
 	return { destroy: () => {} }
+}
+
+export type Item = {
+	displayName: string
+	action?: (e: CustomEvent<any>) => void
+	icon?: any
+	iconColor?: string
+	href?: string
+	disabled?: boolean
+	type?: 'action' | 'delete'
+	hide?: boolean | undefined
 }

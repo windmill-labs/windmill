@@ -3,7 +3,6 @@
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { pointerDownOutside } from '$lib/utils'
-	import { zIndexes } from '$lib/zIndexes'
 
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
@@ -43,8 +42,6 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 	}
-
-	const zIndex = zIndexes.contextMenu
 </script>
 
 <div class={twMerge('w-full h-8', $$props.class)}>
@@ -70,16 +67,18 @@
 	</button>
 
 	<!--svelte-ignore a11y-no-static-element-interactions-->
-	<div use:melt={$menuElement} data-menu class={`z-[${zIndex}]`} on:click|stopPropagation>
-		<div
-			class={twMerge(
-				'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
-				lightMode ? 'bg-surface-inverse' : 'bg-surface',
-				invisible ? 'opacity-0' : ''
-			)}
-			style="max-height: {maxHeight}px; "
-		>
-			<slot {item} />
+	{#if open}
+		<div use:melt={$menuElement} data-menu class="z-[6000]" on:click|stopPropagation>
+			<div
+				class={twMerge(
+					'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
+					lightMode ? 'bg-surface-inverse' : 'bg-surface',
+					invisible ? 'opacity-0' : ''
+				)}
+				style="max-height: {maxHeight}px; "
+			>
+				<slot {item} />
+			</div>
 		</div>
-	</div>
+	{/if}
 </div>

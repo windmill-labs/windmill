@@ -51,7 +51,6 @@
 		Pen,
 		Save,
 		DiffIcon,
-		MoreVertical,
 		HistoryIcon,
 		FileJson,
 		type Icon,
@@ -73,14 +72,11 @@
 	import { loadFlowModuleState, pickScript } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
-
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
-	import ButtonDropdown from './common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { twMerge } from 'tailwind-merge'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
@@ -1364,33 +1360,7 @@
 					{/if}
 					<div>
 						{#if moreItems?.length > 0}
-							<ButtonDropdown hasPadding={false}>
-								<svelte:fragment slot="buttonReplacement">
-									<Button nonCaptureEvent size="xs" color="light">
-										<div class="flex flex-row items-center">
-											<MoreVertical size={14} />
-										</div>
-									</Button>
-								</svelte:fragment>
-								<svelte:fragment slot="items">
-									{#each moreItems as item}
-										<MenuItem
-											on:click={item.action}
-											disabled={item.disabled}
-											class={item.disabled ? 'opacity-50' : ''}
-										>
-											<div
-												class={twMerge(
-													'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-												)}
-											>
-												<svelte:component this={item.icon} size={14} />
-												{item.displayName}
-											</div>
-										</MenuItem>
-									{/each}
-								</svelte:fragment>
-							</ButtonDropdown>
+							<Dropdown items={moreItems} />
 						{/if}
 					</div>
 					{#if customUi?.topBar?.tutorials != false}
