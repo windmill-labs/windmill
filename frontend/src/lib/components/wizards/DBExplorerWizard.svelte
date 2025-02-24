@@ -128,7 +128,6 @@
 		middleware: [offset(8), flip(), shift()]
 	}}
 	contentClasses="max-h-[50vh] overflow-y-auto p-4 flex flex-col gap-4 w-96"
-	closeButton
 	closeOnOtherPopoverOpen
 >
 	<svelte:fragment slot="trigger">

@@ -23,8 +23,7 @@
 		middleware: [offset(8), flip(), shift()]
 	}}
 	closeButton
-	closeOnOtherPopoverOpen
-	contentClasses="p-4"
+	contentClasses="p-4 max-h-[70vh] overflow-y-auto"
 >
 	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
@@ -127,7 +126,6 @@
 							placement: 'left-end',
 							middleware: [offset(8), flip(), shift()]
 						}}
-						shouldUsePortal={false}
 					/>
 				</Label>
 				<Label label="Caption">

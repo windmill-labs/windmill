@@ -40,14 +40,13 @@
 		middleware: [offset(8), flip(), shift()]
 	}}
 	closeOnOtherPopoverOpen
-	closeButton
 >
 	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		{#if value}
-			<div class="flex flex-col w-96 gap-4 p-4">
+			<div class="flex flex-col w-96 gap-4 p-4 max-h-[50vh] overflow-y-auto">
 				<Label label="Name">
 					<input type="text" bind:value={value.name} />
 				</Label>
