@@ -154,7 +154,7 @@ async fn create_schedule(
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     // Check schedule for error
-    ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref())?;
+    ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
 
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
@@ -249,7 +249,7 @@ async fn edit_schedule(
     let mut tx = user_db.begin(&authed).await?;
 
     // Check schedule for error
-    ScheduleType::from_str(&es.schedule, es.cron_version.as_deref())?;
+    ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
     let schedule = sqlx::query_as::<_, Schedule>(
@@ -468,7 +468,8 @@ pub struct PreviewPayload {
 pub async fn preview_schedule(
     Json(payload): Json<PreviewPayload>,
 ) -> JsonResult<Vec<DateTime<Utc>>> {
-    let schedule = ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref())?;
+    let schedule =
+        ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref(), true)?;
 
     let tz =
         chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;

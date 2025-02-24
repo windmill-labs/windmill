@@ -18,7 +18,7 @@
 	export let render: boolean
 	export let configuration: RichConfigurations
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['mardowncomponent'].initialData.configuration,
@@ -65,7 +65,9 @@
 {#if render}
 	<div
 		on:pointerdown={(e) => {
-			e?.preventDefault()
+			if ($mode != 'preview') {
+				e?.preventDefault()
+			}
 		}}
 		class={classNames(
 			'h-full w-full overflow-y-auto prose max-w-full',
