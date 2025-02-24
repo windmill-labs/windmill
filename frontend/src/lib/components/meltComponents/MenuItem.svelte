@@ -1,13 +1,10 @@
 <script lang="ts">
 	import { melt } from '@melt-ui/svelte'
-	import { createEventDispatcher } from 'svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	export let href: string | undefined = undefined
 	export let disabled: boolean = false
 	export let target: string | undefined = undefined
 	export let item: MenubarMenuElements['item']
-
-	const dispatch = createEventDispatcher()
 </script>
 
 {#if href}
@@ -26,8 +23,8 @@
 	</a>
 {:else}
 	<button
-		on:click={() => dispatch('click')}
 		use:melt={$item}
+		on:click
 		{disabled}
 		class={$$props.class}
 		role="menuitem"
