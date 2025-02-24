@@ -155,8 +155,9 @@
 									}}
 								>
 									<AppButton
+										noInitialize
 										extraKey={'idx' + actionIndex}
-										{render}
+										render={true}
 										id={actionButton.id}
 										customCss={actionButton.customCss}
 										configuration={actionButton.configuration}
