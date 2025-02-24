@@ -7,13 +7,14 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let disabled = false
 	export let placement: Placement = 'bottom-end'
 	export let usePointerDownOutside = false
-
+	export let justifyEnd = true
 	const {
 		elements: { menu, item, trigger },
 		states
@@ -50,6 +51,7 @@
 <ResolveOpen {open} on:open on:close />
 
 <button
+	class={twMerge('w-full h-8 flex items-center', justifyEnd ? 'justify-end' : '', $$props.class)}
 	use:melt={$trigger}
 	{disabled}
 	on:click={(e) => e.stopPropagation()}
@@ -69,16 +71,13 @@
 	{#if $$slots.buttonReplacement}
 		<slot name="buttonReplacement" />
 	{:else}
-		<MoreVertical size={16} class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md" />
+		<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
 	{/if}
 </button>
 
 <div use:melt={$menu} data-menu class={`z-[${zIndex}]`}>
 	<div
-		class={twMerge(
-			'bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]',
-			$$props.class
-		)}
+		class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 	>
 		<DropdownV2Inner items={computeItems} meltItem={item} />
 	</div>

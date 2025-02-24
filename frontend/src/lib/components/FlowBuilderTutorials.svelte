@@ -41,7 +41,7 @@
 </script>
 
 {#key $tutorialsToDo}
-	<Dropdown items={getTutorialItems}>
+	<Dropdown items={getTutorialItems} class="w-fit">
 		<svelte:fragment slot="buttonReplacement">
 			<Button
 				nonCaptureEvent
