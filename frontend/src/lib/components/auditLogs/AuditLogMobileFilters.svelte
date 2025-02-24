@@ -5,7 +5,7 @@
 
 <Popup
 	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+	containerClasses="border rounded-lg shadow-lg p-4 pt-8 bg-surface"
 >
 	<svelte:fragment slot="button">
 		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>

@@ -15,6 +15,7 @@ import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
+import type { AnyMeltElement } from '@melt-ui/svelte'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
@@ -82,9 +83,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-				day: 'numeric',
-				month: 'numeric'
-			}
+					day: 'numeric',
+					month: 'numeric'
+			  }
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -246,6 +247,8 @@ export function pointerDownOutside(
 	options?: ClickOutsideOptions
 ): { destroy(): void; update(newOptions: ClickOutsideOptions): void } {
 	const handlePointerDown = async (event: PointerEvent) => {
+		if (!event.isTrusted) return
+
 		if (options?.customEventName) {
 			node.dispatchEvent(
 				new CustomEvent<PointerEvent>(options.customEventName, {
@@ -357,7 +360,6 @@ export function emptyString(str: string | undefined | null): boolean {
 export function emptyStringTrimmed(str: string | undefined | null): boolean {
 	return str === undefined || str === null || str === '' || str.trim().length === 0
 }
-
 
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
 	return emptyString(str) ? dflt : str!
@@ -846,7 +848,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) { }
+		} catch (err) {}
 		i++
 	}
 	if (i >= times) {
@@ -1100,15 +1102,29 @@ export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 }
 
 export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
-	return (
-		job_kind !== 'flow' &&
-		job_kind !== 'singlescriptflow' &&
-		!isFlowPreview(job_kind)
-	)
+	return job_kind !== 'flow' && job_kind !== 'singlescriptflow' && !isFlowPreview(job_kind)
 }
 
 export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
 	return (
 		!!job_kind && (job_kind === 'preview' || job_kind === 'flowscript' || job_kind === 'appscript')
 	)
+}
+
+export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | undefined) {
+	if (meltItem) {
+		return meltItem(node)
+	}
+	return { destroy: () => {} }
+}
+
+export type Item = {
+	displayName: string
+	action?: (e: CustomEvent<any>) => void
+	icon?: any
+	iconColor?: string
+	href?: string
+	disabled?: boolean
+	type?: 'action' | 'delete'
+	hide?: boolean | undefined
 }
