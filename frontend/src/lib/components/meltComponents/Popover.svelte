@@ -11,7 +11,6 @@
 	import { fade } from 'svelte/transition'
 	import { X } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
-	import { zIndexes } from '$lib/zIndexes'
 	import { pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 
@@ -73,8 +72,6 @@
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
 	}
-
-	const zIndex = zIndexes.popover
 </script>
 
 <button
@@ -102,11 +99,7 @@
 	<div
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
-		class={twMerge(
-			' w-fit border rounded-md bg-surface shadow-lg',
-			contentClasses,
-			`z-[${zIndex}]`
-		)}
+		class={twMerge(' w-fit border rounded-md bg-surface shadow-lg', contentClasses, `z-[5001]`)}
 		data-popover
 	>
 		{#if displayArrow}
