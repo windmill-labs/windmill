@@ -25,6 +25,8 @@ lazy_static::lazy_static! {
 
     pub static ref INSTANCE_EVENTS_WEBHOOK: Option<String> = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
 
+    pub static ref WEBHOOK_CACHE: Cache<String, Option<String>> = Cache::new(100);
+
 }
 
 pub enum WebhookPayload {
@@ -76,7 +78,6 @@ impl WebhookShared {
                 .timeout(Duration::from_secs(5))
                 .build()
                 .unwrap();
-            let cache = Cache::new(100);
 
             loop {
                 select! {
@@ -84,12 +85,12 @@ impl WebhookShared {
                     _ = shutdown_rx.recv() => break,
                     r = rx.recv() => match r {
                         Some(WebhookPayload::WorkspaceEvent(workspace_id, message)) => {
-                            let webhook_opt = match cache.get(&workspace_id) {
+                            let webhook_opt = match WEBHOOK_CACHE.get(&workspace_id) {
                                 Some(guard) => {
                                     guard
                                 },
                                 None => {
-                                    let Ok(webook_opt) =
+                                    let Ok(mut webhook_opt) =
                                         sqlx::query_scalar!(
                                             "SELECT webhook FROM workspace_settings WHERE workspace_id = $1",
                                             workspace_id
@@ -101,13 +102,17 @@ impl WebhookShared {
                                             tracing::error!("Webhook Message to send - but cannot get workspace settings! Workspace: {workspace_id}");
                                             continue;
                                         };
-                                    cache.insert(workspace_id, webook_opt.clone());
-                                    webook_opt
+                                    if webhook_opt.as_ref().is_some_and(|x| x.is_empty()) {
+                                        webhook_opt = None;
+                                    }
+                                    WEBHOOK_CACHE.insert(workspace_id, webhook_opt.clone());
+                                    webhook_opt
                                 }
                             };
                             if let Some(url) = webhook_opt {
                                 #[cfg(feature = "prometheus")]
                                 let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
+                                tracing::info!("Sending webhook message to {}", url);
                                 let _ = client.post(url).json(&message).send().await;
                                 #[cfg(feature = "prometheus")]
                                 timer.map(|x| x.stop_and_record());
