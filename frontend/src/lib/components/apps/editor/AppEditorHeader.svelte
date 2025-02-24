@@ -949,14 +949,16 @@
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 <UnsavedConfirmationModal
 	{diffDrawer}
-	savedValue={savedApp}
-	modifiedValue={{
-		summary: $summary,
-		value: $app,
-		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy,
-		custom_path: customPath
-	}}
+	getInitialAndModifiedValues={() => ({
+		savedValue: savedApp,
+		modifiedValue: {
+			summary: $summary,
+			value: $app,
+			path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+			policy,
+			custom_path: customPath
+		}
+	})}
 	additionalExitAction={() => {
 		setTheme(priorDarkMode)
 	}}

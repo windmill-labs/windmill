@@ -129,7 +129,6 @@
 	}
 </script>
 
-<!-- <UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} {diffDrawer} /> -->
 
 <ConfirmationModal
 	open={unsavedModalOpen}
