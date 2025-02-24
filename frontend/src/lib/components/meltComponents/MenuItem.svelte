@@ -26,7 +26,7 @@
 	</a>
 {:else}
 	<button
-		on:click={() => dispatch('click')}
+		on:click={(e) => dispatch('click', e)}
 		use:melt={$item}
 		{disabled}
 		class={$$props.class}
