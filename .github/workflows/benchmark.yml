@@ -14,14 +14,14 @@ jobs:
           deno-version: v1.x
       - name: benchmark
         timeout-minutes: 30
-        run: 
+        run: |
           docker run -d --network=host -e POSTGRES_PASSWORD=changeme -e POSTGRES_USER=postgres -e POSTGRES_DB=windmill -e POSTGRES_INITDB_ARGS="-c log_duration=on -c log_statement=all -c log_min_duration_statement=0 -c shared_buffers=2GB -c work_mem=32MB -c effective_cache_size=4GB -c shared_preload_libraries=auto_explain -c auto_explain.log_min_duration=5 -c auto_explain.log_analyze=on -c auto_explain.log_timing=on  -c auto_explain.log_buffers=on  -c auto_explain.log_verbose=on \
-                            -c log_statement=all \
-                            -c log_min_duration_statement=0 \
-                            -c shared_buffers=2GB \
-                            -c work_mem=32MB \
-                            -c effective_cache_size=4GB \
-          postgres
+            -c log_statement=all \
+            -c log_min_duration_statement=0 \
+            -c shared_buffers=2GB \
+            -c work_mem=32MB \
+            -c effective_cache_size=4GB \
+            postgres
           sleep 30
 
           docker run -d -it --network=host -e DATABASE_URL=postgres://postgres:changeme@localhost/windmill  ghcr.io/windmill-labs/windmill:main
