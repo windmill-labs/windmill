@@ -17,7 +17,11 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+<Popover
+	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+	closeOnOtherPopoverOpen
+	contentClasses="flex flex-col w-80 gap-2 p-4"
+>
 	<svelte:fragment slot="trigger">
 		<Button color="light" size="xs2" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center">
@@ -26,29 +30,27 @@
 		</Button>
 	</svelte:fragment>
 	<svelte:fragment slot="content" let:close>
-		<div class="flex flex-col w-80 gap-2 p-4">
-			<div class="leading-6 font-semibold text-xs">Edit theme name</div>
-			<div class="flex flex-row gap-2">
-				<input bind:value={editedName} />
-				<Button
-					color="dark"
-					size="xs"
-					on:click={async () => {
-						if (!$workspaceStore) return
-						await updateTheme($workspaceStore, row.path, {
-							value: {
-								...row,
-								name: editedName
-							}
-						})
-						dispatch('reloadThemes')
-						close()
-						sendUserToast('Theme name updated:\n' + editedName)
-					}}
-				>
-					Update
-				</Button>
-			</div>
+		<div class="leading-6 font-semibold text-xs">Edit theme name</div>
+		<div class="flex flex-row gap-2">
+			<input bind:value={editedName} />
+			<Button
+				color="dark"
+				size="xs"
+				on:click={async () => {
+					if (!$workspaceStore) return
+					await updateTheme($workspaceStore, row.path, {
+						value: {
+							...row,
+							name: editedName
+						}
+					})
+					dispatch('reloadThemes')
+					close()
+					sendUserToast('Theme name updated:\n' + editedName)
+				}}
+			>
+				Update
+			</Button>
 		</div>
 	</svelte:fragment>
 </Popover>

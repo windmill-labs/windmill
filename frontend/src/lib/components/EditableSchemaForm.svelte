@@ -371,10 +371,7 @@
 												{argName}
 												{#if !uiOnly}
 													<div on:click|stopPropagation|preventDefault>
-														<Popover
-															placement="bottom-end"
-															containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-														>
+														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
 															<svelte:fragment slot="trigger">
 																<Button
 																	color="light"

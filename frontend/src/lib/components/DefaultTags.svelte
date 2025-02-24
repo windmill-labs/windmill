@@ -12,7 +12,7 @@
 	let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: placement }}>
+<Popover floatingConfig={{ strategy: 'absolute', placement: placement }} contentClasses="p-4">
 	<svelte:fragment slot="trigger">
 		<Button color="dark" size="xs" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center"
@@ -24,8 +24,6 @@
 		</Button>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
-		<div class="p-4">
-			<DefaultTagsInner bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
-		</div>
+		<DefaultTagsInner bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
 	</svelte:fragment>
 </Popover>

@@ -129,6 +129,8 @@
 									strategy: 'absolute',
 									placement: 'bottom-start'
 								}}
+								closeOnOtherPopoverOpen
+								contentClasses="p-4"
 							>
 								<svelte:fragment slot="trigger">
 									<button
@@ -138,22 +140,20 @@
 									>
 								</svelte:fragment>
 								<svelte:fragment slot="content">
-									<div class="p-4">
-										<ComponentOutputViewer
-											suffix="table"
-											on:select={({ detail }) => {
-												const tableId = action.id.split('_')[0]
+									<ComponentOutputViewer
+										suffix="table"
+										on:select={({ detail }) => {
+											const tableId = action.id.split('_')[0]
 
-												connectOutput(
-													connectingInput,
-													action.type,
-													tableId,
-													`inputs.${action.id}[${rowIndex}].${detail}`
-												)
-											}}
-											componentId={action.id}
-										/>
-									</div>
+											connectOutput(
+												connectingInput,
+												action.type,
+												tableId,
+												`inputs.${action.id}[${rowIndex}].${detail}`
+											)
+										}}
+										componentId={action.id}
+									/>
 								</svelte:fragment>
 							</Popover>
 						</div>

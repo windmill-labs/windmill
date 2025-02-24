@@ -43,6 +43,7 @@
 		placement: 'left-end',
 		middleware: [offset(8), flip(), shift()]
 	}}
+	closeButton
 >
 	<svelte:fragment slot="trigger">
 		<Button nonCaptureEvent={true} size="xs" color="light" endIcon={{ icon: Pencil }}>Edit</Button>
@@ -50,7 +51,7 @@
 	<svelte:fragment slot="content">
 		<div class="flex flex-col gap-8 max-w-sm p-4">
 			{#if automateUsernameCreation && username}
-				<ChangeInstanceUsernameInner {email} {username} on:renamed />
+				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
 			{/if}
 			<label class="block text-primary">
 				<div class="pb-2 text-sm font-semibold text-primary">Name</div>

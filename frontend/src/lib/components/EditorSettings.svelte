@@ -11,7 +11,11 @@
 </script>
 
 {#if customUi?.autoformatting != false || customUi?.vimMode != false || customUi?.aiCompletion != false}
-	<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }} usePointerDownOutside>
+	<Popover
+		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+		usePointerDownOutside
+		contentClasses="flex flex-col gap-y-2 p-4"
+	>
 		<svelte:fragment slot="trigger">
 			<Button
 				btnClasses="text-tertiary"
@@ -25,23 +29,21 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="content">
-			<div class="flex flex-col gap-y-2 p-4">
-				{#if customUi?.autoformatting != false}
-					<div>
-						<FormatOnSave />
-					</div>
-				{/if}
-				{#if customUi?.vimMode != false}
-					<div>
-						<VimMode />
-					</div>
-				{/if}
-				{#if customUi?.aiCompletion != false}
-					<div>
-						<CodeCompletionStatus />
-					</div>
-				{/if}
-			</div>
+			{#if customUi?.autoformatting != false}
+				<div>
+					<FormatOnSave />
+				</div>
+			{/if}
+			{#if customUi?.vimMode != false}
+				<div>
+					<VimMode />
+				</div>
+			{/if}
+			{#if customUi?.aiCompletion != false}
+				<div>
+					<CodeCompletionStatus />
+				</div>
+			{/if}
 		</svelte:fragment>
 	</Popover>
 {/if}
