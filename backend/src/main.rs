@@ -1119,9 +1119,12 @@ pub async fn run_workers(
 
 async fn send_delayed_killpill(
     tx: &tokio::sync::broadcast::Sender<()>,
-    max_delay_secs: u64,
+    mut max_delay_secs: u64,
     context: &str,
 ) {
+    if max_delay_secs == 0 {
+        max_delay_secs = 1;
+    }
     // Random delay to avoid all servers/workers shutting down simultaneously
     let rd_delay = rand::rng().random_range(0..max_delay_secs);
     tracing::info!("Scheduling {context} shutdown in {rd_delay}s");

@@ -303,7 +303,7 @@
 								size="xs">Send usage</Button
 							>
 						{/if}
-					{:else if category == 'Auth/OAuth'}
+					{:else if category == 'Auth/OAuth/SAML'}
 						<AuthSettings
 							bind:oauths
 							bind:snowflakeAccountIdentifier

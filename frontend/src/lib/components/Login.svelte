@@ -277,7 +277,7 @@
 				<Button
 					color="dark"
 					variant="border"
-					btnClasses="mt-2 w-full !border-gray-300"
+					btnClasses="mt-2 w-full"
 					on:click={() => storeRedirect(login.type)}
 				>
 					{login.displayName}
@@ -288,7 +288,7 @@
 			<Button
 				color="dark"
 				variant="border"
-				btnClasses="mt-2 w-full !border-gray-300"
+				btnClasses="mt-2 w-full"
 				on:click={() => {
 					if (saml) {
 						window.location.href = saml
