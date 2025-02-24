@@ -7,6 +7,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let disabled = false
@@ -50,7 +51,6 @@
 
 <button
 	use:melt={$trigger}
-	class={$$props.class}
 	{disabled}
 	on:click={(e) => e.stopPropagation()}
 	use:pointerDownOutside={{
@@ -75,7 +75,10 @@
 
 <div use:melt={$menu} data-menu class={`z-[${zIndex}]`}>
 	<div
-		class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+		class={twMerge(
+			'bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]',
+			$$props.class
+		)}
 	>
 		<DropdownV2Inner items={computeItems} meltItem={item} />
 	</div>
