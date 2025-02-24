@@ -82,6 +82,7 @@
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
+	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -112,6 +113,12 @@
 
 	$: setContext('customUi', customUi)
 
+	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedFlow,
+			modifiedValue: $flowStore
+		}
+	}
 	let onLatest = true
 	async function compareVersions() {
 		if (version === undefined) {

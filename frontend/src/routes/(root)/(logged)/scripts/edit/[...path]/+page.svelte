@@ -11,6 +11,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 
 	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -194,6 +195,8 @@
 		goto(`/scripts/edit/${savedScript.path}`)
 		loadScript()
 	}
+
+	let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDraft} {restoreDeployed} />
@@ -212,6 +215,7 @@
 			let newHash = e.detail
 			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 		}}
+		bind:getInitialAndModifiedValues
 		on:saveInitial={(e) => {
 			let path = e.detail
 			goto(`/scripts/edit/${path}`)
@@ -223,10 +227,7 @@
 		replaceStateFn={(path) => {
 			replaceState(path, $page.state)
 		}}
-		><UnsavedConfirmationModal
-			{diffDrawer}
-			savedValue={savedScript}
-			modifiedValue={script}
-		/></ScriptBuilder
 	>
+		<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
+	</ScriptBuilder>
 {/if}
