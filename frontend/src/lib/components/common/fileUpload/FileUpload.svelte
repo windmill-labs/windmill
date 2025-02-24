@@ -41,17 +41,15 @@
 
 	init()
 	function init() {
-		console.log('initialValues', initialValue)
 		if (initialValue) {
-			console.log('$fileUploads', $fileUploads)
-			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue.s3)) {
+			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
 				$fileUploads = [
 					...$fileUploads,
 					{
 						name: initialValue.filename,
 						size: 0,
 						progress: 100,
-						path: initialValue.s3
+						path: initialValue?.s3
 					}
 				]
 			}
