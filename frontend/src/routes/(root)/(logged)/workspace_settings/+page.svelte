@@ -1075,6 +1075,7 @@
 					<ToggleButton value="anthropic" label="Anthropic" {item} />
 					<ToggleButton value="mistral" label="Mistral" {item} />
 					<ToggleButton value="deepseek" label="DeepSeek" {item} />
+					<ToggleButton value="googleai" label="Google AI" {item} />
 					<ToggleButton value="groq" label="Groq" {item} />
 					<ToggleButton value="openrouter" label="OpenRouter" {item} />
 					<ToggleButton

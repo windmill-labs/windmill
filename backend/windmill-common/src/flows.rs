@@ -60,6 +60,8 @@ pub struct FlowWithStarred {
     pub flow: Flow,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lock_error_logs: Option<String>,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {

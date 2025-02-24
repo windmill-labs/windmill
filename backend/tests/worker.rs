@@ -1015,15 +1015,10 @@ fn spawn_test_worker(
     tokio::sync::broadcast::Sender<()>,
     tokio::task::JoinHandle<()>,
 ) {
-    for x in [
-        windmill_worker::LOCK_CACHE_DIR,
-        windmill_worker::GO_BIN_CACHE_DIR,
-    ] {
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .expect("could not create initial worker dir");
-    }
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .create(windmill_worker::GO_BIN_CACHE_DIR)
+        .expect("could not create initial worker dir");
 
     let (tx, rx) = tokio::sync::broadcast::channel(1);
     let db = db.to_owned();
@@ -2905,7 +2900,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
         .await
         .unwrap()
         .into_inner()
-        .subtype_0
+        .open_flow
         .value
         .modules;
     modules.into_iter()

@@ -380,6 +380,7 @@ pub enum AIProvider {
     Anthropic,
     Mistral,
     DeepSeek,
+    GoogleAI,
     Groq,
     OpenRouter,
     CustomAI,
@@ -389,6 +390,9 @@ impl AIProvider {
     pub fn get_openai_compatible_base_url(&self) -> Result<Option<String>> {
         match self {
             AIProvider::DeepSeek => Ok(Some("https://api.deepseek.com/v1".to_string())),
+            AIProvider::GoogleAI => Ok(Some(
+                "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
+            )),
             AIProvider::Groq => Ok(Some("https://api.groq.com/openai/v1".to_string())),
             AIProvider::OpenRouter => Ok(Some("https://openrouter.ai/api/v1".to_string())),
             AIProvider::CustomAI => Ok(None),
@@ -409,6 +413,7 @@ impl TryFrom<&str> for AIProvider {
             "groq" => Ok(AIProvider::Groq),
             "openrouter" => Ok(AIProvider::OpenRouter),
             "deepseek" => Ok(AIProvider::DeepSeek),
+            "googleai" => Ok(AIProvider::GoogleAI),
             "customai" => Ok(AIProvider::CustomAI),
             _ => Err(Error::BadRequest(format!("Invalid AI provider: {}", s))),
         }
@@ -417,7 +422,7 @@ impl TryFrom<&str> for AIProvider {
 
 #[derive(Deserialize, Debug)]
 pub struct AIResource {
-    pub path: String,
+    pub path: Option<String>,
     pub provider: AIProvider,
 }
 
@@ -472,28 +477,34 @@ async fn proxy(
                 .await?;
 
                 if ai_resource.is_none() {
-                    return Err(Error::internal_err("AI resource not configured".to_string()));
+                    return Err(Error::internal_err(
+                        "AI resource not configured".to_string(),
+                    ));
                 }
 
                 let ai_resource = serde_json::from_value::<AIResource>(ai_resource.unwrap())
                     .map_err(|e| Error::BadRequest(e.to_string()))?;
 
+                let path = ai_resource.path.unwrap_or("".to_string());
+                if path.is_empty() {
+                    return Err(Error::BadRequest("Resource path is empty".to_string()));
+                }
                 let resource = sqlx::query_scalar!(
                     "SELECT value
                     FROM resource
                     WHERE path = $1 AND workspace_id = $2",
-                    &ai_resource.path,
+                    &path,
                     &w_id
                 )
                 .fetch_optional(&db)
                 .await?
                 .ok_or_else(|| {
                     Error::NotFound(format!(
-                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", ai_resource.provider, ai_resource.path
+                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", ai_resource.provider, path
                     ))
                 })?;
 
-                (resource, ai_resource.path, ai_resource.provider)
+                (resource, path, ai_resource.provider)
             };
 
             if resource.is_none() {

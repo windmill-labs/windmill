@@ -732,7 +732,8 @@ async fn edit_copilot_config(
         .await?;
 
         if let Some(cached) = AI_KEY_CACHE.get(&w_id) {
-            if cached.path != parsed_ai_resource.path {
+            if parsed_ai_resource.path.is_none() || parsed_ai_resource.path.unwrap() != cached.path
+            {
                 AI_KEY_CACHE.remove(&w_id);
             }
         }
@@ -1362,6 +1363,7 @@ struct UsedTriggers {
     pub kafka_used: bool,
     pub nats_used: bool,
     pub postgres_used: bool,
+    pub sqs_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1380,7 +1382,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
-            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!"
+            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
+            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!"
         "#,
         w_id
     )

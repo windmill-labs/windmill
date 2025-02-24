@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, ArrowDownFromLine, Bug, Network, Pen, Plug } from 'lucide-svelte'
+	import { Anchor, ArrowDownFromLine, Bug, Expand, Network, Pen, Plug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Button } from '$lib/components/common'
@@ -61,9 +61,13 @@
 
 	let connectingPopupHover = false
 	$: connectingPopupHover && dispatch('mouseover')
+
+	let hoverHeader = false
 </script>
 
 {#if connecting}
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
 		class="absolute z-50 overflow-auto -top-[18px]"
 		style="left: {id_width}px;"
@@ -106,7 +110,11 @@
 	<div class="-top-[18px] -left-[8px] flex flex-row flex-nowrap w-fit h-fit absolute gap-0.5">
 		<div
 			on:mouseover|stopPropagation={() => {
+				hoverHeader = true
 				dispatch('mouseover')
+			}}
+			on:mouseleave|stopPropagation={() => {
+				hoverHeader = false
 			}}
 			on:mousedown|stopPropagation|capture
 			draggable="false"
@@ -140,7 +148,7 @@
 						on:click={() => dispatch('fillHeight')}
 						on:pointerdown|stopPropagation
 					>
-						<ArrowDownFromLine aria-label="Expand position" size={11} />
+						<ArrowDownFromLine aria-label="Full height" size={11} />
 					</button>
 
 					<button
@@ -158,6 +166,18 @@
 							<Anchor aria-label="Lock position" size={11} />
 						{/if}
 					</button>
+					{#if hoverHeader}
+						<button
+							title="Expand"
+							class={twMerge(
+								'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full text-white hover:bg-blue-400 hover:text-white'
+							)}
+							on:click={() => dispatch('expand')}
+							on:pointerdown|stopPropagation
+						>
+							<Expand aria-label="Expand" size={11} />
+						</button>
+					{/if}
 				</div>
 			{/if}
 		</div>

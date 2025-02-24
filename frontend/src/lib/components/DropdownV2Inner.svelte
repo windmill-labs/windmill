@@ -2,6 +2,7 @@
 	import { MenuItem } from '$lib/components/meltComponents'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
 
 	type Item = {
 		displayName: string
@@ -15,7 +16,7 @@
 	}
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
-	export let meltItem: any
+	export let meltItem: MenubarMenuElements['item']
 
 	let computedItems: Item[] | undefined = undefined
 	async function computeItems() {

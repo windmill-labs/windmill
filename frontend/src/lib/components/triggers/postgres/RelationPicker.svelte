@@ -70,7 +70,7 @@
 									</Tooltip>
 								</svelte:fragment>
 
-								<input type="text" bind:value={v.schema_name} />
+								<input class="mt-1" type="text" bind:value={v.schema_name} />
 							</Label>
 							<div class="flex flex-col w-full gap-4 items-center p-5">
 								{#each v.table_to_track as table_to_track, j}
@@ -84,7 +84,7 @@
 											<input
 												type="text"
 												bind:value={table_to_track.table_name}
-												class="!bg-surface"
+												class="!bg-surface mt-1"
 											/>
 										</Label>
 										<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -110,25 +110,27 @@
 													</p>
 												</Tooltip>
 											</svelte:fragment>
-											<MultiSelect
-												options={table_to_track.columns_name ?? []}
-												allowUserOptions="append"
-												bind:selected={table_to_track.columns_name}
-												ulOptionsClass={'!bg-surface !text-sm'}
-												ulSelectedClass="!text-sm"
-												outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-												noMatchingOptionsMsg=""
-												createOptionMsg={null}
-												duplicates={false}
-												placeholder="Select columns"
-												--sms-options-margin="4px"
-											>
-												<svelte:fragment slot="remove-icon">
-													<div class="hover:text-primary p-0.5">
-														<X size={12} />
-													</div>
-												</svelte:fragment>
-											</MultiSelect>
+											<div class="mt-1">
+												<MultiSelect
+													options={table_to_track.columns_name ?? []}
+													allowUserOptions="append"
+													bind:selected={table_to_track.columns_name}
+													ulOptionsClass={'!bg-surface !text-sm'}
+													ulSelectedClass="!text-sm"
+													outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+													noMatchingOptionsMsg=""
+													createOptionMsg={null}
+													duplicates={false}
+													placeholder="Select columns"
+													--sms-options-margin="4px"
+												>
+													<svelte:fragment slot="remove-icon">
+														<div class="hover:text-primary p-0.5">
+															<X size={12} />
+														</div>
+													</svelte:fragment>
+												</MultiSelect>
+											</div>
 										</Label>
 										<Label label="Where Clause">
 											<svelte:fragment slot="header">
@@ -157,7 +159,7 @@
 											<input
 												type="text"
 												bind:value={table_to_track.where_clause}
-												class="!bg-surface"
+												class="!bg-surface mt-1"
 											/>
 										</Label>
 										<Button

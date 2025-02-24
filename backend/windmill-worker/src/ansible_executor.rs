@@ -2,11 +2,7 @@
 use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::PathBuf, process::Stdio};
 
 #[cfg(windows)]
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    process::Stdio,
-};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use itertools::Itertools;
@@ -30,7 +26,7 @@ use crate::{
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, TZ_ENV,
+    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -86,7 +82,6 @@ async fn handle_ansible_python_deps(
                     &mut Some(occupancy_metrics),
                     PyVersion::Py311,
                     false,
-                    false,
                 )
                 .await
                 .map_err(|e| {
@@ -113,7 +108,6 @@ async fn handle_ansible_python_deps(
             worker_dir,
             &mut Some(occupancy_metrics),
             crate::python_executor::PyVersion::Py311,
-            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -339,6 +333,7 @@ mount {{
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
+                .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
