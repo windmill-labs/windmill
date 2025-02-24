@@ -118,7 +118,7 @@ mod users;
 mod users_ee;
 mod utils;
 mod variables;
-mod webhook_util;
+pub mod webhook_util;
 #[cfg(feature = "websocket")]
 mod websocket_triggers;
 mod workers;

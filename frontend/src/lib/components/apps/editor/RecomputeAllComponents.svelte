@@ -16,6 +16,27 @@
 	$: !firstLoad && canInitializeAll($initialized?.initializedComponents, $app) && refresh()
 
 	function canInitializeAll(initialized: string[] | undefined, app: App) {
+		// console.log(
+		// 	'canInitializeAll',
+		// 	JSON.stringify(
+		// 		{
+		// 			initialized: initialized,
+		// 			items: allItems(app.grid, app.subgrids).map((x) => x.id),
+		// 			// missing1: allItems(app.grid, app.subgrids).filter((x) => !initialized?.includes(x.id)),
+
+		// 			missing2: initialized?.filter(
+		// 				(x) =>
+		// 					!allItems(app.grid, app.subgrids)
+		// 						.map((x) => x.id)
+		// 						.includes(x)
+		// 			)
+		// 		},
+		// 		null,
+		// 		2
+		// 	),
+		// 	initialized?.length ==
+		// 		allItems(app.grid, app.subgrids).length + (app.hiddenInlineScripts?.length ?? 0)
+		// )
 		if (app.lazyInitRequire == undefined) {
 			return (
 				initialized?.length ==
