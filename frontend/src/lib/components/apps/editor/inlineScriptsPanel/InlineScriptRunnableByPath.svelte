@@ -196,6 +196,8 @@
 					})
 				]
 			}}
+			closeButton
+			contentClasses="block text-primary text-xs p-4 w-[20vh]"
 		>
 			<svelte:fragment slot="trigger">
 				<Button
@@ -207,11 +209,9 @@
 				>
 			</svelte:fragment>
 			<svelte:fragment slot="content">
-				<div class="block text-primary p-4">
-					Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
-					settings directly by editing it. The cache will be shared by any app or flow that uses this
-					{runnable.runType}.
-				</div>
+				Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
+				settings directly by editing it. The cache will be shared by any app or flow that uses this
+				{runnable.runType}.
 			</svelte:fragment>
 		</Popover>
 

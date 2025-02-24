@@ -445,6 +445,7 @@
 				bind:selected={success}
 				on:selected={() => dispatch('successChange', success)}
 			>
+				<ToggleButton value={undefined} label="All" />
 				<ToggleButton
 					value={'running'}
 					tooltip="Running"
@@ -756,6 +757,7 @@
 
 						<Label label="Status">
 							<ToggleButtonGroup bind:selected={success}>
+								<ToggleButton value={undefined} label="All" />
 								<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" />
 								<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" />
 								<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" />

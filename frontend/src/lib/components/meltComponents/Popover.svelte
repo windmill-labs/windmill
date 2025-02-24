@@ -23,7 +23,7 @@
 	export let usePointerDownOutside: boolean = false
 	export let closeOnOutsideClick: boolean = true
 	export let contentClasses: string = ''
-	export let portal: string | HTMLElement | undefined = undefined
+	export let portal: string | HTMLElement | null = 'body'
 	export let closeOnOtherPopoverOpen: boolean = false
 
 	const {
