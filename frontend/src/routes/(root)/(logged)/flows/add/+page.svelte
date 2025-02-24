@@ -14,6 +14,7 @@
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
