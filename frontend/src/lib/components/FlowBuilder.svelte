@@ -51,7 +51,6 @@
 		Pen,
 		Save,
 		DiffIcon,
-		MoreVertical,
 		HistoryIcon,
 		FileJson,
 		type Icon,
@@ -1361,16 +1360,7 @@
 					{/if}
 					<div>
 						{#if moreItems?.length > 0}
-							<Dropdown items={moreItems} class="center-center">
-								<svelte:fragment slot="buttonReplacement">
-									<Button
-										nonCaptureEvent
-										size="xs"
-										color="light"
-										startIcon={{ icon: MoreVertical }}
-									/>
-								</svelte:fragment>
-							</Dropdown>
+							<Dropdown items={moreItems} />
 						{/if}
 					</div>
 					{#if customUi?.topBar?.tutorials != false}
