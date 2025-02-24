@@ -126,6 +126,11 @@ paths:
             type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
+        - name: all_workspaces
+          in: query
+          description: get audit logs for all workspaces
+          schema:
+            type: boolean
 
       responses:
         "200":
