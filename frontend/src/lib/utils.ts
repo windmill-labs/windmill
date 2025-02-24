@@ -1120,7 +1120,7 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 
 export type Item = {
 	displayName: string
-	action?: (e: CustomEvent<MouseEvent>) => void
+	action?: (e: MouseEvent) => void
 	icon?: any
 	iconColor?: string
 	href?: string

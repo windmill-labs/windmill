@@ -23,8 +23,8 @@
 	</a>
 {:else}
 	<button
-		use:melt={$item}
 		on:click
+		use:melt={$item}
 		{disabled}
 		class={$$props.class}
 		role="menuitem"
