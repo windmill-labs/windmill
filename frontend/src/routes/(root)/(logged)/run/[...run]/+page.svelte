@@ -762,7 +762,7 @@
 							<div>
 								<Badge color="red">
 									only visible to you
-									<Tooltip useDefaultIcon>
+									<Tooltip>
 										<svelte:fragment slot="text">
 											The option to hide this run from the owner of this script or flow was
 											activated

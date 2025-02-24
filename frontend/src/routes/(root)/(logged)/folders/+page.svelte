@@ -92,32 +92,33 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 		>
 			<div class="flex flex-row">
-				<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+				<Popover
+					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					contentClasses="flex flex-col gap-2 p-4"
+				>
 					<svelte:fragment slot="trigger">
 						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New folder</Button>
 					</svelte:fragment>
 					<svelte:fragment slot="content" let:close>
-						<div class="flex flex-col gap-2 p-4">
-							<input
-								class="mr-2"
-								on:keyup={(e) => handleKeyUp(e, () => close())}
-								placeholder="New folder name"
-								bind:value={newFolderName}
-							/>
+						<input
+							class="mr-2"
+							on:keyup={(e) => handleKeyUp(e, () => close())}
+							placeholder="New folder name"
+							bind:value={newFolderName}
+						/>
 
-							<div>
-								<Button
-									size="md"
-									startIcon={{ icon: Plus }}
-									disabled={!newFolderName}
-									on:click={() => {
-										addFolder()
-										close()
-									}}
-								>
-									Create
-								</Button>
-							</div>
+						<div>
+							<Button
+								size="md"
+								startIcon={{ icon: Plus }}
+								disabled={!newFolderName}
+								on:click={() => {
+									addFolder()
+									close()
+								}}
+							>
+								Create
+							</Button>
 						</div>
 					</svelte:fragment>
 				</Popover>
