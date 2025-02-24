@@ -200,6 +200,7 @@
 									loadSettings()
 									listInvites()
 									listUsers()
+									autoAdd = e.detail === 'add'
 								} else {
 									autoAdd = e.detail === 'add'
 								}
@@ -226,6 +227,7 @@
 										auto_add: showInvites ? autoAdd ?? false : true
 									}
 								})
+								operatorOnly = e.detail === 'operator'
 								loadSettings()
 								listInvites()
 								listUsers()

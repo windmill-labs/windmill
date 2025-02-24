@@ -173,9 +173,8 @@
 		<List horizontal>
 			{#if $superadmin || $userStore?.is_admin}
 				<Popover
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
 					portal="#mute-settings-button"
-					closeButton
 					contentClasses="p-4"
 				>
 					<svelte:fragment slot="trigger">
@@ -223,7 +222,7 @@
 
 			{#if $superadmin}
 				<Popover
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
 					portal="#settings-button"
 					contentClasses="p-4"
 				>
