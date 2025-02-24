@@ -23,6 +23,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -53,8 +54,11 @@
 	export let disableDnd: boolean = false
 	export let shouldDispatchChanges: boolean = false
 	export let isValid: boolean = true
+	export let customUi: EditableSchemaFormUi | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+
+	const noVariablePickerOnPreview = noVariablePicker || customUi?.disableVariablePicker === true
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -201,7 +205,7 @@
 		}
 	}
 
-	let jsonView: boolean = false
+	let jsonView: boolean = customUi?.jsonOnly as boolean
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let error: string | undefined = undefined
 	let editor: SimpleEditor | undefined = undefined
@@ -307,6 +311,7 @@
 							}}
 							{shouldDispatchChanges}
 							bind:isValid
+							noVariablePicker={noVariablePickerOnPreview}
 						/>
 
 						<slot name="runButton" />
@@ -325,7 +330,7 @@
 					<slot name="extraTab" />
 				{:else}
 					<!-- WIP -->
-					{#if jsonEnabled}
+					{#if jsonEnabled && !customUi?.jsonOnly}
 						<div class="w-full p-3 flex justify-end">
 							<Toggle
 								bind:checked={jsonView}
