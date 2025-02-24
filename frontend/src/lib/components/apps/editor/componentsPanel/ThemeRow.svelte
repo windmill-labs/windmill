@@ -200,7 +200,7 @@
 				<Button color="dark" size="xs2" on:click={apply}>Apply</Button>
 			{/if}
 
-			<Dropdown items={getDropdownItems} />
+			<Dropdown items={getDropdownItems} class="w-fit" />
 		</div>
 	</Cell>
 </tr>

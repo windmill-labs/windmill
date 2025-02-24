@@ -12,7 +12,6 @@
 	import type { Item } from '$lib/utils'
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
-	import { zIndexes } from '$lib/zIndexes'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -22,7 +21,6 @@
 	export let disabled = false
 	export let placement: Placement = 'bottom-end'
 	export let usePointerDownOutside = false
-	export let justifyEnd = true
 	export let closeOnOtherDropdownOpen = true
 
 	const {
@@ -51,8 +49,6 @@
 		}
 	})
 
-	const zIndex = zIndexes.contextMenu
-
 	let open = false
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
@@ -77,7 +73,7 @@
 <ResolveOpen {open} on:open on:close />
 
 <button
-	class={twMerge('w-full h-8 flex items-center', justifyEnd ? 'justify-end' : '', $$props.class)}
+	class={twMerge('w-full h-8 flex items-center justify-end', $$props.class)}
 	use:melt={$trigger}
 	{disabled}
 	on:click={(e) => e.stopPropagation()}
@@ -101,10 +97,12 @@
 	{/if}
 </button>
 
-<div use:melt={$menu} data-menu class={`z-[${zIndex}]`}>
-	<div
-		class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
-	>
-		<DropdownV2Inner items={computeItems} meltItem={item} />
+{#if open}
+	<div use:melt={$menu} data-menu class="z-[6000]">
+		<div
+			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+		>
+			<DropdownV2Inner items={computeItems} meltItem={item} />
+		</div>
 	</div>
-</div>
+{/if}
