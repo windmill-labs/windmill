@@ -254,12 +254,151 @@ pub struct SetEnabled {
     enabled: bool,
 }
 
+struct MqttClientBuilder<'client> {
+    mqtt_resource: MqttResource,
+    client_id: &'client str,
+    subscribe_topics: Vec<SubscribeTopic>,
+    v3_config: Option<&'client MqttV3Config>,
+    v5_config: Option<&'client MqttV5Config>,
+    mqtt_client_version: Option<&'client MqttClientVersion>
+}
+
+impl<'client> MqttClientBuilder<'client> {
+    fn new(
+        mqtt_resource: MqttResource,
+        client_id: Option<&'client str>,
+        subscribe_topics: Vec<SubscribeTopic>,
+        v3_config: Option<&'client MqttV3Config>,
+        v5_config: Option<&'client MqttV5Config>,
+        mqtt_client_version: Option<&'client MqttClientVersion>
+    ) -> Self {
+        Self {
+            mqtt_resource,
+            client_id: client_id.unwrap_or(""),
+            subscribe_topics,
+            v3_config,
+            v5_config,
+            mqtt_client_version
+        }
+    }
+
+    async fn build_client(&self) -> Result<MqttClientResult, Error> {
+        match self.mqtt_client_version {
+            Some(MqttClientVersion::V5) | None => self.build_v5_client().await,
+            Some(MqttClientVersion::V3) => self.build_v3_client().await
+        }
+    }
+
+    async fn build_v5_client(&self) -> Result<MqttClientResult, Error> {
+        let mut mqtt_options = V5MqttOptions::new(
+            self.client_id,
+            &self.mqtt_resource.host,
+            self.mqtt_resource.port,
+        );
+
+        if let (Some(username), Some(password)) = (
+            self.mqtt_resource.username.as_deref(),
+            self.mqtt_resource.password.as_deref(),
+        ) {
+            mqtt_options.set_credentials(username, password);
+        }
+
+        if !self.mqtt_resource.ca_certificate.is_empty() {
+            let transport = TlsConfiguration::SimpleNative {
+                ca: self.mqtt_resource.ca_certificate.as_bytes().to_vec(),
+                client_auth: None,
+            };
+            mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
+        }
+
+        mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
+
+        if let Some(v5_config) = self.v5_config {
+            mqtt_options.set_clean_start(v5_config.clean_start.unwrap_or(true));
+        }
+
+        let (async_client, mut event_loop) =
+            V5AsyncClient::new(mqtt_options, self.subscribe_topics.len());
+        event_loop.verify_connection().await?;
+
+        if !self.subscribe_topics.is_empty() {
+            let subscribe_filters = self
+                .subscribe_topics
+                .iter()
+                .map(|topic| Filter::new(topic.topic.clone(), topic.qos.clone().into()))
+                .collect_vec();
+
+            async_client.subscribe_many(subscribe_filters).await?;
+        }
+        Ok(MqttClientResult::V5((V5MqttHandler, event_loop)))
+    }
+
+    async fn build_v3_client(&self) -> Result<MqttClientResult, Error> {
+        let mut mqtt_options = V3MqttOptions::new(
+            self.client_id,
+            &self.mqtt_resource.host,
+            self.mqtt_resource.port,
+        );
+
+        if let (Some(username), Some(password)) = (
+            self.mqtt_resource.username.as_deref(),
+            self.mqtt_resource.password.as_deref(),
+        ) {
+            mqtt_options.set_credentials(username, password);
+        }
+
+        if !self.mqtt_resource.ca_certificate.is_empty() {
+            let transport = TlsConfiguration::SimpleNative {
+                ca: self.mqtt_resource.ca_certificate.as_bytes().to_vec(),
+                client_auth: None,
+            };
+            mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
+        }
+
+        mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
+
+        if let Some(v3_config) = self.v3_config {
+            mqtt_options.set_clean_session(v3_config.clean_session.unwrap_or(true));
+        }
+
+        let (async_client, mut event_loop) =
+            V3AsyncClient::new(mqtt_options, self.subscribe_topics.len());
+        event_loop.verify_connection().await?;
+
+        if !self.subscribe_topics.is_empty() {
+            let subscribe_filters = self
+                .subscribe_topics
+                .iter()
+                .map(|topic| SubscribeFilter::new(topic.topic.clone(), topic.qos.clone().into()))
+                .collect_vec();
+
+            async_client.subscribe_many(subscribe_filters).await?;
+        }
+        Ok(MqttClientResult::V3((V3MqttHandler, event_loop)))
+    }
+}
+
+fn convert_disconnect_packet_into_string(
+    disconnect: rumqttc::v5::mqttbytes::v5::Disconnect,
+) -> String {
+    let err_message = disconnect
+        .properties
+        .map(|properties| properties.reason_string)
+        .flatten();
+    let reason_code = disconnect.reason_code as u8;
+    format!(
+        "Disconnected by the broker, reason code: {}, {}",
+        reason_code,
+        err_message
+            .map(|err| format!("message: {}", err))
+            .unwrap_or("".to_string())
+    )
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TestMqttConnection {
     mqtt_resource_path: String,
-    subscribe_topics: Vec<SubscribeTopic>,
     client_version: Option<MqttClientVersion>,
-    client_id: Option<String>,
     v3_config: Option<MqttV3Config>,
     v5_config: Option<MqttV5Config>,
 }
@@ -273,11 +412,9 @@ pub async fn test_mqtt_connection(
 ) -> error::Result<()> {
     let TestMqttConnection {
         mqtt_resource_path,
-        subscribe_topics,
         client_version,
         v3_config,
         v5_config,
-        client_id,
     } = test_postgres;
 
     let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
@@ -290,15 +427,17 @@ pub async fn test_mqtt_connection(
     .await?;
 
     let connect_f = async {
-        get_mqtt_async_client(
-            &mqtt_resource,
-            client_version.as_ref(),
-            client_id.as_deref(),
-            subscribe_topics,
+        let client_builder = MqttClientBuilder::new(
+            mqtt_resource,
+            Some(""),
+            vec![],
             v3_config.as_ref(),
             v5_config.as_ref(),
-            true,
-        )
+            client_version.as_ref()
+        );
+
+
+        client_builder.build_client()
         .await
         .map_err(|err| {
             error::Error::BadConfig(format!(
@@ -311,7 +450,7 @@ pub async fn test_mqtt_connection(
         .await
         .map_err(|_| {
             error::Error::BadConfig(format!(
-                "Timeout connecting to mqtt broker after 30 seconds"
+                "Timeout occured while trying connecting to mqtt broker after 30 seconds"
             ))
         })??;
 
@@ -741,118 +880,6 @@ enum MqttClientResult {
 
 const KEEP_ALIVE: u64 = 60;
 
-async fn get_mqtt_async_client(
-    mqtt_resource: &MqttResource,
-    client_version: Option<&MqttClientVersion>,
-    client_id: Option<&str>,
-    subscribe_topics: Vec<SubscribeTopic>,
-    v3_config: Option<&MqttV3Config>,
-    v5_config: Option<&MqttV5Config>,
-    test_connection: bool,
-) -> Result<MqttClientResult, Error> {
-    match client_version {
-        Some(&MqttClientVersion::V5) | None => {
-            let mut mqtt_options = V5MqttOptions::new(
-                client_id.unwrap_or(""),
-                &mqtt_resource.host,
-                mqtt_resource.port,
-            );
-
-            match (
-                mqtt_resource.username.as_deref(),
-                mqtt_resource.password.as_deref(),
-            ) {
-                (Some(username), Some(password)) => {
-                    mqtt_options.set_credentials(username, password);
-                }
-                _ => {}
-            }
-
-            if !mqtt_resource.ca_certificate.is_empty() {
-                let transport = TlsConfiguration::SimpleNative {
-                    ca: mqtt_resource.ca_certificate.as_bytes().to_vec(),
-                    client_auth: None,
-                };
-
-                mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
-            }
-
-            if let Some(v5_config) = v5_config {
-                mqtt_options.set_clean_start(v5_config.clean_start.unwrap_or(true));
-            }
-
-            mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
-
-            let (async_client, mut event_loop) =
-                V5AsyncClient::new(mqtt_options, subscribe_topics.len());
-
-            let res = event_loop.poll().await;
-
-            println!("{:?}", &res);
-
-            res?;
-
-            let subscribe_filters = subscribe_topics
-                .into_iter()
-                .map(|subscribe_topic| {
-                    Filter::new(subscribe_topic.topic.clone(), subscribe_topic.qos.into())
-                })
-                .collect_vec();
-
-            async_client.subscribe_many(subscribe_filters).await?;
-
-            Ok(MqttClientResult::V5((V5MqttHandler, event_loop)))
-        }
-        _ => {
-            let mut mqtt_options = V3MqttOptions::new(
-                client_id.unwrap_or(""),
-                &mqtt_resource.host,
-                mqtt_resource.port,
-            );
-
-            match (
-                mqtt_resource.username.as_deref(),
-                mqtt_resource.password.as_deref(),
-            ) {
-                (Some(username), Some(password)) => {
-                    mqtt_options.set_credentials(username, password);
-                }
-                _ => {}
-            }
-
-            if !mqtt_resource.ca_certificate.is_empty() {
-                let transport = TlsConfiguration::SimpleNative {
-                    ca: mqtt_resource.ca_certificate.as_bytes().to_vec(),
-                    client_auth: None,
-                };
-
-                mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
-            }
-
-            if let Some(v3_config) = v3_config {
-                mqtt_options.set_clean_session(v3_config.clean_session.unwrap_or(true));
-            }
-            mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
-
-            let (async_client, mut event_loop) =
-                V3AsyncClient::new(mqtt_options, subscribe_topics.len());
-
-            event_loop.poll().await?;
-
-            let subscribe_filters = subscribe_topics
-                .into_iter()
-                .map(|subscribe_topic| {
-                    SubscribeFilter::new(subscribe_topic.topic.clone(), subscribe_topic.qos.into())
-                })
-                .collect_vec();
-
-            async_client.subscribe_many(subscribe_filters).await?;
-
-            Ok(MqttClientResult::V3((V3MqttHandler, event_loop)))
-        }
-    }
-}
-
 trait MqttEvent {
     type IncomingPacket;
     type PublishPacket;
@@ -890,18 +917,7 @@ impl MqttEvent for V5MqttHandler {
                     )))
                 }
                 Self::IncomingPacket::Disconnect(disconnect) => {
-                    let err_message = disconnect
-                        .properties
-                        .map(|properties| properties.reason_string)
-                        .flatten();
-                    let reason_code = disconnect.reason_code as u8;
-                    return Err(format!(
-                        "Disconnected by the broker, reason code: {}, {}",
-                        reason_code,
-                        err_message
-                            .map(|err| format!("message: {}", err))
-                            .unwrap_or("".to_string())
-                    ));
+                    return Err(convert_disconnect_packet_into_string(disconnect));
                 }
                 packet => {
                     tracing::debug!("Received = {:#?}", packet);
@@ -956,21 +972,45 @@ impl MqttEvent for V3MqttHandler {
     }
 }
 
+const TIMEOUT_DURATION: u64 = 10;
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(TIMEOUT_DURATION);
+
 #[async_trait]
 trait EventLoop {
     type Event;
     type Error;
 
     async fn poll(&mut self) -> Result<Self::Event, Self::Error>;
+    async fn verify_connection(&mut self) -> Result<(), Error>;
 }
 
 #[async_trait]
 impl EventLoop for V5EventLoop {
     type Event = V5Event;
     type Error = rumqttc::v5::ConnectionError;
-
     async fn poll(&mut self) -> Result<Self::Event, Self::Error> {
         self.poll().await
+    }
+
+    async fn verify_connection(&mut self) -> Result<(), Error> {
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < CONNECTION_TIMEOUT {
+            match self.poll().await? {
+                Self::Event::Incoming(V5Incoming::ConnAck(_)) => return Ok(()),
+                Self::Event::Incoming(V5Incoming::Disconnect(disconnect)) => {
+                    return Err(Error::Common(error::Error::BadConfig(
+                        convert_disconnect_packet_into_string(disconnect),
+                    )));
+                }
+                _ => continue,
+            }
+        }
+
+        Err(Error::Common(error::Error::BadConfig(format!(
+            "Timeout occured while trying connecting to mqtt broker after {} seconds",
+            TIMEOUT_DURATION
+        ))))
     }
 }
 
@@ -981,6 +1021,22 @@ impl EventLoop for V3EventLoop {
 
     async fn poll(&mut self) -> Result<Self::Event, Self::Error> {
         self.poll().await
+    }
+
+    async fn verify_connection(&mut self) -> Result<(), Error> {
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < CONNECTION_TIMEOUT {
+            match self.poll().await? {
+                Self::Event::Incoming(rumqttc::Packet::ConnAck(_)) => return Ok(()),
+                _ => continue,
+            }
+        }
+
+        Err(Error::Common(error::Error::BadConfig(format!(
+            "Timeout occured while trying connecting to mqtt broker after {} seconds",
+            TIMEOUT_DURATION
+        ))))
     }
 }
 
@@ -1107,17 +1163,16 @@ impl MqttConfig {
         )
         .await?;
 
-        let client = get_mqtt_async_client(
-            &mqtt_resource,
-            client_version,
+        let client_builder = MqttClientBuilder::new(
+            mqtt_resource,
             client_id,
-            subscribe_topics.into_iter().collect_vec(),
+            subscribe_topics,
             v3_config,
             v5_config,
-            false,
-        )
-        .await?;
-        Ok(client)
+            client_version
+        );
+
+        client_builder.build_client().await
     }
 
     async fn handle(

@@ -126,6 +126,7 @@
 					args = {
 						v3_config: DEFAULT_V3_CONFIG,
 						v5_config: DEFAULT_V5_CONFIG,
+						client_version: 'v5',
 						subscribe_topics: []
 					}
 					break

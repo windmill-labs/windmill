@@ -14,6 +14,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
+	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -27,7 +28,6 @@
 	export let client_version: MqttClientVersion = 'v5'
 	export let isValid: boolean = false
 	export let client_id: string
-
 	$: isValid = subscribe_topics.length > 0 && !emptyStringTrimmed(mqtt_resource_path)
 </script>
 
@@ -49,6 +49,9 @@
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection Setup">
 				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
+				{#if !emptyStringTrimmed(mqtt_resource_path)}
+					<TestTriggerConnection kind="mqtt" args={{ mqtt_resource_path, client_version }} />
+				{/if}
 			</Subsection>
 
 			<Subsection label="Topics">

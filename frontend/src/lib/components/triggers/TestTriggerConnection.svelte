@@ -22,7 +22,8 @@
 		nats: 'NATS server(s)',
 		kafka: 'Kafka broker(s)',
 		sqs: 'SQS',
-		postgres: 'Postgres'
+		postgres: 'Postgres',
+		mqtt: 'MQTT broker'
 	}
 
 	let promise: CancelablePromise<any> | null = null
