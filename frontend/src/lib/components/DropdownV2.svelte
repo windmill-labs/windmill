@@ -1,3 +1,11 @@
+<script context="module" lang="ts">
+	import { writable } from 'svelte/store'
+	const activeDropdown = writable<{ id: string | null; close: (() => void) | null }>({
+		id: null,
+		close: null
+	})
+</script>
+
 <script lang="ts">
 	import { MoreVertical } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
@@ -15,14 +23,32 @@
 	export let placement: Placement = 'bottom-end'
 	export let usePointerDownOutside = false
 	export let justifyEnd = true
+	export let closeOnOtherDropdownOpen = true
+
 	const {
 		elements: { menu, item, trigger },
-		states
+		states,
+		ids: { menu: dropdownId }
 	} = createDropdownMenu({
 		positioning: {
 			placement
 		},
-		loop: true
+		loop: true,
+		onOpenChange: ({ next }) => {
+			if (closeOnOtherDropdownOpen) {
+				if (next) {
+					// Close previous dropdown if exists
+					if ($activeDropdown.close && $activeDropdown.id !== $dropdownId) {
+						$activeDropdown.close()
+					}
+					// Set this dropdown as active
+					activeDropdown.set({ id: $dropdownId, close })
+				} else if ($activeDropdown.id === $dropdownId) {
+					activeDropdown.set({ id: null, close: null })
+				}
+			}
+			return next
+		}
 	})
 
 	const zIndex = zIndexes.contextMenu
