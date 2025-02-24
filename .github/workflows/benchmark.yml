@@ -20,7 +20,7 @@ jobs:
             -c log_min_duration_statement=0 \
             -c shared_buffers=2GB \
             -c work_mem=32MB \
-            -c effective_cache_size=4GB \
+            -c effective_cache_size=4GB" \
             postgres
           sleep 30
 
