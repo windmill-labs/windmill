@@ -12,7 +12,7 @@ use crate::db::ApiAuthed;
 use crate::triggers::{
     get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
 };
-use crate::utils::WithStarredInfoQuery;
+use crate::utils::{RunnableKind, WithStarredInfoQuery};
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -33,6 +33,7 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::to_raw_value;
 use windmill_common::HUB_BASE_URL;
@@ -65,6 +66,10 @@ pub fn workspaced_service() -> Router {
         .route("/list_paths", get(list_paths))
         .route("/history/p/*path", get(get_flow_history))
         .route("/get_latest_version/*path", get(get_latest_version))
+        .route(
+            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route(
             "/history_update/v/:version/p/*path",
             post(update_flow_history),
@@ -324,6 +329,115 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct FlowWorkspaceRunnable {
+    runnable_path: String,
+    runnable_is_flow: bool,
+}
+
+fn get_flow_workspace_runnables_from_modules(
+    modules: Vec<FlowModule>,
+) -> Result<Vec<FlowWorkspaceRunnable>> {
+    let mut result = Vec::new();
+    for m in modules {
+        match m.get_value()? {
+            FlowModuleValue::Script { path, .. } => {
+                result.push(FlowWorkspaceRunnable { runnable_path: path, runnable_is_flow: false });
+            }
+            FlowModuleValue::Flow { path, .. } => {
+                result.push(FlowWorkspaceRunnable { runnable_path: path, runnable_is_flow: true });
+            }
+            FlowModuleValue::ForloopFlow { modules, .. } => {
+                result.extend(get_flow_workspace_runnables_from_modules(modules)?);
+            }
+            FlowModuleValue::WhileloopFlow { modules, .. } => {
+                result.extend(get_flow_workspace_runnables_from_modules(modules)?);
+            }
+            FlowModuleValue::BranchOne { branches, .. } => {
+                for branch in branches {
+                    result.extend(get_flow_workspace_runnables_from_modules(branch.modules)?);
+                }
+            }
+            FlowModuleValue::BranchAll { branches, .. } => {
+                for branch in branches {
+                    result.extend(get_flow_workspace_runnables_from_modules(branch.modules)?);
+                }
+            }
+            FlowModuleValue::Identity { .. }
+            | FlowModuleValue::RawScript { .. }
+            | FlowModuleValue::FlowScript { .. } => {
+                // ignore
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+async fn create_flow_workspace_runnables<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    path: &str,
+    w_id: &str,
+    modules_value: Option<&serde_json::Value>,
+    delete_existing: bool,
+) -> Result<()> {
+    if delete_existing {
+        sqlx::query!(
+            "DELETE FROM flow_workspace_runnables WHERE flow_path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    let modules = serde_json::from_value::<Vec<FlowModule>>(
+        modules_value
+            .ok_or_else(|| {
+                Error::BadRequest("Modules not found in the flow module value".to_string())
+            })?
+            .clone(),
+    )?;
+
+    let workspace_runnables = get_flow_workspace_runnables_from_modules(modules)?;
+
+    for runnable in workspace_runnables {
+        sqlx::query!(
+            "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4)",
+            path,
+            runnable.runnable_path,
+            runnable.runnable_is_flow,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT f.path
+            FROM flow_workspace_runnables fwr 
+            JOIN flow f 
+                ON fwr.flow_path = f.path AND fwr.workspace_id = f.workspace_id
+            WHERE fwr.runnable_path = $1 AND fwr.runnable_is_flow = $2 AND fwr.workspace_id = $3"#,
+        path.to_path(),
+        matches!(runnable_kind, RunnableKind::Flow),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
+}
+
 async fn create_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -378,6 +492,9 @@ async fn create_flow(
     )
     .execute(&mut *tx)
     .await?;
+
+    create_flow_workspace_runnables(&mut tx, &nf.path, &w_id, nf.value.get("modules"), false)
+        .await?;
 
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) 
@@ -770,6 +887,15 @@ async fn update_flow(
         .execute(&mut *tx)
         .await?;
     }
+
+    create_flow_workspace_runnables(
+        &mut tx,
+        &nf.path,
+        &w_id,
+        nf.value.get("modules"),
+        !is_new_path,
+    )
+    .await?;
 
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) VALUES ($1, $2, $3, $4::text::json, $5) RETURNING id",
