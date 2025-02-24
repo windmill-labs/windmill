@@ -8,40 +8,22 @@ on:
 jobs:
   benchmark_single:
     runs-on: ubicloud-standard-8
-    services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_DB: windmill
-          POSTGRES_PASSWORD: changeme
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=2GB -c work_mem=32MB -c effective_cache_size=4GB"
-        options: >-
-          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
-          --health-retries 5
-          --shm-size=2g
-        ports:
-          - 5432:5432
-
-      windmill:
-        image: ghcr.io/windmill-labs/windmill-ee:main
-        env:
-          DATABASE_URL: postgres://postgres:changeme@0.0.0.0:5432/windmill
-          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
-          WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
-        options: >-
-          --pull always --health-interval 10s --health-timeout 5s
-          --health-retries 5 --health-cmd "curl
-          http://localhost:8000/api/version"
-        ports:
-          - 8000:8000
     steps:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v1.x
       - name: benchmark
         timeout-minutes: 30
-        run: deno run --unstable -A -r
-          https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
-          -c
-          https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
+        run: 
+          docker run -d --network=host -e POSTGRES_PASSWORD=changeme -e POSTGRES_USER=postgres -e POSTGRES_DB=windmill -e POSTGRES_INITDB_ARGS="-c log_duration=on -c log_statement=all -c log_min_duration_statement=0 -c shared_buffers=2GB -c work_mem=32MB -c effective_cache_size=4GB -c shared_preload_libraries=auto_explain -c auto_explain.log_min_duration=5 -c auto_explain.log_analyze=on -c auto_explain.log_timing=on  -c auto_explain.log_buffers=on  -c auto_explain.log_verbose=on \
+                            -c log_statement=all \
+                            -c log_min_duration_statement=0 \
+                            -c shared_buffers=2GB \
+                            -c work_mem=32MB \
+                            -c effective_cache_size=4GB \
+          postgres
+          sleep 30
+
+          docker run -d -it --network=host -e DATABASE_URL=postgres://postgres:changeme@localhost/windmill  ghcr.io/windmill-labs/windmill:main
+          sleep 30
+          deno run --unstable -A -r https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts -c https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
