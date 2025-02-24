@@ -32,11 +32,12 @@
 			// console.log('going to', newNavigationState.to.url)
 			goingTo = newNavigationState.to.url
 
+			if (newNavigationState.type != 'popstate') {
+				await tick() // make sure saved value is updated when clicking on save draft or deploy
+			}
+
 			async function openModal() {
 				newNavigationState.cancel()
-				if (newNavigationState.type != 'popstate') {
-					await tick() // make sure saved value is updated when clicking on save draft or deploy
-				}
 				open = true
 			}
 			if (savedValue && modifiedValue) {
@@ -45,6 +46,7 @@
 					path: undefined
 				})
 				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
+
 				if (
 					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
 					orderedJsonStringify(replaceFalseWithUndefined(current))
