@@ -2,7 +2,7 @@
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingCompletion } from './lib'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copilotInfo } from '$lib/stores'
 
@@ -74,12 +74,8 @@
 	}
 </script>
 
-<Popup
-	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-	let:close
->
-	<svelte:fragment slot="button">
+<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+	<svelte:fragment slot="trigger">
 		<Button
 			color={genLoading ? 'red' : 'light'}
 			size="xs"
@@ -93,47 +89,51 @@
 			on:click={genLoading ? () => abortController?.abort() : undefined}
 		/>
 	</svelte:fragment>
-	{#if $copilotInfo.exists_ai_resource}
-		<div class="flex w-96">
-			<input
-				bind:this={instructionsField}
-				type="text"
-				placeholder="CRON schedule description"
-				bind:value={instructions}
-				on:keypress={({ key }) => {
-					if (key === 'Enter' && instructions.length > 0) {
-						close(instructionsField || null)
-						generateCron()
-					}
-				}}
-			/>
-			<Button
-				size="xs"
-				color="light"
-				variant="contained"
-				buttonType="button"
-				btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
-				title="Generate CRON schedule from prompt"
-				aria-label="Generate"
-				iconOnly
-				on:click={() => {
-					close(instructionsField || null)
-					generateCron()
-				}}
-				disabled={instructions.length == 0}
-				startIcon={{ icon: Wand2 }}
-			/>
+	<svelte:fragment slot="content" let:close>
+		<div class="border rounded-lg shadow-lg p-4 bg-surface">
+			{#if $copilotInfo.exists_ai_resource}
+				<div class="flex w-96">
+					<input
+						bind:this={instructionsField}
+						type="text"
+						placeholder="CRON schedule description"
+						bind:value={instructions}
+						on:keypress={({ key }) => {
+							if (key === 'Enter' && instructions.length > 0) {
+								close()
+								generateCron()
+							}
+						}}
+					/>
+					<Button
+						size="xs"
+						color="light"
+						variant="contained"
+						buttonType="button"
+						btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+						title="Generate CRON schedule from prompt"
+						aria-label="Generate"
+						iconOnly
+						on:click={() => {
+							close()
+							generateCron()
+						}}
+						disabled={instructions.length == 0}
+						startIcon={{ icon: Wand2 }}
+					/>
+				</div>
+			{:else}
+				<div class="block text-primary">
+					<p class="text-sm"
+						>Enable Windmill AI in the <a
+							href="{base}/workspace_settings?tab=ai"
+							target="_blank"
+							class="inline-flex flex-row items-center gap-1"
+							>workspace settings <ExternalLink size={16} /></a
+						></p
+					>
+				</div>
+			{/if}
 		</div>
-	{:else}
-		<div class="block text-primary">
-			<p class="text-sm"
-				>Enable Windmill AI in the <a
-					href="{base}/workspace_settings?tab=ai"
-					target="_blank"
-					class="inline-flex flex-row items-center gap-1"
-					>workspace settings <ExternalLink size={16} /></a
-				></p
-			>
-		</div>
-	{/if}
-</Popup>
+	</svelte:fragment>
+</Popover>

@@ -29,7 +29,7 @@
 	loadCustomTags()
 </script>
 
-<div class="flex flex-col w-72 p-2 gap-2">
+<div class="flex flex-col w-72 p-4 gap-2">
 	{#if customTags == undefined}
 		<Loader2 class="animate-spin" />
 	{:else}

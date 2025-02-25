@@ -8,6 +8,7 @@
 	export let email: string
 	export let username: string
 	export let isConflict = false
+	export let noPadding = false
 
 	let loading = false
 
@@ -71,11 +72,9 @@
 	}
 </script>
 
-<div class="flex flex-col max-w-2xl p-2">
-	{#if isConflict} 
-	<span class="text-sm mb-2 leading-6 font-semibold"
-		>Fix username conflict</span
-	>
+<div class="flex flex-col max-w-2xl {noPadding ? '' : 'p-4'}">
+	{#if isConflict}
+		<span class="text-sm mb-2 leading-6 font-semibold">Fix username conflict</span>
 	{/if}
 
 	<span class="text-sm font-semibold mb-1 leading-6"

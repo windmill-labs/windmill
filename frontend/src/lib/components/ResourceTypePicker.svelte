@@ -4,7 +4,8 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
-	import { Button, ClearableInput, Popup } from './common'
+	import { Button, ClearableInput } from './common'
+	import Popover from './meltComponents/Popover.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import Label from './Label.svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -50,20 +51,18 @@
 			>
 				Clear
 			</Button>
-			<Popup
+			<Popover
 				floatingConfig={{
 					strategy: 'fixed',
 					placement: 'left-end',
 					middleware: [offset(8), flip(), shift()]
 				}}
-				containerClasses="border rounded-lg shadow-lg bg-surface p-4 w-[500px] h-[500px] "
-				let:close
+				contentClasses="flex flex-col gap-2 h-full p-4 max-h-[40vh] w-[500px]"
 			>
-				<svelte:fragment slot="button">
+				<svelte:fragment slot="trigger">
 					<Button nonCaptureEvent size="xs" color="dark">Select resource type</Button>
 				</svelte:fragment>
-
-				<div class="flex flex-col gap-2 h-full">
+				<svelte:fragment slot="content" let:close>
 					<ClearableInput bind:value={search} placeholder="Search resource..." />
 
 					<div class="overflow-y-scroll h-full">
@@ -80,7 +79,7 @@
 									disabled={notPickable}
 									on:click={() => {
 										onClick(undefined)
-										close(null)
+										close()
 									}}
 								>
 									None
@@ -96,7 +95,7 @@
 									disabled={notPickable}
 									on:click={() => {
 										onClick(r)
-										close(null)
+										close()
 									}}
 								>
 									<IconedResourceType name={r} after={true} width="20px" height="20px" />
@@ -108,8 +107,8 @@
 							{/if}
 						</div>
 					</div>
-				</div>
-			</Popup>
+				</svelte:fragment>
+			</Popover>
 		</div>
 	</svelte:fragment>
 	<div class="flex flex-row items-center w-full justify-between">
