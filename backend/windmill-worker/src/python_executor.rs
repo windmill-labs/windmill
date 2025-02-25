@@ -2261,7 +2261,7 @@ fn split_requirements(requirements: &str) -> Vec<&str> {
         .collect()
 }
 /// Check requirements/lockfile to figure out python version assigned to it.
-fn get_pyv_from_requirements_lines(requirements_lines: &Vec<&str>) -> PyVersion {
+fn get_pyv_from_requirements_lines(requirements_lines: &[&str]) -> PyVersion {
     // If script is deployed we can try to parse first line to get assigned version
     if let Some(v) = requirements_lines
         .get(0)
