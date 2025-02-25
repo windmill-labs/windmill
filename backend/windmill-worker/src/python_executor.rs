@@ -1475,7 +1475,7 @@ async fn handle_python_deps(
 
     let requirements_lines: Vec<&str> = requirements
         .split("\n")
-        .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
+        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
         .collect();
 
     /*
@@ -1489,7 +1489,7 @@ async fn handle_python_deps(
      3. Latest Stable
     */
     let final_version = if is_deployed {
-        get_pyv_from_requirements(requirements)
+        get_pyv_from_requirements(requirements.as_str())
     } else {
         // This is not deployed script, meaning we test run it (Preview)
         annotated_pyv.unwrap_or(instance_pyv)
@@ -2259,10 +2259,10 @@ pub async fn handle_python_reqs(
 }
 
 /// Check requirements/lockfile to figure out python version assigned to it.
-fn get_pyv_from_requirements(requirements: &String) -> PyVersion {
+fn get_pyv_from_requirements(requirements: &str) -> PyVersion {
     let requirements_lines: Vec<&str> = requirements
         .split("\n")
-        .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
+        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
         .collect();
     // If script is deployed we can try to parse first line to get assigned version
     if let Some(v) = requirements_lines
@@ -2450,7 +2450,7 @@ for line in sys.stdin:
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
     let py_version = if let Some(requirements) = requirements_o {
-        get_pyv_from_requirements(requirements)
+        get_pyv_from_requirements(requirements.as_str())
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
         PyVersion::Py311
