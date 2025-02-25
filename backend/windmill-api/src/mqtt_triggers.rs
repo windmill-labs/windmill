@@ -14,6 +14,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use base64::prelude::*;
 use bytes::Bytes;
 use http::StatusCode;
 use itertools::Itertools;
@@ -28,7 +29,7 @@ use rumqttc::{
     },
     AsyncClient as V3AsyncClient, Event as V3Event, EventLoop as V3EventLoop,
     Incoming as V3Incoming, MqttOptions as V3MqttOptions, QoS as V3QoS, SubscribeFilter,
-    TlsConfiguration,
+    TlsConfiguration, Transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -75,6 +76,8 @@ enum Error {
     V3RumqttClient(#[from] rumqttc::ClientError),
     #[error("{0}")]
     V3ConnectionError(#[from] rumqttc::ConnectionError),
+    #[error("{0}")]
+    Base64Decode(#[from] base64::DecodeError),
 }
 
 async fn run_job(
@@ -175,12 +178,25 @@ pub enum MqttClientVersion {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MqttResource {
+pub struct Tls {
+    ca_certificate: String,
+    //encoded in base64
+    pkcs12_client_certificate: Option<String>,
+    pkcs12_certificate_password: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Credentials {
     username: Option<String>,
     password: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MqttResource {
+    broker: String,
     port: u16,
-    host: String,
-    ca_certificate: String,
+    credentials: Option<Credentials>,
+    tls: Option<Tls>,
 }
 #[derive(Clone, Debug, FromRow, Serialize, Deserialize)]
 pub struct SubscribeTopic {
@@ -260,7 +276,7 @@ struct MqttClientBuilder<'client> {
     subscribe_topics: Vec<SubscribeTopic>,
     v3_config: Option<&'client MqttV3Config>,
     v5_config: Option<&'client MqttV5Config>,
-    mqtt_client_version: Option<&'client MqttClientVersion>
+    mqtt_client_version: Option<&'client MqttClientVersion>,
 }
 
 impl<'client> MqttClientBuilder<'client> {
@@ -270,7 +286,7 @@ impl<'client> MqttClientBuilder<'client> {
         subscribe_topics: Vec<SubscribeTopic>,
         v3_config: Option<&'client MqttV3Config>,
         v5_config: Option<&'client MqttV5Config>,
-        mqtt_client_version: Option<&'client MqttClientVersion>
+        mqtt_client_version: Option<&'client MqttClientVersion>,
     ) -> Self {
         Self {
             mqtt_resource,
@@ -278,37 +294,61 @@ impl<'client> MqttClientBuilder<'client> {
             subscribe_topics,
             v3_config,
             v5_config,
-            mqtt_client_version
+            mqtt_client_version,
         }
     }
 
     async fn build_client(&self) -> Result<MqttClientResult, Error> {
         match self.mqtt_client_version {
             Some(MqttClientVersion::V5) | None => self.build_v5_client().await,
-            Some(MqttClientVersion::V3) => self.build_v3_client().await
+            Some(MqttClientVersion::V3) => self.build_v3_client().await,
         }
+    }
+
+    fn get_tls_configuration(&self) -> Result<Option<Transport>, Error> {
+        let transport = match self.mqtt_resource.tls {
+            Some(ref tls) if !tls.ca_certificate.is_empty() => {
+                let transport = rumqttc::Transport::Tls(TlsConfiguration::SimpleNative {
+                    ca: tls.ca_certificate.as_bytes().to_vec(),
+                    client_auth: {
+                        match tls.pkcs12_client_certificate.as_ref() {
+                            Some(client_certificate) => {
+                                let client_certificate =
+                                    BASE64_STANDARD.decode(client_certificate)?;
+                                let password = tls
+                                    .pkcs12_certificate_password
+                                    .clone()
+                                    .unwrap_or("".to_string());
+                                Some((client_certificate, password))
+                            }
+                            _ => None,
+                        }
+                    },
+                });
+
+                Some(transport)
+            }
+            _ => None,
+        };
+
+        Ok(transport)
     }
 
     async fn build_v5_client(&self) -> Result<MqttClientResult, Error> {
         let mut mqtt_options = V5MqttOptions::new(
             self.client_id,
-            &self.mqtt_resource.host,
+            &self.mqtt_resource.broker,
             self.mqtt_resource.port,
         );
 
-        if let (Some(username), Some(password)) = (
-            self.mqtt_resource.username.as_deref(),
-            self.mqtt_resource.password.as_deref(),
-        ) {
+        if let Some(credentials) = &self.mqtt_resource.credentials {
+            let username = credentials.username.as_deref().unwrap_or("");
+            let password = credentials.password.as_deref().unwrap_or("");
             mqtt_options.set_credentials(username, password);
         }
 
-        if !self.mqtt_resource.ca_certificate.is_empty() {
-            let transport = TlsConfiguration::SimpleNative {
-                ca: self.mqtt_resource.ca_certificate.as_bytes().to_vec(),
-                client_auth: None,
-            };
-            mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
+        if let Some(transport) = self.get_tls_configuration()? {
+            mqtt_options.set_transport(transport);
         }
 
         mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
@@ -336,23 +376,18 @@ impl<'client> MqttClientBuilder<'client> {
     async fn build_v3_client(&self) -> Result<MqttClientResult, Error> {
         let mut mqtt_options = V3MqttOptions::new(
             self.client_id,
-            &self.mqtt_resource.host,
+            &self.mqtt_resource.broker,
             self.mqtt_resource.port,
         );
 
-        if let (Some(username), Some(password)) = (
-            self.mqtt_resource.username.as_deref(),
-            self.mqtt_resource.password.as_deref(),
-        ) {
+        if let Some(credentials) = &self.mqtt_resource.credentials {
+            let username = credentials.username.as_deref().unwrap_or("");
+            let password = credentials.password.as_deref().unwrap_or("");
             mqtt_options.set_credentials(username, password);
         }
 
-        if !self.mqtt_resource.ca_certificate.is_empty() {
-            let transport = TlsConfiguration::SimpleNative {
-                ca: self.mqtt_resource.ca_certificate.as_bytes().to_vec(),
-                client_auth: None,
-            };
-            mqtt_options.set_transport(rumqttc::Transport::Tls(transport));
+        if let Some(transport) = self.get_tls_configuration()? {
+            mqtt_options.set_transport(transport);
         }
 
         mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
@@ -410,12 +445,8 @@ pub async fn test_mqtt_connection(
     Path(workspace_id): Path<String>,
     Json(test_postgres): Json<TestMqttConnection>,
 ) -> error::Result<()> {
-    let TestMqttConnection {
-        mqtt_resource_path,
-        client_version,
-        v3_config,
-        v5_config,
-    } = test_postgres;
+    let TestMqttConnection { mqtt_resource_path, client_version, v3_config, v5_config } =
+        test_postgres;
 
     let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
         authed,
@@ -433,13 +464,10 @@ pub async fn test_mqtt_connection(
             vec![],
             v3_config.as_ref(),
             v5_config.as_ref(),
-            client_version.as_ref()
+            client_version.as_ref(),
         );
 
-
-        client_builder.build_client()
-        .await
-        .map_err(|err| {
+        client_builder.build_client().await.map_err(|err| {
             error::Error::BadConfig(format!(
                 "Error connecting to mqtt broker: {}",
                 err.to_string()
@@ -1169,7 +1197,7 @@ impl MqttConfig {
             subscribe_topics,
             v3_config,
             v5_config,
-            client_version
+            client_version,
         );
 
         client_builder.build_client().await

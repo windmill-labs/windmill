@@ -234,6 +234,15 @@
 							bind:scriptPath={script_path}
 							allowRefresh
 						/>
+						{#if emptyString(script_path)}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F11604'}
+								target="_blank">Create from template</Button
+							>
+						{/if}
 					</div>
 				</Section>
 
