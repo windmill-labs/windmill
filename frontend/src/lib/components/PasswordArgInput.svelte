@@ -8,7 +8,7 @@
 	export let disabled: boolean
 
 	let path = ''
-	let password = value && !value.startsWith('$var:') ? value : ''
+	let password = value && typeof value === 'string' && !value.startsWith('$var:') ? value : ''
 
 	let isGenerating = false
 	async function generateValue() {
