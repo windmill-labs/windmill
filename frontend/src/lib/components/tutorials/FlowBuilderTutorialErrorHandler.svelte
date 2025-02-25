@@ -16,7 +16,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={0}
+	index={4}
 	name="error-handler"
 	tainted={false}
 	on:error

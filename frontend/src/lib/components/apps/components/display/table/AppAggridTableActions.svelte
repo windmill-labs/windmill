@@ -11,12 +11,12 @@
 	import AppSelect from '../../inputs/AppSelect.svelte'
 
 	import { twMerge } from 'tailwind-merge'
-	import { Popup } from '$lib/components/common'
 	import { Plug2 } from 'lucide-svelte'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { connectOutput } from '$lib/components/apps/editor/appUtils'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
 	import type { ICellRendererParams } from 'ag-grid-community'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
 	export let p: ICellRendererParams<any>
 	export let id: string
@@ -124,34 +124,38 @@
 
 					{#if $connectingInput.opened}
 						<div class="absolute z-50 left-8 -top-[10px]">
-							<Popup
+							<Popover
 								floatingConfig={{
 									strategy: 'absolute',
 									placement: 'bottom-start'
 								}}
+								closeOnOtherPopoverOpen
+								contentClasses="p-4"
 							>
-								<svelte:fragment slot="button">
+								<svelte:fragment slot="trigger">
 									<button
 										class="bg-red-500/70 border border-red-600 px-1 py-0.5"
 										title="Outputs"
 										aria-label="Open output"><Plug2 size={12} /></button
 									>
 								</svelte:fragment>
-								<ComponentOutputViewer
-									suffix="table"
-									on:select={({ detail }) => {
-										const tableId = action.id.split('_')[0]
+								<svelte:fragment slot="content">
+									<ComponentOutputViewer
+										suffix="table"
+										on:select={({ detail }) => {
+											const tableId = action.id.split('_')[0]
 
-										connectOutput(
-											connectingInput,
-											action.type,
-											tableId,
-											`inputs.${action.id}[${rowIndex}].${detail}`
-										)
-									}}
-									componentId={action.id}
-								/>
-							</Popup>
+											connectOutput(
+												connectingInput,
+												action.type,
+												tableId,
+												`inputs.${action.id}[${rowIndex}].${detail}`
+											)
+										}}
+										componentId={action.id}
+									/>
+								</svelte:fragment>
+							</Popover>
 						</div>
 					{/if}
 				{/if}

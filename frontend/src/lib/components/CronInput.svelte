@@ -385,7 +385,7 @@
 							size="xs"
 							on:click={() => {
 								schedule = nschedule
-								close(null)
+								close()
 							}}
 						>
 							Set cron schedule

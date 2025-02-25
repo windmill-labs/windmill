@@ -451,7 +451,7 @@ const buttonColorOptions = [...BUTTON_COLORS]
 export const selectOptions = {
 	buttonColorOptions,
 	tabsKindOptions: ['tabs', 'sidebar', 'accordion', 'invisibleOnView'],
-	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
+	buttonSizeOptions: ['xs2', 'xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
 	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
 	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
