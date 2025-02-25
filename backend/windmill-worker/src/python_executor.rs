@@ -1473,14 +1473,10 @@ async fn handle_python_deps(
         }
     };
 
-    let requirements_lines: Vec<&str> = if requirements.len() > 0 {
-        requirements
-            .split("\n")
-            .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
-            .collect()
-    } else {
-        vec![]
-    };
+    let requirements_lines: Vec<&str> = requirements
+        .split("\n")
+        .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
+        .collect();
 
     /*
      For deployed scripts we want to find out version in following order:
@@ -1493,19 +1489,7 @@ async fn handle_python_deps(
      3. Latest Stable
     */
     let final_version = if is_deployed {
-        // If script is deployed we can try to parse first line to get assigned version
-        if let Some(v) = requirements_lines
-            .get(0)
-            .and_then(|line| PyVersion::parse_version(line))
-        {
-            // We have valid assigned version, we use it
-            v
-        } else {
-            // If there is no assigned version in lockfile we automatically fallback to 3.11
-            // In this case we have dependencies, but no associated python version
-            // This is the case for old deployed scripts
-            PyVersion::Py311
-        }
+        get_pyv_from_requirements(requirements)
     } else {
         // This is not deployed script, meaning we test run it (Preview)
         annotated_pyv.unwrap_or(instance_pyv)
@@ -2274,6 +2258,27 @@ pub async fn handle_python_reqs(
     };
 }
 
+/// Check requirements/lockfile to figure out python version assigned to it.
+fn get_pyv_from_requirements(requirements: &String) -> PyVersion {
+    let requirements_lines: Vec<&str> = requirements
+        .split("\n")
+        .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
+        .collect();
+    // If script is deployed we can try to parse first line to get assigned version
+    if let Some(v) = requirements_lines
+        .get(0)
+        .and_then(|line| PyVersion::parse_version(line))
+    {
+        // We have valid assigned version, we use it
+        v
+    } else {
+        // If there is no assigned version in lockfile we automatically fallback to 3.11
+        // In this case we have dependencies, but no associated python version
+        // This is the case for old deployed scripts
+        PyVersion::Py311
+    }
+}
+
 #[cfg(feature = "enterprise")]
 use crate::JobCompletedSender;
 #[cfg(feature = "enterprise")]
@@ -2445,27 +2450,7 @@ for line in sys.stdin:
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
     let py_version = if let Some(requirements) = requirements_o {
-        let requirements_lines: Vec<&str> = if requirements.len() > 0 {
-            requirements
-                .split("\n")
-                .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
-                .collect()
-        } else {
-            vec![]
-        };
-        // If script is deployed we can try to parse first line to get assigned version
-        if let Some(v) = requirements_lines
-            .get(0)
-            .and_then(|line| PyVersion::parse_version(line))
-        {
-            // We have valid assigned version, we use it
-            v
-        } else {
-            // If there is no assigned version in lockfile we automatically fallback to 3.11
-            // In this case we have dependencies, but no associated python version
-            // This is the case for old deployed scripts
-            PyVersion::Py311
-        }
+        get_pyv_from_requirements(requirements)
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
         PyVersion::Py311
