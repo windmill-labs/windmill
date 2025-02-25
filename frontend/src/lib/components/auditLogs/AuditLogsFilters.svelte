@@ -16,7 +16,7 @@
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -24,6 +24,7 @@
 	let usernames: string[]
 	let resources: string[]
 	let loading: boolean = false
+	let page: number | undefined = undefined
 
 	export let logs: AuditLog[] = []
 	export let username: string = 'all'
@@ -113,45 +114,18 @@
 
 	$: $workspaceStore && refresh && refreshLogs()
 
+	let initialLoad = true
 	function refreshLogs() {
 		loadUsers()
 		loadResources()
-		loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind, scope)
+		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
+		tick().then(() => {
+			initialLoad = false
+		})
 	}
 
-	let initialLoad = true
-	function updateQueryParams({
-		username,
-		perPage,
-		before,
-		after,
-		operation,
-		resource,
-		actionKind,
-		scope
-	}: {
-		username?: string | undefined
-		perPage?: number | undefined
-		before?: string | undefined
-		after?: string | undefined
-		operation?: string | undefined
-		resource?: string | undefined
-		actionKind?: ActionKind | undefined | 'all'
-		scope?: undefined | 'all_workspaces' | 'instance'
-	}) {
+	function updateLogs() {
 		const queryParams: string[] = []
-
-		console.log(
-			'dbg updateQueryParams',
-			username,
-			perPage,
-			before,
-			after,
-			operation,
-			resource,
-			actionKind,
-			scope
-		)
 
 		function addQueryParam(key: string, value: string | number | undefined | null) {
 			if (value !== undefined && value !== null && value !== '' && value !== 'all') {
@@ -160,7 +134,7 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', 0)
+		addQueryParam('page', page)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
@@ -174,52 +148,30 @@
 		const query = '?' + queryParams.join('&')
 		goto(query)
 
+		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
+	}
+
+	function updateQueryParams() {
 		if (initialLoad) {
-			initialLoad = false
-		} else {
-			pageIndex = 1 // this triggers the pageIndex to be updated in the url
+			return
 		}
+		page = 1
+		pageIndex = 1
+		updateLogs()
 	}
 
 	function updatePageQueryParams(pageIndex?: number | undefined) {
-		const queryParams: string[] = []
-
-		function addQueryParam(key: string, value: string | number | undefined | null) {
-			if (value !== undefined && value !== null && value !== '' && value !== 'all') {
-				queryParams.push(`${key}=${encodeURIComponent(value)}`)
-			}
+		if (initialLoad) {
+			return
 		}
-
-		addQueryParam('username', username)
-		addQueryParam('page', pageIndex)
-		addQueryParam('perPage', perPage)
-		addQueryParam('before', before)
-		addQueryParam('after', after)
-		addQueryParam('operation', operation)
-		addQueryParam('resource', resource)
-		addQueryParam('actionKind', actionKind)
-		if (scope && $workspaceStore == 'admins') {
-			addQueryParam('scope', scope)
-			addQueryParam('workspace', 'admins')
-		}
-
-		const query = '?' + queryParams.join('&')
-		goto(query)
-
-		loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind, scope)
+		page = pageIndex
+		updateLogs()
 	}
 
-	$: updateQueryParams({
-		username,
-		perPage,
-		before,
-		after,
-		operation,
-		resource,
-		actionKind,
-		scope
-	})
+	// observe all the variables that should trigger an update
+	$: username, perPage, before, after, operation, resource, actionKind, scope, updateQueryParams()
 
+	// observe the pageIndex variable that should trigger an update
 	$: updatePageQueryParams(pageIndex)
 
 	window.addEventListener('popstate', handlePopState)
