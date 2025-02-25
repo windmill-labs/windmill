@@ -301,7 +301,7 @@ class Windmill:
                 result = variables[path]
                 return result
             except KeyError:
-                logger.info(f"MockedAPI present, but variable not found at ${path}, falling back to real API")
+                logger.info(f"MockedAPI present, but variable not found at {path}, falling back to real API")
 
         """Get variable from Windmill"""
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
