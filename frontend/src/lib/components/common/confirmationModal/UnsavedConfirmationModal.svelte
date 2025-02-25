@@ -10,13 +10,14 @@
 		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
-	import { tick } from 'svelte'
 	import { page } from '$app/stores'
+	import type { GetInitialAndModifiedValues } from './unsavedTypes'
 
-	export let savedValue: Value | undefined = undefined
-	export let modifiedValue: Value | undefined = undefined
+	export let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let additionalExitAction: () => void = () => {}
+	let savedValue: Value | undefined = undefined
+	let modifiedValue: Value | undefined = undefined
 
 	let bypassBeforeNavigate = false
 	let open = false
@@ -25,6 +26,7 @@
 	beforeNavigate(async (newNavigationState) => {
 		if (
 			!bypassBeforeNavigate &&
+			getInitialAndModifiedValues &&
 			newNavigationState.to &&
 			newNavigationState.to.url != $page.url &&
 			newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname
@@ -32,11 +34,12 @@
 			// console.log('going to', newNavigationState.to.url)
 			goingTo = newNavigationState.to.url
 
+			const state = getInitialAndModifiedValues?.()
+			savedValue = state?.savedValue
+			modifiedValue = state?.modifiedValue
+
 			async function openModal() {
 				newNavigationState.cancel()
-				if (newNavigationState.type != 'popstate') {
-					await tick() // make sure saved value is updated when clicking on save draft or deploy
-				}
 				open = true
 			}
 			if (savedValue && modifiedValue) {
@@ -45,6 +48,7 @@
 					path: undefined
 				})
 				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
+
 				if (
 					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
 					orderedJsonStringify(replaceFalseWithUndefined(current))

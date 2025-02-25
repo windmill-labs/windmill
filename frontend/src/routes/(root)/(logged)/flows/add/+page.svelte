@@ -14,6 +14,7 @@
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -147,11 +148,7 @@
 	let getSelectedId: (() => string) | undefined = undefined
 	let flowBuilder: FlowBuilder | undefined = undefined
 
-	let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
+	let getInitialAndModifiedValues: GetInitialAndModifiedValues | undefined = undefined
 </script>
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
@@ -169,9 +166,9 @@
 	{initialPath}
 	{pathStoreInit}
 	bind:getSelectedId
+	bind:getInitialAndModifiedValues
 	bind:this={flowBuilder}
 	newFlow
-	bind:savedFlow
 	{initialArgs}
 	{flowStore}
 	{flowStateStore}
@@ -179,5 +176,5 @@
 	{loading}
 	{savedPrimarySchedule}
 >
-	<UnsavedConfirmationModal savedValue={savedFlow} modifiedValue={$flowStore} /></FlowBuilder
->
+	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
+</FlowBuilder>

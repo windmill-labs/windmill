@@ -161,7 +161,7 @@ async function add(
     undefined,
     {
       value,
-      is_secret: !opts.public,
+      is_secret: !opts.public && !opts.plainSecrets,
       description: "",
     },
     opts.plainSecrets ?? false
@@ -184,7 +184,9 @@ const command = new Command()
     "Create a new variable on the remote. This will update the variable if it already exists."
   )
   .arguments("<value:string> <remote_path:string>")
-  .option("--public", "Make a public variable")
+  .option("--plain-secrets", "Push secrets as plain text")
+  .option("--public", "Legacy option, use --plain-secrets instead")
+
   .action(add as any);
 
 export default command;
