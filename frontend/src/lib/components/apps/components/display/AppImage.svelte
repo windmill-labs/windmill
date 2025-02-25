@@ -3,6 +3,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
+	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import Loader from '../helpers/Loader.svelte'
@@ -31,6 +33,39 @@
 	initOutput($worldStore, id, {})
 
 	let css = initCss($app.css?.imagecomponent, customCss)
+
+	let imageUrl: string | undefined = undefined
+
+	async function getS3Image(source: string | undefined) {
+		if (!source || !$workspaceStore) return ''
+
+		try {
+			const file = await HelpersService.fileDownload({
+				workspace: $workspaceStore,
+				fileKey: source
+			})
+			const imageUrl = URL.createObjectURL(file)
+			return imageUrl
+		} catch (error) {
+			return ''
+		}
+	}
+
+	async function loadImage() {
+		if (resolvedConfig.sourceKind === 's3 (workspace storage)') {
+			imageUrl = await getS3Image(resolvedConfig.source)
+		} else if (resolvedConfig.sourceKind === 'png encoded as base64') {
+			imageUrl = 'data:image/png;base64,' + resolvedConfig.source
+		} else if (resolvedConfig.sourceKind === 'jpeg encoded as base64') {
+			imageUrl = 'data:image/jpeg;base64,' + resolvedConfig.source
+		} else if (resolvedConfig.sourceKind === 'svg encoded as base64') {
+			imageUrl = 'data:image/svg+xml;base64,' + resolvedConfig.source
+		} else {
+			imageUrl = resolvedConfig.source
+		}
+	}
+
+	$: resolvedConfig && loadImage()
 </script>
 
 <InitializeComponent {id} />
@@ -55,23 +90,19 @@
 {/each}
 
 {#if render}
-	<Loader loading={resolvedConfig.source == undefined}>
-		<img
-			on:pointerdown|preventDefault
-			src={resolvedConfig.sourceKind == 'png encoded as base64'
-				? 'data:image/png;base64,' + resolvedConfig.source
-				: resolvedConfig.sourceKind == 'jpeg encoded as base64'
-				? 'data:image/jpeg;base64,' + resolvedConfig.source
-				: resolvedConfig.sourceKind == 'svg encoded as base64'
-				? 'data:image/svg+xml;base64,' + resolvedConfig.source
-				: resolvedConfig.source}
-			alt={resolvedConfig.altText}
-			style={css?.image?.style ?? ''}
-			class={twMerge(
-				`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
-				css?.image?.class,
-				'wm-image'
-			)}
-		/>
+	<Loader loading={imageUrl === undefined || !$workspaceStore}>
+		{#if imageUrl}
+			<img
+				on:pointerdown|preventDefault
+				src={imageUrl}
+				alt={resolvedConfig.altText}
+				style={css?.image?.style ?? ''}
+				class={twMerge(
+					`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
+					css?.image?.class,
+					'wm-image'
+				)}
+			/>
+		{/if}
 	</Loader>
 {/if}

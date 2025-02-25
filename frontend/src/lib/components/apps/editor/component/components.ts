@@ -485,6 +485,7 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
 		'svg encoded as base64'

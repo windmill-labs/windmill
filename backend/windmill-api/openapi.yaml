@@ -11097,7 +11097,7 @@ paths:
 
   /w/{workspace}/job_helpers/download_s3_file:
     get:
-      summary: Download file to S3 bucket
+      summary: Download file from S3 bucket
       operationId: fileDownload
       tags:
         - helpers
