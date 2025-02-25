@@ -795,14 +795,6 @@ async fn update_flow(
         )
         .execute(&mut *tx)
         .await?;
-    } else {
-        sqlx::query!(
-            "DELETE FROM flow_workspace_runnables WHERE flow_path = $1 AND workspace_id = $2",
-            flow_path,
-            w_id
-        )
-        .execute(&mut *tx)
-        .await?;
     }
 
     let version = sqlx::query_scalar!(
