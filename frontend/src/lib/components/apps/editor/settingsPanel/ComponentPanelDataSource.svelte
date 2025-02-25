@@ -394,8 +394,8 @@
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected
-			on:selected={() => {
-				handleSelected(selected)
+			on:selected={({ detail }) => {
+				handleSelected(detail)
 			}}
 			let:item
 		>
