@@ -51,11 +51,7 @@ jobs:
           version: "0.4.18"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache-workspaces: backend
           toolchain: 1.83.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
       - name: cargo test
         timeout-minutes: 16
         run:
