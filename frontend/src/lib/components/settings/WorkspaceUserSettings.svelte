@@ -205,10 +205,9 @@
 									autoAdd = e.detail === 'add'
 								}
 							}}
-							let:item
 						>
-							<ToggleButton value="invite" size="xs" label="Auto-invite" {item} />
-							<ToggleButton value="add" size="xs" label="Auto-add" {item} />
+							<ToggleButton value="invite" size="xs" label="Auto-invite" />
+							<ToggleButton value="add" size="xs" label="Auto-add" />
 						</ToggleButtonGroup>
 					{/if}
 

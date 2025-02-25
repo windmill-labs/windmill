@@ -465,7 +465,7 @@
 				}}
 				let:item
 			>
-				<ToggleButton value={undefined} label="All" />
+				<ToggleButton value={undefined} label="All" {item} />
 				<ToggleButton
 					value={'running'}
 					tooltip="Running"
