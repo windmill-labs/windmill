@@ -3,18 +3,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
-
-	type Item = {
-		displayName: string
-		action?: (e: CustomEvent<any>) => void
-		icon?: any
-		iconColor?: string
-		href?: string
-		disabled?: boolean
-		type?: 'action' | 'delete'
-		hide?: boolean | undefined
-	}
-
+	import type { Item } from '$lib/utils'
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let meltItem: MenubarMenuElements['item']
 

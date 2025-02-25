@@ -16,6 +16,8 @@
 			})
 		]
 	}}
+	closeButton
+	contentClasses="block text-primary p-4"
 >
 	<svelte:fragment slot="trigger">
 		<Button
@@ -32,29 +34,27 @@
 		/>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
-		<div class="block text-primary p-4">
-			<Toggle
-				checked={Boolean(cache_ttl)}
-				on:change={() => {
-					if (cache_ttl != undefined) {
-						cache_ttl = undefined
-					} else {
-						cache_ttl = 600
-					}
-				}}
-				options={{
-					right: 'Cache the results for each possible inputs'
-				}}
-			/>
-			<div class="mb-4">
-				<span class="text-xs font-bold">How long to keep cache valid</span>
+		<Toggle
+			checked={Boolean(cache_ttl)}
+			on:change={() => {
+				if (cache_ttl != undefined) {
+					cache_ttl = undefined
+				} else {
+					cache_ttl = 600
+				}
+			}}
+			options={{
+				right: 'Cache the results for each possible inputs'
+			}}
+		/>
+		<div class="mb-4">
+			<span class="text-xs font-bold">How long to keep cache valid</span>
 
-				{#if cache_ttl}
-					<SecondsInput bind:seconds={cache_ttl} />
-				{:else}
-					<SecondsInput disabled />
-				{/if}
-			</div>
+			{#if cache_ttl}
+				<SecondsInput bind:seconds={cache_ttl} />
+			{:else}
+				<SecondsInput disabled />
+			{/if}
 		</div>
 	</svelte:fragment>
 </Popover>

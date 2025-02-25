@@ -15,7 +15,11 @@
 	$: reservedIds = allItems($app.grid, $app.subgrids).map((item) => item.id)
 </script>
 
-<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+<Popover
+	floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+	closeOnOtherPopoverOpen
+	contentClasses="p-4"
+>
 	<svelte:fragment slot="trigger">
 		<button
 			on:click={() => {
@@ -29,16 +33,14 @@
 		</button>
 	</svelte:fragment>
 	<svelte:fragment slot="content" let:close>
-		<div class="p-4">
-			<IdEditorInput
-				initialId={id}
-				on:close={() => close()}
-				on:save={(e) => {
-					dispatch('save', e.detail)
-					close()
-				}}
-				{reservedIds}
-			/>
-		</div>
+		<IdEditorInput
+			initialId={id}
+			on:close={() => close()}
+			on:save={(e) => {
+				dispatch('save', e.detail)
+				close()
+			}}
+			{reservedIds}
+		/>
 	</svelte:fragment>
 </Popover>

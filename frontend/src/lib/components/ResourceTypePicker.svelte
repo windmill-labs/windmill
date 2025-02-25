@@ -57,55 +57,54 @@
 					placement: 'left-end',
 					middleware: [offset(8), flip(), shift()]
 				}}
+				contentClasses="flex flex-col gap-2 h-full p-4 max-h-[40vh] w-[500px]"
 			>
 				<svelte:fragment slot="trigger">
 					<Button nonCaptureEvent size="xs" color="dark">Select resource type</Button>
 				</svelte:fragment>
 				<svelte:fragment slot="content" let:close>
-					<div class="flex flex-col gap-2 h-full p-4">
-						<ClearableInput bind:value={search} placeholder="Search resource..." />
+					<ClearableInput bind:value={search} placeholder="Search resource..." />
 
-						<div class="overflow-y-scroll h-full">
-							<div
-								class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center overflow-x-hidden"
-							>
-								{#if nonePickable && search === ''}
-									{@const isPicked = value === undefined}
-									<Button
-										size="sm"
-										variant="border"
-										color={isPicked ? 'blue' : 'dark'}
-										btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
-										disabled={notPickable}
-										on:click={() => {
-											onClick(undefined)
-											close()
-										}}
-									>
-										None
-									</Button>
-								{/if}
-								{#each filteredResources as r}
-									{@const isPicked = value === r}
-									<Button
-										size="sm"
-										variant="border"
-										color={isPicked ? 'blue' : 'light'}
-										btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
-										disabled={notPickable}
-										on:click={() => {
-											onClick(r)
-											close()
-										}}
-									>
-										<IconedResourceType name={r} after={true} width="20px" height="20px" />
-									</Button>
-								{/each}
+					<div class="overflow-y-scroll h-full">
+						<div
+							class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center overflow-x-hidden"
+						>
+							{#if nonePickable && search === ''}
+								{@const isPicked = value === undefined}
+								<Button
+									size="sm"
+									variant="border"
+									color={isPicked ? 'blue' : 'dark'}
+									btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
+									disabled={notPickable}
+									on:click={() => {
+										onClick(undefined)
+										close()
+									}}
+								>
+									None
+								</Button>
+							{/if}
+							{#each filteredResources as r}
+								{@const isPicked = value === r}
+								<Button
+									size="sm"
+									variant="border"
+									color={isPicked ? 'blue' : 'light'}
+									btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
+									disabled={notPickable}
+									on:click={() => {
+										onClick(r)
+										close()
+									}}
+								>
+									<IconedResourceType name={r} after={true} width="20px" height="20px" />
+								</Button>
+							{/each}
 
-								{#if filteredResources.length === 0 && search !== ''}
-									<div class="text-tertiary text-sm">No resources found</div>
-								{/if}
-							</div>
+							{#if filteredResources.length === 0 && search !== ''}
+								<div class="text-tertiary text-sm">No resources found</div>
+							{/if}
 						</div>
 					</div>
 				</svelte:fragment>

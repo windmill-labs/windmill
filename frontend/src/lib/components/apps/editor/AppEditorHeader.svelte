@@ -24,7 +24,6 @@
 		History,
 		Laptop2,
 		Loader2,
-		MoreVertical,
 		RefreshCw,
 		Save,
 		Smartphone,
@@ -950,14 +949,16 @@
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 <UnsavedConfirmationModal
 	{diffDrawer}
-	savedValue={savedApp}
-	modifiedValue={{
-		summary: $summary,
-		value: $app,
-		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy,
-		custom_path: customPath
-	}}
+	getInitialAndModifiedValues={() => ({
+		savedValue: savedApp,
+		modifiedValue: {
+			summary: $summary,
+			value: $app,
+			path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+			policy,
+			custom_path: customPath
+		}
+	})}
 	additionalExitAction={() => {
 		setTheme(priorDarkMode)
 	}}
@@ -1680,11 +1681,7 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<Dropdown items={moreItems} class="center-center">
-			<svelte:fragment slot="buttonReplacement">
-				<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
-			</svelte:fragment>
-		</Dropdown>
+		<Dropdown items={moreItems} />
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
 		<div class="hidden md:inline relative overflow-visible">

@@ -17,7 +17,11 @@
 	export let placement: Placement = 'top-end'
 </script>
 
-<Popover floatingConfig={{ placement: placement, strategy: 'absolute' }} portal={target}>
+<Popover
+	floatingConfig={{ placement: placement, strategy: 'absolute' }}
+	portal={target}
+	contentClasses="p-4"
+>
 	<svelte:fragment slot="trigger">
 		<button
 			title="Open calendar picker"

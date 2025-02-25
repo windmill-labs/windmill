@@ -152,11 +152,20 @@
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
 	let selectedManualDate = 0
-	let autoRefresh: boolean = true
+	let autoRefresh: boolean = getAutoRefresh()
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
 	let lookback: number = 1
+
+	function getAutoRefresh() {
+		try {
+			return localStorage.getItem('auto_refresh_in_runs') != 'false'
+		} catch (e) {
+			console.error('Error getting auto refresh', e)
+			return true
+		}
+	}
 
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
@@ -970,6 +979,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>
@@ -1348,6 +1360,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>

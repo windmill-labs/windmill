@@ -587,7 +587,10 @@
 						</Badge>
 					</Button>
 				{:else}
-					<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+					<Popover
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+						contentClasses="p-4"
+					>
 						<svelte:fragment slot="trigger">
 							<Button
 								title={`Re-start this flow from step ${selectedJobStep} (included). ${
@@ -759,7 +762,7 @@
 							<div>
 								<Badge color="red">
 									only visible to you
-									<Tooltip useDefaultIcon>
+									<Tooltip>
 										<svelte:fragment slot="text">
 											The option to hide this run from the owner of this script or flow was
 											activated

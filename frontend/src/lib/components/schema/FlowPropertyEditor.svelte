@@ -160,7 +160,7 @@
 		}
 	}
 
-	function renameVariant(selected: string, name: string) {
+	function renameVariant(name: string, selected: string) {
 		if (schema.oneOf) {
 			if (schema.oneOf.some((obj) => obj.title === name)) {
 				throw new Error('Variant name already exists')
@@ -183,7 +183,7 @@
 		<div class="flex flex-row gap-1 items-center justify-start">
 			<ToggleButtonGroup
 				bind:selected={oneOfSelected}
-				class="h-auto"
+				class="h-auto w-auto"
 				tabListClass="flex-wrap"
 				let:item
 			>
@@ -191,8 +191,6 @@
 					<ToggleButton value={obj.title} label={obj.title} {item} />
 				{/each}
 			</ToggleButtonGroup>
-
-			<div id="popper-portal" />
 
 			<Popover placement="bottom-end" closeButton>
 				<svelte:fragment slot="trigger">
@@ -257,7 +255,7 @@
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
 									if (oneOfSelected) {
-										renameVariant(oneOfSelected, variantName)
+										renameVariant(variantName, oneOfSelected)
 										close()
 									}
 								}
@@ -270,7 +268,7 @@
 							size="xs"
 							on:click={() => {
 								if (oneOfSelected) {
-									renameVariant(oneOfSelected, variantName)
+									renameVariant(variantName, oneOfSelected)
 									close()
 								}
 							}}

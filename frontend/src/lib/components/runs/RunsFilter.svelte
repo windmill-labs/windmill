@@ -454,11 +454,18 @@
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Status</span>
 			<ToggleButtonGroup
-				allowEmpty
-				bind:selected={success}
-				on:selected={() => dispatch('successChange', success)}
+				selected={success ?? 'all'}
+				on:selected={({ detail }) => {
+					if (detail === 'all') {
+						success = undefined
+					} else {
+						success = detail
+					}
+					dispatch('successChange', success)
+				}}
 				let:item
 			>
+				<ToggleButton value={undefined} label="All" />
 				<ToggleButton
 					value={'running'}
 					tooltip="Running"
@@ -779,7 +786,12 @@
 						</Label>
 
 						<Label label="Status">
-							<ToggleButtonGroup bind:selected={success} let:item allowEmpty>
+							<ToggleButtonGroup
+								selected={success ?? 'all'}
+								on:selected={({ detail }) => (success = detail === 'all' ? undefined : detail)}
+								let:item
+							>
+								<ToggleButton value={'all'} label="All" />
 								<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" {item} />
 								<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" {item} />
 								<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" {item} />

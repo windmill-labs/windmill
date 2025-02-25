@@ -11,6 +11,8 @@
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
+	let closeOnOutsideClick = true
+
 	type Dataset = {
 		value: RichConfiguration
 		name: string
@@ -36,15 +38,14 @@
 		placement: 'left-end',
 		middleware: [offset(8), flip(), shift()]
 	}}
-	closeButton
-	closeOnOtherPopoverOpen
+	{closeOnOutsideClick}
 >
 	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		{#if value}
-			<div class="flex flex-col w-96 p-4 gap-4">
+			<div class="flex flex-col w-96 p-4 gap-4 max-h-[50vh] overflow-y-auto">
 				<Label label="Name">
 					<input type="text" bind:value={value.name} />
 				</Label>
@@ -116,6 +117,12 @@
 					placeholder={value.value?.['placeholder']}
 					customTitle={value.value?.['customTitle']}
 					displayType={false}
+					on:openConnection={() => {
+						closeOnOutsideClick = false
+					}}
+					on:closeConnection={() => {
+						closeOnOutsideClick = true
+					}}
 				/>
 
 				<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>

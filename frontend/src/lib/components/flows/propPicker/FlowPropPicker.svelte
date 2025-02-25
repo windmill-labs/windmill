@@ -36,7 +36,7 @@
 >
 	<AnimatedButton
 		animate={isConnecting}
-		wrapperClasses="h-[20px] w-[20px] "
+		wrapperClasses="h-[20px] w-[20px] center-center"
 		baseRadius="9999px"
 		marginWidth="1px"
 	>
@@ -60,7 +60,7 @@
 				</Tooltip>
 			</svelte:fragment>
 			<svelte:fragment slot="content">
-				<div class="p-4" data-prop-picker>
+				<div class="p-4 max-h-[50vh] overflow-y-auto" data-prop-picker>
 					<ObjectViewer
 						{json}
 						topBrackets={false}

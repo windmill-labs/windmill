@@ -73,7 +73,11 @@
 		style="left: {id_width}px;"
 		data-connection-button
 	>
-		<Popover floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}>
+		<Popover
+			floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
+			closeOnOtherPopoverOpen
+			contentClasses="p-4"
+		>
 			<svelte:fragment slot="trigger">
 				<AnimatedButton
 					animate={true}
@@ -91,14 +95,12 @@
 				</AnimatedButton>
 			</svelte:fragment>
 			<svelte:fragment slot="content">
-				<div class="p-4">
-					<ComponentOutputViewer
-						suffix="connect"
-						on:select={({ detail }) =>
-							connectOutput(connectingInput, component.type, component.id, detail)}
-						componentId={component.id}
-					/>
-				</div>
+				<ComponentOutputViewer
+					suffix="connect"
+					on:select={({ detail }) =>
+						connectOutput(connectingInput, component.type, component.id, detail)}
+					componentId={component.id}
+				/>
 			</svelte:fragment>
 		</Popover>
 	</div>
@@ -279,24 +281,22 @@
 			'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-1  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer'
 		)}
 	>
-		<Popover notClickable placement="bottom" class="!bg-surface border w-96">
+		<Popover notClickable placement="bottom" contentClasses="!bg-surface border w-96 p-4">
 			<svelte:fragment slot="trigger">
 				<Bug size={14} />
 			</svelte:fragment>
 			<svelte:fragment slot="content">
-				<div class="p-4">
-					<div class="bg-surface">
-						<pre class="whitespace-pre-wrap text-red-600 bg-surface border w-full p-4 text-xs mb-2"
-							>{error ?? ''}	
+				<div class="bg-surface">
+					<pre class="whitespace-pre-wrap text-red-600 bg-surface border w-full p-4 text-xs mb-2"
+						>{error ?? ''}	
 						</pre>
-					</div>
-					<Button
-						color="red"
-						variant="border"
-						on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
-						>Open Debug Runs</Button
-					>
 				</div>
+				<Button
+					color="red"
+					variant="border"
+					on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
+					>Open Debug Runs</Button
+				>
 			</svelte:fragment>
 		</Popover>
 	</span>

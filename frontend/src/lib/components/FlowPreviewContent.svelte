@@ -262,7 +262,10 @@
 							</Badge>
 						</Button>
 					{:else}
-						<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+						<Popover
+							floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+							contentClasses="p-4"
+						>
 							<svelte:fragment slot="button">
 								<Button
 									title={`Re-start this flow from step ${selectedJobStep} (included).`}

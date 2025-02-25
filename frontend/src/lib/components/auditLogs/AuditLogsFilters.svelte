@@ -18,6 +18,8 @@
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	let usernames: string[]
 	let resources: string[]
@@ -32,6 +34,7 @@
 	export let operation: string = 'all'
 	export let resource: string | undefined = 'all'
 	export let actionKind: ActionKind | 'all' = 'all'
+	export let scope: undefined | 'all_workspaces' | 'instance' = undefined
 
 	async function loadLogs(
 		username: string | undefined,
@@ -41,7 +44,8 @@
 		after: string | undefined,
 		operation: string | undefined,
 		resource: string | undefined,
-		actionKind: ActionKind | undefined | 'all'
+		actionKind: ActionKind | undefined | 'all',
+		scope: undefined | 'all_workspaces' | 'instance'
 	): Promise<void> {
 		loading = true
 
@@ -62,7 +66,7 @@
 		}
 
 		logs = await AuditService.listAuditLogs({
-			workspace: $workspaceStore!,
+			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
 			page,
 			perPage,
 			before,
@@ -70,7 +74,8 @@
 			username,
 			operation,
 			resource,
-			actionKind
+			actionKind,
+			allWorkspaces: scope === 'all_workspaces'
 		})
 
 		loading = false
@@ -108,7 +113,7 @@
 		if ($workspaceStore && refresh) {
 			loadUsers()
 			loadResources()
-			loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind)
+			loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind, scope)
 		}
 	}
 
@@ -119,7 +124,8 @@
 		after,
 		operation,
 		resource,
-		actionKind
+		actionKind,
+		scope
 	}: {
 		username?: string | undefined
 		perPage?: number | undefined
@@ -128,6 +134,7 @@
 		operation?: string | undefined
 		resource?: string | undefined
 		actionKind?: ActionKind | undefined | 'all'
+		scope?: undefined | 'all_workspaces' | 'instance'
 	}) {
 		const queryParams: string[] = []
 
@@ -145,7 +152,10 @@
 		addQueryParam('operation', operation)
 		addQueryParam('resource', resource)
 		addQueryParam('actionKind', actionKind)
-
+		if (scope && $workspaceStore == 'admins') {
+			addQueryParam('scope', scope)
+			addQueryParam('workspace', 'admins')
+		}
 		const query = '?' + queryParams.join('&')
 		goto(query)
 	}
@@ -167,6 +177,10 @@
 		addQueryParam('operation', operation)
 		addQueryParam('resource', resource)
 		addQueryParam('actionKind', actionKind)
+		if (scope && $workspaceStore == 'admins') {
+			addQueryParam('scope', scope)
+			addQueryParam('workspace', 'admins')
+		}
 
 		const query = '?' + queryParams.join('&')
 		goto(query)
@@ -179,7 +193,8 @@
 		after,
 		operation,
 		resource,
-		actionKind
+		actionKind,
+		scope
 	})
 
 	$: updatePageQueryParams(pageIndex)
@@ -296,6 +311,28 @@
 </script>
 
 <div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
+	{#if $workspaceStore == 'admins'}
+		<div class="flex gap-1 relative w-full">
+			<span class="text-xs absolute -top-4">Scope</span>
+			<ToggleButtonGroup bind:selected={scope}>
+				<ToggleButton
+					value={undefined}
+					label="Admins"
+					tooltip="Displays events from the admins workspace only."
+				/>
+				<ToggleButton
+					value="all_workspaces"
+					label="All"
+					tooltip="Displays events from all workspaces."
+				/>
+				<ToggleButton
+					value="instance"
+					label="Instance"
+					tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
+				/>
+			</ToggleButtonGroup>
+		</div>
+	{/if}
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">After</span>
 		<input type="text" value={after ?? 'After'} disabled />
@@ -393,6 +430,7 @@
 				pageIndex = 1
 				perPage = 100
 				resource = 'all'
+				scope = undefined
 			}}
 			size="xs"
 		>

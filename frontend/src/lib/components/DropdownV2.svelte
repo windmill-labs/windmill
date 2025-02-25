@@ -1,29 +1,53 @@
+<script context="module" lang="ts">
+	import { writable } from 'svelte/store'
+	const activeDropdown = writable<{ id: string | null; close: (() => void) | null }>({
+		id: null,
+		close: null
+	})
+</script>
+
 <script lang="ts">
 	import { MoreVertical } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import type { Item } from '$lib/utils'
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
-	import { zIndexes } from '$lib/zIndexes'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let disabled = false
 	export let placement: Placement = 'bottom-end'
 	export let usePointerDownOutside = false
+	export let closeOnOtherDropdownOpen = true
 
 	const {
 		elements: { menu, item, trigger },
-		states
+		states,
+		ids: { menu: dropdownId }
 	} = createDropdownMenu({
 		positioning: {
 			placement
 		},
-		loop: true
+		loop: true,
+		onOpenChange: ({ next }) => {
+			if (closeOnOtherDropdownOpen) {
+				if (next) {
+					// Close previous dropdown if exists
+					if ($activeDropdown.close && $activeDropdown.id !== $dropdownId) {
+						$activeDropdown.close()
+					}
+					// Set this dropdown as active
+					activeDropdown.set({ id: $dropdownId, close })
+				} else if ($activeDropdown.id === $dropdownId) {
+					activeDropdown.set({ id: null, close: null })
+				}
+			}
+			return next
+		}
 	})
-
-	const zIndex = zIndexes.contextMenu
 
 	let open = false
 	const sync = createSync(states)
@@ -49,8 +73,8 @@
 <ResolveOpen {open} on:open on:close />
 
 <button
+	class={twMerge('w-full h-8 flex items-center justify-end', $$props.class)}
 	use:melt={$trigger}
-	class={$$props.class}
 	{disabled}
 	on:click={(e) => e.stopPropagation()}
 	use:pointerDownOutside={{
@@ -69,14 +93,16 @@
 	{#if $$slots.buttonReplacement}
 		<slot name="buttonReplacement" />
 	{:else}
-		<MoreVertical size={16} class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md" />
+		<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
 	{/if}
 </button>
 
-<div use:melt={$menu} data-menu class={`z-[${zIndex}]`}>
-	<div
-		class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
-	>
-		<DropdownV2Inner items={computeItems} meltItem={item} />
+{#if open}
+	<div use:melt={$menu} data-menu class="z-[6000]">
+		<div
+			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+		>
+			<DropdownV2Inner items={computeItems} meltItem={item} />
+		</div>
 	</div>
-</div>
+{/if}

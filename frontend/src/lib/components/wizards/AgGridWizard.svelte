@@ -96,14 +96,13 @@
 		middleware: [offset(8), flip(), shift()]
 	}}
 	closeOnOtherPopoverOpen
-	closeButton
 >
 	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		{#if value}
-			<div class="flex flex-col w-96 p-4 gap-4">
+			<div class="flex flex-col w-96 p-4 gap-4 max-h-[50vh] overflow-y-auto">
 				<span class="text-sm mb-2 leading-6 font-semibold">
 					Column definitions
 					<Tooltip
