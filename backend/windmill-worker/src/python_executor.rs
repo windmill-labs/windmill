@@ -315,6 +315,11 @@ impl PyVersion {
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
                 );
         }
 
@@ -354,6 +359,11 @@ impl PyVersion {
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
                 );
         }
 
@@ -366,6 +376,7 @@ impl PyVersion {
                 "python",
                 "find",
                 self.to_string_with_dot(),
+                "--system",
                 "--python-preference=only-managed",
             ])
             .envs([
@@ -594,6 +605,11 @@ pub async fn uv_pip_compile(
             child_cmd
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+                )
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
@@ -1109,6 +1125,11 @@ mount {{
         {
             python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
             python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            python_cmd.env(
+                "LOCALAPPDATA",
+                std::env::var("LOCALAPPDATA")
+                    .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+            );
         }
 
         start_child_process(python_cmd, &python_path).await?
@@ -1681,6 +1702,11 @@ async fn spawn_uv_install(
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
                 )
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.467.0
+  version: 1.468.0
   title: Windmill API
 
   contact:
@@ -126,6 +126,11 @@ paths:
             type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
+        - name: all_workspaces
+          in: query
+          description: get audit logs for all workspaces
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -5365,6 +5370,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/deployment_status/p/{path}:
+    get:
+      summary: get flow deployment status
+      operationId: getFlowDeploymentStatus
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lock_error_logs:
+                    type: string
+
 
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
@@ -14336,6 +14362,10 @@ components:
       allOf:
         - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - $ref: "#/components/schemas/FlowMetadata"
+        - type: object
+          properties:
+            lock_error_logs:
+              type: string
 
     ExtraPerms:
       type: object

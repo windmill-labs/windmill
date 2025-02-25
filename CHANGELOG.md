@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.468.0](https://github.com/windmill-labs/windmill/compare/v1.467.1...v1.468.0) (2025-02-24)
+
+
+### Features
+
+* add audit logs scope filter in admins workspace ([#5352](https://github.com/windmill-labs/windmill/issues/5352)) ([b3e00b7](https://github.com/windmill-labs/windmill/commit/b3e00b7fdc3ad4c689fc30216accbed05822794c))
+* add support for | None and Optional in python ([#5361](https://github.com/windmill-labs/windmill/issues/5361)) ([9736355](https://github.com/windmill-labs/windmill/commit/9736355d5f82615100212698c5537997e5a0de39))
+* make flow lock deployment error visible in UI ([b8e6d0d](https://github.com/windmill-labs/windmill/commit/b8e6d0da79ca57b115e7cb0ccff9f5623b23f3f3))
+
+
+### Bug Fixes
+
+* add LOCALAPPDATA env variable to python execution on windows ([8806870](https://github.com/windmill-labs/windmill/commit/8806870b1bf67c2f77beaf04d986cf172c7b4bf4))
+* fix confirmation modal check on deploy ([3028325](https://github.com/windmill-labs/windmill/commit/3028325615e2f7e5ee3d1b6278580121880db14f))
+* **frontend:** make html app component content selectable ([#5359](https://github.com/windmill-labs/windmill/issues/5359)) ([f1c5b77](https://github.com/windmill-labs/windmill/commit/f1c5b77d7af8433905937d274b97c2d5cd6c1316))
+* handle better forced value propagation in apps ([7c842c8](https://github.com/windmill-labs/windmill/commit/7c842c88bf5225b6bc39857109b1b1ba5f99d708))
+* handle better optional chaining operator ([d45c1f6](https://github.com/windmill-labs/windmill/commit/d45c1f69d48a5ad93f4399ce0150bbff6fd4fa6b))
+* improve app markdown rendering ([96597d3](https://github.com/windmill-labs/windmill/commit/96597d3d6b3d31298e5582a55e11e1d48edbf175))
+* improve cancel/back behavior on editors ([0565981](https://github.com/windmill-labs/windmill/commit/05659816e722effcba27e71f855e819c606f8756))
+* improve custom component rendering ([4ee4ff7](https://github.com/windmill-labs/windmill/commit/4ee4ff78d389d61c63952c84dee967113c783c45))
+* improve webhook settings cache invalidation ([0456272](https://github.com/windmill-labs/windmill/commit/0456272e3f36996c5f223fc332b150c7a64c2f05))
+* update bun t.1.43-&gt;1.2.3 ([4e477d1](https://github.com/windmill-labs/windmill/commit/4e477d1f589343980d7bd2953909ff6a6be30739))
+* update deno 2.1.2-&gt;2.2.1 ([b102ff4](https://github.com/windmill-labs/windmill/commit/b102ff4a4643e2f06d44d493f2f776b44ae721cc))
+
+## [1.467.1](https://github.com/windmill-labs/windmill/compare/v1.467.0...v1.467.1) (2025-02-22)
+
+
+### Bug Fixes
+
+* add uv bin path to PATH ([85993cc](https://github.com/windmill-labs/windmill/commit/85993ccac2abc2295e0f1b21544a6674fcf43411))
+* app markdown is selectable in preview mode ([0aa6a39](https://github.com/windmill-labs/windmill/commit/0aa6a39cad16bff74adf3326d47ba0ba9851ccf6))
+* init_script do not need to use nsjail even in nsjail mode ([e92a46b](https://github.com/windmill-labs/windmill/commit/e92a46b088088148d13a8e625a828657bcf44fe3))
+
 ## [1.467.0](https://github.com/windmill-labs/windmill/compare/v1.466.3...v1.467.0) (2025-02-21)
 
 

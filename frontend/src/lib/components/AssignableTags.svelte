@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { Button, Popup } from './common'
+	import { Button } from './common'
 	import { Pen } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
 
 	import Tooltip from './Tooltip.svelte'
 	import AssignableTagsInner from './AssignableTagsInner.svelte'
@@ -11,12 +12,13 @@
 	export let showWorkspaceRestriction = false
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{ strategy: 'absolute', placement: placement }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 	{disabled}
+	closeButton
+	usePointerDownOutside
 >
-	<svelte:fragment slot="button">
+	<svelte:fragment slot="trigger">
 		<Button {color} size="xs" nonCaptureEvent={true} {disabled}>
 			<div class="flex flex-row gap-1 items-center"
 				><Pen size={14} /> Custom tags&nbsp;<Tooltip light
@@ -28,5 +30,7 @@
 			>
 		</Button>
 	</svelte:fragment>
-	<AssignableTagsInner {showWorkspaceRestriction} on:refresh />
-</Popup>
+	<svelte:fragment slot="content">
+		<AssignableTagsInner {showWorkspaceRestriction} on:refresh />
+	</svelte:fragment>
+</Popover>
