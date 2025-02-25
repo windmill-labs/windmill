@@ -1335,6 +1335,45 @@ paths:
                 required:
                   - token
 
+  /w/{workspace}/git_sync/connected_repositories:
+    get:
+      summary: get connected repositories
+      operationId: getConnectedRepositories
+      tags:
+        - git_sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: connected repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    installation_id:
+                      type: string
+                    account_id:
+                      type: string
+                    repositories:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          url:
+                            type: string
+                        required:
+                          - name
+                          - url
+                  required:
+                    - installation_id
+                    - account_id
+                    - repositories
+
   /users/accept_invite:
     post:
       summary: accept invite to workspace
@@ -14810,8 +14849,6 @@ components:
     WorkspaceGitSyncSettings:
       type: object
       properties:
-        github_app_installation_id:
-          type: string
         include_path:
           type: array
           items:
