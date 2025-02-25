@@ -77,12 +77,10 @@
 			return
 		}
 		components = components.filter((x) => x.id !== cid)
-		console.log('deleteComponent', cid, index, components, items)
 		delete $errorByComponent[cid]
 
 		$selectedComponent = [id]
 		$app = $app
-		console.log('items', items)
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
 	}
