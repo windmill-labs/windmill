@@ -35,12 +35,14 @@
 
 	let rowDiv: HTMLDivElement | undefined = undefined
 
+	let visible = false
 	onMount(() => {
 		// apply w-full to the the parent of the parent of the rowDiv
 		if (rowDiv) {
 			const parent = rowDiv.parentElement?.parentElement?.parentElement
 			if (parent) {
 				parent.classList.add('w-full')
+				visible = true
 			} else {
 				//sometimes the parent is not available immediately
 				setTimeout(() => {
@@ -48,6 +50,7 @@
 					if (parent) {
 						parent.classList.add('w-full')
 					}
+					visible = true
 				}, 10)
 			}
 		}
@@ -62,8 +65,9 @@
 >
 	<div
 		class={twMerge(
-			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full',
-			wrapActions ? 'flex-wrap' : ''
+			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full transition-opacity duration-50',
+			wrapActions ? 'flex-wrap' : '',
+			visible ? 'opacity-100' : 'opacity-0'
 		)}
 		bind:this={rowDiv}
 	>
