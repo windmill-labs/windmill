@@ -52,6 +52,13 @@
 			recomputeIds: []
 		}
 
+		if (typ == 'buttoncomponent') {
+			if (newComponent?.configuration?.size) {
+				// @ts-ignore
+				newComponent.configuration.size = { type: 'static', value: 'xs2' }
+			}
+		}
+
 		items = [
 			...items,
 			{
@@ -70,6 +77,7 @@
 			return
 		}
 		components = components.filter((x) => x.id !== cid)
+		console.log('deleteComponent', cid, index, components, items)
 		delete $errorByComponent[cid]
 
 		$selectedComponent = [id]
