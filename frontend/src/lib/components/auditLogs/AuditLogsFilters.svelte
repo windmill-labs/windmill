@@ -119,6 +119,7 @@
 		loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind, scope)
 	}
 
+	let initialLoad = true
 	function updateQueryParams({
 		username,
 		perPage,
@@ -139,6 +140,18 @@
 		scope?: undefined | 'all_workspaces' | 'instance'
 	}) {
 		const queryParams: string[] = []
+
+		console.log(
+			'dbg updateQueryParams',
+			username,
+			perPage,
+			before,
+			after,
+			operation,
+			resource,
+			actionKind,
+			scope
+		)
 
 		function addQueryParam(key: string, value: string | number | undefined | null) {
 			if (value !== undefined && value !== null && value !== '' && value !== 'all') {
@@ -161,8 +174,11 @@
 		const query = '?' + queryParams.join('&')
 		goto(query)
 
-		pageIndex = 1
-		loadLogs(username, 1, perPage, before, after, operation, resource, actionKind, scope)
+		if (initialLoad) {
+			initialLoad = false
+		} else {
+			pageIndex = 1 // this triggers the pageIndex to be updated in the url
+		}
 	}
 
 	function updatePageQueryParams(pageIndex?: number | undefined) {
@@ -190,17 +206,7 @@
 		const query = '?' + queryParams.join('&')
 		goto(query)
 
-		loadLogs(
-			username,
-			pageIndex ?? 1,
-			perPage,
-			before,
-			after,
-			operation,
-			resource,
-			actionKind,
-			scope
-		)
+		loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind, scope)
 	}
 
 	$: updateQueryParams({
