@@ -20,6 +20,7 @@
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import RunnableComponent from '../../helpers/RunnableComponent.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -38,7 +39,7 @@
 	}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
-	const { app, worldStore } = context
+	const { app, worldStore, componentControl } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
 	let result: any[] | undefined = undefined
@@ -180,6 +181,10 @@
 	bind:result
 	bind:loading
 	bind:runnableComponent
+	on:recompute={() => {
+		console.log('recompute')
+		clear()
+	}}
 	{render}
 	autoRefresh={true}
 	allowConcurentRequests
