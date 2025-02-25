@@ -415,6 +415,8 @@ pub async fn get_hub_script_by_path(
         Some(db),
     )
     .await?
+    .error_for_status()
+    .map_err(to_anyhow)?
     .text()
     .await
     .map_err(to_anyhow);
@@ -440,6 +442,8 @@ pub async fn get_hub_script_by_path(
                     Some(db),
                 )
                 .await?
+                .error_for_status()
+                .map_err(to_anyhow)?
                 .text()
                 .await
                 .map_err(to_anyhow)?;
@@ -494,20 +498,19 @@ async fn get_full_hub_script_by_path_inner(
 ) -> crate::error::Result<HubScript> {
     let hub_base_url = HUB_BASE_URL.read().await.clone();
 
-    let result = http_get_from_hub(
-        http_client,
-        &format!("{}/raw2/{}", hub_base_url, path),
-        true,
-        None,
-        db,
-    )
-    .await?
-    .json::<HubScript>()
-    .await
-    .context("Decoding hub response to script");
+    let req_path = format!("{}/raw2/{}", hub_base_url, path);
 
-    match result {
-        Ok(result) => Ok(result),
+    let response = http_get_from_hub(http_client, &req_path, true, None, db)
+        .await
+        .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()));
+
+    match response {
+        Ok(response) => {
+            let script = response.json::<HubScript>().await.context(format!(
+                "Decoding hub response for script at path {req_path}"
+            ))?;
+            Ok(script)
+        }
         Err(e) => {
             if hub_base_url != DEFAULT_HUB_BASE_URL
                 && path
@@ -515,25 +518,35 @@ async fn get_full_hub_script_by_path_inner(
                     .next()
                     .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
             {
+                // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
                 tracing::info!(
                     "Not found on private hub, fallback to default hub for {}",
                     path
                 );
-                let value = http_get_from_hub(
-                    http_client,
-                    &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
-                    true,
-                    None,
-                    db,
-                )
-                .await?
-                .json::<HubScript>()
-                .await
-                .context("Decoding hub response to script")?;
+                let req_path = format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path);
+                let value = http_get_from_hub(http_client, &req_path, true, None, db)
+                    .await?
+                    .error_for_status()
+                    .map_err(to_anyhow)?
+                    .json::<HubScript>()
+                    .await
+                    .context(format!(
+                        "Decoding hub response for script at path {req_path}"
+                    ))?;
 
                 Ok(value)
             } else {
-                Err(e)?
+                tracing::warn!("Failed to get hub script at path {req_path}: {e:#}\nRetrying...");
+                let value = http_get_from_hub(http_client, &req_path, true, None, db)
+                    .await?
+                    .error_for_status()
+                    .map_err(to_anyhow)?
+                    .json::<HubScript>()
+                    .await
+                    .context(format!(
+                        "Decoding hub response for script at path {req_path}"
+                    ))?;
+                Ok(value)
             }
         }
     }
