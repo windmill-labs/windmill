@@ -1473,11 +1473,6 @@ async fn handle_python_deps(
         }
     };
 
-    let requirements_lines: Vec<&str> = requirements
-        .split("\n")
-        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
-        .collect();
-
     /*
      For deployed scripts we want to find out version in following order:
      1. Assigned version (written in lockfile)
@@ -1488,8 +1483,9 @@ async fn handle_python_deps(
      2. Instance version
      3. Latest Stable
     */
+    let requirements_lines = split_requirements(requirements.as_str());
     let final_version = if is_deployed {
-        get_pyv_from_requirements(requirements.as_str())
+        get_pyv_from_requirements_lines(&requirements_lines)
     } else {
         // This is not deployed script, meaning we test run it (Preview)
         annotated_pyv.unwrap_or(instance_pyv)
@@ -2258,16 +2254,18 @@ pub async fn handle_python_reqs(
     };
 }
 
-/// Check requirements/lockfile to figure out python version assigned to it.
-fn get_pyv_from_requirements(requirements: &str) -> PyVersion {
-    let requirements_lines: Vec<&str> = requirements
+fn split_requirements(requirements: &str) -> Vec<&str> {
+    requirements
         .split("\n")
         .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
-        .collect();
+        .collect()
+}
+/// Check requirements/lockfile to figure out python version assigned to it.
+fn get_pyv_from_requirements_lines(requirements_lines: &Vec<&str>) -> PyVersion {
     // If script is deployed we can try to parse first line to get assigned version
     if let Some(v) = requirements_lines
         .get(0)
-        .and_then(|line| PyVersion::parse_version(line))
+        .and_then(|line| PyVersion::parse_version(*line))
     {
         // We have valid assigned version, we use it
         v
@@ -2450,7 +2448,7 @@ for line in sys.stdin:
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
     let py_version = if let Some(requirements) = requirements_o {
-        get_pyv_from_requirements(requirements.as_str())
+        get_pyv_from_requirements_lines(&split_requirements(requirements.as_str()))
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
         PyVersion::Py311
