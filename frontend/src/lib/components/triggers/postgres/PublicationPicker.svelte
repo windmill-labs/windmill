@@ -14,9 +14,8 @@
 	export let can_write: boolean = true
 	export let publication_name: string = ''
 	export let postgres_resource_path: string = ''
-	export let relations: Relations[] = []
+	export let relations: Relations[] | undefined = undefined
 	export let transaction_to_track: string[] = []
-	export let selectedTable: 'all' | 'specific' = 'specific'
 
 	async function listDatabasePublication() {
 		try {
@@ -56,7 +55,7 @@
 				publication: publication_name
 			})
 			items = items.filter((item) => item != publication_name)
-			relations = []
+			relations = undefined
 			transaction_to_track = ['Insert', 'Update', 'Delete']
 			publication_name = ''
 			sendUserToast(message)
@@ -73,13 +72,10 @@
 				publication: publication_name
 			})
 			transaction_to_track = [...publication_data.transaction_to_track]
-			relations = publication_data.table_to_track ?? []
-			if (relations.length === 0) {
-				selectedTable = 'all'
-			} else {
-				selectedTable = 'specific'
-			}
-			selectedTable = selectedTable
+			relations =
+				publication_data.table_to_track && publication_data.table_to_track.length > 0
+					? publication_data.table_to_track
+					: undefined
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
