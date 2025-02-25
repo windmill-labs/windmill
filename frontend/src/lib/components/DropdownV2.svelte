@@ -93,7 +93,13 @@
 	{#if $$slots.buttonReplacement}
 		<slot name="buttonReplacement" />
 	{:else}
-		<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
+		<Button
+			nonCaptureEvent
+			size="xs"
+			color="light"
+			startIcon={{ icon: MoreVertical }}
+			btnClasses="bg-transparent"
+		/>
 	{/if}
 </button>
 

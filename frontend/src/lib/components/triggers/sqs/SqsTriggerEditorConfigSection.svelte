@@ -119,9 +119,10 @@
 								message_attributes = cached
 							}
 						}}
+						let:item
 					>
-						<ToggleButton value="all" label="All attributes" />
-						<ToggleButton value="specific" label="Specific attributes" />
+						<ToggleButton value="all" label="All attributes" {item} />
+						<ToggleButton value="specific" label="Specific attributes" {item} />
 					</ToggleButtonGroup>
 				</div>
 				<div class="flex flex-col mt-3 gap-1">

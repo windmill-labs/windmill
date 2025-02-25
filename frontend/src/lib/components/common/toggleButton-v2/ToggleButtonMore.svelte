@@ -39,7 +39,7 @@
 		{#if isAnOptionSelected(selected)}
 			<ToggleButton
 				{disabled}
-				value={selected}
+				value={selected ?? ''}
 				{item}
 				{small}
 				{light}

@@ -188,7 +188,7 @@
 				let:item
 			>
 				{#each schema.oneOf as obj}
-					<ToggleButton value={obj.title} label={obj.title} {item} />
+					<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 				{/each}
 			</ToggleButtonGroup>
 
