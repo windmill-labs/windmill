@@ -456,16 +456,12 @@
 			<ToggleButtonGroup
 				selected={success ?? 'all'}
 				on:selected={({ detail }) => {
-					if (detail === 'all') {
-						success = undefined
-					} else {
-						success = detail
-					}
+					success = detail === 'all' ? undefined : detail
 					dispatch('successChange', success)
 				}}
 				let:item
 			>
-				<ToggleButton value={undefined} label="All" {item} />
+				<ToggleButton value={'all'} label="All" {item} />
 				<ToggleButton
 					value={'running'}
 					tooltip="Running"
@@ -791,7 +787,7 @@
 								on:selected={({ detail }) => (success = detail === 'all' ? undefined : detail)}
 								let:item
 							>
-								<ToggleButton value={'all'} label="All" />
+								<ToggleButton value={'all'} label="All" {item} />
 								<ToggleButton value={'running'} label="Running" class="whitespace-nowrap" {item} />
 								<ToggleButton value={'success'} label="Success" class="whitespace-nowrap" {item} />
 								<ToggleButton value={'failure'} label="Failure" class="whitespace-nowrap" {item} />
