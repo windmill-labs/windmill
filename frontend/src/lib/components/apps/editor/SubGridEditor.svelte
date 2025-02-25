@@ -319,7 +319,7 @@
 					>
 						<Component
 							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-							render={true}
+							render={visible}
 							component={dataItem.data}
 							selected={Boolean($selectedComponent?.includes(dataItem.id))}
 							locked={isFixed(dataItem)}

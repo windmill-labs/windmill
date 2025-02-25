@@ -60,22 +60,14 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import {
-		ActionRow,
-		Button,
-		Popup,
-		Skeleton,
-		Tab,
-		Alert,
-		DrawerContent
-	} from '$lib/components/common'
+	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
@@ -90,7 +82,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
-	import Popover from '$lib/components/Popover.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
@@ -595,8 +587,11 @@
 						</Badge>
 					</Button>
 				{:else}
-					<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
-						<svelte:fragment slot="button">
+					<Popover
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+						contentClasses="p-4"
+					>
+						<svelte:fragment slot="trigger">
 							<Button
 								title={`Re-start this flow from step ${selectedJobStep} (included). ${
 									!$enterpriseLicense
@@ -615,46 +610,48 @@
 								</Badge>
 							</Button>
 						</svelte:fragment>
-						<label class="block text-primary">
-							<div class="pb-1 text-sm text-secondary"
-								>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
-							>
-							<div class="flex w-full">
-								{#if selectedJobStepType === 'forloop'}
-									<input
-										type="number"
-										min="0"
-										bind:value={branchOrIterationN}
-										class="!w-32 grow"
-										on:click|stopPropagation={() => {}}
-									/>
-								{:else}
-									<select
-										bind:value={branchOrIterationN}
-										class="!w-32 grow"
-										on:click|stopPropagation={() => {}}
-									>
-										{#each restartBranchNames as [branchIdx, branchName]}
-											<option value={branchIdx}>{branchName}</option>
-										{/each}
-									</select>
-								{/if}
-
-								<Button
-									size="xs"
-									color="blue"
-									buttonType="button"
-									btnClasses="!p-1 !w-[34px] !ml-1"
-									aria-label="Restart flow"
-									on:click|once={() => {
-										restartFlow(job?.id, selectedJobStep, branchOrIterationN)
-									}}
+						<svelte:fragment slot="content">
+							<label class="block text-primary">
+								<div class="pb-1 text-sm text-secondary"
+									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
 								>
-									<ArrowRight size={18} />
-								</Button>
-							</div>
-						</label>
-					</Popup>
+								<div class="flex w-full">
+									{#if selectedJobStepType === 'forloop'}
+										<input
+											type="number"
+											min="0"
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										/>
+									{:else}
+										<select
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										>
+											{#each restartBranchNames as [branchIdx, branchName]}
+												<option value={branchIdx}>{branchName}</option>
+											{/each}
+										</select>
+									{/if}
+
+									<Button
+										size="xs"
+										color="blue"
+										buttonType="button"
+										btnClasses="!p-1 !w-[34px] !ml-1"
+										aria-label="Restart flow"
+										on:click|once={() => {
+											restartFlow(job?.id, selectedJobStep, branchOrIterationN)
+										}}
+									>
+										<ArrowRight size={18} />
+									</Button>
+								</div>
+							</label>
+						</svelte:fragment>
+					</Popover>
 				{/if}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
@@ -762,13 +759,17 @@
 							</div>
 						{/if}
 						{#if !job.visible_to_owner}
-							<div
-								><Badge color="red"
-									>only visible to you <Tooltip
-										>The option to hide this run from the owner of this script or flow was activated</Tooltip
-									>
-								</Badge></div
-							>
+							<div>
+								<Badge color="red">
+									only visible to you
+									<Tooltip>
+										<svelte:fragment slot="text">
+											The option to hide this run from the owner of this script or flow was
+											activated
+										</svelte:fragment>
+									</Tooltip>
+								</Badge>
+							</div>
 						{/if}
 						{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
 							{#each job?.['labels'] as label}
@@ -779,7 +780,7 @@
 						{/if}
 						{#if concurrencyKey}
 							<div>
-								<Popover notClickable>
+								<Tooltip notClickable>
 									<svelte:fragment slot="text">
 										This job has concurrency limits enabled with the key
 										<a
@@ -793,7 +794,7 @@
 									>
 										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
 									>
-								</Popover>
+								</Tooltip>
 							</div>
 						{/if}
 					</div>

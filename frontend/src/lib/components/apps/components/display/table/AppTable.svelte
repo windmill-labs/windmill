@@ -39,12 +39,12 @@
 	import AppSelect from '../../inputs/AppSelect.svelte'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
-	import { Popup } from '$lib/components/common'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { EyeIcon, Plug2 } from 'lucide-svelte'
 	import AppCell from './AppCell.svelte'
 	import sum from 'hash-sum'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -553,31 +553,35 @@
 
 																{#if $connectingInput.opened}
 																	<div class="absolute z-50 left-8 -top-[10px]">
-																		<Popup
+																		<Popover
 																			floatingConfig={{
 																				strategy: 'absolute',
 																				placement: 'bottom-start'
 																			}}
+																			closeOnOtherPopoverOpen
+																			contentClasses="p-4"
 																		>
-																			<svelte:fragment slot="button">
+																			<svelte:fragment slot="trigger">
 																				<button
 																					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
 																					title="Outputs"
 																					aria-label="Open output"><Plug2 size={12} /></button
 																				>
 																			</svelte:fragment>
-																			<ComponentOutputViewer
-																				suffix="table"
-																				on:select={({ detail }) =>
-																					connectOutput(
-																						connectingInput,
-																						'buttoncomponent',
-																						actionButton.id,
-																						detail
-																					)}
-																				componentId={actionButton.id}
-																			/>
-																		</Popup>
+																			<svelte:fragment slot="content">
+																				<ComponentOutputViewer
+																					suffix="table"
+																					on:select={({ detail }) =>
+																						connectOutput(
+																							connectingInput,
+																							'buttoncomponent',
+																							actionButton.id,
+																							detail
+																						)}
+																					componentId={actionButton.id}
+																				/>
+																			</svelte:fragment>
+																		</Popover>
 																	</div>
 																{/if}
 															{/if}
