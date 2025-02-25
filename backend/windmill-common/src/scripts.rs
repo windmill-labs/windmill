@@ -513,7 +513,7 @@ async fn get_full_hub_script_by_path_inner(
             .build(),
     )
     .notify(|err, dur| {
-        tracing::error!(
+        tracing::warn!(
             "Could not get hub script at path {req_path}, retrying in {dur:#?}, err: {err:#?}"
         );
     })
