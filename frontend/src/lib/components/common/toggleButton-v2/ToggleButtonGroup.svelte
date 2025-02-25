@@ -42,7 +42,7 @@
 		$$props.class,
 		'flex items-center data-[orientation="vertical"]:flex-col'
 	)}
-	aria-label="Text alignment"
+	aria-label="Toggle button group"
 	{id}
 >
 	<div class={twMerge('flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ', tabListClass)}>

@@ -189,8 +189,8 @@
 						on:selected={() => (ownerItem = '')}
 						let:item
 					>
-						<ToggleButton value="user" size="xs" label="User" {item} />
-						<ToggleButton value="group" size="xs" label="Group" {item} />
+						<ToggleButton value="user" label="User" {item} />
+						<ToggleButton value="group" label="Group" {item} />
 					</ToggleButtonGroup>
 				</div>
 
@@ -198,7 +198,9 @@
 					<AutoComplete
 						required
 						noInputStyles
-						items={ownerKind === 'user' ? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/'+x)) : groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/'+x))}
+						items={ownerKind === 'user'
+							? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/' + x))
+							: groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/' + x))}
 						bind:selectedItem={ownerItem}
 					/>
 					{#if ownerKind == 'group'}
@@ -314,7 +316,6 @@
 										>
 											<ToggleButton
 												value="viewer"
-												size="xs"
 												label="Viewer"
 												tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
 												{item}
@@ -323,7 +324,6 @@
 											<ToggleButton
 												position="center"
 												value="writer"
-												size="xs"
 												label="Writer"
 												tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
 												{item}
@@ -332,7 +332,6 @@
 											<ToggleButton
 												position="right"
 												value="admin"
-												size="xs"
 												label="Admin"
 												tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
 												{item}
