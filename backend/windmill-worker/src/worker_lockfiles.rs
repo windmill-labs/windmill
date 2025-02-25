@@ -981,6 +981,27 @@ async fn lock_modules<'c>(
                     }
                     .into();
                 }
+                FlowModuleValue::Script { path, hash, .. } => {
+                    sqlx::query!(
+                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        hash.map(|h| h.0),
+                        job.workspace_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                FlowModuleValue::Flow { path, .. } => {
+                    sqlx::query!(
+                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        job.workspace_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
                 _ => (),
             };
             modified_ids.extend(nmodified_ids);
