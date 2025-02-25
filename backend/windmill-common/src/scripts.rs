@@ -19,6 +19,8 @@ use crate::{
 
 use crate::worker::HUB_CACHE_DIR;
 use anyhow::Context;
+use backon::ConstantBuilder;
+use backon::{BackoffBuilder, Retryable};
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
@@ -499,10 +501,24 @@ async fn get_full_hub_script_by_path_inner(
     let hub_base_url = HUB_BASE_URL.read().await.clone();
 
     let req_path = format!("{}/raw2/{}", hub_base_url, path);
-
-    let response = http_get_from_hub(http_client, &req_path, true, None, db)
-        .await
-        .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()));
+    let response = (|| async {
+        http_get_from_hub(http_client, &req_path, true, None, db)
+            .await
+            .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()))
+    })
+    .retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(5))
+            .with_max_times(2)
+            .build(),
+    )
+    .notify(|err, dur| {
+        tracing::error!(
+            "Could not get hub script at path {req_path}, retrying in {dur:#?}, err: {err:#?}"
+        );
+    })
+    .sleep(tokio::time::sleep)
+    .await;
 
     match response {
         Ok(response) => {
@@ -536,17 +552,7 @@ async fn get_full_hub_script_by_path_inner(
 
                 Ok(value)
             } else {
-                tracing::warn!("Failed to get hub script at path {req_path}: {e:#}\nRetrying...");
-                let value = http_get_from_hub(http_client, &req_path, true, None, db)
-                    .await?
-                    .error_for_status()
-                    .map_err(to_anyhow)?
-                    .json::<HubScript>()
-                    .await
-                    .context(format!(
-                        "Decoding hub response for script at path {req_path}"
-                    ))?;
-                Ok(value)
+                Err(e)
             }
         }
     }
