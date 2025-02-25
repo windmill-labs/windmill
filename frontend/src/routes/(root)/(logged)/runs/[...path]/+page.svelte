@@ -710,8 +710,9 @@
 				<div class="absolute right-0 -mt-6">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup
-							bind:selected={graph}
-							on:selected={() => {
+							selected={graph}
+							on:selected={({ detail }) => {
+								graph = detail
 								graphIsRunsChart = graph === 'RunChart'
 							}}
 							let:item
@@ -1092,8 +1093,9 @@
 			<div class="relative z-10">
 				<div class="absolute right-2">
 					<ToggleButtonGroup
-						bind:selected={graph}
-						on:selected={() => {
+						selected={graph}
+						on:selected={({ detail }) => {
+							graph = detail
 							graphIsRunsChart = graph == 'RunChart'
 						}}
 						let:item

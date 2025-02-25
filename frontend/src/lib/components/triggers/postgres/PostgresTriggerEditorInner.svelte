@@ -528,9 +528,10 @@
 													>
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup
-																bind:selected={selectedPublicationAction}
+																selected={selectedPublicationAction}
 																disabled={!can_write}
-																on:selected={() => {
+																on:selected={({ detail }) => {
+																	selectedPublicationAction = detail
 																	if (selectedPublicationAction === 'create') {
 																		selectedTable = 'specific'
 																		publication_name = `windmill_publication_${random_adj()}`

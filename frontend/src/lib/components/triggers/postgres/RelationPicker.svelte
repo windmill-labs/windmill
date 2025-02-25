@@ -54,6 +54,7 @@
 							relations = cached
 						}
 					}
+					selectedTable = detail
 				}}
 				selected={selectedTable}
 				let:item
