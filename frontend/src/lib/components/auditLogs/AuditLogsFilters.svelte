@@ -27,7 +27,8 @@
 
 	export let logs: AuditLog[] = []
 	export let username: string = 'all'
-	export let pageIndex: number | undefined = 0
+	export let pageIndex: number | undefined = 1
+	export let hasMore: boolean = false
 	export let before: string | undefined = undefined
 	export let after: string | undefined = undefined
 	export let perPage: number | undefined = 100
@@ -77,6 +78,7 @@
 			actionKind,
 			allWorkspaces: scope === 'all_workspaces'
 		})
+		hasMore = logs.length > 0 && logs.length === perPage
 
 		loading = false
 	}
@@ -109,12 +111,12 @@
 			.sort()
 	}
 
-	$: {
-		if ($workspaceStore && refresh) {
-			loadUsers()
-			loadResources()
-			loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind, scope)
-		}
+	$: $workspaceStore && refresh && refreshLogs()
+
+	function refreshLogs() {
+		loadUsers()
+		loadResources()
+		loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind, scope)
 	}
 
 	function updateQueryParams({
@@ -158,6 +160,9 @@
 		}
 		const query = '?' + queryParams.join('&')
 		goto(query)
+
+		pageIndex = 1
+		loadLogs(username, 1, perPage, before, after, operation, resource, actionKind, scope)
 	}
 
 	function updatePageQueryParams(pageIndex?: number | undefined) {
@@ -184,6 +189,18 @@
 
 		const query = '?' + queryParams.join('&')
 		goto(query)
+
+		loadLogs(
+			username,
+			pageIndex ?? 1,
+			perPage,
+			before,
+			after,
+			operation,
+			resource,
+			actionKind,
+			scope
+		)
 	}
 
 	$: updateQueryParams({
