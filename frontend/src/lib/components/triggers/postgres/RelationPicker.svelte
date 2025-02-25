@@ -17,6 +17,13 @@
 
 	let cached: Relations[] = relations
 
+	const defaultRelations: Relations[] = [
+		{
+			schema_name: 'public',
+			table_to_track: []
+		}
+	]
+
 	function addTable(name: string, index: number) {
 		if (relations == undefined || !Array.isArray(relations)) {
 			relations = []
@@ -36,15 +43,19 @@
 	<div class="grow-0 flex flex-row gap-2 w-full items-center">
 		<div class="grow-0">
 			<ToggleButtonGroup
-				on:selected={() => {
-					if (selectedTable === 'all') {
+				on:selected={({ detail }) => {
+					if (detail === 'all') {
 						cached = relations
 						relations = []
 					} else {
-						relations = cached
+						if (cached.length === 0) {
+							relations = defaultRelations
+						} else {
+							relations = cached
+						}
 					}
 				}}
-				bind:selected={selectedTable}
+				selected={selectedTable}
 				let:item
 			>
 				<ToggleButton value="all" label="All Tables" light {item} />
