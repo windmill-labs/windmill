@@ -279,6 +279,7 @@
 		on:done
 		on:doneError
 		on:cancel
+		on:recompute
 		on:argsChanged
 		on:resultSet={() => (initializing = false)}
 		on:success={(e) => {
