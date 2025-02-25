@@ -18,7 +18,7 @@
 	let hasAlreadyFailed = false
 	let hovered: any | undefined = undefined
 	let initLoad = false
-	let loadInputs: ((page: number, perPage: number) => Promise<any[]>) | undefined = undefined
+	let loadInputs: ((page: number, perPage: number, discovery: boolean) => Promise<any[]>) | undefined = undefined
 	let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
 
 	export async function loadData(loadOption: 'refresh' | 'forceRefresh' | 'loadMore' = 'loadMore') {
@@ -33,7 +33,7 @@
 		}
 
 		try {
-			const newItems = await loadInputs(1, page * perPage)
+			const newItems = await loadInputs(1, page * perPage, false)
 
 			if (
 				loadOption === 'refresh' &&
@@ -63,7 +63,7 @@
 			page = Math.ceil(items.length / perPage)
 			hasMore = items.length === perPage * page
 			if (hasMore) {
-				const potentialNewItems = await loadInputs(page + 1, perPage)
+				const potentialNewItems = await loadInputs(page + 1, perPage, true)
 				hasMore = potentialNewItems.length > 0
 			}
 			initLoad = true
@@ -96,7 +96,7 @@
 		}
 	}
 
-	export async function setLoader(loader: (page: number, perPage: number) => Promise<any[]>) {
+	export async function setLoader(loader: (page: number, perPage: number, discovery: boolean) => Promise<any[]>) {
 		loadInputs = loader
 		loadData('forceRefresh')
 	}

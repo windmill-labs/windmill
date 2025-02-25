@@ -10381,6 +10381,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: since
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: Input history for completed jobs
