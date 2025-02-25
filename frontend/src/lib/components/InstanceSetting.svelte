@@ -248,11 +248,14 @@
 							<Button
 								disabled={!$enterpriseLicense}
 								on:click={async (e) => {
-									const res = await SettingService.testMetadata({
-										requestBody: $values[setting.key]
-									})
-									sendUserToast(`Metadata valid, see console for full content`)
-									console.log(`Metadata content:`, res)
+									try {
+										const res = await SettingService.testMetadata({
+											requestBody: $values[setting.key]
+										})
+										sendUserToast(`Metadata valid: ${res}`)
+									} catch (error) {
+										sendUserToast(`Invalid metadata`, true, error.message)
+									}
 								}}>Test content/url</Button
 							>
 						</div>
