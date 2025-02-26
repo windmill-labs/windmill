@@ -29,6 +29,7 @@
 	let initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined> = writable(undefined)
 
 	async function updateSchedules(forceRefresh: boolean) {
+		const loadPrimarySchedule = true
 		loadSchedules(
 			forceRefresh,
 			path,
@@ -38,7 +39,7 @@
 			initialPrimarySchedule,
 			$workspaceStore ?? '',
 			triggersCount,
-			true
+			loadPrimarySchedule
 		)
 	}
 
