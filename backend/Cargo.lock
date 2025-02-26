@@ -834,7 +834,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -1231,9 +1231,9 @@ dependencies = [
 
 [[package]]
 name = "base64ct"
-version = "1.7.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c103cbbedac994e292597ab79342dbd5b306a362045095db54917d92a9fdfd92"
+checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "better_scoped_tls"
@@ -1859,9 +1859,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chrono"
-version = "0.4.40"
+version = "0.4.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a7964611d71df112cb1730f2ee67324fcf4d0fc6606acbbe9bfe06df124637c"
+checksum = "7e36cc9d416881d2e24f9a963be5fb1cd90966419ac844274161d10488b3e825"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -1870,7 +1870,7 @@ dependencies = [
  "pure-rust-locales",
  "serde",
  "wasm-bindgen",
- "windows-link",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -2735,7 +2735,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "xz2",
  "zstd",
 ]
@@ -2835,7 +2835,7 @@ dependencies = [
  "regex",
  "sha2 0.10.8",
  "unicode-segmentation",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -3002,7 +3002,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
  "serde",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -3058,7 +3058,7 @@ dependencies = [
  "deno_error",
  "thiserror 2.0.11",
  "tokio",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -3271,7 +3271,7 @@ dependencies = [
  "spki",
  "thiserror 2.0.11",
  "tokio",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "x25519-dalek",
 ]
 
@@ -3449,7 +3449,7 @@ dependencies = [
  "pin-project",
  "rand 0.8.5",
  "tokio",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "winapi",
  "windows-sys 0.59.0",
 ]
@@ -3905,7 +3905,7 @@ dependencies = [
  "tokio",
  "tokio-metrics",
  "twox-hash 1.6.3",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "which 6.0.3",
  "winapi",
  "windows-sys 0.59.0",
@@ -4025,7 +4025,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.11",
  "tokio",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -4117,7 +4117,7 @@ dependencies = [
  "num-bigint",
  "prost",
  "serde",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -4143,7 +4143,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -4167,7 +4167,7 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "v8_valueserializer",
 ]
 
@@ -7472,7 +7472,7 @@ dependencies = [
  "smallvec",
  "tagptr",
  "thiserror 1.0.69",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -7609,7 +7609,7 @@ dependencies = [
  "sha2 0.10.8",
  "subprocess",
  "thiserror 1.0.69",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "zstd",
 ]
 
@@ -9042,7 +9042,7 @@ dependencies = [
  "postgres-protocol 0.6.8",
  "serde",
  "serde_json",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -10060,7 +10060,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -10527,7 +10527,7 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "url",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -10565,7 +10565,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -11418,7 +11418,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "webpki-roots",
 ]
 
@@ -11502,7 +11502,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.11",
  "tracing",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "whoami",
 ]
 
@@ -11543,7 +11543,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.11",
  "tracing",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "whoami",
 ]
 
@@ -11569,7 +11569,7 @@ dependencies = [
  "sqlx-core",
  "tracing",
  "url",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -12297,7 +12297,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "time",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "winapi",
 ]
 
@@ -12553,7 +12553,7 @@ dependencies = [
  "tokio-rustls 0.24.1",
  "tokio-util",
  "tracing",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -13447,7 +13447,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab82fc73182c29b02e2926a6df32f2241dbadb5cfc111fd595515b3598f46bb3"
 dependencies = [
  "rand 0.9.0",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "web-time",
 ]
 
@@ -13751,9 +13751,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.15.0"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd8dcafa1ca14750d8d7a05aa05988c17aab20886e1f3ae33a40223c58d92ef7"
+checksum = "93d59ca99a559661b96bf898d8fce28ed87935fd2bea9f05983c1464dd6c71b1"
 dependencies = [
  "getrandom 0.3.1",
  "serde",
@@ -14253,7 +14253,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "v8",
  "windmill-api",
  "windmill-api-client",
@@ -14350,7 +14350,7 @@ dependencies = [
  "ulid",
  "url",
  "urlencoding",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
@@ -14376,7 +14376,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 1.0.109",
- "uuid 1.15.0",
+ "uuid 1.14.0",
 ]
 
 [[package]]
@@ -14401,7 +14401,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "windmill-common",
  "windmill-queue",
 ]
@@ -14461,7 +14461,7 @@ dependencies = [
  "tracing-loki",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "windmill-macros",
 ]
 
@@ -14474,7 +14474,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "windmill-common",
  "windmill-queue",
 ]
@@ -14498,7 +14498,7 @@ dependencies = [
  "tokio",
  "tokio-tar",
  "tracing",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "windmill-common",
 ]
 
@@ -14734,7 +14734,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "windmill-audit",
  "windmill-common",
 ]
@@ -14812,7 +14812,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "urlencoding",
- "uuid 1.15.0",
+ "uuid 1.14.0",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
@@ -14974,12 +14974,6 @@ dependencies = [
  "quote",
  "syn 2.0.98",
 ]
-
-[[package]]
-name = "windows-link"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dccfd733ce2b1753b03b6d3c65edf020262ea35e20ccdf3e288043e6dd620e3"
 
 [[package]]
 name = "windows-registry"
