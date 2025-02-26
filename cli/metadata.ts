@@ -27,6 +27,7 @@ import {
   parse_python,
   parse_rust,
   parse_csharp,
+  parse_nu,
   parse_snowflake,
   parse_sql,
   parse_oracledb,
@@ -544,6 +545,8 @@ export function inferSchema(
     inferedSchema = JSON.parse(parse_rust(content));
   } else if (language === "csharp") {
     inferedSchema = JSON.parse(parse_csharp(content));
+  } else if (language === "nu") {
+    inferedSchema = JSON.parse(parse_nu(content));
   } else if (language === "ansible") {
     inferedSchema = JSON.parse(parse_ansible(content));
   } else {
