@@ -40,7 +40,7 @@ RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
 RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
 RUN npm install -g nushell@0.102.0
 
-COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 RUN mkdir -p /pyls/.cache
 

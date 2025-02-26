@@ -108,9 +108,10 @@ impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_read<'a>(
         &mut self,
+        _resolved: bool,
         p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
+    ) -> Result<Cow<'a, std::path::Path>, deno_io::fs::FsError> {
         Ok(Cow::Borrowed(p))
     }
 }
@@ -375,9 +376,10 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>results(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
+        Regex::new(r#"(?m)(?P<r>results(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
     static ref RE_FULL: Regex =
-        Regex::new(r"(?m)^results\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$").unwrap();
+        Regex::new(r"(?m)^results(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$")
+            .unwrap();
     static ref RE_PROXY: Regex =
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
@@ -554,12 +556,17 @@ function get_from_env(name) {{
 async fn op_variable(
     op_state: Rc<RefCell<OpState>>,
     #[string] path: String,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        Ok(client.get_variable_value(&path).await?)
+        Ok(client
+            .get_variable_value(&path)
+            .await
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?)
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -569,16 +576,18 @@ async fn op_variable(
 async fn op_get_result(
     op_state: Rc<RefCell<OpState>>,
     #[string] id: String,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        let result = client
+        client
             .get_completed_job_result::<Box<RawValue>>(&id, None)
-            .await?
-            .clone();
-        Ok(result.get().to_string())
+            .await
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))
+            .map(|x| x.get().to_string())
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -589,7 +598,7 @@ async fn op_get_id(
     op_state: Rc<RefCell<OpState>>,
     #[string] flow_job_id: String,
     #[string] node_id: String,
-) -> Result<Option<String>, anyhow::Error> {
+) -> Result<Option<String>, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
@@ -602,7 +611,9 @@ async fn op_get_id(
             Ok(None)
         }
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -612,15 +623,18 @@ async fn op_get_id(
 async fn op_resource(
     op_state: Rc<RefCell<OpState>>,
     #[string] path: String,
-) -> Result<Option<String>, anyhow::Error> {
+) -> Result<Option<String>, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         client
             .get_resource_value_interpolated::<Option<Box<RawValue>>>(&path, None)
             .await
             .map(|x| x.map(|x| x.get().to_string()))
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -822,6 +836,7 @@ pub async fn eval_fetch_timeout(
         };
 
         let exts: Vec<Extension> = vec![
+            deno_telemetry::deno_telemetry::init_ops(),
             deno_webidl::deno_webidl::init_ops(),
             deno_url::deno_url::init_ops(),
             deno_console::deno_console::init_ops(),
@@ -953,6 +968,9 @@ fn write_error_expr(expr: &str, uuid: &Uuid) {
         }
     };
 
+    if std::env::var("PRINT_NATIVE_ERRORS").is_ok() {
+        tracing::info!("native error for job {uuid}: {expr}");
+    }
     if dir_entries >= 100 {
         tracing::info!("Too many error files in {ERROR_DIR}, skipping write");
         return;

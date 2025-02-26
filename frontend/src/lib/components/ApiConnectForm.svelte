@@ -8,7 +8,7 @@
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import SupabaseIcon from './icons/SupabaseIcon.svelte'
-	import Popup from './common/popup/Popup.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
 
@@ -129,13 +129,12 @@
 		/>
 		<TestConnection {resourceType} {args} />
 		{#if resourceType == 'postgresql'}
-			<Popup
-				let:close
+			<Popover
 				floatingConfig={{
 					placement: 'bottom'
 				}}
 			>
-				<svelte:fragment slot="button">
+				<svelte:fragment slot="trigger">
 					<Button
 						spacingSize="sm"
 						size="xs"
@@ -147,32 +146,34 @@
 						From connection string
 					</Button>
 				</svelte:fragment>
-				<div class="block text-primary">
-					<div class="w-[550px] flex flex-col items-start gap-1">
-						<div class="flex flex-row gap-1 w-full">
-							<input
-								type="text"
-								bind:value={connectionString}
-								placeholder="postgres://user:password@host:5432/dbname?sslmode=disable"
-							/>
-							<Button
-								size="xs"
-								color="blue"
-								buttonType="button"
-								on:click={() => {
-									parseConnectionString(close)
-								}}
-								disabled={connectionString.length <= 0}
-							>
-								Apply
-							</Button>
+				<svelte:fragment slot="content" let:close>
+					<div class="block text-primary p-4">
+						<div class="w-[550px] flex flex-col items-start gap-1">
+							<div class="flex flex-row gap-1 w-full">
+								<input
+									type="text"
+									bind:value={connectionString}
+									placeholder="postgres://user:password@host:5432/dbname?sslmode=disable"
+								/>
+								<Button
+									size="xs"
+									color="blue"
+									buttonType="button"
+									on:click={() => {
+										parseConnectionString(close)
+									}}
+									disabled={connectionString.length <= 0}
+								>
+									Apply
+								</Button>
+							</div>
+							{#if !validConnectionString}
+								<p class="text-red-500 text-xs">Could not parse connection string</p>
+							{/if}
 						</div>
-						{#if !validConnectionString}
-							<p class="text-red-500 text-xs">Could not parse connection string</p>
-						{/if}
 					</div>
-				</div>
-			</Popup>
+				</svelte:fragment>
+			</Popover>
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
 			<a

@@ -20,7 +20,7 @@ flow_testing = []
 cloud = []
 sqlx = []
 deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
-    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions"]
+    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error"]
 otel = ["windmill-common/otel", "dep:opentelemetry"]
 dind = ["dep:bollard"]
 php = ["dep:windmill-parser-php"]
@@ -72,6 +72,7 @@ dyn-iter.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
+deno_telemetry = { workspace = true, optional = true }
 deno_fetch = { workspace = true, optional = true }
 deno_webidl = { workspace = true, optional = true }
 deno_web = { workspace = true, optional = true }
@@ -82,6 +83,8 @@ deno_core = { workspace = true, optional = true }
 deno_ast = { workspace = true, optional = true }
 deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
+deno_io = { workspace = true, optional = true }
+deno_error = { workspace = true, optional = true }
 
 postgres-native-tls.workspace = true
 native-tls.workspace = true
@@ -120,3 +123,6 @@ deno_core = { workspace = true, optional = true }
 deno_ast = { workspace = true, optional = true }
 deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
+deno_io = { workspace = true, optional = true }
+deno_runtime = { workspace = true, optional = true }
+deno_telemetry = { workspace = true, optional = true }

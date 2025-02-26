@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO job_logs (job_id, logs)\n                VALUES ($1, $2)\n                ON CONFLICT (job_id) DO UPDATE SET logs = job_logs.logs || '\n' || EXCLUDED.logs\n                WHERE job_logs.job_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ab0d1ba1fbfad31ffb28a01a6c9640d0ac142aabee8d288a4f9c56ad9dbeac4"
+}

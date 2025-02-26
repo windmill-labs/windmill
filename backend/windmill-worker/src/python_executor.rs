@@ -315,6 +315,11 @@ impl PyVersion {
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
                 );
         }
 
@@ -354,6 +359,11 @@ impl PyVersion {
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
                 );
         }
 
@@ -366,6 +376,7 @@ impl PyVersion {
                 "python",
                 "find",
                 self.to_string_with_dot(),
+                "--system",
                 "--python-preference=only-managed",
             ])
             .envs([
@@ -594,6 +605,11 @@ pub async fn uv_pip_compile(
             child_cmd
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+                )
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
@@ -1109,6 +1125,11 @@ mount {{
         {
             python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
             python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            python_cmd.env(
+                "LOCALAPPDATA",
+                std::env::var("LOCALAPPDATA")
+                    .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+            );
         }
 
         start_child_process(python_cmd, &python_path).await?
@@ -1452,15 +1473,6 @@ async fn handle_python_deps(
         }
     };
 
-    let requirements_lines: Vec<&str> = if requirements.len() > 0 {
-        requirements
-            .split("\n")
-            .filter(|x| !x.starts_with("--") && !x.trim().is_empty())
-            .collect()
-    } else {
-        vec![]
-    };
-
     /*
      For deployed scripts we want to find out version in following order:
      1. Assigned version (written in lockfile)
@@ -1471,20 +1483,9 @@ async fn handle_python_deps(
      2. Instance version
      3. Latest Stable
     */
+    let requirements_lines = split_requirements(requirements.as_str());
     let final_version = if is_deployed {
-        // If script is deployed we can try to parse first line to get assigned version
-        if let Some(v) = requirements_lines
-            .get(0)
-            .and_then(|line| PyVersion::parse_version(line))
-        {
-            // We have valid assigned version, we use it
-            v
-        } else {
-            // If there is no assigned version in lockfile we automatically fallback to 3.11
-            // In this case we have dependencies, but no associated python version
-            // This is the case for old deployed scripts
-            PyVersion::Py311
-        }
+        get_pyv_from_requirements_lines(&requirements_lines)
     } else {
         // This is not deployed script, meaning we test run it (Preview)
         annotated_pyv.unwrap_or(instance_pyv)
@@ -1681,6 +1682,11 @@ async fn spawn_uv_install(
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "LOCALAPPDATA",
+                    std::env::var("LOCALAPPDATA")
+                        .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
                 )
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
@@ -2248,6 +2254,29 @@ pub async fn handle_python_reqs(
     };
 }
 
+fn split_requirements(requirements: &str) -> Vec<&str> {
+    requirements
+        .split("\n")
+        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
+        .collect()
+}
+/// Check requirements/lockfile to figure out python version assigned to it.
+fn get_pyv_from_requirements_lines(requirements_lines: &[&str]) -> PyVersion {
+    // If script is deployed we can try to parse first line to get assigned version
+    if let Some(v) = requirements_lines
+        .get(0)
+        .and_then(|line| PyVersion::parse_version(*line))
+    {
+        // We have valid assigned version, we use it
+        v
+    } else {
+        // If there is no assigned version in lockfile we automatically fallback to 3.11
+        // In this case we have dependencies, but no associated python version
+        // This is the case for old deployed scripts
+        PyVersion::Py311
+    }
+}
+
 #[cfg(feature = "enterprise")]
 use crate::JobCompletedSender;
 #[cfg(feature = "enterprise")]
@@ -2418,7 +2447,13 @@ for line in sys.stdin:
     );
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
-    let py_version = PyVersion::from_instance_version().await;
+    let py_version = if let Some(requirements) = requirements_o {
+        get_pyv_from_requirements_lines(&split_requirements(requirements.as_str()))
+    } else {
+        tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
+        PyVersion::Py311
+    };
+
     let python_path = get_python_path(
         py_version,
         worker_name,

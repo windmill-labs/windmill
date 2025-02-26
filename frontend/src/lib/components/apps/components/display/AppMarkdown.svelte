@@ -18,7 +18,7 @@
 	export let render: boolean
 	export let configuration: RichConfigurations
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['mardowncomponent'].initialData.configuration,
@@ -65,13 +65,15 @@
 {#if render}
 	<div
 		on:pointerdown={(e) => {
-			e?.preventDefault()
+			if ($mode != 'preview') {
+				e?.preventDefault()
+			}
 		}}
 		class={classNames(
 			'h-full w-full overflow-y-auto prose max-w-full',
 			resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
 			css?.container?.class,
-			' dark:prose-invert',
+			'dark:prose-invert',
 			'wm-markdown'
 		)}
 		style={css?.container?.style}
@@ -84,14 +86,61 @@
 			{id}
 			bind:initializing
 			bind:result
-		>
-			{#if result}
-				{#key result}
-					<Markdown md={result} plugins={[gfmPlugin()]} />
-				{/key}
-			{/if}
+			>{#if result}{#key result}<Markdown md={result} plugins={[gfmPlugin()]} />{/key}{/if}
 		</RunnableWrapper>
 	</div>
 {:else}
 	<RunnableWrapper {outputs} render={false} autoRefresh {componentInput} {id} />
 {/if}
+
+<style global>
+	.wm-markdown p:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown p:last-child {
+		margin-bottom: 0;
+	}
+
+	.wm-markdown ol:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown ol:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown ul:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown ul:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown li:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown li:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown h1:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown h1:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown h2:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown h2:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown h3:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown h3:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown h4:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown h4:last-child {
+		margin-bottom: 0;
+	}
+</style>

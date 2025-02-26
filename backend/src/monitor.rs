@@ -731,6 +731,22 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting log file: {:?}", e),
     }
 
+    #[cfg(not(feature = "enterprise"))]
+    let audit_retention_secs = 1 * 60 * 60 * 24 * 14;
+
+    #[cfg(feature = "enterprise")]
+    let audit_retention_secs = 1 * 60 * 60 * 24 * 365;
+
+    if let Err(e) = sqlx::query_scalar!(
+        "DELETE FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval",
+        audit_retention_secs,
+    )
+    .fetch_all(db)
+    .await
+    {
+        tracing::error!("Error deleting audit log on CE: {:?}", e);
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {
@@ -1517,18 +1533,38 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+const RESTART_LIMIT: i32 = 3;
+
 async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker_name: &str) {
+    let mut zombie_jobs_uuid_restart_limit_reached = vec![];
+
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-            "WITH zombie_jobs AS (
-                UPDATE v2_job_queue q SET running = false, started_at = null
-                FROM v2_job j, v2_job_runtime r
-                WHERE j.id = q.id AND j.id = r.id
-                    AND ping < now() - ($1 || ' seconds')::interval
+            "WITH to_update AS (
+                SELECT q.id, q.workspace_id, r.ping, COALESCE(zjc.counter, 0) as counter
+                FROM v2_job_queue q
+                JOIN v2_job j ON j.id = q.id
+                JOIN v2_job_runtime r ON r.id = j.id
+                LEFT JOIN zombie_job_counter zjc ON zjc.job_id = q.id
+                WHERE ping < now() - ($1 || ' seconds')::interval
                     AND running = true
                     AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')
                     AND same_worker = false
-                RETURNING q.id, q.workspace_id, ping
+                    AND (zjc.counter IS NULL OR zjc.counter <= $2)
+                FOR UPDATE of q SKIP LOCKED
+            ),
+            zombie_jobs AS (
+                UPDATE v2_job_queue q
+                SET running = false, started_at = null
+                FROM to_update tu
+                WHERE q.id = tu.id AND (tu.counter IS NULL OR tu.counter < $2)
+                RETURNING q.id, q.workspace_id, ping, tu.counter
+            ),
+            increment_counter AS (
+                INSERT INTO zombie_job_counter (job_id, counter)
+                SELECT id, 1 FROM to_update WHERE counter < $2
+                ON CONFLICT (job_id) DO UPDATE 
+                SET counter = zombie_job_counter.counter + 1
             ),
             update_concurrency AS (
                 UPDATE concurrency_counter cc
@@ -1537,8 +1573,9 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 INNER JOIN concurrency_key ck ON ck.job_id = zj.id
                 WHERE cc.concurrency_id = ck.key
             )
-            SELECT id, workspace_id, ping FROM zombie_jobs",
+            SELECT id AS \"id!\", workspace_id AS \"workspace_id!\", ping, counter + 1 AS counter FROM to_update",
             *ZOMBIE_JOB_TIMEOUT,
+            RESTART_LIMIT
         )
         .fetch_all(db)
         .await
@@ -1558,22 +1595,61 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 "no last ping".to_string()
             };
             let url = format!("{}/run/{}?workspace={}", base_url, r.id, r.workspace_id,);
-            let error_message = format!(
-                "Zombie job {} on {} ({}) detected, restarting it, {}",
-                r.id, r.workspace_id, url, last_ping
-            );
+            let restart = r.counter.is_none_or(|x| x < RESTART_LIMIT);
+            let (critical_error_message, restart_message) = if restart {
+                (
+                        format!(
+                        "Zombie job {} on {} ({}) detected, restarting it ({}/{} attempts), last ping: {}",
+                        r.id,
+                        r.workspace_id,
+                        url,
+                        r.counter.unwrap_or(0) + 1,
+                        RESTART_LIMIT,
+                        last_ping
+                    ),
+                    format!(
+                        "Restarted job after not receiving job's ping for too long the {} ({}/{} attempts)\n\n",
+                        last_ping,
+                        r.counter.unwrap_or(0) + 1,
+                        RESTART_LIMIT
+                    )
+                )
+            } else {
+                (
+                        format!(
+                        "Zombie job {} on {} ({}) detected, but restart limit ({}) reached, job will be processed as an error, last ping: {}",
+                        r.id, r.workspace_id, url, RESTART_LIMIT, last_ping
+                    ),
+                    format!(
+                        "job's ping was received last at {}, job will be processed as an error since all {} restart attempts failed",
+                        last_ping, RESTART_LIMIT
+                    )
+                )
+            };
 
-            let _ = sqlx::query!("
+            let _ = sqlx::query!(
+                "
                 INSERT INTO job_logs (job_id, logs)
-                VALUES ($1, 'Restarted job after not receiving job''s ping for too long the ' || now() || '\n\n')
+                VALUES ($1, $2)
                 ON CONFLICT (job_id) DO UPDATE SET logs = job_logs.logs || '\n' || EXCLUDED.logs
                 WHERE job_logs.job_id = $1",
-                r.id
+                r.id,
+                restart_message
             )
             .execute(db)
             .await;
-            tracing::error!(error_message);
-            report_critical_error(error_message, db.clone(), Some(&r.workspace_id), None).await;
+            tracing::error!(critical_error_message);
+            report_critical_error(
+                critical_error_message,
+                db.clone(),
+                Some(&r.workspace_id),
+                None,
+            )
+            .await;
+
+            if !restart {
+                zombie_jobs_uuid_restart_limit_reached.push(r.id);
+            }
         }
     }
 
@@ -1648,9 +1724,43 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             .unwrap_or_else(|| vec![])
     };
 
+    enum ErrorMessage {
+        RestartLimit,
+        SameWorker,
+        RestartDisabled,
+    }
+
+    impl ErrorMessage {
+        fn to_string(&self) -> String {
+            match self {
+                ErrorMessage::RestartLimit => format!("RestartLimit ({})", RESTART_LIMIT),
+                ErrorMessage::SameWorker => "SameWorker".to_string(),
+                ErrorMessage::RestartDisabled => "RestartDisabled".to_string(),
+            }
+        }
+    }
+
+    let zombie_jobs_restart_limit_reached =
+        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
+            .bind(&zombie_jobs_uuid_restart_limit_reached[..])
+            .fetch_all(db)
+            .await
+            .ok()
+            .unwrap_or_else(|| vec![]);
+
     let timeouts = non_restartable_jobs
         .into_iter()
-        .chain(same_worker_timeout_jobs)
+        .map(|x| (x, ErrorMessage::RestartDisabled))
+        .chain(
+            same_worker_timeout_jobs
+                .into_iter()
+                .map(|x| (x, ErrorMessage::SameWorker)),
+        )
+        .chain(
+            zombie_jobs_restart_limit_reached
+                .into_iter()
+                .map(|x| (x, ErrorMessage::RestartLimit)),
+        )
         .collect::<Vec<_>>();
 
     #[cfg(feature = "prometheus")]
@@ -1658,7 +1768,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     }
 
-    for job in timeouts {
+    for (job, error_kind) in timeouts {
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) =
             mpsc::channel::<SameWorkerPayload>(1);
@@ -1693,20 +1803,21 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         };
 
         let last_ping = job.last_ping.clone();
+        let error_message = format!(
+            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?})",
+            last_ping
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "no ping".to_string()),
+            *ZOMBIE_JOB_TIMEOUT,
+            error_kind.to_string()
+        );
         let _ = handle_job_error(
             db,
             &client,
             &job,
             0,
             None,
-            error::Error::ExecutionErr(format!(
-                "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, same_worker: {})",
-                last_ping
-                    .map(|x| x.to_string())
-                    .unwrap_or_else(|| "no ping".to_string()),
-                *ZOMBIE_JOB_TIMEOUT,
-                job.same_worker
-            )),
+            error::Error::ExecutionErr(error_message),
             true,
             same_worker_tx_never_used,
             "",

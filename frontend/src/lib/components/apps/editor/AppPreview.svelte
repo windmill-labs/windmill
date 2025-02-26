@@ -126,7 +126,11 @@
 
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: worldStore,
-		initialized: writable({ initialized: false, initializedComponents: [] }),
+		initialized: writable({
+			initialized: false,
+			initializedComponents: [],
+			runnableInitialized: {}
+		}),
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,
