@@ -95,7 +95,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust
+            features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust,nu
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
@@ -158,7 +158,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust,nu
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
