@@ -71,7 +71,6 @@ class LanguageServerWebSocketHandler(websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
 
-
 class PyrightLS(LanguageServerWebSocketHandler):
     procargs = ["pipenv", "run", "pyright-langserver", "--stdio"]
 
@@ -86,11 +85,6 @@ class DenoLS(LanguageServerWebSocketHandler):
 
 class GoLS(LanguageServerWebSocketHandler):
     procargs = ["gopls", "serve"]
-
-class NuLS(LanguageServerWebSocketHandler):
-    # procargs = ["nu", "--lsp", "--stdio"]
-    procargs = ["pipenv", "run", "pyright-langserver", "--stdio"]
-
 
 class MainHandler(web.RequestHandler):
     def get(self):
@@ -113,7 +107,6 @@ if __name__ == "__main__":
             (r"/ws/ruff", RuffLS),
             (r"/ws/deno", DenoLS),
             (r"/ws/go", GoLS),
-            (r"/ws/nu", NuLS),
             (r"/", MainHandler),
             (r"/health", MainHandler),
         ]

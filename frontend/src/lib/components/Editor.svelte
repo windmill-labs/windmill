@@ -203,7 +203,6 @@
 		deno: false,
 		go: false,
 		shellcheck: false,
-		nu: false
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -992,13 +991,6 @@
 					},
 					undefined
 				)
-			} else if (lang === 'nu') {
-				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/nu`,
-					'nu',
-					{},
-					undefined
-				)
 			} else {
 				closeWebsockets()
 			}
@@ -1016,7 +1008,6 @@
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
-							!websocketAlive.nu &&
 							scriptLang != 'bun'
 						) {
 							console.log('reconnecting to language servers')
@@ -1197,7 +1188,6 @@
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
-				!websocketAlive.nu &&
 				!websocketInterval &&
 				scriptLang != 'bun'
 			) {
