@@ -116,10 +116,13 @@
 	if (!(initializing && componentInput?.type === 'runnable' && isRunnableDefined(componentInput))) {
 		initializing = false
 	} else {
-		initializing =
-			initializing == undefined && Object.keys($initialized?.runnableInitialized ?? {}).includes(id)
-				? false
-				: undefined
+		if (
+			(initializing == undefined || initializing == true) &&
+			Object.keys($initialized?.runnableInitialized ?? {}).includes(id)
+		) {
+			initializing = false
+		}
+
 		if (result == undefined && !initializing) {
 			result = $initialized.runnableInitialized?.[id]
 		}
@@ -291,9 +294,12 @@
 		on:argsChanged
 		on:resultSet={(e) => {
 			const res = e.detail
-			if (initializing !== false) {
+			if ($initialized?.runnableInitialized?.[id] === undefined) {
 				console.log('resultSet', id)
-				$initialized.runnableInitialized = { ...$initialized.runnableInitialized, [id]: res }
+				$initialized.runnableInitialized = {
+					...($initialized.runnableInitialized ?? {}),
+					[id]: res
+				}
 			}
 
 			initializing = false
