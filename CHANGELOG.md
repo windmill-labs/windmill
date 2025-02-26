@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.471.1](https://github.com/windmill-labs/windmill/compare/v1.471.0...v1.471.1) (2025-02-26)
+
+
+### Bug Fixes
+
+* update to rust 1.86.0 ([3ada264](https://github.com/windmill-labs/windmill/commit/3ada264c4ad49f666c3a053eb48c7df294bf085b))
+
+## [1.471.0](https://github.com/windmill-labs/windmill/compare/v1.470.1...v1.471.0) (2025-02-26)
+
+
+### Features
+
+* add support for claude sonnet 3.7 thinking ([#5387](https://github.com/windmill-labs/windmill/issues/5387)) ([487d84b](https://github.com/windmill-labs/windmill/commit/487d84bd7fdc39a2401df4108fca6183189cf38a))
+
+
+### Bug Fixes
+
+* **frontend:** improve pagination handling and filter refreshes ([#5378](https://github.com/windmill-labs/windmill/issues/5378)) ([a85ebfb](https://github.com/windmill-labs/windmill/commit/a85ebfbbf48590812c0931ad93179c322f819849))
+
 ## [1.470.1](https://github.com/windmill-labs/windmill/compare/v1.470.0...v1.470.1) (2025-02-26)
 
 

@@ -418,20 +418,29 @@
 							</ToggleButtonGroup>
 
 							<div class="min-w-0">
-								{#if $copilotInfo.ai_models.length > 1}
-									<select
-										bind:value={$copilotSessionModel}
-										class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
-									>
-										{#each $copilotInfo.ai_models as model}
-											<option value={model} class="pr-4">{model}</option>
-										{/each}
-									</select>
-								{:else if $copilotInfo.ai_models.length === 1}
-									<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
-										{$copilotInfo.ai_models[0]}
-									</div>
-								{/if}
+								<TooltipV2>
+									{#if $copilotInfo.ai_models.length > 1}
+										<select
+											bind:value={$copilotSessionModel}
+											class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
+										>
+											{#each $copilotInfo.ai_models as model}
+												<option value={model} class="pr-4">{model}</option>
+											{/each}
+										</select>
+									{:else if $copilotInfo.ai_models.length === 1}
+										<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
+											{$copilotInfo.ai_models[0]}
+										</div>
+									{/if}
+									<svelte:fragment slot="text">
+										<span class="text-xs"
+											>{$copilotInfo.ai_models.length > 1
+												? $copilotSessionModel
+												: $copilotInfo.ai_models[0]}</span
+										>
+									</svelte:fragment>
+								</TooltipV2>
 							</div>
 						</div>
 						<div class="flex w-96 items-start">

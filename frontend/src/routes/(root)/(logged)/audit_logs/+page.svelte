@@ -18,6 +18,7 @@
 	let username: string = $page.url.searchParams.get('username') ?? 'all'
 	let pageIndex: number | undefined = Number($page.url.searchParams.get('page')) || 0
 	let before: string | undefined = $page.url.searchParams.get('before') ?? undefined
+	let hasMore: boolean = false
 	let after: string | undefined = $page.url.searchParams.get('after') ?? undefined
 	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || 100
 	let operation: string = $page.url.searchParams.get('operation') ?? 'all'
@@ -61,6 +62,7 @@
 						bind:pageIndex
 						bind:perPage
 						bind:scope
+						bind:hasMore
 					/>
 				</div>
 				<div class="2xl:hidden">
@@ -75,6 +77,7 @@
 								bind:operation
 								bind:resource
 								bind:scope
+								bind:hasMore
 							/>
 						</svelte:fragment>
 					</AuditLogMobileFilters>
@@ -100,6 +103,7 @@
 						bind:operation
 						bind:usernameFilter={username}
 						bind:resourceFilter={resource}
+						bind:hasMore
 						on:select={(e) => {
 							selectedId = e.detail
 						}}
@@ -114,6 +118,7 @@
 		<div class="md:hidden">
 			<AuditLogsTable
 				{logs}
+				bind:hasMore
 				bind:pageIndex
 				bind:perPage
 				bind:actionKind
