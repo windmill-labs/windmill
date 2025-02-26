@@ -543,7 +543,7 @@
 	}
 
 	async function setResult(res: any, jobId: string | undefined) {
-		dispatch('resultSet')
+		dispatch('resultSet', res)
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -600,6 +600,7 @@
 			cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 				let rejectCb: (err: Error) => void
 				let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
+					dispatch('recompute')
 					rejectCb = reject
 					executeComponent(true, inlineScript, setRunnableJobEditorPanel, undefined, {
 						done: (x) => {

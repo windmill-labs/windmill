@@ -451,7 +451,7 @@ const buttonColorOptions = [...BUTTON_COLORS]
 export const selectOptions = {
 	buttonColorOptions,
 	tabsKindOptions: ['tabs', 'sidebar', 'accordion', 'invisibleOnView'],
-	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
+	buttonSizeOptions: ['xs2', 'xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
 	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
 	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
@@ -4157,7 +4157,22 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				defaultRefreshInterval: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: [
+						{ value: '0', label: 'Once' },
+						{ value: '5', label: 'Every 5 seconds' },
+						{ value: '10', label: 'Every 10 seconds' },
+						{ value: '15', label: 'Every 15 seconds' },
+						{ value: '20', label: 'Every 20 seconds' },
+						{ value: '25', label: 'Every 25 seconds' },
+						{ value: '30', label: 'Every 30 seconds' }
+					],
+					value: '0'
+				}
+			},
 			menuItems: true
 		}
 	}
