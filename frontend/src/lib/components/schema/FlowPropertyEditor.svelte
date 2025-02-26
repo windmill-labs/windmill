@@ -181,9 +181,14 @@
 <div class="flex flex-col gap-2">
 	{#if type === 'object' && schema.oneOf && schema.oneOf.length >= 2}
 		<div class="flex flex-row gap-1 items-center justify-start">
-			<ToggleButtonGroup bind:selected={oneOfSelected} class="w-auto" tabListClass="flex-wrap">
+			<ToggleButtonGroup
+				bind:selected={oneOfSelected}
+				class="h-auto w-auto"
+				tabListClass="flex-wrap"
+				let:item
+			>
 				{#each schema.oneOf as obj}
-					<ToggleButton value={obj.title} label={obj.title} />
+					<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 				{/each}
 			</ToggleButtonGroup>
 

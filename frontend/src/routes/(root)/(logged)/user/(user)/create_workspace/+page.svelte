@@ -233,8 +233,8 @@
 			{/if}
 		</label>
 	{/if}
-	<label class="block pb-4">
-		<div class="flex flex-col gap-1">
+	<div class="block pb-4">
+		<label for="ai-key" class="flex flex-col gap-1">
 			<span class="text-secondary text-sm">
 				AI key for Windmill AI
 				<Tooltip>
@@ -246,19 +246,22 @@
 				</Tooltip>
 				<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
 			</span>
+
 			<div class="pb-2">
-				<ToggleButtonGroup bind:selected>
-					<ToggleButton value="openai" label="OpenAI" />
-					<ToggleButton value="anthropic" label="Anthropic" />
-					<ToggleButton value="mistral" label="Mistral" />
-					<ToggleButton value="deepseek" label="DeepSeek" />
-					<ToggleButton value="groq" label="Groq" />
-					<ToggleButton value="openrouter" label="OpenRouter" />
+				<ToggleButtonGroup bind:selected let:item>
+					<ToggleButton value="openai" label="OpenAI" {item} />
+					<ToggleButton value="anthropic" label="Anthropic" {item} />
+					<ToggleButton value="mistral" label="Mistral" {item} />
+					<ToggleButton value="deepseek" label="DeepSeek" {item} />
+					<ToggleButton value="groq" label="Groq" {item} />
+					<ToggleButton value="openrouter" label="OpenRouter" {item} />
 				</ToggleButtonGroup>
 			</div>
-		</div>
+		</label>
+
 		<div class="flex flex-row gap-1 pb-4">
 			<input
+				id="ai-key"
 				type="password"
 				autocomplete="new-password"
 				bind:value={aiKey}
@@ -278,7 +281,7 @@
 				options={{ right: 'Enable code completion' }}
 			/>
 		{/if}
-	</label>
+	</div>
 	<Toggle
 		disabled={isCloudHosted() && !isDomainAllowed}
 		bind:checked={auto_invite}
@@ -304,9 +307,10 @@
 			on:selected={(e) => {
 				operatorOnly = e.detail == 'operator'
 			}}
+			let:item
 		>
-			<ToggleButton value="operator" size="xs" label="Operator" />
-			<ToggleButton value="developer" size="xs" label="Developer" />
+			<ToggleButton value="operator" size="xs" label="Operator" {item} />
+			<ToggleButton value="developer" size="xs" label="Developer" {item} />
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">

@@ -140,15 +140,15 @@
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-					)
+				  )
 				: triggers?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-					)
+				  )
 			: triggers?.filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				)
+			  )
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -158,10 +158,10 @@
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-				).sort()
+			  ).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-				).sort()
+			  ).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -230,9 +230,9 @@
 			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
-				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="SQS trigger" icon={Database} />
-					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+				<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+					<ToggleButton small value="trigger" label="SQS trigger" icon={Database} {item} />
+					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 				</ToggleButtonGroup>
 			</div>
 			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
@@ -337,7 +337,7 @@
 										? { icon: Pen }
 										: {
 												icon: Eye
-											}}
+										  }}
 									color="dark"
 								>
 									{canWrite ? 'Edit' : 'View'}

@@ -56,6 +56,7 @@
 				}}
 				noWFull
 				bind:selected={componentInput.type}
+				let:item
 			>
 				{#if componentInput.fieldType === 'template'}
 					{#if componentInput.type == 'template'}
@@ -65,6 +66,7 @@
 							disabled={disableStatic}
 							icon={CurlyBraces}
 							label="Template"
+							{item}
 						/>
 					{:else}
 						<ToggleButton
@@ -73,6 +75,7 @@
 							disabled={disableStatic}
 							icon={CurlyBraces}
 							label="Template"
+							{item}
 						/>
 					{/if}
 				{:else if componentInput.noStatic !== true}
@@ -82,6 +85,7 @@
 						disabled={disableStatic}
 						iconOnly={clientWidth < iconOnlyThreshold}
 						icon={Pen}
+						{item}
 					/>
 				{/if}
 				{#if componentInput.type == 'connected'}
@@ -90,6 +94,7 @@
 						icon={Plug2}
 						iconOnly={clientWidth < iconOnlyThreshold}
 						label="Connect"
+						{item}
 					/>
 				{/if}
 				<ToggleButton
@@ -97,6 +102,7 @@
 					icon={FunctionSquare}
 					iconOnly={clientWidth < iconOnlyThreshold}
 					label="Eval"
+					{item}
 				/>
 
 				<ToggleButton
@@ -104,6 +110,7 @@
 					icon={Code}
 					iconOnly={clientWidth < iconOnlyThreshold}
 					label="Compute"
+					{item}
 					id="data-source-compute"
 				/>
 			</ToggleButtonGroup>

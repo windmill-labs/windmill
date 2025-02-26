@@ -193,9 +193,9 @@
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
 						{:else if type == 'object' && oneOf && oneOf.length >= 2 && !isFlowInput && !isAppInput}
-							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
+							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2" let:item>
 								{#each oneOf as obj}
-									<ToggleButton value={obj.title} label={obj.title} />
+									<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 								{/each}
 							</ToggleButtonGroup>
 							{#if oneOfSelected && oneOfSchemas}

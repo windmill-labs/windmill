@@ -18,6 +18,7 @@
 		jobsById.set({})
 		jobs.set([])
 	}}
+	let:item
 >
 	<ToggleButton
 		label="Editor"
@@ -26,6 +27,7 @@
 		disabled={loading}
 		iconProps={{ size: 16 }}
 		class="gap-2"
+		{item}
 	/>
 	<ToggleButton
 		label="Preview"
@@ -36,5 +38,6 @@
 		id="app-editor-preview-toggle"
 		iconProps={{ size: 16 }}
 		class="gap-2"
+		{item}
 	/>
 </ToggleButtonGroup>

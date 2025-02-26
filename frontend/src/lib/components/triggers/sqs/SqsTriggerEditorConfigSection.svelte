@@ -110,18 +110,20 @@
 			>
 				<div class="mt-2">
 					<ToggleButtonGroup
-						bind:selected={tab}
-						on:selected={() => {
-							if (tab === 'all') {
+						selected={tab}
+						on:selected={({ detail }) => {
+							if (detail === 'all') {
 								cached = message_attributes
 								message_attributes = ['All']
 							} else {
 								message_attributes = cached
 							}
+							tab = detail
 						}}
+						let:item
 					>
-						<ToggleButton value="all" label="All attributes" />
-						<ToggleButton value="specific" label="Specific attributes" />
+						<ToggleButton value="all" label="All attributes" {item} />
+						<ToggleButton value="specific" label="Specific attributes" {item} />
 					</ToggleButtonGroup>
 				</div>
 				<div class="flex flex-col mt-3 gap-1">

@@ -244,9 +244,9 @@
 				/>
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind}>
-						<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+						<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} {item} />
+						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />

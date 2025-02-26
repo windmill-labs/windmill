@@ -68,12 +68,13 @@
 	{:else}{#if !failureModule && !preprocessorModule}
 			<div class="center-center">
 				<div class="max-w-min">
-					<ToggleButtonGroup bind:selected={kind}>
+					<ToggleButtonGroup bind:selected={kind} let:item>
 						<ToggleButton
 							value="script"
 							icon={Code}
 							label="Action"
 							tooltip="An action script is simply a script that is neither a trigger nor an approval script. Those are the majority of the scripts."
+							{item}
 						/>
 						{#if !shouldDisableTriggerScripts}
 							<ToggleButton
@@ -81,6 +82,7 @@
 								icon={Zap}
 								label="Trigger"
 								tooltip="Used as a first step most commonly with a state and a schedule to watch for changes on an external system, compute the diff since last time and set the new state. The diffs are then treated one by one with a for-loop."
+								{item}
 							/>
 						{/if}
 						<ToggleButton
@@ -88,6 +90,7 @@
 							icon={Check}
 							label="Approval"
 							tooltip="An approval step will suspend the execution of a flow until it has been approved through the resume endpoints or the approval page by and solely by the recipients of those secret urls."
+							{item}
 						/>
 					</ToggleButtonGroup>
 				</div>

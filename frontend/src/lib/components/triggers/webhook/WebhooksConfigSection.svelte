@@ -308,26 +308,29 @@ done`
 			<div class="flex flex-row justify-between">
 				<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div
 				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType}>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} let:item>
 					<ToggleButton
 						label="Async"
 						value="async"
 						tooltip="The returning value is the uuid of the job assigned to execute the job."
+						{item}
 					/>
 					<ToggleButton
 						label="Sync"
 						value="sync"
 						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+						{item}
 					/>
 				</ToggleButtonGroup>
 			</div>
 			<div class="flex flex-row justify-between">
 				<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
 					<ToggleButton
 						label="POST by path"
 						value="path"
 						icon={ArrowUpRight}
+						{item}
 						selectedColor="#fb923c"
 					/>
 					{#if !isFlow}
@@ -337,6 +340,7 @@ done`
 							icon={ArrowUpRight}
 							selectedColor="#fb923c"
 							disabled={!hash}
+							{item}
 						/>
 					{/if}
 
@@ -345,6 +349,7 @@ done`
 						value="get_path"
 						icon={ArrowDownRight}
 						disabled={webhookType !== 'sync'}
+						{item}
 						selectedColor="#14b8a6"
 					/>
 				</ToggleButtonGroup>
@@ -353,9 +358,9 @@ done`
 				<div class="text-sm font-normal text-secondary flex flex-row items-center"
 					>Token configuration</div
 				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
-					<ToggleButton label="Token in Headers" value="headers" />
-					<ToggleButton label="Token in Query" value="query" />
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType} let:item>
+					<ToggleButton label="Token in Headers" value="headers" {item} />
+					<ToggleButton label="Token in Query" value="query" {item} />
 				</ToggleButtonGroup>
 			</div>
 		</div>

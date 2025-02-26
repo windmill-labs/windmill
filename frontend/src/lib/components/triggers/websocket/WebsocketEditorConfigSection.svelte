@@ -102,9 +102,10 @@
 					url = ev.detail === 'runnable' ? '$script:' : ''
 					url_runnable_args = {}
 				}}
+				let:item
 			>
-				<ToggleButton value="static" label="Static URL" />
-				<ToggleButton value="runnable" label="Runnable result as URL" />
+				<ToggleButton value="static" label="Static URL" {item} />
+				<ToggleButton value="runnable" label="Runnable result as URL" {item} />
 			</ToggleButtonGroup>
 		</div>
 		{#if url?.startsWith('$')}

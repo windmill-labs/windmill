@@ -133,9 +133,16 @@
 					disableVariablePicker = undefined
 				}
 			}}
+			let:item
 		>
 			{#each FIELD_SETTINGS as x}
-				<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
+				<ToggleButton
+					value={x[1]}
+					label={x[0]}
+					tooltip={x[2]}
+					showTooltipIcon={Boolean(x[2])}
+					{item}
+				/>
 			{/each}
 		</ToggleButtonGroup>
 	{/if}

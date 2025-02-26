@@ -124,27 +124,31 @@
 								{/if}
 								{#if quickStyleProperties?.length}
 									<ToggleButtonGroup
-										bind:selected={richEditorOpen}
-										on:selected={() => {
+										selected={richEditorOpen ? 'true' : 'false'}
+										on:selected={({ detail }) => {
+											richEditorOpen = detail === 'true'
 											if (richEditorOpen !== isQuickMenuOpen) {
 												toggleQuickMenu()
 												richEditorOpen = isQuickMenuOpen
 											}
 										}}
+										let:item
 									>
 										<ToggleButton
 											small
 											light
-											value={false}
+											value={'false'}
 											icon={Code}
 											tooltip="Edit the CSS directly"
+											{item}
 										/>
 										<ToggleButton
 											small
 											light
-											value={true}
+											value={'true'}
 											icon={Paintbrush2}
 											tooltip="Open the rich editor to style the component with a visual interface"
+											{item}
 										/>
 									</ToggleButtonGroup>
 								{/if}

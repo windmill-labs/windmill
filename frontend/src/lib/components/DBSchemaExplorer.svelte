@@ -53,6 +53,12 @@
 	$: dbSchema = resourcePath && resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 
 	$: shouldDisplayError = resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
+
+	function handleSelected({ detail }: CustomEvent<string>) {
+		if (dbSchema && dbSchema.lang !== 'graphql') {
+			dbSchema.publicOnly = detail === 'dbo'
+		}
+	}
 </script>
 
 {#if loading}
@@ -86,9 +92,14 @@
 				</Button>
 			</svelte:fragment>
 			{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
-				<ToggleButtonGroup class="mb-4" bind:selected={dbSchema.publicOnly}>
-					<ToggleButton value={true} label={dbSchema.schema.dbo ? 'Dbo' : 'Public'} />
-					<ToggleButton value={false} label="All" />
+				<ToggleButtonGroup
+					class="mb-4"
+					selected={dbSchema.publicOnly ? 'dbo' : 'all'}
+					on:selected={handleSelected}
+					let:item
+				>
+					<ToggleButton value="dbo" label={dbSchema.schema.dbo ? 'Dbo' : 'Public'} {item} />
+					<ToggleButton value="all" label="All" {item} />
 				</ToggleButtonGroup>
 			{/if}
 			{#if dbSchema.lang === 'graphql'}
