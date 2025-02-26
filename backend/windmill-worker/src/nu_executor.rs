@@ -1,7 +1,6 @@
 use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
-use regex::Regex;
 use serde_json::value::RawValue;
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
 use windmill_common::{error::Error, jobs::QueuedJob, worker::write_file};
