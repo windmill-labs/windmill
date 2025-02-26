@@ -543,7 +543,7 @@
 	}
 
 	async function setResult(res: any, jobId: string | undefined) {
-		dispatch('resultSet')
+		dispatch('resultSet', res)
 		const errors = getResultErrors(res)
 
 		if (errors) {
