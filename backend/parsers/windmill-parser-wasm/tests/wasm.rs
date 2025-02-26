@@ -4,6 +4,7 @@ use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 use windmill_parser_bash::parse_powershell_sig;
 use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids, parse_expr_for_imports};
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_deno_sig() -> anyhow::Result<()> {
     let code = "
@@ -146,6 +147,8 @@ export function main(test1?: string, test2: string = \"burkina\",
 
     Ok(())
 }
+
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_deno_sig_implicit_types() -> anyhow::Result<()> {
     let code = "
@@ -224,6 +227,7 @@ export function main(test2 = \"burkina\",
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_deno_types() -> anyhow::Result<()> {
     let code = "
@@ -274,6 +278,7 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_enum_list() -> anyhow::Result<()> {
     let code = "
@@ -305,6 +310,7 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_extract_ident() -> anyhow::Result<()> {
     let code = "
@@ -324,6 +330,7 @@ fn test_parse_extract_ident() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_imports() -> anyhow::Result<()> {
     let code = "
@@ -347,6 +354,7 @@ fn test_parse_imports() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_imports_dts() -> anyhow::Result<()> {
     let code = "
@@ -359,6 +367,7 @@ export type foo = number
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_powershell_sig() -> anyhow::Result<()> {
     let code = "
