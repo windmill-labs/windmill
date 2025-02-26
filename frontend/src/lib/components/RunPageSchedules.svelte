@@ -37,7 +37,8 @@
 			primarySchedule,
 			initialPrimarySchedule,
 			$workspaceStore ?? '',
-			triggersCount
+			triggersCount,
+			true
 		)
 	}
 
