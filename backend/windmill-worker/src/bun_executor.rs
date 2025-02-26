@@ -107,13 +107,13 @@ pub async fn gen_bun_lockfile(
     raw_deps: Option<String>,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    has_bunfig: bool,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
     let mut empty_deps = false;
 
     if let Some(raw_deps) = raw_deps {
-        gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", raw_deps.as_str())?;
     } else {
         let _ = write_file(
@@ -136,8 +136,6 @@ pub async fn gen_bun_lockfile(
                     .replace("RAW_GET_ENDPOINT", "raw")
             ),
         )?;
-
-        gen_bunfig(job_dir).await?;
 
         let mut child_cmd = Command::new(&*BUN_PATH);
         child_cmd
@@ -192,6 +190,7 @@ pub async fn gen_bun_lockfile(
             common_bun_proc_envs,
             npm_mode,
             occupancy_metrics,
+            has_bunfig,
         )
         .await?;
     } else {
@@ -231,7 +230,7 @@ pub async fn gen_bun_lockfile(
     }
 }
 
-async fn gen_bunfig(job_dir: &str) -> Result<()> {
+pub async fn gen_bunfig(job_dir: &str) -> Result<bool> {
     let registry = NPM_CONFIG_REGISTRY.read().await.clone();
     let bunfig_install_scopes = BUNFIG_INSTALL_SCOPES.read().await.clone();
     if registry.is_some() || bunfig_install_scopes.is_some() {
@@ -263,9 +262,11 @@ registry = {}
                 .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
-        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml)?;
+        write_file(&job_dir, "bunfig.toml", &bunfig_toml)?;
+        Ok(true)
+    } else {
+        Ok(false)
     }
-    Ok(())
 }
 
 pub async fn install_bun_lockfile(
@@ -279,6 +280,7 @@ pub async fn install_bun_lockfile(
     common_bun_proc_envs: HashMap<String, String>,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    has_bunfig: bool,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
     child_cmd
@@ -799,6 +801,7 @@ pub async fn handle_bun_job(
     shared_mount: &str,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    has_bunfig: bool,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
@@ -891,6 +894,7 @@ pub async fn handle_bun_job(
                 common_bun_proc_envs.clone(),
                 annotation.npm,
                 &mut Some(occupancy_metrics),
+                has_bunfig,
             )
             .await?;
         }
@@ -913,6 +917,7 @@ pub async fn handle_bun_job(
             None,
             annotation.npm,
             &mut Some(occupancy_metrics),
+            has_bunfig,
         )
         .await?;
 
@@ -1545,6 +1550,7 @@ pub async fn start_worker(
                 common_bun_proc_envs.clone(),
                 annotation.npm,
                 &mut None,
+                has_bunfig,
             )
             .await?;
             tracing::info!("dedicated worker requirements installed: {reqs}");
@@ -1566,6 +1572,7 @@ pub async fn start_worker(
             None,
             annotation.npm,
             &mut None,
+            has_bunfig,
         )
         .await?;
     }

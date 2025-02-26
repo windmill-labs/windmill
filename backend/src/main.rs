@@ -800,10 +800,20 @@ Windmill Community Edition {GIT_VERSION}
                                                     reload_instance_python_version_setting(&db).await
                                                 },
                                                 NPM_CONFIG_REGISTRY_SETTING => {
-                                                    reload_npm_config_registry_setting(&db).await
+                                                    if worker_mode {
+                                                        tracing::info!("NPM config registry setting changed, restarting");
+                                                        send_delayed_killpill(&tx, 5, "npm config registry setting change").await;
+                                                    } else {
+                                                        reload_npm_config_registry_setting(&db).await
+                                                    }
                                                 },
                                                 BUNFIG_INSTALL_SCOPES_SETTING => {
-                                                    reload_bunfig_install_scopes_setting(&db).await
+                                                    if worker_mode {
+                                                        tracing::info!("Bunfig install scopes setting changed, restarting");
+                                                        send_delayed_killpill(&tx, 5, "bunfig install scopes setting change").await;
+                                                    } else {
+                                                        reload_bunfig_install_scopes_setting(&db).await
+                                                    }
                                                 },
                                                 NUGET_CONFIG_SETTING => {
                                                     reload_nuget_config_setting(&db).await

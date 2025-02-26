@@ -822,12 +822,17 @@ pub async fn run_worker(
         .expect("could not create initial worker dir");
 
     if !*DISABLE_NSJAIL {
-        let _ = write_file(
+        write_file(
             &worker_dir,
             "download_deps.py.sh",
             INCLUDE_DEPS_PY_SH_CONTENT,
-        );
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to write download_deps.py.sh: {e}"))?;
     }
+
+    let has_bunfig = crate::bun_executor::gen_bunfig(&worker_dir)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to generate bunfig: {e}"))?;
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
@@ -2723,6 +2728,7 @@ mount {{
                 &shared_mount,
                 new_args,
                 occupancy_metrics,
+                has_bunfig,
             )
             .await
         }
