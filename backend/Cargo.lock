@@ -14573,7 +14573,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.470.1"
+version = "1.471.0"
 dependencies = [
  "anyhow",
  "nu-cmd-lang",
