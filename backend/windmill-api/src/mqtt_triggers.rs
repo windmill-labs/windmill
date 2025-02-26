@@ -307,12 +307,12 @@ impl<'client> MqttClientBuilder<'client> {
 
     fn get_tls_configuration(&self) -> Result<Option<Transport>, Error> {
         let transport = match self.mqtt_resource.tls {
-            Some(ref tls) if !tls.ca_certificate.is_empty() => {
+            Some(ref tls) if !tls.ca_certificate.trim().is_empty() => {
                 let transport = rumqttc::Transport::Tls(TlsConfiguration::SimpleNative {
                     ca: tls.ca_certificate.as_bytes().to_vec(),
                     client_auth: {
                         match tls.pkcs12_client_certificate.as_ref() {
-                            Some(client_certificate) => {
+                            Some(client_certificate) if !client_certificate.trim().is_empty() => {
                                 let client_certificate =
                                     BASE64_STANDARD.decode(client_certificate)?;
                                 let password = tls
