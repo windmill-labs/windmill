@@ -293,7 +293,7 @@
 		if ((input.type === 'template' || input.type == 'templatev2') && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
-					'`' + input.eval + '`',
+					'`' + input.eval.replaceAll('`', '\\`') + '`',
 					computeGlobalContext($worldStore, fullContext),
 					$state,
 					$mode == 'dnd',
