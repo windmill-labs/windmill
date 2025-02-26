@@ -56,6 +56,7 @@ sed -i 's/"windmill-parser-wasm"/"windmill-parser-wasm-csharp"/' $OUT_DIR/packag
 
 #-# Nu
 OUT_DIR="pkg-nu"
-CFLAGS_wasm32_unknown_unknown="-I$(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin" RUSTFLAGS="-Zwasm-c-abi=spec" wasm-pack build --release --target web --out-dir $OUT_DIR --features "nu-parser"
+wasm-pack build --release --target web --out-dir $OUT_DIR --features "nu-parser" \
+	-Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
 sed -i 's/"windmill-parser-wasm"/"windmill-parser-wasm-nu"/' $OUT_DIR/package.json
 
