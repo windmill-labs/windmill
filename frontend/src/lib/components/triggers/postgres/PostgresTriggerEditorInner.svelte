@@ -54,7 +54,6 @@
 	let selectedSlotAction: actions
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let selectedTable: 'all' | 'specific' = 'specific'
 	let tab: 'advanced' | 'basic' = 'basic'
 	async function createPublication() {
 		try {
@@ -125,7 +124,6 @@
 		try {
 			selectedPublicationAction = 'create'
 			selectedSlotAction = 'create'
-			selectedTable = 'specific'
 			tab = 'basic'
 
 			drawer?.openDrawer()
@@ -179,13 +177,12 @@
 		})
 		transaction_to_track = [...publication_data.transaction_to_track]
 		relations = publication_data.table_to_track ?? []
-		selectedTable = relations.length === 0 ? 'all' : 'specific'
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
 	async function updateTrigger(): Promise<void> {
 		if (
-			selectedTable === 'specific' &&
+			relations &&
 			invalidRelations(relations, {
 				showError: true,
 				trackSchemaTableError: true
@@ -304,7 +301,7 @@
 						emptyString(script_path) ||
 						(tab === 'advanced' && emptyString(replication_slot_name)) ||
 						emptyString(publication_name) ||
-						(selectedTable !== 'all' && tab === 'basic' && relations.length === 0) ||
+						(relations && tab === 'basic' && relations.length === 0) ||
 						transaction_to_track.length === 0 ||
 						!can_write}
 					on:click={updateTrigger}
@@ -473,7 +470,7 @@
 									<svelte:fragment slot="content">
 										<div class="mt-5 overflow-hidden bg-surface">
 											<TabContent value="basic">
-												<RelationPicker {can_write} bind:selectedTable bind:relations />
+												<RelationPicker {can_write} bind:relations />
 											</TabContent>
 											<TabContent value="advanced">
 												<div class="flex flex-col gap-6"
@@ -531,7 +528,6 @@
 																disabled={!can_write}
 																on:selected={() => {
 																	if (selectedPublicationAction === 'create') {
-																		selectedTable = 'specific'
 																		publication_name = `windmill_publication_${random_adj()}`
 																		relations = [{ schema_name: 'public', table_to_track: [] }]
 																		return
@@ -558,7 +554,7 @@
 																		size="xs"
 																		variant="border"
 																		disabled={emptyStringTrimmed(publication_name) ||
-																			(selectedTable != 'all' && relations.length === 0) ||
+																			(relations && relations.length === 0) ||
 																			!can_write}
 																		on:click={createPublication}>Create</Button
 																	>
@@ -571,10 +567,9 @@
 																	bind:relations
 																	bind:items={publicationItems}
 																	bind:publication_name
-																	bind:selectedTable
 																/>
 															{/if}
-															<RelationPicker {can_write} bind:selectedTable bind:relations />
+															<RelationPicker {can_write} bind:relations />
 														</div>
 													</Section></div
 												>
