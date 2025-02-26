@@ -30,6 +30,11 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
+      - name: Setup Rust
+        uses: actions/setup-rust@v1
+        with:
+          rust-version: 1.85.0
+
       - name: Substitute EE code
         shell: bash
         run: |
