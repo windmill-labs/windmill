@@ -46,12 +46,11 @@
 					? resolvedConfig.defaultRefreshInterval * 1000
 					: parseInt(resolvedConfig.defaultRefreshInterval) * 1000
 
-			if (newInterval !== $recomputeAllContext.interval) {
+			if (newInterval !== $recomputeAllContext.interval && newInterval) {
 				$recomputeAllContext.setInter?.(newInterval)
 			}
 		}
 	}
-
 </script>
 
 {#each Object.keys(components['recomputeallcomponent'].initialData.configuration) as key (key)}

@@ -710,13 +710,16 @@
 				<div class="absolute right-0 -mt-6">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup
-							bind:selected={graph}
-							on:selected={() => {
+							selected={graph}
+							on:selected={({ detail }) => {
+								graph = detail
 								graphIsRunsChart = graph === 'RunChart'
 							}}
+							let:item
 						>
-							<ToggleButton value="RunChart" label="Duration" />
+							<ToggleButton value="RunChart" label="Duration" {item} />
 							<ToggleButton
+								{item}
 								value="ConcurrencyChart"
 								label="Concurrency"
 								icon={warnJobLimit ? AlertTriangle : undefined}
@@ -1090,13 +1093,15 @@
 			<div class="relative z-10">
 				<div class="absolute right-2">
 					<ToggleButtonGroup
-						bind:selected={graph}
-						on:selected={() => {
+						selected={graph}
+						on:selected={({ detail }) => {
+							graph = detail
 							graphIsRunsChart = graph == 'RunChart'
 						}}
+						let:item
 					>
-						<ToggleButton value="RunChart" label="Duration" />
-						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
+						<ToggleButton value="RunChart" label="Duration" {item} />
+						<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
 					</ToggleButtonGroup>
 					{#if !graphIsRunsChart}
 						<DropdownV2

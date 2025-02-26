@@ -5,7 +5,7 @@ import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/utils'
 
 // Load the schedule of a flow given its path and the workspace
-export async function loadFlowSchedule(path: string, workspace: string): Promise<ScheduleTrigger> {
+export async function loadSchedule(path: string, workspace: string): Promise<ScheduleTrigger> {
 	const existsSchedule = await ScheduleService.existsSchedule({
 		workspace,
 		path
@@ -37,16 +37,15 @@ export async function loadSchedules(
 	primarySchedule: Writable<ScheduleTrigger | false | undefined>,
 	initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined>,
 	workspace: string,
-	triggersCount: Writable<TriggersCount | undefined>
+	triggersCount: Writable<TriggersCount | undefined>,
+	loadPrimarySchedule: boolean = false
 ) {
-	console.log('loading schedules for path', path)
 	if (!path || path == '') {
 		schedules.set([])
 		primarySchedule.update((ps) => (ps === undefined ? false : ps))
 		initialPrimarySchedule.set(structuredClone(get(primarySchedule)))
 		return
 	}
-	console.log('loading schedules for path', path)
 	try {
 		const allSchedules = await ScheduleService.listSchedules({
 			workspace,
@@ -54,15 +53,20 @@ export async function loadSchedules(
 			isFlow
 		})
 		const primary = allSchedules.find((s) => s.path == path)
-		let remotePrimarySchedule: ScheduleTrigger | false | undefined = primary
-			? {
-					summary: primary.summary,
-					args: primary.args ?? {},
-					cron: primary.schedule,
-					timezone: primary.timezone,
-					enabled: primary.enabled
-			  }
-			: false
+		let remotePrimarySchedule: ScheduleTrigger | false | undefined = undefined
+		if (loadPrimarySchedule && primary) {
+			remotePrimarySchedule = await loadSchedule(path, workspace)
+		} else {
+			remotePrimarySchedule = primary
+				? {
+						summary: primary.summary,
+						args: primary.args ?? {},
+						cron: primary.schedule,
+						timezone: primary.timezone,
+						enabled: primary.enabled
+				  }
+				: false
+		}
 		primarySchedule.update((ps) => (ps === undefined || forceRefresh ? remotePrimarySchedule : ps))
 		initialPrimarySchedule.set(structuredClone(remotePrimarySchedule))
 

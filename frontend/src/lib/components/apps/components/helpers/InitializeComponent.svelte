@@ -8,6 +8,7 @@
 	onMount(() => {
 		if (!$initialized.initializedComponents.includes(id)) {
 			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
+			$initialized = { ...$initialized }
 		}
 	})
 

@@ -54,7 +54,7 @@
 		}
 	})
 
-	let isOpen = false
+	export let isOpen = false
 	const sync = createSync(states)
 	$: sync.open(isOpen, (v) => (isOpen = v))
 

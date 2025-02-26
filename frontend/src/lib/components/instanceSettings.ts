@@ -11,25 +11,25 @@ export interface Setting {
 		label: string
 		tooltip?: string
 		// If not specified, label will be used
-		value?: any
+		value?: string
 	}[]
 	fieldType:
-	| 'text'
-	| 'number'
-	| 'boolean'
-	| 'password'
-	| 'select'
-	| 'textarea'
-	| 'codearea'
-	| 'seconds'
-	| 'email'
-	| 'license_key'
-	| 'object_store_config'
-	| 'critical_error_channels'
-	| 'slack_connect'
-	| 'smtp_connect'
-	| 'indexer_rates'
-	| 'otel'
+		| 'text'
+		| 'number'
+		| 'boolean'
+		| 'password'
+		| 'select'
+		| 'textarea'
+		| 'codearea'
+		| 'seconds'
+		| 'email'
+		| 'license_key'
+		| 'object_store_config'
+		| 'critical_error_channels'
+		| 'slack_connect'
+		| 'smtp_connect'
+		| 'indexer_rates'
+		| 'otel'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -81,9 +81,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					value.includes('://') &&
-					!value?.endsWith('/') &&
-					!value?.endsWith(' ')
+					  value.includes('://') &&
+					  !value?.endsWith('/') &&
+					  !value?.endsWith(' ')
 					: false
 		},
 		{

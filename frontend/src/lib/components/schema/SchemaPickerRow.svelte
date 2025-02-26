@@ -58,7 +58,7 @@
 
 <Cell
 	wrap
-	class="text-2xs font-normal text-left py-2 rounded-md overflow-auto text-ellipsis scrollbar-none"
+	class="text-2xs font-normal text-left py-2 overflow-auto text-ellipsis scrollbar-none"
 	title={formatDate(date)}
 >
 	{formatDateShort(date)}

@@ -127,7 +127,7 @@
 		placement: 'left-start',
 		middleware: [offset(8), flip(), shift()]
 	}}
-	contentClasses="max-h-[50vh] overflow-y-auto p-4 flex flex-col gap-4 w-96"
+	contentClasses="max-h-[70vh] overflow-y-auto p-4 flex flex-col gap-4 w-96"
 	closeOnOtherPopoverOpen
 >
 	<svelte:fragment slot="trigger">
