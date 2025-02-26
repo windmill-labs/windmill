@@ -67,7 +67,7 @@
 
 	export let id: string
 	export let result: any = undefined
-	export let initializing: boolean = true
+	export let initializing: boolean | undefined = true
 	export let loading: boolean = false
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
@@ -96,7 +96,7 @@
 		runnableComponent?.setArgs(value)
 	}
 
-	const { staticExporter, noBackend, componentControl, runnableComponents } =
+	const { staticExporter, initialized, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	if (noBackend && componentInput?.type == 'runnable') {
@@ -115,6 +115,14 @@
 
 	if (!(initializing && componentInput?.type === 'runnable' && isRunnableDefined(componentInput))) {
 		initializing = false
+	} else {
+		initializing =
+			initializing == undefined && Object.keys($initialized?.runnableInitialized ?? {}).includes(id)
+				? false
+				: undefined
+		if (result == undefined && !initializing) {
+			result = $initialized.runnableInitialized?.[id]
+		}
 	}
 
 	// We need to make sure that old apps have correct values. Triggerable (button, form, etc) have both autoRefresh and recomputeOnInputChanged set to false
@@ -281,7 +289,15 @@
 		on:cancel
 		on:recompute
 		on:argsChanged
-		on:resultSet={() => (initializing = false)}
+		on:resultSet={(e) => {
+			const res = e.detail
+			if (initializing !== false) {
+				console.log('resultSet', id)
+				$initialized.runnableInitialized = { ...$initialized.runnableInitialized, [id]: res }
+			}
+
+			initializing = false
+		}}
 		on:success={(e) => {
 			onSuccess(e.detail)
 			handleSideEffect(true)
