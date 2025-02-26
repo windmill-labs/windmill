@@ -116,7 +116,7 @@
         buildInputs = with pkgs; [ nodejs pixman cairo pango ];
         doCheck = false;
 
-        npmDepsHash = "sha256-NXk9mnf74+/k0i3goqU8Zi/jr5b/bmW+HWRLJCI2CX8=";
+        npmDepsHash = "sha256-/WH3lhhUudmMk5HJk0Lfoq5w5t2OZCZvA4cttqXm7Ng=";
         npmBuild = "npm run build";
 
         postUnpack = ''
