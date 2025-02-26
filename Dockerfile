@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.83-slim-bookworm
+ARG RUST_IMAGE=rust:1.85-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
