@@ -21,6 +21,9 @@
 	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
 	export let render: boolean = false
+
+	let initializing: boolean | undefined
+
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -30,8 +33,6 @@
 	const movingcomponents = editorContext?.movingcomponents
 	$: ismoving =
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
-
-	let initializing: boolean | undefined = undefined
 
 	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0

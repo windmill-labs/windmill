@@ -76,9 +76,9 @@
 	export let component: AppComponent
 	export let render: boolean
 	export let componentContainerHeight: number
-	export let initializing: boolean | undefined = undefined
 	export let errorHandledByComponent: boolean
 	export let inlineEditorOpened: boolean
+	export let initializing: boolean | undefined = undefined
 </script>
 
 {#if component.type === 'displaycomponent'}
