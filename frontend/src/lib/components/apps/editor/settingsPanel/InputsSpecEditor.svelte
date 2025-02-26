@@ -11,7 +11,7 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Loader2, Pen, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Loader2, Pen, Plug2, Upload, UploadCloud, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
@@ -30,6 +30,7 @@
 	export let format: string | undefined
 	export let selectOptions: string[] | undefined
 	export let fileUpload: UploadAppInput['fileUpload'] | undefined = undefined
+	export let fileUploadS3: UploadAppInput['fileUploadS3'] | undefined = undefined
 	export let placeholder: string | undefined
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
@@ -44,7 +45,7 @@
 	export let markdownTooltip: string | undefined = undefined
 	export let securedContext = false
 
-	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -150,6 +151,15 @@
 						{#if fileUpload}
 							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 						{/if}
+						{#if fileUploadS3}
+							<ToggleButton
+								value="uploadS3"
+								icon={UploadCloud}
+								iconOnly
+								tooltip="Upload S3"
+								{item}
+							/>
+						{/if}
 						{#if componentInput?.type === 'connected'}
 							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
 						{/if}
@@ -201,6 +211,8 @@
 			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
+		{:else if componentInput?.type === 'uploadS3'}
+			<UploadInputEditor bind:componentInput fileUpload={fileUploadS3} s3={true} {workspace} />
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
 		{/if}

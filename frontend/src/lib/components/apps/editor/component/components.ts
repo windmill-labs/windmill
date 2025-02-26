@@ -3074,6 +3074,10 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'image/*',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'image/*',
+						convertTo: 'base64'
 					}
 				},
 				sourceKind: {

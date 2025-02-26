@@ -52,8 +52,8 @@
 	}
 
 	async function loadImage() {
-		if (resolvedConfig.sourceKind === 's3 (workspace storage)') {
-			imageUrl = await getS3Image(resolvedConfig.source)
+		if (resolvedConfig.sourceKind === 's3 (workspace storage)' || resolvedConfig.source?.startsWith('s3://')) {
+			imageUrl = await getS3Image(resolvedConfig.source?.replace('s3://', ''))
 		} else if (resolvedConfig.sourceKind === 'png encoded as base64') {
 			imageUrl = 'data:image/png;base64,' + resolvedConfig.source
 		} else if (resolvedConfig.sourceKind === 'jpeg encoded as base64') {

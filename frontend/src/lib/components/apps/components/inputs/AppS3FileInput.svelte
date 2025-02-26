@@ -3,6 +3,7 @@
 
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type { FileUploadData } from '../../inputType'
 	import { initCss } from '../../utils'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -25,16 +26,6 @@
 		components['s3fileinputcomponent'].initialData.configuration,
 		configuration
 	)
-
-	type FileUploadData = {
-		name: string
-		size: number
-		progress: number
-		cancelled?: boolean
-		errorMessage?: string
-		path?: string
-		file?: File
-	}
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
 	const { app, worldStore, componentControl, runnableComponents, workspace } =
