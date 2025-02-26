@@ -100,6 +100,25 @@
 	.wm-markdown p:last-child {
 		margin-bottom: 0;
 	}
+
+	.wm-markdown ol:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown ol:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown ul:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown ul:last-child {
+		margin-bottom: 0;
+	}
+	.wm-markdown li:first-child {
+		margin-top: 0;
+	}
+	.wm-markdown li:last-child {
+		margin-bottom: 0;
+	}
 	.wm-markdown h1:first-child {
 		margin-top: 0;
 	}
