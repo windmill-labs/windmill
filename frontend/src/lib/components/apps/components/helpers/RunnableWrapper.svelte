@@ -2,7 +2,7 @@
 	import { getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, ListContext } from '../../types'
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
@@ -98,6 +98,8 @@
 
 	const { staticExporter, initialized, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
 
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
@@ -113,18 +115,24 @@
 		}
 	})
 
+	const fullId = id + (extraKey ?? '')
 	if (!(initializing && componentInput?.type === 'runnable' && isRunnableDefined(componentInput))) {
 		initializing = false
 	} else {
 		if (
 			(initializing == undefined || initializing == true) &&
-			Object.keys($initialized?.runnableInitialized ?? {}).includes(id)
+			Object.keys($initialized?.runnableInitialized ?? {}).includes(fullId)
 		) {
 			initializing = false
 		}
 
-		if (result == undefined && !initializing) {
-			result = $initialized.runnableInitialized?.[id]
+		if (
+			result == undefined &&
+			!initializing &&
+			iterContext == undefined &&
+			rowContext == undefined
+		) {
+			result = $initialized.runnableInitialized?.[fullId]
 		}
 	}
 
@@ -294,11 +302,11 @@
 		on:argsChanged
 		on:resultSet={(e) => {
 			const res = e.detail
-			if ($initialized?.runnableInitialized?.[id] === undefined) {
+			if ($initialized?.runnableInitialized?.[fullId] === undefined) {
 				console.log('resultSet', id)
 				$initialized.runnableInitialized = {
 					...($initialized.runnableInitialized ?? {}),
-					[id]: res
+					[fullId]: res
 				}
 			}
 
