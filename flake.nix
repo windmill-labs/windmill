@@ -81,8 +81,10 @@
             go
             bun
             uv
+            nushell
             dotnet-sdk_9
             oracle-instantclient
+            svelte-language-server
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
