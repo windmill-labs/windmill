@@ -490,9 +490,10 @@
 																	replication_slot_name = ''
 																}}
 																disabled={!can_write}
+																let:item
 															>
-																<ToggleButton value="create" label="Create Slot" />
-																<ToggleButton value="get" label="Get Slot" />
+																<ToggleButton value="create" label="Create Slot" {item} />
+																<ToggleButton value="get" label="Get Slot" {item} />
 															</ToggleButtonGroup>
 															{#if selectedSlotAction === 'create'}
 																<div class="flex gap-3">
@@ -527,9 +528,10 @@
 													>
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup
-																bind:selected={selectedPublicationAction}
+																selected={selectedPublicationAction}
 																disabled={!can_write}
-																on:selected={() => {
+																on:selected={({ detail }) => {
+																	selectedPublicationAction = detail
 																	if (selectedPublicationAction === 'create') {
 																		selectedTable = 'specific'
 																		publication_name = `windmill_publication_${random_adj()}`
@@ -541,9 +543,10 @@
 																	relations = []
 																	transaction_to_track = []
 																}}
+																let:item
 															>
-																<ToggleButton value="create" label="Create Publication" />
-																<ToggleButton value="get" label="Get Publication" />
+																<ToggleButton value="create" label="Create Publication" {item} />
+																<ToggleButton value="get" label="Get Publication" {item} />
 															</ToggleButtonGroup>
 															{#if selectedPublicationAction === 'create'}
 																<div class="flex gap-3">

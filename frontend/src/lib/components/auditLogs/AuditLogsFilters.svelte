@@ -289,21 +289,30 @@
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative w-full">
 			<span class="text-xs absolute -top-4">Scope</span>
-			<ToggleButtonGroup bind:selected={scope}>
+			<ToggleButtonGroup
+				selected={scope ?? 'admins'}
+				on:selected={({ detail }) => {
+					scope = detail === 'admins' ? undefined : detail
+				}}
+				let:item
+			>
 				<ToggleButton
-					value={undefined}
+					value={'admins'}
 					label="Admins"
 					tooltip="Displays events from the admins workspace only."
+					{item}
 				/>
 				<ToggleButton
 					value="all_workspaces"
 					label="All"
 					tooltip="Displays events from all workspaces."
+					{item}
 				/>
 				<ToggleButton
 					value="instance"
 					label="Instance"
 					tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
+					{item}
 				/>
 			</ToggleButtonGroup>
 		</div>

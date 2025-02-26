@@ -200,9 +200,10 @@
 										delete args.security
 									}
 								}}
+								let:item
 							>
-								<ToggleButton value="static" label="Static" small={true} />
-								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} />
+								<ToggleButton value="static" label="Static" small={true} {item} />
+								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} {item} />
 							</ToggleButtonGroup>
 						{/if}
 					</svelte:fragment>
