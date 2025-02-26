@@ -200,7 +200,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New mqtt triggers can take up to 30 seconds to start listening.
+						New MQTT triggers can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>

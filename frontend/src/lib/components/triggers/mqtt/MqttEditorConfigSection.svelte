@@ -47,7 +47,7 @@
 	{/if}
 	<Section label="MQTT" {headless}>
 		<div class="flex flex-col w-full gap-4">
-			<Subsection label="Connection Setup">
+			<Subsection label="Connection setup">
 				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
 				{#if !emptyStringTrimmed(mqtt_resource_path)}
 					<TestTriggerConnection kind="mqtt" args={{ mqtt_resource_path, client_version }} />

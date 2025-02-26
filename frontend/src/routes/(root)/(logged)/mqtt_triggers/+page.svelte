@@ -29,6 +29,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
+	import { MqttIcon } from '$lib/components/icons'
 
 	type TriggerM = MqttTrigger & { canWrite: boolean }
 
@@ -229,7 +230,7 @@
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="MQTT trigger" icon={Unplug} />
+					<ToggleButton small value="trigger" label="MQTT trigger" icon={MqttIcon} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
 				</ToggleButtonGroup>
 			</div>
@@ -252,7 +253,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No mqtt triggers </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No MQTT triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, error, last_server_ping, server_id, enabled } (path)}
