@@ -35,7 +35,12 @@ export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 // need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	openai: ['gpt-4o', 'gpt-4o-mini'],
-	anthropic: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'],
+	anthropic: [
+		'claude-3-7-sonnet-latest',
+		'claude-3-7-sonnet-latest/thinking',
+		'claude-3-5-haiku-latest',
+		'claude-3-5-sonnet-latest'
+	],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
 	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
@@ -196,7 +201,6 @@ namespace MistralAI {
 
 export namespace AnthropicAI {
 	export const config: MessageCreateParams = {
-		temperature: 0,
 		max_tokens: 8192,
 		model: '',
 		messages: []
@@ -224,8 +228,6 @@ export namespace AnthropicAI {
 		if (part.type == 'content_block_delta') {
 			if (part.delta.type == 'text_delta') {
 				response = part.delta.text
-			} else {
-				response = part.delta.partial_json
 			}
 		}
 		return response
@@ -507,7 +509,18 @@ export async function getNonStreamingCompletion(
 				{
 					...AnthropicAI.config,
 					system,
-					model,
+					...(model.endsWith('/thinking')
+						? {
+								thinking: {
+									type: 'enabled',
+									budget_tokens: 1024
+								},
+								model: model.slice(0, -9)
+						  }
+						: {
+								model,
+								temperature: 0
+						  }),
 					messages: anthropicMessages,
 					stream: false
 				},
@@ -601,7 +614,18 @@ export async function getCompletion(
 			const completion = await anthropicClient.messages.create(
 				{
 					...AnthropicAI.config,
-					model,
+					...(model.endsWith('/thinking')
+						? {
+								thinking: {
+									type: 'enabled',
+									budget_tokens: 1024
+								},
+								model: model.slice(0, -9)
+						  }
+						: {
+								model,
+								temperature: 0
+						  }),
 					system,
 					messages: anthropicMessages,
 					stream: true
