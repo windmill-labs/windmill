@@ -717,7 +717,7 @@
 							}}
 							let:item
 						>
-							<ToggleButton value="RunChart" label="Durations" {item} />
+							<ToggleButton value="RunChart" label="Duration" {item} />
 							<ToggleButton
 								{item}
 								value="ConcurrencyChart"
