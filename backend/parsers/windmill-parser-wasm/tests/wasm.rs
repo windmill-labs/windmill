@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
