@@ -165,7 +165,6 @@ CREATE TYPE public.script_lang AS ENUM (
     'Nativets',
     'bun',
     'mysql'
-    'nu',
 );
 
 
