@@ -509,7 +509,18 @@ export async function getNonStreamingCompletion(
 				{
 					...AnthropicAI.config,
 					system,
-					model,
+					...(model.endsWith('/thinking')
+						? {
+								thinking: {
+									type: 'enabled',
+									budget_tokens: 1024
+								},
+								model: model.slice(0, -9)
+						  }
+						: {
+								model,
+								temperature: 0
+						  }),
 					messages: anthropicMessages,
 					stream: false
 				},
