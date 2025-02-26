@@ -1,21 +1,14 @@
 # Changelog
 
-## [2.0.0](https://github.com/windmill-labs/windmill/compare/v1.471.1...v2.0.0) (2025-02-26)
+## [1.472.0](https://github.com/windmill-labs/windmill/compare/v1.471.1...v1.472.0) (2025-02-26)
 
-
-### ⚠ BREAKING CHANGES
-
-* **frontend:** pip was deprecated since 1.425.0 (2024-11-15)
-
-### Features
-
-* **frontend:** migrate toggle to melt (4/4) ([#5329](https://github.com/windmill-labs/windmill/issues/5329)) ([69fc8a9](https://github.com/windmill-labs/windmill/commit/69fc8a98ae78bc01dc3d97f9732ee28864b323dd))
 
 
 ### Bug Fixes
 
 * downgrade v8 to fix some rare panics ([5569e4d](https://github.com/windmill-labs/windmill/commit/5569e4d4953a01f2ad03ea8b71e695e833964bea))
 * **frontend:** markdown shows single backtick in single line code block ([#5391](https://github.com/windmill-labs/windmill/issues/5391)) ([7f290bb](https://github.com/windmill-labs/windmill/commit/7f290bbf6a33e2811dbe2bd8ee905c0fa8e8db3b))
+* migrate toggle to melt (4/4) ([#5329](https://github.com/windmill-labs/windmill/issues/5329)) ([69fc8a9](https://github.com/windmill-labs/windmill/commit/69fc8a98ae78bc01dc3d97f9732ee28864b323dd))
 
 ## [1.471.1](https://github.com/windmill-labs/windmill/compare/v1.471.0...v1.471.1) (2025-02-26)
 
