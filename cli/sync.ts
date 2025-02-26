@@ -672,6 +672,7 @@ export async function elementsToMap(
         "rs",
         "cs",
         "yml",
+        "nu",
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )

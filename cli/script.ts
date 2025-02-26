@@ -572,6 +572,7 @@ export const exts = [
   ".php",
   ".rs",
   ".cs",
+  ".nu",
   ".playbook.yml",
 ];
 
