@@ -500,19 +500,19 @@ async fn get_full_hub_script_by_path_inner(
 ) -> crate::error::Result<HubScript> {
     let hub_base_url = HUB_BASE_URL.read().await.clone();
 
-    (|| async {
-        let req_path = format!("{}/raw2/{}", hub_base_url, path);
-        let response = http_get_from_hub(http_client, &req_path, true, None, db)
-            .await
-            .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()));
+    let response = (|| async {
+        let response = http_get_from_hub(
+            http_client,
+            &format!("{}/raw2/{}", hub_base_url, path),
+            true,
+            None,
+            db,
+        )
+        .await
+        .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()));
 
         match response {
-            Ok(response) => {
-                let script = response.json::<HubScript>().await.context(format!(
-                    "Decoding hub response for script at path {req_path}"
-                ))?;
-                Ok(script)
-            }
+            Ok(response) => Ok(response),
             Err(e) => {
                 if hub_base_url != DEFAULT_HUB_BASE_URL
                     && path
@@ -525,18 +525,16 @@ async fn get_full_hub_script_by_path_inner(
                         "Not found on private hub, fallback to default hub for {}",
                         path
                     );
-                    let req_path = format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path);
-                    let value = http_get_from_hub(http_client, &req_path, true, None, db)
-                        .await?
-                        .error_for_status()
-                        .map_err(to_anyhow)?
-                        .json::<HubScript>()
-                        .await
-                        .context(format!(
-                            "Decoding hub response for script at path {req_path}"
-                        ))?;
-
-                    Ok(value)
+                    http_get_from_hub(
+                        http_client,
+                        &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                        true,
+                        None,
+                        db,
+                    )
+                    .await?
+                    .error_for_status()
+                    .map_err(|e| to_anyhow(e).into())
                 } else {
                     Err(e)
                 }
@@ -555,7 +553,14 @@ async fn get_full_hub_script_by_path_inner(
         );
     })
     .sleep(tokio::time::sleep)
-    .await
+    .await?;
+
+    let script = response
+        .json::<HubScript>()
+        .await
+        .context(format!("Decoding hub response for script at path {path}"))?;
+
+    Ok(script)
 }
 
 #[derive(Deserialize, Serialize)]
