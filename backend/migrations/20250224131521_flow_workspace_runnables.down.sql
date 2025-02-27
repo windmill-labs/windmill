@@ -1,0 +1,1 @@
+DROP TABLE flow_workspace_runnables;

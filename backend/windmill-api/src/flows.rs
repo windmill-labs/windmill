@@ -12,7 +12,7 @@ use crate::db::ApiAuthed;
 use crate::triggers::{
     get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
 };
-use crate::utils::WithStarredInfoQuery;
+use crate::utils::{RunnableKind, WithStarredInfoQuery};
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -65,6 +65,10 @@ pub fn workspaced_service() -> Router {
         .route("/list_paths", get(list_paths))
         .route("/history/p/*path", get(get_flow_history))
         .route("/get_latest_version/*path", get(get_latest_version))
+        .route(
+            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route(
             "/history_update/v/:version/p/*path",
             post(update_flow_history),
@@ -322,6 +326,28 @@ async fn check_path_conflict<'c>(
         return Err(Error::BadRequest(format!("Flow {} already exists", path)));
     }
     return Ok(());
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT f.path
+            FROM flow_workspace_runnables fwr 
+            JOIN flow f 
+                ON fwr.flow_path = f.path AND fwr.workspace_id = f.workspace_id
+            WHERE fwr.runnable_path = $1 AND fwr.runnable_is_flow = $2 AND fwr.workspace_id = $3"#,
+        path.to_path(),
+        matches!(runnable_kind, RunnableKind::Flow),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
 }
 
 async fn create_flow(
