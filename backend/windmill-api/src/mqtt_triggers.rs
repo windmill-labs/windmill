@@ -362,10 +362,10 @@ impl<'client> MqttClientBuilder<'client> {
         if let Some(v5_config) = self.v5_config {
             mqtt_options.set_clean_start(v5_config.clean_start.unwrap_or(true));
             mqtt_options.set_connect_properties(ConnectProperties {
-                session_expiry_interval: v5_config.session_expiry_interval.clone(),
+                session_expiry_interval: v5_config.session_expiry_interval,
                 receive_maximum: None,
                 max_packet_size: None,
-                topic_alias_max: v5_config.topic_alias.clone(),
+                topic_alias_max: v5_config.topic_alias,
                 request_response_info: None,
                 request_problem_info: None,
                 user_properties: vec![],
