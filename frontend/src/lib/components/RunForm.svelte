@@ -13,7 +13,6 @@
 
 	import TimeAgo from './TimeAgo.svelte'
 	import Popover from './meltComponents/Popover.svelte'
-	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
 	import { page } from '$app/stores'
@@ -205,24 +204,7 @@
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
 				</Button>
 				<div>
-					<Popover
-						floatingConfig={{
-							middleware: [
-								autoPlacement({
-									allowedPlacements: [
-										'bottom-start',
-										'bottom-end',
-										'top-start',
-										'top-end',
-										'top',
-										'bottom'
-									]
-								})
-							]
-						}}
-						closeButton
-						usePointerDownOutside
-					>
+					<Popover placement="bottom" closeButton usePointerDownOutside>
 						<svelte:fragment slot="trigger">
 							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
 								Advanced

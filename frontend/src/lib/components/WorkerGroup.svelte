@@ -264,13 +264,21 @@
 				}
 			}}
 			class="mb-4"
+			let:item
 		>
-			<ToggleButton position="left" value="normal" size="sm" label="Any jobs within worker tags" />
+			<ToggleButton
+				position="left"
+				value="normal"
+				size="sm"
+				label="Any jobs within worker tags"
+				{item}
+			/>
 			<ToggleButton
 				position="dedicated"
 				value="dedicated"
 				size="sm"
 				label="Dedicated to a script/flow"
+				{item}
 			/>
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}
@@ -683,9 +691,10 @@
 									envvar.value = undefined
 								}
 							}}
+							let:item
 						>
-							<ToggleButton position="left" value="dynamic" label="Dynamic" />
-							<ToggleButton position="right" value="static" label="Static" />
+							<ToggleButton value="dynamic" label="Dynamic" {item} />
+							<ToggleButton value="static" label="Static" {item} />
 						</ToggleButtonGroup>
 						<input
 							type="text"
