@@ -6240,6 +6240,7 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
         - name: file_key
           in: query
           required: false
