@@ -13956,6 +13956,10 @@ components:
       properties:
         clean_start:
           type: boolean
+        topic_alias:
+          type: number
+        session_expiry_interval:
+          type: number
 
     MqttSubscribeTopic:
       type: object

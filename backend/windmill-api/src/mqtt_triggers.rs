@@ -21,7 +21,7 @@ use itertools::Itertools;
 use rumqttc::{
     v5::{
         mqttbytes::{
-            v5::{Filter, PublishProperties},
+            v5::{ConnectProperties, Filter, PublishProperties},
             QoS as V5QoS,
         },
         AsyncClient as V5AsyncClient, Event as V5Event, EventLoop as V5EventLoop,
@@ -165,6 +165,8 @@ pub struct MqttV3Config {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MqttV5Config {
     clean_start: Option<bool>,
+    session_expiry_interval: Option<u32>,
+    topic_alias: Option<u16>
 }
 
 #[derive(Debug, Deserialize, Serialize, Type)]
@@ -354,10 +356,22 @@ impl<'client> MqttClientBuilder<'client> {
         }
 
         mqtt_options.set_connection_timeout(CLIENT_CONNECTION_TIMEOUT);
+
         mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
 
         if let Some(v5_config) = self.v5_config {
             mqtt_options.set_clean_start(v5_config.clean_start.unwrap_or(true));
+            mqtt_options.set_connect_properties(ConnectProperties {
+                session_expiry_interval: v5_config.session_expiry_interval.clone(),
+                receive_maximum: None,
+                max_packet_size: None,
+                topic_alias_max: v5_config.topic_alias.clone(),
+                request_response_info: None,
+                request_problem_info: None,
+                user_properties: vec![],
+                authentication_method: None,
+                authentication_data: None,
+            });
         }
 
         let (async_client, mut event_loop) =
@@ -393,7 +407,6 @@ impl<'client> MqttClientBuilder<'client> {
             mqtt_options.set_transport(transport);
         }
         mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
-
         if let Some(v3_config) = self.v3_config {
             mqtt_options.set_clean_session(v3_config.clean_session.unwrap_or(true));
         }
@@ -637,7 +650,7 @@ pub async fn list_mqtt_triggers(
             windmill_common::error::Error::InternalErr("server error".to_string())
         })?;
     tx.commit().await.map_err(|e| {
-        tracing::debug!("Error commiting mqtt_trigger: {:#?}", e);
+        tracing::debug!("Error committing mqtt_trigger: {:#?}", e);
         windmill_common::error::Error::InternalErr("server error".to_string())
     })?;
 
@@ -1062,7 +1075,7 @@ impl EventLoop for V3EventLoop {
         }
 
         Err(Error::Common(error::Error::BadConfig(format!(
-            "Timeout occured while trying connecting to mqtt broker after {} seconds",
+            "Timeout occurred while trying to connect to mqtt broker after {} seconds",
             TIMEOUT_DURATION
         ))))
     }

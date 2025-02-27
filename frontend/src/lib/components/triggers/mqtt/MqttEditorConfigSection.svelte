@@ -31,6 +31,11 @@
 	export let isValid: boolean = false
 	export let client_id: string = ''
 
+	const activateV5Options = {
+		topic_alias: Boolean(v5_config.topic_alias),
+		session_expiry_interval: Boolean(v5_config.session_expiry_interval)
+	}
+
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
 			subscribe_topics.length === 0 ||
@@ -189,7 +194,7 @@
 						type="text"
 						bind:value={client_id}
 						disabled={!can_write}
-						placeholder="client id"
+						placeholder="Client id"
 						autocomplete="off"
 					/>
 
@@ -204,11 +209,79 @@
 							}}
 							options={{
 								right: 'Clean start',
-								rightTooltip: '',
-								rightDocumentationLink: ''
+								rightTooltip:
+									'Starts a fresh session without stored messages, subscriptions if enabled. Otherwise, resumes the previous session with stored subscriptions, undelivered messages, and session-specific client data.',
+								rightDocumentationLink:
+									'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901039'
 							}}
 							class="py-1"
 						/>
+
+						<div class="flex flex-col gap-2">
+							<Toggle
+								textClass="font-normal text-sm"
+								color="nord"
+								size="xs"
+								checked={activateV5Options.session_expiry_interval}
+								on:change={() => {
+									activateV5Options.session_expiry_interval =
+										!activateV5Options.session_expiry_interval
+									if (!activateV5Options.session_expiry_interval) {
+										v5_config.session_expiry_interval = undefined
+									}
+								}}
+								options={{
+									right: 'Session expiry interval',
+									rightTooltip:
+										'Defines the time in seconds that the broker will retain the session after disconnection. If set to 0, the session ends immediately. If set to 4,294,967,295, the session will be retained indefinitely. Otherwise, subscriptions and undelivered messages are stored until the interval expires.',
+									rightDocumentationLink: ''
+								}}
+								class="py-1"
+							/>
+
+							{#if activateV5Options.session_expiry_interval}
+								<input
+									type="number"
+									bind:value={v5_config.session_expiry_interval}
+									disabled={!can_write}
+									placeholder="Session expiry interval"
+									autocomplete="off"
+								/>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2">
+							<Toggle
+								textClass="font-normal text-sm"
+								color="nord"
+								size="xs"
+								checked={activateV5Options.topic_alias}
+								on:change={() => {
+									activateV5Options.topic_alias = !activateV5Options.topic_alias
+									if (!activateV5Options.topic_alias) {
+										v5_config.topic_alias = undefined
+									}
+								}}
+								options={{
+									right: 'Topic alias maximum',
+									rightTooltip:
+										'Defines the maximum topic alias value the client is willing to accept from the broker. A value of 0 means topic aliases are not supported.',
+									rightDocumentationLink:
+										'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901051'
+								}}
+								class="py-1"
+							/>
+
+							{#if activateV5Options.topic_alias}
+								<input
+									type="number"
+									bind:value={v5_config.topic_alias}
+									disabled={!can_write}
+									placeholder="Topic alias"
+									autocomplete="off"
+								/>
+							{/if}
+						</div>
 					{:else if client_version === 'v3'}
 						<Toggle
 							textClass="font-normal text-sm"
@@ -220,7 +293,8 @@
 							}}
 							options={{
 								right: 'Clean session',
-								rightTooltip: '',
+								rightTooltip:
+									'Starts a fresh session without stored messages, subscriptions if enabled. Otherwise, resumes the previous session with stored subscriptions and undelivered messages.',
 								rightDocumentationLink: ''
 							}}
 							class="py-1"
