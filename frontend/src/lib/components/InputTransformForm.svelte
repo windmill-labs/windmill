@@ -358,6 +358,7 @@
 					<div>
 						<ToggleButtonGroup
 							selected={propertyType}
+							let:item
 							on:selected={(e) => {
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
@@ -417,9 +418,10 @@
 									value="static"
 									size="xs2"
 									label={'${}'}
+									{item}
 								/>
 							{:else}
-								<ToggleButton small label="Static" value="static" />
+								<ToggleButton small label="Static" value="static" {item} />
 							{/if}
 
 							{#if codeInjectionDetected && propertyType == 'static'}
@@ -441,6 +443,7 @@
 									tooltip="JavaScript expression ('flow_input' or 'results')."
 									value="javascript"
 									icon={FunctionSquare}
+									{item}
 								/>
 							{/if}
 						</ToggleButtonGroup>

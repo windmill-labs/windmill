@@ -402,10 +402,11 @@
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
+					let:item
 				>
-					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
 
-					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
 				</ToggleButtonGroup>
 			</div>
 		{/if}
@@ -438,16 +439,23 @@
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
+							let:item
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
 							}}
 						>
 							{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
+								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
 							{:else}
-								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+								<ToggleButton
+									class="px-1.5"
+									value="pretty"
+									label="Pretty"
+									icon={Highlighter}
+									{item}
+								/>
 							{/if}
-							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
 						</ToggleButtonGroup>
 					{/if}
 				</div>

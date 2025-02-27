@@ -34,7 +34,12 @@
 	export let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
 
 	$: {
-		if (triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs' || triggerSelected === 'mqtt') {
+		if (
+			triggerSelected === 'kafka' ||
+			triggerSelected === 'nats' ||
+			triggerSelected === 'sqs' ||
+			triggerSelected === 'mqtt'
+		) {
 			eventStreamType = triggerSelected
 		}
 	}
@@ -110,11 +115,11 @@
 						<slot name="postgres" />
 					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs' || triggerSelected === 'mqtt'}
 						<div class="m-1.5">
-							<ToggleButtonGroup bind:selected={eventStreamType}>
-								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
-								<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
-								<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} />
-								<ToggleButton value="sqs" label="SQS" icon={AwsIcon} />
+							<ToggleButtonGroup bind:selected={eventStreamType} let:item>
+								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
+								<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
+								<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} {item} />
+								<ToggleButton value="sqs" label="SQS" icon={AwsIcon} {item} />
 							</ToggleButtonGroup>
 						</div>
 						{#if eventStreamType === 'kafka'}

@@ -756,14 +756,16 @@
 				<div class="flex flex-col gap-2 w-full">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
-							bind:selected={oneOfSelected}
-							on:selected={() => {
-								value = { label: oneOfSelected }
+							selected={oneOfSelected}
+							on:selected={({ detail }) => {
+								oneOfSelected = detail
+								value = { label: detail }
 								redraw += 1
 							}}
+							let:item
 						>
 							{#each oneOf as obj}
-								<ToggleButton value={obj.title} label={obj.title} />
+								<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 							{/each}
 						</ToggleButtonGroup>
 						{#if oneOfSelected}

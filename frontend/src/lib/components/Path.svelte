@@ -381,6 +381,7 @@
 								}
 							}
 						}}
+						let:item
 					>
 						<ToggleButton
 							icon={User}
@@ -390,6 +391,7 @@
 							value="user"
 							position="left"
 							label="User"
+							{item}
 						/>
 						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
 						<ToggleButton
@@ -400,6 +402,7 @@
 							value="folder"
 							position="right"
 							label="Folder"
+							{item}
 						/>
 					</ToggleButtonGroup>
 				</div>
