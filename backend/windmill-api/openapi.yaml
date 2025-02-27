@@ -8968,7 +8968,7 @@ paths:
                 - connection
       responses:
         "200":
-          description: successfuly connected to mqtt
+          description: successfully connected to mqtt
           content:
             text/plain:
               schema:

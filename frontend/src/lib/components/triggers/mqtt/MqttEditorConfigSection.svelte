@@ -33,7 +33,7 @@
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
-			subscribe_topics.length == 0 ||
+			subscribe_topics.length === 0 ||
 			subscribe_topics.find((subscribe_topic) => emptyStringTrimmed(subscribe_topic.topic))
 		) {
 			return false
