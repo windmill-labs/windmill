@@ -15,6 +15,7 @@
 	import { emptyStringTrimmed } from '$lib/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -28,7 +29,18 @@
 	export let client_version: MqttClientVersion = 'v5'
 	export let isValid: boolean = false
 	export let client_id: string
-	$: isValid = subscribe_topics.length > 0 && !emptyStringTrimmed(mqtt_resource_path)
+
+	const isValidSubscribeTopics = (subscribe_topics: SubscribeTopic[]): boolean => {
+		if (
+			subscribe_topics.length == 0 ||
+			subscribe_topics.find((subscribe_topic) => emptyStringTrimmed(subscribe_topic.topic))
+		) {
+			return false
+		}
+
+		return true
+	}
+	$: isValid = isValidSubscribeTopics(subscribe_topics) && !emptyStringTrimmed(mqtt_resource_path)
 </script>
 
 <div>
@@ -65,17 +77,61 @@
 								<div class="flex flex-row gap-2 w-full">
 									<!-- svelte-ignore a11y-label-has-associated-control -->
 									<label class="flex flex-col w-full gap-1">
-										<div class="text-secondary text-sm">QoS</div>
+										<div class="flex gap-2 mb-1">
+											<span class="text-secondary text-sm">
+												QoS
+												<Tooltip
+													><ul class="list-disc list-inside space-y-2 text-gray-700">
+														<li>
+															<span class="font-bold">QoS 0 - At most once</span>
+															<ul class="list-none ml-4 text-sm text-gray-600">
+																<li>❌ Messages may be lost if the network fails.</li>
+																<li>✅ No duplicates, but no delivery guarantee.</li>
+																<li
+																	>⚠️ Scripts/flows may not be triggered if the message is lost.</li
+																>
+															</ul>
+														</li>
+														<li>
+															<span class="font-bold">QoS 1 - At least once</span>
+															<ul class="list-none ml-4 text-sm text-gray-600">
+																<li>✅ Guaranteed to receive the message at least once.</li>
+																<li>❌ May receive duplicate messages.</li>
+																<li
+																	>⚠️ Scripts/flows may be triggered more than once for the same
+																	message.</li
+																>
+															</ul>
+														</li>
+														<li>
+															<span class="font-bold">QoS 2 - Exactly once</span>
+															<ul class="list-none ml-4 text-sm text-gray-600">
+																<li>✅ Ensures each message is received only once.</li>
+																<li>❌ Slightly slower due to extra processing.</li>
+																<li
+																	>✅ Scripts/flows will be triggered exactly once for each message.</li
+																>
+															</ul>
+														</li>
+													</ul></Tooltip
+												>
+											</span>
+										</div>
 										<ToggleButtonGroup bind:selected={v.qos}>
-											<ToggleButton value={0} label="QoS 0" />
-											<ToggleButton value={1} label="QoS 1" />
-											<ToggleButton value={2} label="QoS 2" />
+											<ToggleButton value={0} label="At most once (QoS 0)" />
+											<ToggleButton value={1} label="At least once (QoS 1)" />
+											<ToggleButton value={2} label="Exactly once (QoS 2)" />
 										</ToggleButtonGroup>
 									</label>
 								</div>
 
 								<label class="flex flex-col w-full gap-1">
-									<div class="text-secondary text-sm">Topic</div>
+									<div class="flex gap-2 mb-1">
+										<span class="text-secondary text-sm">
+											Topic
+											<Tooltip>The topic you want to subscribe to</Tooltip>
+										</span>
+									</div>
 									<input
 										type="text"
 										bind:value={v.topic}
