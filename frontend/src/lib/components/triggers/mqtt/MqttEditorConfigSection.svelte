@@ -32,7 +32,7 @@
 
 	const isValidSubscribeTopics = (subscribe_topics: SubscribeTopic[]): boolean => {
 		if (
-			subscribe_topics.length == 0 ||
+			subscribe_topics.length === 0 ||
 			subscribe_topics.find((subscribe_topic) => emptyStringTrimmed(subscribe_topic.topic))
 		) {
 			return false
