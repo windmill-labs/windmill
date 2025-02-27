@@ -13923,7 +13923,7 @@ components:
 
     MqttQoS:
       type: string
-      enum: ['q0', 'q1', 'q2']
+      enum: ['qos0', 'qos1', 'qos2']
   
     MqttV3Config:
       type: object

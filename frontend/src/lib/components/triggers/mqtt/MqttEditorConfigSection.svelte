@@ -119,9 +119,9 @@
 											</span>
 										</div>
 										<ToggleButtonGroup bind:selected={v.qos} let:item>
-											<ToggleButton value={'q0'} label="At most once (QoS 0)" {item} />
-											<ToggleButton value={'q1'} label="At least once (QoS 1)" {item} />
-											<ToggleButton value={'q2'} label="Exactly once (QoS 2)" {item} />
+											<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
+											<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
+											<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
 										</ToggleButtonGroup>
 									</label>
 								</div>
@@ -166,7 +166,7 @@
 									subscribe_topics = []
 								}
 								subscribe_topics = subscribe_topics.concat({
-									qos: 'q0',
+									qos: 'qos0',
 									topic: ''
 								})
 							}}

@@ -130,21 +130,19 @@ async fn run_job(
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
-#[sqlx(type_name = "MQTT_QOS")]
-#[sqlx(rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum QualityOfService {
-    Q0,
-    Q1,
-    Q2,
+    Qos0,
+    Qos1,
+    Qos2,
 }
 
 impl Into<V3QoS> for QualityOfService {
     fn into(self) -> V3QoS {
         match self {
-            QualityOfService::Q0 => V3QoS::AtMostOnce,
-            QualityOfService::Q1 => V3QoS::AtLeastOnce,
-            QualityOfService::Q2 => V3QoS::ExactlyOnce,
+            QualityOfService::Qos0 => V3QoS::AtMostOnce,
+            QualityOfService::Qos1 => V3QoS::AtLeastOnce,
+            QualityOfService::Qos2 => V3QoS::ExactlyOnce,
         }
     }
 }
@@ -152,9 +150,9 @@ impl Into<V3QoS> for QualityOfService {
 impl Into<V5QoS> for QualityOfService {
     fn into(self) -> V5QoS {
         match self {
-            QualityOfService::Q0 => V5QoS::AtMostOnce,
-            QualityOfService::Q1 => V5QoS::AtLeastOnce,
-            QualityOfService::Q2 => V5QoS::ExactlyOnce,
+            QualityOfService::Qos0 => V5QoS::AtMostOnce,
+            QualityOfService::Qos1 => V5QoS::AtLeastOnce,
+            QualityOfService::Qos2 => V5QoS::ExactlyOnce,
         }
     }
 }

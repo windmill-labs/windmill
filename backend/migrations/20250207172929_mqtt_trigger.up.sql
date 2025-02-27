@@ -1,6 +1,5 @@
  -- Add up migration script here
 CREATE TYPE MQTT_CLIENT_VERSION AS ENUM ('v3', 'v5');
-CREATE TYPE MQTT_QOS AS ENUM ('q0', 'q1', 'q2');
 
 CREATE TABLE mqtt_trigger (
     mqtt_resource_path VARCHAR(255) NOT NULL,
