@@ -211,7 +211,7 @@
 <CenteredPage>
 	<PageHeader
 		title="MQTT triggers"
-		tooltip="Windmill can listen to MQTT events and trigger scripts or flows based on them."
+		tooltip="Windmill can connect to an MQTT broker, subscribe to specific topics, and trigger scripts or flows based on those topics."
 	>
 		<Button size="md" startIcon={{ icon: Plus }} on:click={() => mqttTriggerEditor.openNew(false)}>
 			New&nbsp;MQTT trigger
@@ -303,12 +303,12 @@
 										<div slot="text">
 											{#if enabled}
 												{#if !server_id}
-													MQTT is starting...
+													MQTT trigger is starting...
 												{:else}
-													MQTT is not connected{error ? ': ' + error : ''}
+													MQTT trigger is not connected{error ? ': ' + error : ''}
 												{/if}
 											{:else}
-												MQTT was disabled because of an error: {error}
+												MQTT trigger was disabled because of an error: {error}
 											{/if}
 										</div>
 									</Popover>
@@ -318,7 +318,7 @@
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
 										<div slot="text">
-											MQTT is connected{!server_id ? ' (shutting down...)' : ''}
+											MQTT trigger is connected{!server_id ? ' (shutting down...)' : ''}
 										</div>
 									</Popover>
 								{/if}
