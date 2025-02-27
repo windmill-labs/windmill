@@ -33,6 +33,7 @@ pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
 pub mod jobs;
+pub mod jwt;
 pub mod more_serde;
 pub mod oauth2;
 pub mod otel_ee;
