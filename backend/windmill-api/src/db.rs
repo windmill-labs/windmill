@@ -32,6 +32,29 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
         .await?)
 }
 
+lazy_static::lazy_static! {
+    pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20221207103910, include_str!(
+                        "../../custom_migrations/create_workspace_without_md5.sql"
+                    ).to_string()),
+                    // /home/rubenfiszel/windmill/backend/migrations/20240216100535_improve_policies.up.sql
+                    (20240216100535, include_str!(
+                        "../../migrations/20240216100535_improve_policies.up.sql"
+                    ).replace("public.", "")),
+                    // /home/rubenfiszel/windmill/backend/migrations/20240403083110_remove_team_id_constraint.up.sql
+                    (20240403083110, include_str!(
+                        "../../migrations/20240403083110_remove_team_id_constraint.up.sql"
+                    ).replace("public.", "")),
+                    // /home/rubenfiszel/windmill/backend/migrations/20240613150524_add_job_perms.up.sql
+                    (20240613150524, include_str!(
+                        "../../migrations/20240613150524_add_job_perms.up.sql"
+                    ).replace("public.", "")),
+                    // /home/rubenfiszel/windmill/backend/migrations/20250102145420_more_captures.down.sql
+                    (20250102145420, include_str!(
+                        "../../migrations/20250102145420_more_captures.down.sql"
+                    ).replace("public.", "")),
+                    ].into_iter().collect();
+}
+
 struct CustomMigrator {
     inner: PoolConnection<Postgres>,
 }
@@ -132,12 +155,15 @@ impl Migrate for CustomMigrator {
                 migration.version,
                 migration.description
             );
-            if migration.version == 20221207103910 {
-                tracing::info!("Skipping migration 20221207103910 to avoid using md5");
+
+
+            if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
+                if migration.version == 20221207103910 {
+                    tracing::info!("Skipping migration 20221207103910 to avoid using md5");
+                }
+
                 self.inner
-                    .execute(include_str!(
-                        "../../custom_migrations/create_workspace_without_md5.sql"
-                    ))
+                    .execute(&**migration_sql)
                     .await?;
                 let _ = sqlx::query(
                     r#"
