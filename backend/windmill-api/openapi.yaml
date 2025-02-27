@@ -6235,6 +6235,92 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps_u/upload_s3_file/{path}:
+    post:
+      summary: upload s3 file from app
+      operationId: uploadS3FileFromApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: File content
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: file uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_key:
+                    type: string
+                  delete_token:
+                    type: string
+                required:
+                  - file_key
+                  - delete_token
+
+  /w/{workspace}/apps_u/delete_s3_file:
+    delete:
+      summary: delete s3 file from app
+      operationId: deleteS3FileFromApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: delete_token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: file deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs/run/f/{path}:
     post:
       summary: run flow by path
