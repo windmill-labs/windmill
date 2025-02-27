@@ -132,6 +132,7 @@
 			: undefined}
 		pathTransformer={resolvedConfig?.type?.configuration?.s3?.pathTemplate}
 		allowMultiple={resolvedConfigS3.allowMultiple}
+		allowDelete={resolvedConfigS3.allowDelete}
 		containerText={resolvedConfigS3.text}
 		customResourcePath={resolvedConfigS3.resource}
 		customResourceType="s3"

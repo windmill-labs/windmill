@@ -34,7 +34,6 @@ use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
-    auth::JWT_SECRET,
     ee::CriticalErrorChannel,
     error,
     flow_status::{FlowStatus, FlowStatusModule},
@@ -51,6 +50,7 @@ use windmill_common::{
     },
     indexer::load_indexer_config,
     jobs::QueuedJob,
+    jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
     tracing_init::JSON_FMT,
