@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.468.0"
+version = "1.472.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.468.0"
+version = "1.472.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -173,7 +173,7 @@ serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
-chrono = { version = "0.4.35", features = ["serde"] }
+chrono = { version = "=0.4.39", features = ["serde"] }
 chrono-tz = "^0.10.1"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
@@ -211,20 +211,20 @@ itertools = "^0"
 regex = "^1"
 semver = "^1"
 
-v8 = "=134.4.0"  # Exact version
-deno_fetch = "0.216.0"
-deno_tls = "0.179.0"
-deno_console = "0.192.0"
-deno_url = "0.192.0"
-deno_webidl = "0.192.0"
-deno_web = "0.223.0"
-deno_io = "0.102.0"
-deno_net = "0.184.0"
-deno_core = "0.338.0"
+v8 = "=130.0.7"  # Exact version
+deno_fetch = "0.214.0"
+deno_tls = "0.177.0"
+deno_console = "0.190.0"
+deno_url = "0.190.0"
+deno_webidl = "0.190.0"
+deno_web = "0.221.0"
+deno_io = "0.100.0"
+deno_net = "0.182.0"
+deno_core = "0.336.0"
 deno_ast = { version = "=0.44.0", features = ["transpiling"] }
-deno_permissions = "0.51.0"
-deno_runtime = { version = "0.200.0", features = ["transpile"] }
-deno_telemetry = "0.14.0"
+deno_permissions = "0.49.0"
+deno_runtime = { version = "0.198.0", features = ["transpile"] }
+deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
 
 swc_common = "=0.37.5"

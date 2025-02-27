@@ -406,26 +406,41 @@
 				{:else if $copilotInfo.exists_ai_resource}
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between items-center w-96 gap-2">
-							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode}>
-								<ToggleButton value={'gen'} label="Generate from scratch" light class="px-2" />
-								<ToggleButton value={'edit'} label="Edit existing code" light class="px-2" />
+							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode} let:item>
+								<ToggleButton
+									value={'gen'}
+									label="Generate from scratch"
+									light
+									class="px-2"
+									{item}
+								/>
+								<ToggleButton value={'edit'} label="Edit existing code" light class="px-2" {item} />
 							</ToggleButtonGroup>
 
 							<div class="min-w-0">
-								{#if $copilotInfo.ai_models.length > 1}
-									<select
-										bind:value={$copilotSessionModel}
-										class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
-									>
-										{#each $copilotInfo.ai_models as model}
-											<option value={model} class="pr-4">{model}</option>
-										{/each}
-									</select>
-								{:else if $copilotInfo.ai_models.length === 1}
-									<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
-										{$copilotInfo.ai_models[0]}
-									</div>
-								{/if}
+								<TooltipV2>
+									{#if $copilotInfo.ai_models.length > 1}
+										<select
+											bind:value={$copilotSessionModel}
+											class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
+										>
+											{#each $copilotInfo.ai_models as model}
+												<option value={model} class="pr-4">{model}</option>
+											{/each}
+										</select>
+									{:else if $copilotInfo.ai_models.length === 1}
+										<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
+											{$copilotInfo.ai_models[0]}
+										</div>
+									{/if}
+									<svelte:fragment slot="text">
+										<span class="text-xs"
+											>{$copilotInfo.ai_models.length > 1
+												? $copilotSessionModel
+												: $copilotInfo.ai_models[0]}</span
+										>
+									</svelte:fragment>
+								</TooltipV2>
 							</div>
 						</div>
 						<div class="flex w-96 items-start">
@@ -511,14 +526,16 @@
 										class="w-auto shrink-0"
 										selected={dbSchema?.publicOnly ? 'true' : 'false'}
 										on:selected={handlePublicOnlySelected}
+										let:item
 									>
 										<ToggleButton
 											value={'true'}
 											label={(dbSchema.schema?.dbo ? 'Dbo' : 'Public') + ' schema'}
 											small
 											light
+											{item}
 										/>
-										<ToggleButton value={'false'} label="All schemas" small light />
+										<ToggleButton value={'false'} label="All schemas" small light {item} />
 									</ToggleButtonGroup>
 								{/if}
 							</div>
