@@ -157,9 +157,6 @@ impl Migrate for CustomMigrator {
 
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
-                if migration.version == 20221207103910 {
-                    tracing::info!("Skipping migration 20221207103910 to avoid using md5");
-                }
                 tracing::info!("Using custom migration for version {}", migration.version);
 
                 self.inner
