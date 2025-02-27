@@ -21,7 +21,7 @@ use crate::{
     job_helpers_ee::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
         get_workspace_s3_resource, load_image_preview_internal, upload_file_from_req,
-        DownloadFileQuery, LoadImagePreviewQuery, UploadFileResponse,
+        DownloadFileQuery, LoadImagePreviewQuery,
     },
     users::fetch_api_authed_from_permissioned_as,
 };
@@ -51,8 +51,6 @@ use sqlx::{types::Uuid, FromRow};
 use std::str;
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
-#[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::variables::encrypt;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},
@@ -69,6 +67,8 @@ use windmill_common::{
     worker::{to_raw_value, CLOUD_HOSTED},
     HUB_BASE_URL,
 };
+#[cfg(feature = "parquet")]
+use windmill_common::{jwt, s3_helpers::build_object_store_client};
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
@@ -96,6 +96,7 @@ pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
         .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
+        .route("/delete_s3_file", delete(delete_s3_file_from_app))
         .route("/download_s3_file/*path", get(download_s3_file_from_app))
         .route(
             "/load_image_preview/*path",
@@ -1511,6 +1512,22 @@ struct UploadFileToS3Query {
     force_viewer_allowed_resources: Option<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct DeleteTokenClaims {
+    file_key: String,
+    on_behalf_of_email: String,
+    permissioned_as: String,
+    username: String,
+    s3_resource_path: Option<String>,
+    pub exp: usize,
+}
+
+#[derive(Serialize)]
+struct AppUploadFileResponse {
+    file_key: String,
+    delete_token: String,
+}
+
 #[cfg(feature = "parquet")]
 async fn upload_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
@@ -1518,7 +1535,7 @@ async fn upload_s3_file_from_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<UploadFileToS3Query>,
     request: axum::extract::Request,
-) -> JsonResult<UploadFileResponse> {
+) -> JsonResult<AppUploadFileResponse> {
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
         Some(Policy {
             execution_mode: ExecutionMode::Viewer,
@@ -1554,7 +1571,10 @@ async fn upload_s3_file_from_app(
 
     let user_db = UserDB::new(db.clone());
 
-    let (s3_resource_opt, file_key) = if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
+    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) = if policy
+        .as_ref()
+        .is_some_and(|p| p.s3_inputs.is_some())
+    {
         let policy = policy.unwrap();
         let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
@@ -1562,11 +1582,11 @@ async fn upload_s3_file_from_app(
             get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
         let on_behalf_authed = fetch_api_authed_from_permissioned_as(
-            permissioned_as,
-            email,
+            permissioned_as.clone(),
+            email.clone(),
             &w_id,
             &db,
-            Some(username),
+            Some(username.clone()),
         )
         .await?;
 
@@ -1617,6 +1637,9 @@ async fn upload_s3_file_from_app(
                                     .await?,
                                 ),
                                 file_key,
+                                email,
+                                permissioned_as,
+                                username,
                             )
                         } else {
                             return Err(Error::BadRequest(
@@ -1640,13 +1663,16 @@ async fn upload_s3_file_from_app(
                                 .await?,
                             ),
                             file_key,
+                            email,
+                            permissioned_as,
+                            username,
                         )
                     }
                 } else {
                     let (_, s3_resource_opt) =
                         get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None)
                             .await?;
-                    (s3_resource_opt, file_key)
+                    (s3_resource_opt, file_key, email, permissioned_as, username)
                 }
             } else {
                 return Err(Error::BadRequest(
@@ -1672,7 +1698,7 @@ async fn upload_s3_file_from_app(
             let (_, s3_resource_opt) =
                 get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
 
-            (s3_resource_opt, file_key)
+            (s3_resource_opt, file_key, email, permissioned_as, username)
         }
     } else {
         // backward compatibility (no policy)
@@ -1681,6 +1707,12 @@ async fn upload_s3_file_from_app(
             let file_key = query
                 .file_key
                 .unwrap_or_else(|| get_random_file_name(query.file_extension));
+
+            let (on_behalf_of_email, permissioned_as, username) = (
+                authed.email.clone(),
+                username_to_permissioned_as(&authed.username),
+                authed.display_username().to_string(),
+            );
 
             if let Some(ref s3_resource_path) = query.s3_resource_path {
                 (
@@ -1698,12 +1730,21 @@ async fn upload_s3_file_from_app(
                         .await?,
                     ),
                     file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
                 )
             } else {
                 let (_, s3_resource) =
                     get_workspace_s3_resource(&authed, &db, None, "", &w_id, None).await?;
 
-                (s3_resource, file_key)
+                (
+                    s3_resource,
+                    file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
+                )
             }
         } else {
             return Err(Error::BadRequest("Missing s3 policy".to_string()));
@@ -1733,7 +1774,79 @@ async fn upload_s3_file_from_app(
 
     upload_file_from_req(s3_client, &file_key, request, options).await?;
 
-    return Ok(Json(UploadFileResponse { file_key }));
+    let delete_token = jwt::encode_with_internal_secret(DeleteTokenClaims {
+        file_key: file_key.clone(),
+        on_behalf_of_email,
+        permissioned_as,
+        username,
+        s3_resource_path: query.s3_resource_path,
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(3600 * 24)).timestamp() as usize,
+    })
+    .await?;
+
+    return Ok(Json(AppUploadFileResponse { file_key, delete_token }));
+}
+
+#[derive(Deserialize)]
+struct DeleteS3FileQuery {
+    delete_token: String,
+}
+
+async fn delete_s3_file_from_app(
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<DeleteS3FileQuery>,
+) -> Result<()> {
+    let DeleteTokenClaims {
+        file_key,
+        on_behalf_of_email,
+        permissioned_as,
+        username,
+        s3_resource_path,
+        ..
+    } = jwt::decode_with_internal_secret::<DeleteTokenClaims>(&query.delete_token).await?;
+
+    let on_behalf_authed = fetch_api_authed_from_permissioned_as(
+        permissioned_as,
+        on_behalf_of_email,
+        &w_id,
+        &db,
+        Some(username),
+    )
+    .await?;
+
+    let s3_resource = if let Some(s3_resource_path) = s3_resource_path {
+        get_s3_resource(
+            &on_behalf_authed,
+            &db,
+            Some(user_db),
+            "",
+            &w_id,
+            s3_resource_path.as_str(),
+            None,
+            None,
+        )
+        .await?
+    } else {
+        let (_, s3_resource) =
+            get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
+
+        s3_resource.ok_or(Error::internal_err(
+            "No files storage resource defined at the workspace level".to_string(),
+        ))?
+    };
+
+    let s3_client = build_object_store_client(&s3_resource).await?;
+
+    let path = object_store::path::Path::from(file_key.as_str());
+
+    s3_client.delete(&path).await.map_err(|err| {
+        tracing::error!("Error deleting file: {:?}", err);
+        Error::internal_err(format!("Error deleting file: {}", err.to_string()))
+    })?;
+
+    Ok(())
 }
 
 #[cfg(not(feature = "parquet"))]
