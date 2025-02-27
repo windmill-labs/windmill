@@ -500,11 +500,48 @@ async fn get_full_hub_script_by_path_inner(
 ) -> crate::error::Result<HubScript> {
     let hub_base_url = HUB_BASE_URL.read().await.clone();
 
-    let req_path = format!("{}/raw2/{}", hub_base_url, path);
-    let response = (|| async {
-        http_get_from_hub(http_client, &req_path, true, None, db)
+    (|| async {
+        let req_path = format!("{}/raw2/{}", hub_base_url, path);
+        let response = http_get_from_hub(http_client, &req_path, true, None, db)
             .await
-            .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()))
+            .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()));
+
+        match response {
+            Ok(response) => {
+                let script = response.json::<HubScript>().await.context(format!(
+                    "Decoding hub response for script at path {req_path}"
+                ))?;
+                Ok(script)
+            }
+            Err(e) => {
+                if hub_base_url != DEFAULT_HUB_BASE_URL
+                    && path
+                        .split("/")
+                        .next()
+                        .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                {
+                    // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
+                    tracing::info!(
+                        "Not found on private hub, fallback to default hub for {}",
+                        path
+                    );
+                    let req_path = format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path);
+                    let value = http_get_from_hub(http_client, &req_path, true, None, db)
+                        .await?
+                        .error_for_status()
+                        .map_err(to_anyhow)?
+                        .json::<HubScript>()
+                        .await
+                        .context(format!(
+                            "Decoding hub response for script at path {req_path}"
+                        ))?;
+
+                    Ok(value)
+                } else {
+                    Err(e)
+                }
+            }
+        }
     })
     .retry(
         ConstantBuilder::default()
@@ -514,48 +551,11 @@ async fn get_full_hub_script_by_path_inner(
     )
     .notify(|err, dur| {
         tracing::warn!(
-            "Could not get hub script at path {req_path}, retrying in {dur:#?}, err: {err:#?}"
+            "Could not get hub script at path {path}, retrying in {dur:#?}, err: {err:#?}"
         );
     })
     .sleep(tokio::time::sleep)
-    .await;
-
-    match response {
-        Ok(response) => {
-            let script = response.json::<HubScript>().await.context(format!(
-                "Decoding hub response for script at path {req_path}"
-            ))?;
-            Ok(script)
-        }
-        Err(e) => {
-            if hub_base_url != DEFAULT_HUB_BASE_URL
-                && path
-                    .split("/")
-                    .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
-            {
-                // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
-                tracing::info!(
-                    "Not found on private hub, fallback to default hub for {}",
-                    path
-                );
-                let req_path = format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path);
-                let value = http_get_from_hub(http_client, &req_path, true, None, db)
-                    .await?
-                    .error_for_status()
-                    .map_err(to_anyhow)?
-                    .json::<HubScript>()
-                    .await
-                    .context(format!(
-                        "Decoding hub response for script at path {req_path}"
-                    ))?;
-
-                Ok(value)
-            } else {
-                Err(e)
-            }
-        }
-    }
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
