@@ -13921,7 +13921,7 @@ components:
           required:
             - runnable_result
 
-    QoS:
+    MqttQoS:
       type: number
       enum: [0, 1, 2]
   
@@ -13937,11 +13937,11 @@ components:
         clean_start:
           type: boolean
 
-    SubscribeTopic:
+    MqttSubscribeTopic:
       type: object
       properties:
         qos:
-          $ref: "#/components/schemas/QoS"
+          $ref: "#/components/schemas/MqttQoS"
         topic:
           type: string
       required:
@@ -13962,7 +13962,7 @@ components:
         subscribe_topics:
           type: array
           items:
-            $ref: "#/components/schemas/SubscribeTopic"
+            $ref: "#/components/schemas/MqttSubscribeTopic"
         v3_config:
           $ref: "#/components/schemas/MqttV3Config"
         v5_config:
@@ -13994,7 +13994,7 @@ components:
         subscribe_topics:
           type: array
           items:
-            $ref: "#/components/schemas/SubscribeTopic"
+            $ref: "#/components/schemas/MqttSubscribeTopic"
         client_id:
           type: string
         v3_config:
@@ -14026,7 +14026,7 @@ components:
         subscribe_topics:
           type: array
           items:
-            $ref: "#/components/schemas/SubscribeTopic"
+            $ref: "#/components/schemas/MqttSubscribeTopic"
         client_id:
           type: string
         v3_config:

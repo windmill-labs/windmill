@@ -6,22 +6,23 @@
 	import { Plus, X } from 'lucide-svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import type { MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic } from '$lib/gen'
+	import type { MqttClientVersion, MqttV3Config, MqttV5Config, MqttSubscribeTopic } from '$lib/gen'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
 	export let showCapture: boolean = false
 	export let mqtt_resource_path: string = ''
-	export let subscribe_topics: SubscribeTopic[] = []
+	export let subscribe_topics: MqttSubscribeTopic[] = []
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let v3_config: MqttV3Config = DEFAULT_V3_CONFIG
@@ -30,7 +31,7 @@
 	export let isValid: boolean = false
 	export let client_id: string
 
-	const isValidSubscribeTopics = (subscribe_topics: SubscribeTopic[]): boolean => {
+	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
 			subscribe_topics.length == 0 ||
 			subscribe_topics.find((subscribe_topic) => emptyStringTrimmed(subscribe_topic.topic))
@@ -117,10 +118,10 @@
 												>
 											</span>
 										</div>
-										<ToggleButtonGroup bind:selected={v.qos}>
-											<ToggleButton value={0} label="At most once (QoS 0)" />
-											<ToggleButton value={1} label="At least once (QoS 1)" />
-											<ToggleButton value={2} label="Exactly once (QoS 2)" />
+										<ToggleButtonGroup bind:selected={v.qos} let:item>
+											<ToggleButton value={0} label="At most once (QoS 0)" {item} />
+											<ToggleButton value={1} label="At least once (QoS 1)" {item} />
+											<ToggleButton value={2} label="Exactly once (QoS 2)" {item} />
 										</ToggleButtonGroup>
 									</label>
 								</div>
@@ -179,9 +180,9 @@
 
 			<Subsection label="Advanced" collapsable={true}>
 				<div class="flex p-2 flex-col gap-2 mt-3">
-					<ToggleButtonGroup bind:selected={client_version}>
-						<ToggleButton value="v5" label="Version 5" />
-						<ToggleButton value="v3" label="Version 3" />
+					<ToggleButtonGroup bind:selected={client_version} let:item>
+						<ToggleButton value="v5" label="Version 5" {item} />
+						<ToggleButton value="v3" label="Version 3" {item} />
 					</ToggleButtonGroup>
 
 					<input

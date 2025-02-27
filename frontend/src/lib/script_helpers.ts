@@ -764,7 +764,7 @@ class Sqs(TypedDict):
    attributes: dict[str, str]
    message_attributes: dict[str, MessageAttribute] | None
 
-class V5Properties:
+class MqttV5Properties:
    payload_format_indicator: int | None
    topic_alias: int | None
    response_topic: str | None
@@ -778,8 +778,7 @@ class Mqtt(TypeDict):
    retain: bool
    pkid: int
    qos: int
-   v5: V5Properties | None
-
+   v5: MqttV5Properties | None
 
 class WmTrigger(TypedDict):
    kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs", "mqtt"]

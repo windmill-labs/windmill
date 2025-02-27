@@ -17,7 +17,7 @@
 		type MqttClientVersion,
 		type MqttV3Config,
 		type MqttV5Config,
-		type SubscribeTopic
+		type MqttSubscribeTopic
 	} from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 
@@ -36,7 +36,7 @@
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
-	let subscribe_topics: SubscribeTopic[] = []
+	let subscribe_topics: MqttSubscribeTopic[] = []
 	let v3_config: MqttV3Config | undefined
 	let v5_config: MqttV5Config | undefined
 	let client_version: MqttClientVersion | undefined
