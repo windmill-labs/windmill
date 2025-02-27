@@ -82,7 +82,7 @@
 											<span class="text-secondary text-sm">
 												QoS
 												<Tooltip
-													><ul class="list-disc list-inside space-y-2 text-gray-700">
+													><ul class="list-disc list-inside space-y-2">
 														<li>
 															<span class="font-bold">QoS 0 - At most once</span>
 															<ul class="list-none ml-4 text-sm text-gray-600">
@@ -119,9 +119,9 @@
 											</span>
 										</div>
 										<ToggleButtonGroup bind:selected={v.qos} let:item>
-											<ToggleButton value={0} label="At most once (QoS 0)" {item} />
-											<ToggleButton value={1} label="At least once (QoS 1)" {item} />
-											<ToggleButton value={2} label="Exactly once (QoS 2)" {item} />
+											<ToggleButton value={'q0'} label="At most once (QoS 0)" {item} />
+											<ToggleButton value={'q1'} label="At least once (QoS 1)" {item} />
+											<ToggleButton value={'q2'} label="Exactly once (QoS 2)" {item} />
 										</ToggleButtonGroup>
 									</label>
 								</div>
@@ -166,7 +166,7 @@
 									subscribe_topics = []
 								}
 								subscribe_topics = subscribe_topics.concat({
-									qos: 0,
+									qos: 'q0',
 									topic: ''
 								})
 							}}

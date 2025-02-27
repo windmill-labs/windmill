@@ -32,7 +32,6 @@ use rumqttc::{
     TlsConfiguration, Transport,
 };
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, Type};
 use std::collections::HashMap;
@@ -130,20 +129,22 @@ async fn run_job(
     Ok(())
 }
 
-#[derive(Clone, Debug, Serialize_repr, Deserialize_repr)]
-#[repr(u8)]
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[sqlx(type_name = "MQTT_QOS")]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum QualityOfService {
-    AtMostOnce = 0,
-    AtLeastOnce = 1,
-    ExactlyOnce = 2,
+    Q0,
+    Q1,
+    Q2,
 }
 
 impl Into<V3QoS> for QualityOfService {
     fn into(self) -> V3QoS {
         match self {
-            QualityOfService::AtMostOnce => V3QoS::AtMostOnce,
-            QualityOfService::AtLeastOnce => V3QoS::AtLeastOnce,
-            QualityOfService::ExactlyOnce => V3QoS::ExactlyOnce,
+            QualityOfService::Q0 => V3QoS::AtMostOnce,
+            QualityOfService::Q1 => V3QoS::AtLeastOnce,
+            QualityOfService::Q2 => V3QoS::ExactlyOnce,
         }
     }
 }
@@ -151,9 +152,9 @@ impl Into<V3QoS> for QualityOfService {
 impl Into<V5QoS> for QualityOfService {
     fn into(self) -> V5QoS {
         match self {
-            QualityOfService::AtMostOnce => V5QoS::AtMostOnce,
-            QualityOfService::AtLeastOnce => V5QoS::AtLeastOnce,
-            QualityOfService::ExactlyOnce => V5QoS::ExactlyOnce,
+            QualityOfService::Q0 => V5QoS::AtMostOnce,
+            QualityOfService::Q1 => V5QoS::AtLeastOnce,
+            QualityOfService::Q2 => V5QoS::ExactlyOnce,
         }
     }
 }

@@ -13922,8 +13922,8 @@ components:
             - runnable_result
 
     MqttQoS:
-      type: number
-      enum: [0, 1, 2]
+      type: string
+      enum: ['q0', 'q1', 'q2']
   
     MqttV3Config:
       type: object

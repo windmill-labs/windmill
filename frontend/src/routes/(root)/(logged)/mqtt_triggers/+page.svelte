@@ -16,7 +16,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -226,12 +226,17 @@
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
-			<input type="text" placeholder="Search MQTT triggers" bind:value={filter} class="search-item" />
+			<input
+				type="text"
+				placeholder="Search MQTT triggers"
+				bind:value={filter}
+				class="search-item"
+			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
-				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="MQTT trigger" icon={MqttIcon} />
-					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+				<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+					<ToggleButton small value="trigger" label="MQTT trigger" icon={MqttIcon} {item} />
+					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 				</ToggleButtonGroup>
 			</div>
 			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
