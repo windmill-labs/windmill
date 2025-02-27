@@ -93,7 +93,7 @@ fn parse_default_value(val: nu_protocol::Value) -> anyhow::Result<serde_json::Va
         Nothing { .. } => Ok(json!("null")),
         Binary { val, .. } => to_value(val).map_err(anyhow::Error::from),
         wc => Err(anyhow::anyhow!(
-            "Unexpected Nu type node kind: {:?}. This type is not handeled by Windmill, please open an issue if this seems to be an error",
+            "Unexpected Nu type node kind: {:?}. This type is not handled by Windmill, please open an issue if this seems to be an error",
             wc,
         )),
     }
