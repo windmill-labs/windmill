@@ -269,6 +269,9 @@ pub struct SetEnabled {
     enabled: bool,
 }
 
+const KEEP_ALIVE: u64 = 60;
+const CLIENT_CONNECTION_TIMEOUT: u64 = 60;
+
 struct MqttClientBuilder<'client> {
     mqtt_resource: MqttResource,
     client_id: &'client str,
@@ -350,6 +353,7 @@ impl<'client> MqttClientBuilder<'client> {
             mqtt_options.set_transport(transport);
         }
 
+        mqtt_options.set_connection_timeout(CLIENT_CONNECTION_TIMEOUT);
         mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
 
         if let Some(v5_config) = self.v5_config {
@@ -388,7 +392,6 @@ impl<'client> MqttClientBuilder<'client> {
         if let Some(transport) = self.get_tls_configuration()? {
             mqtt_options.set_transport(transport);
         }
-
         mqtt_options.set_keep_alive(Duration::from_secs(KEEP_ALIVE));
 
         if let Some(v3_config) = self.v3_config {
@@ -904,8 +907,6 @@ enum MqttClientResult {
     V3((V3MqttHandler, V3EventLoop)),
     V5((V5MqttHandler, V5EventLoop)),
 }
-
-const KEEP_ALIVE: u64 = 60;
 
 trait MqttEvent {
     type IncomingPacket;
