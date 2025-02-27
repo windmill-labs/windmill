@@ -886,7 +886,7 @@ pub async fn set_enabled(
     tx.commit().await?;
 
     Ok(format!(
-        "succesfully updated mqttq trigger at path {} to status {}",
+        "successfully updated mqtt trigger at path {} to status {}",
         path, payload.enabled
     ))
 }
