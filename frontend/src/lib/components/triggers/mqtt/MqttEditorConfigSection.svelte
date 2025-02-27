@@ -90,7 +90,7 @@
 													><ul class="list-disc list-inside space-y-2">
 														<li>
 															<span class="font-bold">QoS 0 - At most once</span>
-															<ul class="list-none ml-4 text-sm text-gray-600">
+															<ul class="list-none ml-4 text-sm">
 																<li>❌ Messages may be lost if the network fails.</li>
 																<li>✅ No duplicates, but no delivery guarantee.</li>
 																<li
@@ -100,7 +100,7 @@
 														</li>
 														<li>
 															<span class="font-bold">QoS 1 - At least once</span>
-															<ul class="list-none ml-4 text-sm text-gray-600">
+															<ul class="list-none ml-4 text-sm">
 																<li>✅ Guaranteed to receive the message at least once.</li>
 																<li>❌ May receive duplicate messages.</li>
 																<li
@@ -111,7 +111,7 @@
 														</li>
 														<li>
 															<span class="font-bold">QoS 2 - Exactly once</span>
-															<ul class="list-none ml-4 text-sm text-gray-600">
+															<ul class="list-none ml-4 text-sm">
 																<li>✅ Ensures each message is received only once.</li>
 																<li>❌ Slightly slower due to extra processing.</li>
 																<li
