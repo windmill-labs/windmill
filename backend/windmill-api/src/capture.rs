@@ -36,6 +36,7 @@ use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
+    utils::RunnableKind,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -142,7 +143,7 @@ pub struct KafkaTriggerConfig {
 pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
-    pub message_attributes: Option<Vec<String>>
+    pub message_attributes: Option<Vec<String>>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -374,13 +375,6 @@ struct Capture {
     trigger_kind: TriggerKind,
     payload: SqlxJson<Box<serde_json::value::RawValue>>,
     trigger_extra: Option<SqlxJson<Box<serde_json::value::RawValue>>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum RunnableKind {
-    Script,
-    Flow,
 }
 
 #[derive(Deserialize)]

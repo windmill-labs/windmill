@@ -5295,6 +5295,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/FlowVersion"
 
+  /w/{workspace}/flows/list_paths_from_workspace_runnable/{runnable_kind}/{path}:
+    get:
+      summary: list flow paths from workspace runnable
+      operationId: listFlowPathsFromWorkspaceRunnable
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: list of flow paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/flows/get/v/{version}/p/{path}:
     get:
       summary: get flow version
