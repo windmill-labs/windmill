@@ -36,22 +36,21 @@ lazy_static::lazy_static! {
     pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20221207103910, include_str!(
                         "../../custom_migrations/create_workspace_without_md5.sql"
                     ).to_string()),
-                    // /home/rubenfiszel/windmill/backend/migrations/20240216100535_improve_policies.up.sql
                     (20240216100535, include_str!(
                         "../../migrations/20240216100535_improve_policies.up.sql"
                     ).replace("public.", "")),
-                    // /home/rubenfiszel/windmill/backend/migrations/20240403083110_remove_team_id_constraint.up.sql
                     (20240403083110, include_str!(
                         "../../migrations/20240403083110_remove_team_id_constraint.up.sql"
                     ).replace("public.", "")),
-                    // /home/rubenfiszel/windmill/backend/migrations/20240613150524_add_job_perms.up.sql
                     (20240613150524, include_str!(
                         "../../migrations/20240613150524_add_job_perms.up.sql"
                     ).replace("public.", "")),
-                    // /home/rubenfiszel/windmill/backend/migrations/20250102145420_more_captures.down.sql
                     (20250102145420, include_str!(
-                        "../../migrations/20250102145420_more_captures.down.sql"
+                        "../../migrations/20250102145420_more_captures.up.sql"
                     ).replace("public.", "")),
+                    (20241006144414, include_str!(
+                        "../../custom_migrations/grant_all_current_schema.sql"
+                    ).to_string()),
                     ].into_iter().collect();
 }
 
@@ -161,6 +160,7 @@ impl Migrate for CustomMigrator {
                 if migration.version == 20221207103910 {
                     tracing::info!("Skipping migration 20221207103910 to avoid using md5");
                 }
+                tracing::info!("Using custom migration for version {}", migration.version);
 
                 self.inner
                     .execute(&**migration_sql)
