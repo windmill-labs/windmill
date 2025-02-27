@@ -1498,6 +1498,13 @@ async fn upload_s3_file_from_app() -> Result<()> {
     ));
 }
 
+#[cfg(not(feature = "parquet"))]
+async fn delete_s3_file_from_app() -> Result<()> {
+    return Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ));
+}
+
 #[cfg(feature = "parquet")]
 #[derive(Debug, Deserialize, Clone)]
 struct UploadFileToS3Query {
@@ -1512,6 +1519,7 @@ struct UploadFileToS3Query {
     force_viewer_allowed_resources: Option<String>,
 }
 
+#[cfg(feature = "parquet")]
 #[derive(Serialize, Deserialize)]
 struct DeleteTokenClaims {
     file_key: String,
@@ -1522,6 +1530,7 @@ struct DeleteTokenClaims {
     pub exp: usize,
 }
 
+#[cfg(feature = "parquet")]
 #[derive(Serialize)]
 struct AppUploadFileResponse {
     file_key: String,
@@ -1787,11 +1796,13 @@ async fn upload_s3_file_from_app(
     return Ok(Json(AppUploadFileResponse { file_key, delete_token }));
 }
 
+#[cfg(feature = "parquet")]
 #[derive(Deserialize)]
 struct DeleteS3FileQuery {
     delete_token: String,
 }
 
+#[cfg(feature = "parquet")]
 async fn delete_s3_file_from_app(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
