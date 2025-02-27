@@ -27,8 +27,11 @@
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
-	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
+	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
+
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
@@ -72,6 +75,8 @@
 	let newId: string = id ?? ''
 
 	let hover = false
+
+	const { viewport } = useSvelteFlow()
 </script>
 
 {#if deletable && id && editId}
@@ -141,7 +146,7 @@
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
-	style="width: 275px; height: 34px; background-color: {bgColor};"
+	style="width: 275px; height: 42px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
 	on:click|preventDefault|stopPropagation
@@ -243,22 +248,42 @@
 		{/if}
 	</div>
 
-	<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
-		<svelte:fragment slot="icon">
-			<slot name="icon" />
-		</svelte:fragment>
-	</FlowModuleSchemaItemViewer>
+	<div class="flex flex-col w-full">
+		<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
+			<svelte:fragment slot="icon">
+				<slot name="icon" />
+			</svelte:fragment>
+		</FlowModuleSchemaItemViewer>
 
-	{#if id && $flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
-		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
-			<FlowPropPicker
-				json={{
-					[id]: pickableIds[id]
-				}}
+		<OutputPicker
+			zoom={$viewport?.zoom ?? 1}
+			{selected}
+			{hover}
+			let:allowCopy
+			isConnectingCandidate={!!id &&
+				!!$flowPropPickerConfig &&
+				!!pickableIds &&
+				Object.keys(pickableIds).includes(id)}
+			let:isConnecting
+			let:select
+		>
+			<OutputPickerInner
+				jsonData={id &&
+				$flowPropPickerConfig &&
+				pickableIds &&
+				Object.keys(pickableIds).includes(id)
+					? {
+							[id]: pickableIds[id]
+					  }
+					: {}}
+				{selected}
+				{allowCopy}
 				prefix={'results'}
+				{isConnecting}
+				on:select={select}
 			/>
-		</div>
-	{/if}
+		</OutputPicker>
+	</div>
 
 	{#if deletable}
 		<button
