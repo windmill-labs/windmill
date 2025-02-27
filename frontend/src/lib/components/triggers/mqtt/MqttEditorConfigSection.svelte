@@ -29,7 +29,7 @@
 	export let v5_config: MqttV5Config = DEFAULT_V5_CONFIG
 	export let client_version: MqttClientVersion = 'v5'
 	export let isValid: boolean = false
-	export let client_id: string
+	export let client_id: string = ''
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
@@ -162,13 +162,13 @@
 							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
-								if (subscribe_topics == undefined || !Array.isArray(subscribe_topics)) {
-									subscribe_topics = []
-								}
-								subscribe_topics = subscribe_topics.concat({
-									qos: 'qos0',
-									topic: ''
-								})
+								subscribe_topics = [
+									...subscribe_topics,
+									{
+										qos: 'qos0',
+										topic: ''
+									}
+								]
 							}}
 							startIcon={{ icon: Plus }}
 						>

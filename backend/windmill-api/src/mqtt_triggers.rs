@@ -137,9 +137,9 @@ pub enum QualityOfService {
     Qos2,
 }
 
-impl Into<V3QoS> for QualityOfService {
-    fn into(self) -> V3QoS {
-        match self {
+impl From<QualityOfService> for V3QoS {
+    fn from(value: QualityOfService) -> Self {
+        match value {
             QualityOfService::Qos0 => V3QoS::AtMostOnce,
             QualityOfService::Qos1 => V3QoS::AtLeastOnce,
             QualityOfService::Qos2 => V3QoS::ExactlyOnce,
@@ -147,9 +147,9 @@ impl Into<V3QoS> for QualityOfService {
     }
 }
 
-impl Into<V5QoS> for QualityOfService {
-    fn into(self) -> V5QoS {
-        match self {
+impl From<QualityOfService> for V5QoS {
+    fn from(value: QualityOfService) -> Self {
+        match value {
             QualityOfService::Qos0 => V5QoS::AtMostOnce,
             QualityOfService::Qos1 => V5QoS::AtLeastOnce,
             QualityOfService::Qos2 => V5QoS::ExactlyOnce,
@@ -480,7 +480,7 @@ pub async fn test_mqtt_connection(
         .await
         .map_err(|_| {
             error::Error::BadConfig(format!(
-                "Timeout occured while trying connecting to mqtt broker after 30 seconds"
+                "Timeout occurred while trying to connect to mqtt broker after 30 seconds"
             ))
         })??;
 
@@ -1036,7 +1036,7 @@ impl EventLoop for V5EventLoop {
         }
 
         Err(Error::Common(error::Error::BadConfig(format!(
-            "Timeout occured while trying connecting to mqtt broker after {} seconds",
+            "Timeout occurred while trying to connect to mqtt broker after {} seconds",
             TIMEOUT_DURATION
         ))))
     }
@@ -1159,7 +1159,7 @@ impl MqttConfig {
             MqttConfig::Capture(capture) => {
                 mqtt_resource_path = &capture.trigger_config.0.mqtt_resource_path;
                 subscribe_topics = capture.trigger_config.0.subscribe_topics.clone();
-                workspace_id = &capture.trigger_config.0.mqtt_resource_path;
+                workspace_id = &capture.workspace_id;
                 authed = capture.fetch_authed(&db).await?;
                 client_version = capture.trigger_config.0.client_version.as_ref();
                 client_id = capture.trigger_config.0.client_id.as_deref();
@@ -1181,7 +1181,6 @@ impl MqttConfig {
                 v5_config = trigger.v5_config.as_ref().map(|v5_config| &v5_config.0);
             }
         }
-
         let mqtt_resource = try_get_resource_from_db_as::<MqttResource>(
             authed,
             Some(UserDB::new(db.clone())),
@@ -1190,7 +1189,6 @@ impl MqttConfig {
             workspace_id,
         )
         .await?;
-
         let client_builder = MqttClientBuilder::new(
             mqtt_resource,
             client_id,
