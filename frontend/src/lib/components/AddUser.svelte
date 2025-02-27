@@ -2,7 +2,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { globalEmailInvite, superadmin, workspaceStore } from '$lib/stores'
 	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
-	import { Button, Popup } from './common'
+	import { Button } from './common'
+	import Popover from './meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { goto } from '$lib/navigation'
@@ -72,64 +73,61 @@
 	let selected: 'operator' | 'developer' | 'admin' = 'developer'
 </script>
 
-<Popup
-	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
->
-	<svelte:fragment slot="button">
+<Popover placement="bottom-end">
+	<svelte:fragment slot="trigger">
 		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
 			Add new user
 		</Button>
 	</svelte:fragment>
-	<div class="flex flex-col w-72 p-2">
-		<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
+	<svelte:fragment slot="content">
+		<div class="flex flex-col w-72 p-4">
+			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
 
-		<span class="text-xs mb-1 leading-6">Email</span>
-		<input type="email mb-1" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
+			<span class="text-xs mb-1 leading-6">Email</span>
+			<input type="email mb-1" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
-		{#if !automateUsernameCreation}
-			<span class="text-xs mb-1 pt-2 leading-6">Username</span>
-			<input type="text" on:keyup={handleKeyUp} placeholder="username" bind:value={username} />
-		{/if}
+			{#if !automateUsernameCreation}
+				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
+				<input type="text" on:keyup={handleKeyUp} placeholder="username" bind:value={username} />
+			{/if}
 
-		<span class="text-xs mb-1 pt-2 leading-6">Role</span>
-		<ToggleButtonGroup bind:selected class="mb-4">
-			<ToggleButton
-				value="operator"
+			<span class="text-xs mb-1 pt-2 leading-6">Role</span>
+			<ToggleButtonGroup bind:selected class="mb-4" let:item>
+				<ToggleButton
+					value="operator"
+					label="Operator"
+					tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+					{item}
+				/>
+				<ToggleButton
+					value="developer"
+					label="Developer"
+					tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+					{item}
+				/>
+				<ToggleButton
+					value="admin"
+					label="Admin"
+					tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+					{item}
+				/>
+			</ToggleButtonGroup>
+			<Button
+				variant="contained"
+				color="blue"
 				size="sm"
-				label="Operator"
-				tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-			/>
-			<ToggleButton
-				position="center"
-				value="developer"
-				size="sm"
-				label="Developer"
-				tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-			/>
-			<ToggleButton
-				position="right"
-				value="admin"
-				size="sm"
-				label="Admin"
-				tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-			/>
-		</ToggleButtonGroup>
-		<Button
-			variant="contained"
-			color="blue"
-			size="sm"
-			on:click={() => {
-				addUser().then(() => {
-					// @ts-ignore
-					email = undefined
-					// @ts-ignore
-					username = undefined
-				})
-			}}
-			disabled={email === undefined || (!automateUsernameCreation && username === undefined)}
-		>
-			Add
-		</Button>
-	</div>
-</Popup>
+				on:click={() => {
+					addUser().then(() => {
+						// @ts-ignore
+						email = undefined
+						// @ts-ignore
+						username = undefined
+					})
+				}}
+				disabled={email === undefined || (!automateUsernameCreation && username === undefined)}
+			>
+				Add
+			</Button>
+		</div>
+	</svelte:fragment>
+</Popover>

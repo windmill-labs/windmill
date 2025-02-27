@@ -7,8 +7,8 @@
 </script>
 
 <div class="max-w-min">
-	<ToggleButtonGroup bind:selected>
-		<ToggleButton value="hub" icon={WindmillIcon} label="Hub" />
-		<ToggleButton value="workspace" icon={Building} label="Workspace" />
+	<ToggleButtonGroup bind:selected let:item>
+		<ToggleButton value="hub" icon={WindmillIcon} label="Hub" {item} />
+		<ToggleButton value="workspace" icon={Building} label="Workspace" {item} />
 	</ToggleButtonGroup>
 </div>

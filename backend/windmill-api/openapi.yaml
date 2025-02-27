@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.467.1
+  version: 1.472.1
   title: Windmill API
 
   contact:
@@ -126,6 +126,11 @@ paths:
             type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
+        - name: all_workspaces
+          in: query
+          description: get audit logs for all workspaces
+          schema:
+            type: boolean
 
       responses:
         "200":

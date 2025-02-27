@@ -14,9 +14,7 @@
 	import ThemeNameEditor from './ThemeNameEditor.svelte'
 
 	import ThemeDrawer from './ThemeDrawer.svelte'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 
 	export let previewThemePath: string | undefined = undefined
 
@@ -134,6 +132,36 @@
 		}
 	}
 
+	async function getDropdownItems() {
+		return [
+			{
+				action: () => themeDrawer?.openDrawer(),
+				icon: Code,
+				displayName: 'View code',
+				type: 'action' as const
+			},
+			{
+				action: () => fork(row.path),
+				icon: GitBranch,
+				displayName: 'Fork',
+				type: 'action' as const
+			},
+			{
+				action: () => makeDefaultTheme(row.path),
+				icon: Pin,
+				displayName: 'Make default',
+				type: 'action' as const,
+				disabled: row.path === DEFAULT_THEME
+			},
+			{
+				action: toggleDelete,
+				icon: Trash,
+				displayName: 'Delete',
+				type: 'delete' as const,
+				disabled: row.path === DEFAULT_THEME
+			}
+		]
+	}
 	let themeDrawer: ThemeDrawer
 </script>
 
@@ -172,55 +200,7 @@
 				<Button color="dark" size="xs2" on:click={apply}>Apply</Button>
 			{/if}
 
-			<button on:pointerdown|stopPropagation>
-				<ButtonDropdown hasPadding={false}>
-					<svelte:fragment slot="items">
-						<MenuItem on:click={() => themeDrawer?.openDrawer()}>
-							<div
-								class={classNames(
-									'!text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
-								)}
-							>
-								<Code size={16} />
-								View code
-							</div>
-						</MenuItem>
-						<MenuItem on:click={() => fork(row.path)}>
-							<div
-								class={classNames(
-									'!text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
-								)}
-							>
-								<GitBranch size={16} />
-								Fork
-							</div>
-						</MenuItem>
-						{#if row.path !== DEFAULT_THEME}
-							<MenuItem on:click={() => makeDefaultTheme(row.path)}>
-								<div
-									class={classNames(
-										'!text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
-									)}
-								>
-									<Pin size={16} />
-									Make default
-								</div>
-							</MenuItem>
-
-							<MenuItem on:click={toggleDelete}>
-								<div
-									class={classNames(
-										'!text-red-600 flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
-									)}
-								>
-									<Trash size={16} />
-									Delete
-								</div>
-							</MenuItem>
-						{/if}
-					</svelte:fragment>
-				</ButtonDropdown>
-			</button>
+			<Dropdown items={getDropdownItems} class="w-fit" />
 		</div>
 	</Cell>
 </tr>
