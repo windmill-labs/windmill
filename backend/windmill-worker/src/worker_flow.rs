@@ -20,7 +20,6 @@ use crate::{
     KEEP_JOB_DIR,
 };
 use anyhow::Context;
-use futures::TryFutureExt;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -42,7 +41,6 @@ use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, JobKind, JobPayload, OnBehalfOf,
     QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
 };
-use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
@@ -218,7 +216,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         let (job_kind, script_hash, old_status, raw_flow) = sqlx::query!(
             "SELECT
                 job_kind AS \"job_kind!: JobKind\",
-                script_hash AS \"script_hash: ScriptHash\",
+                script_hash,
                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",
                 raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
             FROM v2_as_queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
@@ -245,9 +243,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             ))
         })?;
 
-        let flow_data = cache::job::fetch_flow(db, job_kind, script_hash)
-            .or_else(|_| cache::job::fetch_preview_flow(db, &flow, raw_flow))
-            .await?;
+        let flow_data = cache::job::fetch_flow(db, job_kind, script_hash, raw_flow).await?;
         let flow_value = flow_data.value();
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
@@ -1065,7 +1061,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .execute(db)
                 .await
                 .map_err(|e| {
-                    Error::InternalErr(format!("error while cleaning up completed job: {e:#}"))
+                    Error::internal_err(format!("error while cleaning up completed job: {e:#}"))
                 })?;
                 sqlx::query!(
                     "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",

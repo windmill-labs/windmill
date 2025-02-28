@@ -2019,22 +2019,9 @@ async fn handle_queued_job(
     }
 
     let started = Instant::now();
-    // Pre-fetch preview jobs raw values if necessary.
-    // The `raw_*` values passed to this function are the original raw values from `queue` tables,
-    // they are kept for backward compatibility as they have been moved to the `job` table.
-    let preview_data = match (job.job_kind, job.script_hash) {
-        (
-            JobKind::Preview
-            | JobKind::Dependencies
-            | JobKind::FlowPreview
-            | JobKind::Flow
-            | JobKind::FlowDependencies,
-            None,
-        ) => Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?),
-        _ => None,
-    };
+    let raw_data = RawData::from_raw(raw_code, raw_lock, raw_flow)?;
     let cached_res_path = if job.cache_ttl.is_some() {
-        Some(cached_result_path(db, &client.get_authed().await, &job, preview_data.as_ref()).await)
+        Some(cached_result_path(db, &client.get_authed().await, &job, raw_data.as_ref()).await)
     } else {
         None
     };
@@ -2076,10 +2063,11 @@ async fn handle_queued_job(
         }
     };
     if job.is_flow() {
-        let flow_data = match preview_data {
+        let runnable_id = job.script_hash.map(|x| x.0);
+        let flow_data = match raw_data {
             Some(RawData::Flow(data)) => data,
             // Not a preview: fetch from the cache or the database.
-            _ => cache::job::fetch_flow(db, job.job_kind, job.script_hash).await?,
+            _ => cache::job::fetch_flow(db, job.job_kind, runnable_id, None).await?,
         };
         handle_flow(
             job,
@@ -2138,7 +2126,7 @@ async fn handle_queued_job(
             JobKind::Dependencies => {
                 handle_dependency_job(
                     &job,
-                    preview_data.as_ref(),
+                    raw_data.as_ref(),
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2154,7 +2142,7 @@ async fn handle_queued_job(
             JobKind::FlowDependencies => {
                 handle_flow_dependency_job(
                     &job,
-                    preview_data.as_ref(),
+                    raw_data.as_ref(),
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2190,13 +2178,13 @@ async fn handle_queued_job(
                 .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
             _ => {
                 let metric_timer = Instant::now();
-                let preview_data = preview_data.and_then(|data| match data {
+                let raw_data = raw_data.and_then(|data| match data {
                     RawData::Script(data) => Some(data),
                     _ => None,
                 });
                 let r = handle_code_execution_job(
                     job.as_ref(),
-                    preview_data,
+                    raw_data,
                     db,
                     client,
                     job_dir,
