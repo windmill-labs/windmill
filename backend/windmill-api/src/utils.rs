@@ -29,6 +29,13 @@ pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunnableKind {
+    Script,
+    Flow,
+}
+
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     let is_admin = is_super_admin_email(db, email).await?;
 

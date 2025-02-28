@@ -3693,6 +3693,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								fieldType: 'boolean',
 								tooltip: 'If allowed, the user will be able to select more than one file'
 							},
+							allowDelete: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to delete files'
+							},
 							text: {
 								type: 'static',
 								value: 'Drag and drop files or click to select them',

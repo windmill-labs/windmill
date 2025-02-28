@@ -52,6 +52,7 @@ use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
+    utils::RunnableKind,
 };
 
 const KEEP_LAST: i64 = 20;
@@ -139,7 +140,7 @@ pub struct KafkaTriggerConfig {
 pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
-    pub message_attributes: Option<Vec<String>>
+    pub message_attributes: Option<Vec<String>>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -300,8 +301,7 @@ async fn set_config(
     #[cfg(feature = "postgres_trigger")]
     let nc = if let TriggerKind::Postgres = nc.trigger_kind {
         set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
-    }
-    else {
+    } else {
         nc
     };
 
@@ -360,13 +360,6 @@ struct Capture {
     trigger_kind: TriggerKind,
     payload: SqlxJson<Box<serde_json::value::RawValue>>,
     trigger_extra: Option<SqlxJson<Box<serde_json::value::RawValue>>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum RunnableKind {
-    Script,
-    Flow,
 }
 
 #[derive(Deserialize)]
