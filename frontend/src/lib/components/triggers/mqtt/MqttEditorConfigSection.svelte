@@ -87,6 +87,7 @@
 											<span class="text-secondary text-sm">
 												QoS
 												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/core_concepts/mqtt_triggers#configure-topic-subscriptions"
 													><ul class="list-disc list-inside space-y-2">
 														<li>
 															<span class="font-bold">QoS 0 - At most once</span>
@@ -135,7 +136,10 @@
 									<div class="flex gap-2 mb-1">
 										<span class="text-secondary text-sm">
 											Topic
-											<Tooltip>The topic you want to subscribe to</Tooltip>
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/mqtt_triggers#configure-topic-subscriptions"
+												>The topic you want to subscribe to</Tooltip
+											>
 										</span>
 									</div>
 									<input
