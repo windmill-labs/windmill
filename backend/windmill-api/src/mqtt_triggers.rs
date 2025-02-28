@@ -166,7 +166,7 @@ pub struct MqttV3Config {
 pub struct MqttV5Config {
     clean_start: Option<bool>,
     session_expiry_interval: Option<u32>,
-    topic_alias: Option<u16>
+    topic_alias: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Type)]
@@ -180,6 +180,7 @@ pub enum MqttClientVersion {
 
 #[derive(Debug, Deserialize)]
 pub struct Tls {
+    enabled: bool,
     ca_certificate: String,
     //encoded in base64
     pkcs12_client_certificate: Option<String>,
@@ -311,24 +312,29 @@ impl<'client> MqttClientBuilder<'client> {
 
     fn get_tls_configuration(&self) -> Result<Option<Transport>, Error> {
         let transport = match self.mqtt_resource.tls {
-            Some(ref tls) if !tls.ca_certificate.trim().is_empty() => {
-                let transport = rumqttc::Transport::Tls(TlsConfiguration::SimpleNative {
-                    ca: tls.ca_certificate.as_bytes().to_vec(),
-                    client_auth: {
-                        match tls.pkcs12_client_certificate.as_ref() {
-                            Some(client_certificate) if !client_certificate.trim().is_empty() => {
-                                let client_certificate =
-                                    BASE64_STANDARD.decode(client_certificate)?;
-                                let password = tls
-                                    .pkcs12_certificate_password
-                                    .clone()
-                                    .unwrap_or("".to_string());
-                                Some((client_certificate, password))
+            Some(ref tls) if tls.enabled => {
+                let transport = match tls.ca_certificate.trim().is_empty() {
+                    true => rumqttc::Transport::Tls(TlsConfiguration::Native),
+                    false => rumqttc::Transport::Tls(TlsConfiguration::SimpleNative {
+                        ca: tls.ca_certificate.as_bytes().to_vec(),
+                        client_auth: {
+                            match tls.pkcs12_client_certificate.as_ref() {
+                                Some(client_certificate)
+                                    if !client_certificate.trim().is_empty() =>
+                                {
+                                    let client_certificate =
+                                        BASE64_STANDARD.decode(client_certificate)?;
+                                    let password = tls
+                                        .pkcs12_certificate_password
+                                        .clone()
+                                        .unwrap_or("".to_string());
+                                    Some((client_certificate, password))
+                                }
+                                _ => None,
                             }
-                            _ => None,
-                        }
-                    },
-                });
+                        },
+                    }),
+                };
 
                 Some(transport)
             }
