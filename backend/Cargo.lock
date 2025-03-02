@@ -14224,6 +14224,7 @@ dependencies = [
  "hyper 1.6.0",
  "indexmap 2.7.1",
  "itertools 0.14.0",
+ "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
  "mail-send",
