@@ -214,7 +214,7 @@
 							options={{
 								right: 'Clean start',
 								rightTooltip:
-									'Starts a fresh session without stored messages, subscriptions if enabled. Otherwise, resumes the previous session with stored subscriptions, undelivered messages, and session-specific client data.',
+									'Start a new session without any stored messages or subscriptions if enabled. Otherwise, resume the previous session with stored subscriptions and undelivered messages. The default setting is 0.',
 								rightDocumentationLink:
 									'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901039'
 							}}
@@ -269,7 +269,7 @@
 								options={{
 									right: 'Topic alias maximum',
 									rightTooltip:
-										'Defines the maximum topic alias value the client is willing to accept from the broker. A value of 0 means topic aliases are not supported.',
+										'Defines the maximum topic alias value the client will accept from the broker. A value of 0 indicates that topic aliases are not supported. The default value is 65536, which is the maximum allowed topic alias.',
 									rightDocumentationLink:
 										'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901051'
 								}}
@@ -298,7 +298,7 @@
 							options={{
 								right: 'Clean session',
 								rightTooltip:
-									'Starts a fresh session without stored messages, subscriptions if enabled. Otherwise, resumes the previous session with stored subscriptions and undelivered messages.',
+									'Starts a new session without any stored messages or subscriptions if enabled. Otherwise, it resumes the previous session with stored subscriptions and undelivered messages. The default value is 0',
 								rightDocumentationLink: ''
 							}}
 							class="py-1"

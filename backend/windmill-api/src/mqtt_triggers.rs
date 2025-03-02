@@ -166,7 +166,7 @@ pub struct MqttV3Config {
 pub struct MqttV5Config {
     clean_start: Option<bool>,
     session_expiry_interval: Option<u32>,
-    topic_alias: Option<u16>,
+    topic_alias_maximum: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Type)]
@@ -274,7 +274,7 @@ pub struct SetEnabled {
 
 const KEEP_ALIVE: u64 = 60;
 const CLIENT_CONNECTION_TIMEOUT: u64 = 60;
-
+const TOPIC_ALIAS_MAXIMUM: u16 = 65535;
 struct MqttClientBuilder<'client> {
     mqtt_resource: MqttResource,
     client_id: &'client str,
@@ -371,7 +371,7 @@ impl<'client> MqttClientBuilder<'client> {
                 session_expiry_interval: v5_config.session_expiry_interval,
                 receive_maximum: None,
                 max_packet_size: None,
-                topic_alias_max: v5_config.topic_alias,
+                topic_alias_max: v5_config.topic_alias_maximum.or(Some(TOPIC_ALIAS_MAXIMUM)),
                 request_response_info: None,
                 request_problem_info: None,
                 user_properties: vec![],
