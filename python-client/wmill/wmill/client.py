@@ -8,7 +8,10 @@ import logging
 import os
 import random
 import time
-from typing_extensions import Optional
+import sys
+if sys.version_info < (3, 10):
+    # Import if the version is less than 3.10
+    from typing_extensions import Optional
 import warnings
 import json
 from json import JSONDecodeError
