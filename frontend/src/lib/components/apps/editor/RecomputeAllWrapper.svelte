@@ -26,7 +26,7 @@
 				<span slot="text"
 					><div class="flex flex-col">
 						{#each $bgRuns as bgRun}
-							<div class="flex gap-2 items-center">
+							<div class="flex gap-2 items-center">onRefresh
 								<div class="text-2xs">{bgRun}</div>
 							</div>
 						{/each}
@@ -40,7 +40,7 @@
 			<RecomputeAllButton
 				interval={$recomputeAllContext.interval}
 				componentNumber={$recomputeAllContext.componentNumber ?? 0}
-				on:click={() => $recomputeAllContext.onClick?.()}
+				on:click={() => $recomputeAllContext.onRefresh?.()}
 				on:setInter={(e) => {
 					$recomputeAllContext.setInter?.(e.detail)
 				}}

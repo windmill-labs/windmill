@@ -231,6 +231,11 @@ declare function setTab(id: string, index: number): void;
 */
 declare function recompute(id: string): void;
 
+/** recompute all components runnables and background runnables
+ * @param [filteredIds] optional list of ids to filter the recomputation
+*/
+declare function globalRecompute(filteredIds?: string[]): void;
+
 /** get the ag grid api from an AgGridTable
  * @param id component's id
 */

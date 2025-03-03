@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
+	import { get } from 'svelte/store'
 	import type {
 		AppInput,
 		EvalAppInput,
@@ -32,7 +33,7 @@
 	export let onDemandOnly: boolean = false
 	export let exportValueFunction: boolean = false
 
-	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, runnableComponents, recomputeAllContext } = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -264,6 +265,7 @@
 		try {
 			const context = computeGlobalContext(
 				$worldStore,
+				id,
 				deepMergeWithPriority(fullContext, args ?? {})
 			)
 			const r = await eval_like(
@@ -275,7 +277,8 @@
 				$worldStore,
 				$runnableComponents,
 				false,
-				groupContext?.id
+				groupContext?.id,
+				get(recomputeAllContext).onRefresh
 			)
 			error = ''
 			return r
@@ -294,14 +297,15 @@
 			try {
 				const r = await eval_like(
 					'`' + input.eval.replaceAll('`', '\\`') + '`',
-					computeGlobalContext($worldStore, fullContext),
+					computeGlobalContext($worldStore, id, fullContext),
 					$state,
 					$mode == 'dnd',
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
 					false,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext).onRefresh
 				)
 				error = ''
 				return r

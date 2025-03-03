@@ -78,7 +78,8 @@
 		selectedComponent,
 		app,
 		connectingInput,
-		bgRuns
+		bgRuns,
+		recomputeAllContext,
 	} = getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -286,7 +287,7 @@
 			try {
 				r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, {
+					computeGlobalContext($worldStore, id, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined
@@ -297,7 +298,8 @@
 					$worldStore,
 					$runnableComponents,
 					true,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext).onRefresh
 				)
 
 				await setResult(r, job)
@@ -519,7 +521,7 @@
 				raw.set(res)
 				const transformerResult = await eval_like(
 					transformer.content,
-					computeGlobalContext($worldStore, {
+					computeGlobalContext($worldStore, id, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined,
@@ -531,7 +533,8 @@
 					$worldStore,
 					$runnableComponents,
 					true,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext).onRefresh
 				)
 				return transformerResult
 			} catch (err) {
