@@ -1456,7 +1456,7 @@
 					{#if customUi?.topBar?.path != false}
 						<div class="flex justify-start w-full border rounded-md overflow-hidden">
 							<div>
-								{#if customUi?.topBar?.editablePath}
+								{#if customUi?.topBar?.editablePath != false}
 									<button
 										on:click={async () => {
 											metadataOpen = true
