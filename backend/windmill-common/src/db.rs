@@ -60,15 +60,7 @@ impl Authable for Authed {
 }
 
 lazy_static::lazy_static! {
-    pub static ref PG_SCHEMA: Option<String> = {
-        let r = std::env::var("PG_SCHEMA").ok();
-        if let Some(r) = r {
-            tracing::info!("PG_SCHEMA: {}", r);
-        } else {
-            None
-        }
-        r
-    };
+    pub static ref PG_SCHEMA: Option<String> = std::env::var("PG_SCHEMA").ok();
 }
 
 impl UserDB {

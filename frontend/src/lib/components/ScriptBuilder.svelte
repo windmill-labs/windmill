@@ -143,11 +143,12 @@
 
 	onMount(() => {
 		if (functionExports) {
+			console.log('functionExports set')
 			functionExports({
 				setPreviewArgs: (args: Record<string, any>) => {
 					scriptEditor?.setArgs(args)
 				},
-				runPreview: () => scriptEditor?.runTest(),
+				runPreview: async () => await scriptEditor?.runTest(),
 				setCode: (code: string, language?: Script['language']) => {
 					if (language) {
 						script.language = language
