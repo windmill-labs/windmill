@@ -51,6 +51,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
+	import { Menubar } from '$lib/components/meltComponents'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -191,10 +192,12 @@
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used } =
-			await WorkspaceService.getUsedTriggers({
-				workspace: $workspaceStore ?? ''
-			})
+		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used , sqs_used} =
+			await WorkspaceService.getUsedTriggers(
+			{
+					workspace: $workspaceStore ?? ''
+				}
+		)
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -209,6 +212,9 @@
 		}
 		if (nats_used) {
 			usedKinds.push('nats')
+		}
+		if (sqs_used) {
+			usedKinds.push('sqs')
 		}
 		$usedTriggerKinds = usedKinds
 	}
@@ -383,7 +389,7 @@
 							>
 								<div
 									class={classNames(
-										'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-300',
+										'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
 										menuOpen ? 'opacity-100' : 'opacity-0'
 									)}
 								>
@@ -392,10 +398,10 @@
 										on:click={() => {
 											menuOpen = !menuOpen
 										}}
-										class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 									>
 										<svg
-											class="h-6 w-6 text-white"
+											class="h-4 w-4 text-white"
 											xmlns="http://www.w3.org/2000/svg"
 											fill="none"
 											viewBox="0 0 24 24"
@@ -411,14 +417,16 @@
 										</svg>
 									</button>
 								</div>
-								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
+								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark flex flex-col">
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
-									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-										<WorkspaceMenu />
-										<FavoriteMenu {favoriteLinks} />
+									<div class="px-2 py-4 border-y border-gray-500">
+										<Menubar let:createMenu>
+											<WorkspaceMenu {createMenu} />
+											<FavoriteMenu {createMenu} {favoriteLinks} />
+										</Menubar>
 										<MenuButton
 											stopPropagationOnClick={true}
 											on:click={() => openSearchModal()}
@@ -469,9 +477,11 @@
 									{/if}
 								</div>
 							</button>
-							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
-								<WorkspaceMenu {isCollapsed} />
-								<FavoriteMenu {favoriteLinks} {isCollapsed} />
+							<div class="px-2 py-4 border-y border-gray-700 flex flex-col gap-1">
+								<Menubar let:createMenu class="flex flex-col gap-1">
+									<WorkspaceMenu {createMenu} {isCollapsed} />
+									<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
 									on:click={() => openSearchModal()}
@@ -514,6 +524,7 @@
 				</div>
 			{/if}
 
+			<!-- Legacy menu -->
 			<div
 				class={classNames(
 					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
@@ -563,8 +574,10 @@
 							</div>
 
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-								<WorkspaceMenu />
-								<FavoriteMenu {favoriteLinks} />
+								<Menubar let:createMenu>
+									<WorkspaceMenu {createMenu} />
+									<FavoriteMenu {createMenu} {favoriteLinks} />
+								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
 									on:click={() => openSearchModal()}

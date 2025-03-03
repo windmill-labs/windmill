@@ -7,9 +7,9 @@
 </script>
 
 <div class="max-w-min">
-	<ToggleButtonGroup id="flow-editor-flow-providers" bind:selected>
-		<ToggleButton value="all" label="All" light small />
-		<ToggleButton value="hub" icon={WindmillIcon2} label="Hub" light small />
-		<ToggleButton value="workspace" icon={Building} label="Workspace" light small />
+	<ToggleButtonGroup id="flow-editor-flow-providers" bind:selected let:item>
+		<ToggleButton value="all" label="All" light small {item} />
+		<ToggleButton value="hub" icon={WindmillIcon2} label="Hub" light small {item} />
+		<ToggleButton value="workspace" icon={Building} label="Workspace" light small {item} />
 	</ToggleButtonGroup>
 </div>

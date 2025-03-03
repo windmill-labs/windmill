@@ -76,6 +76,7 @@
 		PYTHON_PREPROCESSOR_MODULE_CODE
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
+	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -93,6 +94,13 @@
 		window.history.replaceState(null, '', url)
 	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+
+	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedScript,
+			modifiedValue: script
+		}
+	}
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -935,18 +943,33 @@
 													initContent(script.language, detail, template)
 												}}
 											>
-												{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
-													<ToggleButton
-														label={title}
-														{value}
-														tooltip={desc}
-														{documentationLink}
-														icon={Icon}
-														showTooltipIcon={Boolean(desc)}
-													/>
-												{/each}
-											</ToggleButtonGroup>
-										</Section>
+												Tag this script's purpose within flows such that it is available as the
+												corresponding action.
+											</Tooltip>
+										</svelte:fragment>
+										<ToggleButtonGroup
+											class="h-10"
+											selected={script.kind}
+											on:selected={({ detail }) => {
+												template = 'script'
+												script.kind = detail
+												initContent(script.language, detail, template)
+											}}
+											let:item
+										>
+											{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
+												<ToggleButton
+													label={title}
+													{value}
+													tooltip={desc}
+													{documentationLink}
+													icon={Icon}
+													showTooltipIcon={Boolean(desc)}
+													{item}
+												/>
+											{/each}
+										</ToggleButtonGroup>
+									</Section>
 									{/if}
 								</div>
 							</TabContent>

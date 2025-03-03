@@ -1,19 +1,11 @@
 <script lang="ts">
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import { MenuItem } from '$lib/components/meltComponents'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-
-	type Item = {
-		displayName: string
-		action?: (e: CustomEvent<any>) => void
-		icon?: any
-		href?: string
-		disabled?: boolean
-		type?: 'action' | 'delete'
-		hide?: boolean | undefined
-	}
-
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
+	import type { Item } from '$lib/utils'
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
+	export let meltItem: MenubarMenuElements['item']
 
 	let computedItems: Item[] | undefined = undefined
 	async function computeItems() {
@@ -35,16 +27,18 @@
 				href={item?.href}
 				disabled={item?.disabled}
 				class={twMerge(
-					'px-4 py-2 text-primary hover:bg-surface-hover hover:text-primary cursor-pointer text-xs transition-all',
+					'px-4 py-2 text-primary font-semibold hover:bg-surface-hover cursor-pointer text-xs transition-all',
+					'data-[highlighted]:bg-surface-hover',
 					'flex flex-row gap-2 items-center',
 					item?.disabled && 'text-gray-400 cursor-not-allowed',
 					item?.type === 'delete' &&
 						!item?.disabled &&
-						'text-red-500 hover:bg-red-100 hover:text-red-500'
+						'text-red-500 hover:bg-red-100 hover:text-red-500 data-[highlighted]:text-red-500 data-[highlighted]:bg-red-100'
 				)}
+				item={meltItem}
 			>
 				{#if item.icon}
-					<svelte:component this={item.icon} size={14} />
+					<svelte:component this={item.icon} size={14} color={item.iconColor} />
 				{/if}
 				{item.displayName}
 			</MenuItem>

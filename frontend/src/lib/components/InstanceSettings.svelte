@@ -210,8 +210,6 @@
 		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 
-	let to: string = ''
-
 	async function sendStats() {
 		await SettingService.sendStats()
 		sendUserToast('Usage sent')
@@ -305,7 +303,7 @@
 								size="xs">Send usage</Button
 							>
 						{/if}
-					{:else if category == 'Auth/OAuth'}
+					{:else if category == 'Auth/OAuth/SAML'}
 						<AuthSettings
 							bind:oauths
 							bind:snowflakeAccountIdentifier
@@ -339,32 +337,6 @@
 							{/each}
 						</div>
 					</div>
-					{#if category == 'SMTP'}
-						{@const smtp = $values['smtp_settings']}
-						<div class="flex gap-4"
-							><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
-							<Button
-								disabled={to == '' || !smtp}
-								on:click={async () => {
-									await SettingService.testSmtp({
-										requestBody: {
-											to,
-											smtp: {
-												host: smtp['smtp_host'],
-												username: smtp['smtp_username'],
-												password: smtp['smtp_password'],
-												port: smtp['smtp_port'],
-												from: smtp['smtp_from'],
-												tls_implicit: smtp['smtp_tls_implicit'],
-												disable_tls: smtp['smtp_disable_tls']
-											}
-										}
-									})
-									sendUserToast('Test email sent')
-								}}>Test SMTP settings</Button
-							></div
-						>
-					{/if}
 				</TabContent>
 			{/each}
 		</svelte:fragment>

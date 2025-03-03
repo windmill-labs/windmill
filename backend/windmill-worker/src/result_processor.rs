@@ -324,7 +324,7 @@ pub async fn process_result(
                     }
                 }
                 err @ _ => to_raw_value(&SerializedError {
-                    message: format!("error during execution of the script:\n{err:#}",),
+                    message: format!("execution error:\n{err:#}",),
                     name: "ExecutionErr".to_string(),
                     step_id: job.flow_step_id.clone(),
                     exit_code: None,
@@ -653,7 +653,6 @@ pub async fn handle_job_error(
     if let Some(f) = update_job_future {
         let _ = f().await;
     }
-    tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
 #[derive(Debug, Serialize)]

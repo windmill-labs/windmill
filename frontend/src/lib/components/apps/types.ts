@@ -200,6 +200,7 @@ export type AppViewerContext = {
 	initialized: Writable<{
 		initializedComponents: string[]
 		initialized: boolean
+		runnableInitialized: Record<string, any>
 	}>
 	selectedComponent: Writable<string[] | undefined>
 	mode: Writable<EditorMode>

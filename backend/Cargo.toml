@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.461.1"
+version = "1.472.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.461.1"
+version = "1.472.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -74,6 +74,7 @@ mssql = ["windmill-worker/mssql"]
 bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
+sqs_trigger = ["windmill-api/sqs_trigger"]
 python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 csharp = ["windmill-worker/csharp"]
@@ -159,12 +160,11 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
-v8 = "=130.0.7"  # Exact version
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
-tokio = { version = "^1.42.0", features = ["full", "tracing"] }
+tokio = { version = "^1.42.0", features = ["full", "tracing", "time"] }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
@@ -173,8 +173,8 @@ serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
-chrono = { version = "0.4.35", features = ["serde"] }
-chrono-tz = "^0"
+chrono = { version = "=0.4.39", features = ["serde"] }
+chrono-tz = "^0.10.1"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 tracing-appender = "^0"
@@ -187,7 +187,7 @@ hex = "^0"
 sql-builder = "^3"
 argon2 = "^0"
 quick_cache = "^0"
-rand = "^0"
+rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
@@ -211,21 +211,27 @@ itertools = "^0"
 regex = "^1"
 semver = "^1"
 
-deno_fetch = "0.203.0"
-deno_tls = "0.166.0"
-deno_console = "0.179.0"
-deno_url = "0.179.0"
-deno_webidl = "0.179.0"
-deno_web = "0.210.0"
-deno_net = "0.171.0"
-deno_core = "0.321.0"
-deno_ast = { version = "=0.43.3", features = ["transpiling"] }
-deno_permissions = "0.39.0"
+v8 = "=130.0.7"  # Exact version
+deno_fetch = "0.214.0"
+deno_tls = "0.177.0"
+deno_console = "0.190.0"
+deno_url = "0.190.0"
+deno_webidl = "0.190.0"
+deno_web = "0.221.0"
+deno_io = "0.100.0"
+deno_net = "0.182.0"
+deno_core = "0.336.0"
+deno_ast = { version = "=0.44.0", features = ["transpiling"] }
+deno_permissions = "0.49.0"
+deno_runtime = { version = "0.198.0", features = ["transpile"] }
+deno_telemetry = "0.12.0"
+deno_error = "=0.5.5"
 
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"
 swc_ecma_ast = "=0.118.2"
 swc_ecma_visit = "=0.104.8"
+
 
 async-recursion = "^1"
 
@@ -263,9 +269,9 @@ once_cell = "1.17.1"
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "=0.2.92"
-serde-wasm-bindgen = "0.6.5"
-wasm-bindgen-test = "0.3.42"
+wasm-bindgen = "^0"
+serde-wasm-bindgen = "^0"
+wasm-bindgen-test = "^0"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
@@ -306,6 +312,7 @@ datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
+aws-sdk-sqs = "1.57.0"
 aws-sdk-sts = "^1"
 
 crc = "^3"

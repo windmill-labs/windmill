@@ -11,8 +11,9 @@
 
 use windmill_common::{
     apps::AppScriptId,
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms},
     cache::{ScriptData, ScriptMetadata},
+    jwt,
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
     worker::{
@@ -205,12 +206,6 @@ pub async fn create_token_for_owner(
         return Ok(token.clone());
     }
 
-    let jwt_secret = JWT_SECRET.read().await;
-
-    if jwt_secret.is_empty() {
-        return Err(Error::internal_err("No JWT secret found".to_string()));
-    }
-
     let job_authed = match sqlx::query_as!(
         JobPerms,
         "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
@@ -248,25 +243,14 @@ pub async fn create_token_for_owner(
         scopes: None,
     };
 
-    let token = jsonwebtoken::encode(
-        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
-        &payload,
-        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|err| {
-        Error::internal_err(format!(
-            "Could not encode JWT token for job {job_id}: {:?}",
-            err
-        ))
-    })?;
+    let token = jwt::encode_with_internal_secret(&payload)
+        .await
+        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
+
     Ok(format!("jwt_{}", token))
 }
 
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
-
-pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
-// Used as fallback now
-pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 
 pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
 pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
@@ -281,7 +265,6 @@ pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313"
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
 pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
-pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
 pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
@@ -300,7 +283,6 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
-const INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK: &str = include_str!("../nsjail/download_deps.py.pip.sh");
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
@@ -833,13 +815,6 @@ pub async fn run_worker(
             "download_deps.py.sh",
             INCLUDE_DEPS_PY_SH_CONTENT,
         );
-
-        // TODO: Remove (Deprecated)
-        let _ = write_file(
-            &worker_dir,
-            "download_deps.py.pip.sh",
-            INCLUDE_DEPS_PY_SH_CONTENT_FALLBACK,
-        );
     }
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
@@ -1277,7 +1252,7 @@ pub async fn run_worker(
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) v2_job_queue, v2_job_runtime, v2_job_status")
+                    if let Err(e) = sqlx::query!("VACUUM v2_job_queue, v2_job_runtime, v2_job_status")
                         .execute(&db2)
                         .await
                     {

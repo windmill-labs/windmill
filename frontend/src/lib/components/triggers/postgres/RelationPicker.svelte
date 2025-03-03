@@ -17,6 +17,13 @@
 
 	let cached: Relations[] = relations
 
+	const defaultRelations: Relations[] = [
+		{
+			schema_name: 'public',
+			table_to_track: []
+		}
+	]
+
 	function addTable(name: string, index: number) {
 		if (relations == undefined || !Array.isArray(relations)) {
 			relations = []
@@ -36,18 +43,24 @@
 	<div class="grow-0 flex flex-row gap-2 w-full items-center">
 		<div class="grow-0">
 			<ToggleButtonGroup
-				on:selected={() => {
-					if (selectedTable === 'all') {
+				on:selected={({ detail }) => {
+					if (detail === 'all') {
 						cached = relations
 						relations = []
 					} else {
-						relations = cached
+						if (cached.length === 0) {
+							relations = defaultRelations
+						} else {
+							relations = cached
+						}
 					}
+					selectedTable = detail
 				}}
-				bind:selected={selectedTable}
+				selected={selectedTable}
+				let:item
 			>
-				<ToggleButton value="all" label="All Tables" />
-				<ToggleButton value="specific" label="Specific Tables" />
+				<ToggleButton value="all" label="All Tables" light {item} />
+				<ToggleButton value="specific" label="Specific Tables" light {item} />
 			</ToggleButtonGroup>
 		</div>
 	</div>
@@ -69,7 +82,7 @@
 									</Tooltip>
 								</svelte:fragment>
 
-								<input type="text" bind:value={v.schema_name} />
+								<input class="mt-1" type="text" bind:value={v.schema_name} />
 							</Label>
 							<div class="flex flex-col w-full gap-4 items-center p-5">
 								{#each v.table_to_track as table_to_track, j}
@@ -83,7 +96,7 @@
 											<input
 												type="text"
 												bind:value={table_to_track.table_name}
-												class="!bg-surface"
+												class="!bg-surface mt-1"
 											/>
 										</Label>
 										<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -109,25 +122,27 @@
 													</p>
 												</Tooltip>
 											</svelte:fragment>
-											<MultiSelect
-												options={table_to_track.columns_name ?? []}
-												allowUserOptions="append"
-												bind:selected={table_to_track.columns_name}
-												ulOptionsClass={'!bg-surface !text-sm'}
-												ulSelectedClass="!text-sm"
-												outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-												noMatchingOptionsMsg=""
-												createOptionMsg={null}
-												duplicates={false}
-												placeholder="Select columns"
-												--sms-options-margin="4px"
-											>
-												<svelte:fragment slot="remove-icon">
-													<div class="hover:text-primary p-0.5">
-														<X size={12} />
-													</div>
-												</svelte:fragment>
-											</MultiSelect>
+											<div class="mt-1">
+												<MultiSelect
+													options={table_to_track.columns_name ?? []}
+													allowUserOptions="append"
+													bind:selected={table_to_track.columns_name}
+													ulOptionsClass={'!bg-surface !text-sm'}
+													ulSelectedClass="!text-sm"
+													outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+													noMatchingOptionsMsg=""
+													createOptionMsg={null}
+													duplicates={false}
+													placeholder="Select columns"
+													--sms-options-margin="4px"
+												>
+													<svelte:fragment slot="remove-icon">
+														<div class="hover:text-primary p-0.5">
+															<X size={12} />
+														</div>
+													</svelte:fragment>
+												</MultiSelect>
+											</div>
 										</Label>
 										<Label label="Where Clause">
 											<svelte:fragment slot="header">
@@ -156,7 +171,7 @@
 											<input
 												type="text"
 												bind:value={table_to_track.where_clause}
-												class="!bg-surface"
+												class="!bg-surface mt-1"
 											/>
 										</Label>
 										<Button

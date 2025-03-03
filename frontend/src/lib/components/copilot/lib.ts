@@ -32,11 +32,18 @@ import type { ChatCompletionRequest } from '@mistralai/mistralai/models/componen
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
+// need at least one model for each provider except customai
 export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	openai: ['gpt-4o', 'gpt-4o-mini'],
-	anthropic: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'],
+	anthropic: [
+		'claude-3-7-sonnet-latest',
+		'claude-3-7-sonnet-latest/thinking',
+		'claude-3-5-haiku-latest',
+		'claude-3-5-sonnet-latest'
+	],
 	mistral: ['codestral-latest'],
 	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
 	customai: []
@@ -45,7 +52,56 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 export const OPENAI_COMPATIBLE_BASE_URLS = {
 	groq: 'https://api.groq.com/openai/v1',
 	openrouter: 'https://openrouter.ai/api/v1',
-	deepseek: 'https://api.deepseek.com/v1'
+	deepseek: 'https://api.deepseek.com/v1',
+	googleai: 'https://generativelanguage.googleapis.com/v1beta/openai'
+} as const
+
+function prepareOpenaiCompatibleMessages(
+	aiProvider: AIProvider,
+	messages: ChatCompletionMessageParam[]
+) {
+	switch (aiProvider) {
+		case 'googleai':
+			// system messages are not supported by gemini
+			const systemMessage = messages.find((m) => m.role === 'system')
+			if (systemMessage) {
+				messages.shift()
+				const startMessages: ChatCompletionMessageParam[] = [
+					{
+						role: 'user',
+						content: 'System prompt: ' + (systemMessage.content as string)
+					},
+					{
+						role: 'assistant',
+						content: 'Understood'
+					}
+				]
+				messages = [...startMessages, ...messages]
+			}
+			return messages
+		default:
+			return messages
+	}
+}
+
+const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParamsStreaming = {
+	model: '',
+	max_tokens: 8192, //TODO: make this dynamic
+	temperature: 0,
+	seed: 42,
+	stream: true,
+	messages: []
+}
+
+export const OPENAI_COMPATIBLE_COMPLETION_CONFIG = {
+	groq: DEFAULT_COMPLETION_CONFIG,
+	openrouter: DEFAULT_COMPLETION_CONFIG,
+	deepseek: DEFAULT_COMPLETION_CONFIG,
+	customai: DEFAULT_COMPLETION_CONFIG,
+	googleai: {
+		...DEFAULT_COMPLETION_CONFIG,
+		seed: undefined // not supported by gemini
+	} as ChatCompletionCreateParamsStreaming
 } as const
 
 class WorkspacedAIClients {
@@ -115,15 +171,6 @@ class WorkspacedAIClients {
 
 export const workspaceAIClients = new WorkspacedAIClients()
 
-const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParamsStreaming = {
-	model: '',
-	max_tokens: 8000, //TODO: make this dynamic
-	temperature: 0,
-	seed: 42,
-	stream: true,
-	messages: []
-}
-
 namespace MistralAI {
 	export const mistralConfig: ChatCompletionRequest = {
 		temperature: 0,
@@ -154,7 +201,6 @@ namespace MistralAI {
 
 export namespace AnthropicAI {
 	export const config: MessageCreateParams = {
-		temperature: 0,
 		max_tokens: 8192,
 		model: '',
 		messages: []
@@ -182,8 +228,6 @@ export namespace AnthropicAI {
 		if (part.type == 'content_block_delta') {
 			if (part.delta.type == 'text_delta') {
 				response = part.delta.text
-			} else {
-				response = part.delta.partial_json
 			}
 		}
 		return response
@@ -465,7 +509,18 @@ export async function getNonStreamingCompletion(
 				{
 					...AnthropicAI.config,
 					system,
-					model,
+					...(model.endsWith('/thinking')
+						? {
+								thinking: {
+									type: 'enabled',
+									budget_tokens: 1024
+								},
+								model: model.slice(0, -9)
+						  }
+						: {
+								model,
+								temperature: 0
+						  }),
 					messages: anthropicMessages,
 					stream: false
 				},
@@ -510,10 +565,18 @@ export async function getNonStreamingCompletion(
 						dangerouslyAllowBrowser: true
 				  })
 				: workspaceAIClients.getOpenaiClient()
+			const config =
+				aiProvider === 'openai'
+					? OpenAi.openaiConfig
+					: OPENAI_COMPATIBLE_COMPLETION_CONFIG[aiProvider]
+			if (!config) {
+				throw new Error('No config for this provider: ' + aiProvider)
+			}
+			const processedMessages = prepareOpenaiCompatibleMessages(aiProvider, messages)
 			const completion = await openaiClient.chat.completions.create(
 				{
-					...(aiProvider === 'openai' ? OpenAi.openaiConfig : DEFAULT_COMPLETION_CONFIG),
-					messages,
+					...config,
+					messages: processedMessages,
 					model,
 					stream: false
 				},
@@ -551,7 +614,18 @@ export async function getCompletion(
 			const completion = await anthropicClient.messages.create(
 				{
 					...AnthropicAI.config,
-					model,
+					...(model.endsWith('/thinking')
+						? {
+								thinking: {
+									type: 'enabled',
+									budget_tokens: 1024
+								},
+								model: model.slice(0, -9)
+						  }
+						: {
+								model,
+								temperature: 0
+						  }),
 					system,
 					messages: anthropicMessages,
 					stream: true
@@ -578,11 +652,19 @@ export async function getCompletion(
 		}
 		default: {
 			const openaiClient = workspaceAIClients.getOpenaiClient()
+			const config: ChatCompletionCreateParamsStreaming =
+				aiProvider === 'openai'
+					? OpenAi.openaiConfig
+					: OPENAI_COMPATIBLE_COMPLETION_CONFIG[aiProvider]
+			if (!config) {
+				throw new Error('No config for this provider: ' + aiProvider)
+			}
+			const processedMessages = prepareOpenaiCompatibleMessages(aiProvider, messages)
 			const completion = await openaiClient.chat.completions.create(
 				{
-					...(aiProvider === 'openai' ? OpenAi.openaiConfig : DEFAULT_COMPLETION_CONFIG),
+					...config,
 					model,
-					messages
+					messages: processedMessages
 				},
 				{
 					signal: abortController.signal

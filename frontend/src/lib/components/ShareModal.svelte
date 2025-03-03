@@ -28,6 +28,7 @@
 		| 'websocket_trigger'
 		| 'kafka_trigger'
 		| 'nats_trigger'
+		| 'sqs_trigger'
 		| 'postgres_trigger'
 	let kind: Kind
 
@@ -122,9 +123,13 @@
 				{#if own}
 					<div class="flex flex-row flex-wrap gap-2 items-center">
 						<div>
-							<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
-								<ToggleButton value="user" size="xs" label="User" />
-								<ToggleButton value="group" size="xs" label="Group" />
+							<ToggleButtonGroup
+								bind:selected={ownerKind}
+								on:selected={() => (owner = '')}
+								let:item
+							>
+								<ToggleButton value="user" size="xs" label="User" {item} />
+								<ToggleButton value="group" size="xs" label="Group" {item} />
 							</ToggleButtonGroup>
 						</div>
 						{#key ownerKind}
@@ -162,9 +167,10 @@
 													}
 													loadAcls()
 												}}
+												let:item
 											>
-												<ToggleButton value="viewer" size="xs" label="Viewer" />
-												<ToggleButton value="writer" size="xs" label="Writer" />
+												<ToggleButton value="viewer" size="xs" label="Viewer" {item} />
+												<ToggleButton value="writer" size="xs" label="Writer" {item} />
 											</ToggleButtonGroup>
 										</div>
 									{:else}{write}{/if}</td

@@ -95,6 +95,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
@@ -102,6 +103,8 @@ lazy_static::lazy_static! {
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 }
+
+pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 fn format_pull_query(peek: String) -> String {
     let r = format!(
@@ -359,9 +362,6 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
-    pub no_uv: bool,
-    pub no_uv_install: bool,
-    pub no_uv_compile: bool,
     pub no_postinstall: bool,
     pub py310: bool,
     pub py311: bool,
@@ -654,7 +654,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
     let min_version = pings
         .iter()
         .filter(|x| !x.is_empty())
-        .filter_map(|x| semver::Version::parse(x.split_at(1).1).ok())
+        .filter_map(|x| semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok())
         .min()
         .unwrap_or_else(|| cur_version.clone());
 
@@ -662,6 +662,7 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
