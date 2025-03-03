@@ -257,12 +257,7 @@
 			</svelte:fragment>
 			<svelte:fragment let:item let:hover>
 				{@const captureIcon = captureKindToIcon[item.trigger_kind]}
-				<SchemaPickerRow
-					date={item.created_at}
-					payloadData={item.payloadData}
-					selected={selected === item.id}
-					hovering={hover}
-				>
+				<SchemaPickerRow date={item.created_at} payloadData={item.payloadData} hovering={hover}>
 					<svelte:fragment slot="start">
 						<div class="center-center">
 							<svelte:component this={captureIcon} size={12} />

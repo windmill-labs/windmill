@@ -94,12 +94,7 @@
 		</colgroup>
 	</svelte:fragment>
 	<svelte:fragment let:item let:hover>
-		<JobSchemaPicker
-			job={item}
-			selected={selected === item.id}
-			hovering={hover}
-			payloadData={item.payloadData}
-		/>
+		<JobSchemaPicker job={item} hovering={hover} payloadData={item.payloadData} />
 	</svelte:fragment>
 	<svelte:fragment slot="empty">
 		<div class="text-center text-tertiary text-xs py-2">

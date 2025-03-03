@@ -5,12 +5,11 @@
 	import { base } from '$lib/base'
 
 	export let job: any
-	export let selected = false
 	export let payloadData: any | undefined = undefined
 	export let hovering = false
 </script>
 
-<SchemaPickerRow {payloadData} date={job.created_at} {selected} {hovering}>
+<SchemaPickerRow {payloadData} date={job.created_at} {hovering}>
 	<svelte:fragment slot="start">
 		<div class="center-center">
 			<div

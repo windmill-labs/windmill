@@ -4,7 +4,7 @@
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { Edit, Trash2, Save, Eye } from 'lucide-svelte'
+	import { Edit, Trash2, Save, Eye, CopyIcon } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
@@ -12,7 +12,9 @@
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PopoverV2 from '$lib/components/meltComponents/Popover.svelte'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import { json } from 'svelte-highlight/languages'
+	import Highlight from 'svelte-highlight'
+	import { copyToClipboard } from '$lib/utils'
 
 	export let previewArgs: any = undefined
 	export let runnableId: string | undefined = undefined
@@ -34,6 +36,7 @@
 	let draft = true
 	let selectedInput: string | null = null
 	let isEditing: EditableInput | null = null
+	let popoverOpen: string | null = null
 
 	const dispatch = createEventDispatcher()
 
@@ -223,7 +226,7 @@
 						<col />
 					</colgroup>
 				</svelte:fragment>
-				<svelte:fragment let:item>
+				<svelte:fragment let:item let:hover>
 					<Cell>
 						<div class="center-center">
 							<Save size={12} />
@@ -253,9 +256,18 @@
 								{/if}
 								{#if item.created_by == $userStore?.username || $userStore?.is_admin || $userStore?.is_super_admin}
 									<div class="items-center flex gap-2">
-										<PopoverV2 displayArrow={false} closeButton={false} openOnHover={true}>
+										<PopoverV2
+											class="w-full overflow-auto flex items-center justify-center"
+											contentClasses="max-w-[50vh] overflow-auto max-h-[50vh] min-w-60 min-h-28 resize"
+											floatingConfig={{ placement: 'bottom-start', strategy: 'absolute' }}
+											on:openChange={(e) => {
+												popoverOpen = e.detail ? item.id : null
+											}}
+										>
 											<svelte:fragment slot="trigger">
-												<Eye class="w-4 h-4 group-hover:block hidden" />
+												<Eye
+													class={hover || popoverOpen === item.id ? 'block w-4 h-4' : 'hidden '}
+												/>
 											</svelte:fragment>
 											<svelte:fragment slot="content">
 												<div class="p-2">
@@ -264,8 +276,32 @@
 															Payload too big to preview but can still be loaded
 														</div>
 													{:else}
-														<div class="max-w-60 overflow-auto">
-															<ObjectViewer json={item.payloadData} />
+														<div
+															class="relative p-2"
+															role="button"
+															tabindex="0"
+															aria-label="Copy JSON payload to clipboard"
+															on:click={() => {
+																copyToClipboard(JSON.stringify(item.payloadData))
+															}}
+															on:keydown
+														>
+															<Highlight
+																class={'h-full w-full'}
+																language={json}
+																code={JSON.stringify(item.payloadData ?? null, null, 4) ?? 'null'}
+															/>
+
+															<div class="absolute top-2 right-2 w-full h-full">
+																<Button
+																	variant="contained"
+																	size="xs2"
+																	class="absolute top-0 right-0"
+																	iconOnly
+																	startIcon={{ icon: CopyIcon }}
+																	nonCaptureEvent
+																/>
+															</div>
 														</div>
 													{/if}
 												</div>
@@ -273,7 +309,7 @@
 										</PopoverV2>
 
 										{#if !isEditing || isEditing?.id !== item.id}
-											<div class="group-hover:block hidden -my-2">
+											<div class={hover || popoverOpen === item.id ? 'block -my-2' : 'hidden'}>
 												<Toggle
 													size="xs"
 													options={{ right: 'shared' }}
@@ -291,7 +327,7 @@
 											size="xs"
 											variant="border"
 											spacingSize="xs2"
-											btnClasses={'group-hover:block hidden -my-2'}
+											btnClasses={hover || popoverOpen === item.id ? 'block -my-2' : 'hidden'}
 											on:click={(e) => {
 												e.stopPropagation()
 												if (isEditing?.id === item.id) {
@@ -310,7 +346,9 @@
 											spacingSize="xs2"
 											variant="contained"
 											btnClasses={twMerge(
-												isEditing?.id === item.id ? 'block' : 'group-hover:block hidden -my-2',
+												isEditing?.id === item.id || hover || popoverOpen === item.id
+													? 'block -my-2'
+													: 'hidden',
 												'hover:text-white hover:bg-red-500 text-red-500'
 											)}
 											on:click={() => {
