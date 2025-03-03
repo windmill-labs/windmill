@@ -11,7 +11,6 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { page } from '$app/stores'
 	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -249,16 +248,17 @@
 	}
 
 	async function isTemplateScript() {
-		let getInitBlockTemplate = $page.url.searchParams.get('id')
-		if (getInitBlockTemplate === null) {
+		const params = new URLSearchParams(window.location.search)
+		const templateId = params.get('id')
+		if (templateId === null) {
 			return undefined
 		}
 		try {
-			getInitBlockTemplate = await PostgresTriggerService.getTemplateScript({
+			const templateScript = await PostgresTriggerService.getTemplateScript({
 				workspace: $workspaceStore!,
-				id: getInitBlockTemplate as string
+				id: templateId
 			})
-			return getInitBlockTemplate
+			return templateScript
 		} catch (error) {
 			sendUserToast(
 				'An error occured when trying to load your template script, please try again later',
