@@ -14,7 +14,6 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { base } from '$app/paths'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -27,6 +26,7 @@
 	import RelationPicker from './RelationPicker.svelte'
 	import { invalidRelations } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
+	import { base } from '$lib/base'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
