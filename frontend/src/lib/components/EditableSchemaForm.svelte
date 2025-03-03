@@ -328,7 +328,7 @@
 					<slot name="extraTab" />
 				{:else}
 					<!-- WIP -->
-					{#if jsonEnabled && !customUi?.jsonOnly != true}
+					{#if jsonEnabled && customUi?.jsonOnly != true}
 						<div class="w-full p-3 flex justify-end">
 							<Toggle
 								bind:checked={jsonView}
