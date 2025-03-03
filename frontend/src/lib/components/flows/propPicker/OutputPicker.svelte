@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { getContext, tick } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
 	export let zoom: number = 1
 	export let selected: boolean = false
@@ -47,26 +48,34 @@
 	<svelte:fragment slot="trigger" let:isOpen>
 		<div
 			class={twMerge(
-				'w-[275px] h-[8px] flex flex-row bg-surface-disabled hover:bg-surface-hover items-center justify-center cursor-pointer',
+				'w-[275px] h-[4px] flex flex-row bg-surface-disabled hover:bg-surface-hover items-center justify-center cursor-pointer',
 				'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
-				'group relative'
+				'group'
 			)}
 			data-prop-picker
 		>
-			<div
-				class={twMerge(
-					'absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-[16px] rounded-md shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)]',
-					'hidden group-hover:center-center bg-surface-disabled hover:bg-surface-hover group-hover:bg-surface-hover',
-					isOpen || selected || hover || showConnecting ? 'center-center' : 'hidden',
-					showConnecting ? 'text-white' : 'text-secondary',
-					showConnecting && 'gradient-animation'
-				)}
-			>
-				<ChevronDown
-					size={14}
-					class="h-fit transition-transform duration-100"
-					style={`transform: rotate(${isOpen ? '180deg' : '0deg'})`}
-				/>
+			<div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-[14px]">
+				<AnimatedButton
+					animate={showConnecting}
+					wrapperClasses="relative w-full h-full center-center"
+					baseRadius="6px"
+					marginWidth="1px"
+				>
+					<div
+						class={twMerge(
+							'w-full h-full rounded-t-md shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)]',
+							'hidden group-hover:center-center bg-surface-disabled hover:bg-surface-hover group-hover:bg-surface-hover',
+							isOpen || selected || hover || showConnecting ? 'center-center' : 'hidden',
+							showConnecting ? 'text-blue-500 bg-surface rounded-b-md' : 'text-secondary'
+						)}
+					>
+						<ChevronDown
+							size={12}
+							class="h-fit transition-transform duration-100"
+							style={`transform: rotate(${isOpen ? '180deg' : '0deg'})`}
+						/>
+					</div>
+				</AnimatedButton>
 			</div>
 		</div>
 	</svelte:fragment>

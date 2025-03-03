@@ -146,7 +146,7 @@
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
-	style="width: 275px; height: 42px; background-color: {bgColor};"
+	style="width: 275px; height: 38px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
 	on:click|preventDefault|stopPropagation
