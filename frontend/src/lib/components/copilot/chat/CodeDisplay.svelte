@@ -1,12 +1,122 @@
-<script>
+<script lang="ts">
 	import { Button } from '$lib/components/common'
+	import { getAstNode, type HastNode } from 'svelte-exmarkdown'
+	import { editor as meditor } from 'monaco-editor'
+	import { getContext } from 'svelte'
+	import { Loader2 } from 'lucide-svelte'
+	import type { Writable } from 'svelte/store'
+	import { initializeVscode } from '$lib/components/vscode'
+
+	const astNode = getAstNode()
+
+	const {
+		originalCode,
+		loading: loadingContext,
+		currentReply,
+		applyCode
+	} = getContext<{
+		originalCode: Writable<string>
+		loading: Writable<boolean>
+		currentReply: Writable<string>
+		applyCode: (code: string) => void
+	}>('AIChatContext')
+
+	$: code = $astNode.children?.[0]?.children?.[0]?.value
+
+	let loading = true
+	$: console.log('loading', $currentReply.length, $astNode?.position?.end.offset ?? 0)
+
+	function shouldStopLoading(astNode: HastNode, replying: boolean) {
+		if (!replying || $currentReply.length > (astNode.position?.end.offset ?? 0)) {
+			loading = false
+		}
+	}
+	$: shouldStopLoading($astNode, $loadingContext)
+
+	$: console.log($astNode)
+
+	let diffEl: HTMLDivElement | undefined
+	let diffEditor: meditor.IStandaloneDiffEditor | undefined
+	async function setDiffEditor(diffEl: HTMLDivElement) {
+		await initializeVscode()
+
+		diffEditor = meditor.createDiffEditor(diffEl, {
+			automaticLayout: true,
+			renderSideBySide: false,
+			hideUnchangedRegions: {
+				enabled: true
+			},
+			originalEditable: false,
+			readOnly: true,
+			renderGutterMenu: false,
+			renderOverviewRuler: false,
+			scrollBeyondLastLine: false,
+			overviewRulerLanes: 0,
+			lineNumbersMinChars: 0,
+			lightbulb: {
+				enabled: meditor.ShowLightbulbIconMode.Off
+			},
+			scrollbar: {
+				alwaysConsumeMouseWheel: false
+			}
+		})
+
+		diffEditor.setModel({
+			original: meditor.createModel($originalCode, 'typescript'),
+			modified: meditor.createModel(code ?? '', 'typescript')
+		})
+
+		const originalEditor = diffEditor.getOriginalEditor()
+		const modifiedEditor = diffEditor.getModifiedEditor()
+
+		originalEditor.onDidContentSizeChange((e) => {
+			diffEl.style.height = `${e.contentHeight}px`
+		})
+
+		modifiedEditor.onDidContentSizeChange((e) => {
+			diffEl.style.height = `${e.contentHeight}px`
+		})
+
+		updateCode(code ?? '')
+	}
+
+	function updateCode(code: string) {
+		const modified = diffEditor?.getModifiedEditor()
+
+		if (!modified) return
+
+		const modifiedModel = modified.getModel()
+		if (modifiedModel) {
+			modifiedModel.setValue(code ?? '')
+		}
+	}
+	$: updateCode(code ?? '')
+
+	$: diffEl && setDiffEditor(diffEl)
 </script>
 
-<div class="flex flex-col bg-black rounded-lg p-4 relative">
-	<Button
-		class="bg-green-500 px-1 py-0.5 absolute top-0 right-0 rounded-tr-lg rounded-bl-lg text-xs"
+<div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
+	<div class="flex justify-end">
+		<Button
+			color="dark"
+			size="xs2"
+			on:click={() => {
+				applyCode(code ?? '')
+			}}
+		>
+			Apply
+		</Button>
+	</div>
+
+	<div
+		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		Preview
-	</Button>
-	<slot />
+		{#if loading}
+			<div class="flex flex-row gap-1 p-2 items-center justify-center">
+				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
+			</div>
+		{:else}
+			<div bind:this={diffEl} class="w-full h-full" />
+		{/if}
+	</div>
 </div>

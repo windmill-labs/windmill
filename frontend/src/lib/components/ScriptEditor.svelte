@@ -382,7 +382,13 @@
 			</div>
 		</Pane>
 		<Pane size={10} minSize={5}>
-			<AIChat {code} {lang} />
+			<AIChat
+				{code}
+				{lang}
+				on:applyCode={(e) => {
+					editor?.setCode(e.detail.code)
+				}}
+			/>
 		</Pane>
 		<Pane size={35} minSize={10}>
 			<div class="flex flex-col h-full">
