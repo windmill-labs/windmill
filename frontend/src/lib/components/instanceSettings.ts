@@ -258,7 +258,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Pip index url',
+			label: 'UV index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
 			fieldType: 'text',
@@ -267,7 +267,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Pip extra index url',
+			label: 'UV extra index url',
 			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
