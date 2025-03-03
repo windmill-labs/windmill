@@ -201,7 +201,8 @@ export const APP_TO_ICON_COMPONENT = {
 	spotify: SpotifyIcon,
 	xero: XeroIcon,
 	kafka: KafkaIcon,
-	nats: NatsIcon
+	nats: NatsIcon,
+	mqtt: MqttIcon,
 } as const
 
 export {
