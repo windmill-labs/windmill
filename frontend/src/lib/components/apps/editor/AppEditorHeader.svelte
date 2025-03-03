@@ -86,7 +86,11 @@
 	import Summary from '$lib/components/Summary.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
-	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
+	import {
+		computeS3FileInputPolicy,
+		computeWorkspaceS3FileInputPolicy,
+		computeS3ImageViewerPolicy
+	} from './appUtilsS3'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
@@ -345,24 +349,13 @@
 		policy.s3_inputs = s3_inputs
 
 		const s3FileKeys = items
-			.filter(
-				(x) =>
-					// NOTE: currently, only imagecomponent is supported, 
-					// once other s3 components are supported, we will need to change this
-					(x.data as AppComponent).type === 'imagecomponent' &&
-					((x.data.configuration as any).sourceKind.value === 's3 (workspace storage)' ||
-						(x.data.configuration as any).source.value.startsWith('s3://'))
-			)
+			.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
 			.map((x) => {
 				const c = x.data as AppComponent
 				const config = c.configuration as any
-				return {
-					s3_path: config.source.value.replace('s3://', ''),
-					// NOTE: currently, only the default primary workspace storage is supported
-					// once other s3 resources are supported, we will need to change this
-					resource: 'default'
-				}
+				return computeS3ImageViewerPolicy(config, $app)
 			})
+			.filter(Boolean) as { s3_path?: string | undefined; resource?: string | undefined }[]
 
 		policy.allowed_s3_keys = s3FileKeys
 	}

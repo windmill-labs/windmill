@@ -1881,27 +1881,41 @@ async fn get_on_behalf_authed_from_app(
     path: &str,
     w_id: &str,
     opt_authed: &Option<ApiAuthed>,
-) -> Result<ApiAuthed> {
-    let policy_o = sqlx::query_scalar!(
-        "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?;
-
-    let policy = policy_o
-        .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
-        .transpose()?
-        .unwrap_or_else(|| Policy {
+    force_allowed_s3_keys: Option<Vec<S3Key>>,
+) -> Result<(ApiAuthed, Policy)> {
+    let policy = if let Some(force_allowed_s3_keys) = force_allowed_s3_keys {
+        Policy {
             execution_mode: ExecutionMode::Viewer,
             triggerables: None,
             triggerables_v2: None,
             on_behalf_of: None,
             on_behalf_of_email: None,
             s3_inputs: None,
-            allowed_s3_keys: None,
-        });
+            allowed_s3_keys: Some(force_allowed_s3_keys),
+        }
+    } else {
+        // TODO: improve db query to not return uneeded fields
+        let policy_o = sqlx::query_scalar!(
+            "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+
+        policy_o
+            .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
+            .transpose()?
+            .unwrap_or_else(|| Policy {
+                execution_mode: ExecutionMode::Viewer,
+                triggerables: None,
+                triggerables_v2: None,
+                on_behalf_of: None,
+                on_behalf_of_email: None,
+                s3_inputs: None,
+                allowed_s3_keys: None,
+            })
+    };
 
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
@@ -1910,7 +1924,7 @@ async fn get_on_behalf_authed_from_app(
         fetch_api_authed_from_permissioned_as(permissioned_as, email, &w_id, &db, Some(username))
             .await?;
 
-    Ok(on_behalf_authed)
+    Ok((on_behalf_authed, policy))
 }
 
 #[cfg(feature = "parquet")]
@@ -1920,6 +1934,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     file_key: &str,
     w_id: &str,
     path: &str,
+    policy: &Policy,
 ) -> Result<()> {
     // if anonymous, check that the file was the result of an app script ran by an anonymous user in the last 3 hours
     // otherwise, if logged in, allow any file (TODO: change that when we implement better s3 policy)
@@ -1944,20 +1959,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         .unwrap_or(false)
 
         // check if the file is allowed by the allowed_s3_keys policy
-        || sqlx::query_scalar!(
-            "SELECT EXISTS (
-                SELECT 1 FROM app
-                WHERE path = $1
-                AND workspace_id = $2
-                AND policy @> jsonb_build_object('allowed_s3_keys', jsonb_build_array(jsonb_build_object('s3_path', $3::text)))::jsonb
-            )",
-            path,
-            w_id,
-            file_key,
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
+        || policy.allowed_s3_keys.as_ref().unwrap().iter().any(|key| key.s3_path == file_key);
 
     if !allowed {
         Err(Error::BadRequest("File restricted".to_string()))
@@ -1975,10 +1977,27 @@ async fn download_s3_file_from_app(
 ) -> Result<Response> {
     let path = path.to_path();
 
-    let on_behalf_authed = get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed).await?;
+    let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
+        query.force_viewer_allowed_s3_keys.clone()
+    {
+        Some(serde_json::from_str::<Vec<S3Key>>(&force_viewer_allowed_s3_keys).unwrap_or_default())
+    } else {
+        None
+    };
 
-    check_if_allowed_to_access_s3_file_from_app(&db, &opt_authed, &query.file_key, &w_id, &path)
-        .await?;
+    let (on_behalf_authed, policy) =
+        get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
+            .await?;
+
+    check_if_allowed_to_access_s3_file_from_app(
+        &db,
+        &opt_authed,
+        &query.file_key,
+        &w_id,
+        &path,
+        &policy,
+    )
+    .await?;
 
     download_s3_file_internal(on_behalf_authed, &db, None, "", &w_id, query).await
 }
@@ -1999,10 +2018,18 @@ async fn load_s3_file_image_preview_from_app(
 ) -> Result<Response> {
     let path = path.to_path();
 
-    let on_behalf_authed = get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed).await?;
+    let (on_behalf_authed, policy) =
+        get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, None).await?;
 
-    check_if_allowed_to_access_s3_file_from_app(&db, &opt_authed, &query.file_key, &w_id, &path)
-        .await?;
+    check_if_allowed_to_access_s3_file_from_app(
+        &db,
+        &opt_authed,
+        &query.file_key,
+        &w_id,
+        &path,
+        &policy,
+    )
+    .await?;
 
     load_image_preview_internal(on_behalf_authed, &db, "", &w_id, query).await
 }

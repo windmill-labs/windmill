@@ -9,18 +9,30 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { defaultIfEmptyString } from '$lib/utils'
+	import { userStore } from '$lib/stores'
+	import { computeS3ImageViewerPolicy } from '../../editor/appUtilsS3'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
 	export let render: boolean
 
+	function computeForceViewerPolicies() {
+		if (!isEditor) {
+			return undefined
+		}
+		const policy = computeS3ImageViewerPolicy(configuration, $app)
+		return policy
+	}
+
 	const resolvedConfig = initConfig(
 		components['imagecomponent'].initialData.configuration,
 		configuration
 	)
 
-	const { app, appPath, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, appPath, worldStore, workspace, isEditor } =
+		getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<string, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
@@ -36,11 +48,26 @@
 
 	async function getS3Image(source: string | undefined) {
 		if (!source) return ''
-		return `/api/w/${workspace}/apps_u/download_s3_file/${$appPath}?file_key=${source}`
+		const appPathOrUser = defaultIfEmptyString(
+			$appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)
+		const params = new URLSearchParams()
+		params.append('file_key', source)
+
+		const forceViewerPolicies = computeForceViewerPolicies()
+		if (forceViewerPolicies) {
+			params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
+		}
+
+		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}`
 	}
 
 	async function loadImage() {
-		if (resolvedConfig.sourceKind === 's3 (workspace storage)' || resolvedConfig.source?.startsWith('s3://')) {
+		if (
+			resolvedConfig.sourceKind === 's3 (workspace storage)' ||
+			resolvedConfig.source?.startsWith('s3://')
+		) {
 			imageUrl = await getS3Image(resolvedConfig.source?.replace('s3://', ''))
 		} else if (resolvedConfig.sourceKind === 'png encoded as base64') {
 			imageUrl = 'data:image/png;base64,' + resolvedConfig.source
