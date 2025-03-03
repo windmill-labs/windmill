@@ -343,6 +343,28 @@
 		}
 
 		policy.s3_inputs = s3_inputs
+
+		const s3FileKeys = items
+			.filter(
+				(x) =>
+					// NOTE: currently, only imagecomponent is supported, 
+					// once other s3 components are supported, we will need to change this
+					(x.data as AppComponent).type === 'imagecomponent' &&
+					((x.data.configuration as any).sourceKind.value === 's3 (workspace storage)' ||
+						(x.data.configuration as any).source.value.startsWith('s3://'))
+			)
+			.map((x) => {
+				const c = x.data as AppComponent
+				const config = c.configuration as any
+				return {
+					s3_path: config.source.value.replace('s3://', ''),
+					// NOTE: currently, only the default primary workspace storage is supported
+					// once other s3 resources are supported, we will need to change this
+					resource: 'default'
+				}
+			})
+
+		policy.allowed_s3_keys = s3FileKeys
 	}
 
 	async function processRunnable(

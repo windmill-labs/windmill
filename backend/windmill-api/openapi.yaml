@@ -14588,6 +14588,15 @@ components:
           type: array
           items:
             type: object
+        allowed_s3_keys:
+          type: array
+          items:
+            type: object
+            properties:
+              s3_path:
+                type: string
+              resource:
+                type: string
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]

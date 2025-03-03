@@ -225,6 +225,12 @@ pub struct S3Input {
     file_key_regex: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct S3Key {
+    s3_path: String,
+    resource: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
@@ -239,6 +245,7 @@ pub struct Policy {
     pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
+    pub allowed_s3_keys: Option<Vec<S3Key>>,
 }
 
 #[derive(Deserialize)]
@@ -1563,6 +1570,7 @@ async fn upload_s3_file_from_app(
                     .map(|s| s.split(',').map(|s| s.to_string()).collect())
                     .unwrap_or_default(),
             }]),
+            allowed_s3_keys: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -1892,6 +1900,7 @@ async fn get_on_behalf_authed_from_app(
             on_behalf_of: None,
             on_behalf_of_email: None,
             s3_inputs: None,
+            allowed_s3_keys: None,
         });
 
     let (username, permissioned_as, email) =
@@ -1929,6 +1938,22 @@ async fn check_if_allowed_to_access_s3_file_from_app(
             file_key,
             w_id,
             path,
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)
+
+        // check if the file is allowed by the allowed_s3_keys policy
+        || sqlx::query_scalar!(
+            "SELECT EXISTS (
+                SELECT 1 FROM app
+                WHERE path = $1
+                AND workspace_id = $2
+                AND policy @> jsonb_build_object('allowed_s3_keys', jsonb_build_array(jsonb_build_object('s3_path', $3::text)))::jsonb
+            )",
+            path,
+            w_id,
+            file_key,
         )
         .fetch_one(db)
         .await?

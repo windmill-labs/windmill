@@ -3,8 +3,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
-	import { HelpersService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import Loader from '../helpers/Loader.svelte'
@@ -22,7 +20,7 @@
 		configuration
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, appPath, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<string, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
@@ -37,18 +35,8 @@
 	let imageUrl: string | undefined = undefined
 
 	async function getS3Image(source: string | undefined) {
-		if (!source || !$workspaceStore) return ''
-
-		try {
-			const file = await HelpersService.fileDownload({
-				workspace: $workspaceStore,
-				fileKey: source
-			})
-			const imageUrl = URL.createObjectURL(file)
-			return imageUrl
-		} catch (error) {
-			return ''
-		}
+		if (!source) return ''
+		return `/api/w/${workspace}/apps_u/download_s3_file/${$appPath}?file_key=${source}`
 	}
 
 	async function loadImage() {
@@ -90,7 +78,7 @@
 {/each}
 
 {#if render}
-	<Loader loading={imageUrl === undefined || !$workspaceStore}>
+	<Loader loading={imageUrl === undefined}>
 		{#if imageUrl}
 			<img
 				on:pointerdown|preventDefault
