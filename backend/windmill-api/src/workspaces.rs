@@ -796,7 +796,7 @@ async fn get_copilot_info(
 
     let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
         let ai_resource = serde_json::from_value::<AIResource>(ai_resource)?;
-        (Some(ai_resource.provider), true)
+        (Some(ai_resource.provider), ai_resource.path.is_some())
     } else {
         (None, false)
     };
