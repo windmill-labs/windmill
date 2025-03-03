@@ -227,9 +227,18 @@ impl PyVersion {
 
         if let Err(ref e) = res {
             tracing::error!(
-                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n 
+                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n
                 Error while getting python from uv, falling back to system python: {e:?}"
             );
+            append_logs(
+                job_id,
+                w_id,
+                format!(
+                    "\nError while getting python from uv, falling back to system python: {e:?}"
+                ),
+                db,
+            )
+            .await;
         }
         res
     }
