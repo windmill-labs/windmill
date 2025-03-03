@@ -58,8 +58,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	const noVariablePickerOnPreview = noVariablePicker || customUi?.disableVariablePicker === true
-
 	let clazz: string = ''
 	export { clazz as class }
 
@@ -205,7 +203,7 @@
 		}
 	}
 
-	let jsonView: boolean = customUi?.jsonOnly as boolean
+	let jsonView: boolean = customUi?.jsonOnly == true
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let error: string | undefined = undefined
 	let editor: SimpleEditor | undefined = undefined
@@ -311,7 +309,7 @@
 							}}
 							{shouldDispatchChanges}
 							bind:isValid
-							noVariablePicker={noVariablePickerOnPreview}
+							noVariablePicker={noVariablePicker || customUi?.disableVariablePicker === true}
 						/>
 
 						<slot name="runButton" />
@@ -330,7 +328,7 @@
 					<slot name="extraTab" />
 				{:else}
 					<!-- WIP -->
-					{#if jsonEnabled && !customUi?.jsonOnly}
+					{#if jsonEnabled && !customUi?.jsonOnly != true}
 						<div class="w-full p-3 flex justify-end">
 							<Toggle
 								bind:checked={jsonView}
