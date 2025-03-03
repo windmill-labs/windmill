@@ -39,8 +39,7 @@ use crate::csharp_executor::generate_nuget_lockfile;
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
 use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion, USE_PIP_COMPILE,
-    USE_PIP_INSTALL,
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
 };
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
@@ -397,9 +396,18 @@ pub async fn handle_dependency_job(
             )
             .execute(db)
             .await?;
-            Err(Error::ExecutionErr(format!("Error locking file: {error}")))?
+            Err(Error::ExecutionErr(format!(
+                "Error locking file: {error}\n\nlogs:\n{}",
+                remove_ansi_codes(&logs2)
+            )))?
         }
     }
+}
+fn remove_ansi_codes(s: &str) -> String {
+    lazy_static::lazy_static! {
+        static ref ANSI_REGEX: regex::Regex = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+    }
+    ANSI_REGEX.replace_all(s, "").to_string()
 }
 
 async fn trigger_dependents_to_recompute_dependencies(
@@ -612,8 +620,16 @@ pub async fn handle_flow_dependency_job(
 
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
+    sqlx::query!(
+        "DELETE FROM flow_workspace_runnables WHERE flow_path = $1 AND workspace_id = $2",
+        job_path,
+        job.workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
     let modified_ids;
-    (flow.modules, tx, modified_ids) = lock_modules(
+    let errors;
+    (flow.modules, tx, modified_ids, errors) = lock_modules(
         flow.modules,
         job,
         mem_peak,
@@ -630,6 +646,43 @@ pub async fn handle_flow_dependency_job(
         occupancy_metrics,
     )
     .await?;
+    if !errors.is_empty() {
+        let error_message = errors
+            .iter()
+            .map(|e| format!("{}: {}", e.id, e.error))
+            .collect::<Vec<String>>()
+            .join("\n");
+        let logs2 = sqlx::query_scalar!(
+            "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+            &job.id,
+            &job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_else(|| "no logs".to_string());
+        sqlx::query!(
+            "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+            &format!("{logs2}\n{error_message}"),
+            &job.script_path(),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+        return Err(Error::ExecutionErr(format!(
+            "Error locking flow modules:\n{}\n\nlogs:\n{}",
+            error_message,
+            remove_ansi_codes(&logs2)
+        )));
+    } else {
+        sqlx::query!(
+            "UPDATE flow SET lock_error_logs = NULL WHERE path = $1 AND workspace_id = $2",
+            &job.script_path(),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    }
     let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
@@ -739,6 +792,11 @@ fn get_deployment_msg_and_parent_path_from_args(
     (deployment_message, parent_path)
 }
 
+struct LockModuleError {
+    id: String,
+    error: Error,
+}
+
 async fn lock_modules<'c>(
     modules: Vec<FlowModule>,
     job: &QueuedJob,
@@ -759,10 +817,13 @@ async fn lock_modules<'c>(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
     Vec<String>,
+    Vec<LockModuleError>,
 )> {
     let mut new_flow_modules = Vec::new();
     let mut modified_ids = Vec::new();
+    let mut errors = Vec::new();
     for mut e in modules.into_iter() {
+        let id = e.id.clone();
         let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
             lock,
@@ -787,7 +848,7 @@ async fn lock_modules<'c>(
                     parallelism,
                 } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
+                    (nmodules, tx, modified_ids, errors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -820,7 +881,8 @@ async fn lock_modules<'c>(
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
-                        (nmodules, tx, inner_modified_ids) = Box::pin(lock_modules(
+                        let inner_errors;
+                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
@@ -838,6 +900,7 @@ async fn lock_modules<'c>(
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
+                        errors.extend(inner_errors);
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
@@ -845,7 +908,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
+                    (nmodules, tx, nmodified_ids, errors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -875,8 +938,8 @@ async fn lock_modules<'c>(
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
-
-                        (nmodules, tx, inner_modified_ids) = Box::pin(lock_modules(
+                        let inner_errors;
+                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
@@ -894,11 +957,13 @@ async fn lock_modules<'c>(
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
+                        errors.extend(inner_errors);
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
                     let ndefault;
-                    (ndefault, tx, nmodified_ids) = Box::pin(lock_modules(
+                    let ninner_errors;
+                    (ndefault, tx, nmodified_ids, ninner_errors) = Box::pin(lock_modules(
                         default,
                         job,
                         mem_peak,
@@ -915,12 +980,34 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
+                    errors.extend(ninner_errors);
                     e.value = FlowModuleValue::BranchOne {
                         branches: nbranches,
                         default: ndefault,
                         default_node,
                     }
                     .into();
+                }
+                FlowModuleValue::Script { path, hash, .. } if !path.starts_with("hub/") => {
+                    sqlx::query!(
+                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        hash.map(|h| h.0),
+                        job.workspace_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                FlowModuleValue::Flow { path, .. } => {
+                    sqlx::query!(
+                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        job.workspace_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
                 }
                 _ => (),
             };
@@ -1014,12 +1101,7 @@ async fn lock_modules<'c>(
             }
             Err(error) => {
                 // TODO: Record flow raw script error lock logs
-                tracing::warn!(
-                    path = path,
-                    language = ?language,
-                    error = ?error,
-                    "Failed to generate flow lock for raw script"
-                );
+                errors.push(LockModuleError { id, error });
                 None
             }
         };
@@ -1038,7 +1120,8 @@ async fn lock_modules<'c>(
         new_flow_modules.push(e);
         continue;
     }
-    Ok((new_flow_modules, tx, modified_ids))
+
+    Ok((new_flow_modules, tx, modified_ids, errors))
 }
 
 async fn insert_flow_node<'c>(
@@ -1602,8 +1685,6 @@ async fn python_dep(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     annotated_pyv_numeric: Option<u32>,
     annotations: PythonAnnotations,
-    no_uv_compile: bool,
-    no_uv_install: bool,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
 
@@ -1634,7 +1715,6 @@ async fn python_dep(
         occupancy_metrics,
         final_version,
         annotations.no_cache,
-        no_uv_compile,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1651,7 +1731,6 @@ async fn python_dep(
             worker_dir,
             occupancy_metrics,
             final_version,
-            no_uv_install,
         )
         .await;
 
@@ -1716,21 +1795,6 @@ async fn capture_dependency_job(
                     .await?
                     .join("\n")
                 };
-                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } = anns;
-                if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                    if let Err(e) = sqlx::query!(
-                        r#"
-                          INSERT INTO metrics (id, value) 
-                               VALUES ('no_uv_usage_py', $1)
-                        "#,
-                        serde_json::to_value("").map_err(to_anyhow)?
-                    )
-                    .execute(db)
-                    .await
-                    {
-                        tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
-                    }
-                }
 
                 python_dep(
                     reqs,
@@ -1745,8 +1809,6 @@ async fn capture_dependency_job(
                     &mut Some(occupancy_metrics),
                     annotated_pyv_numeric,
                     anns,
-                    no_uv_compile | no_uv,
-                    no_uv_install | no_uv,
                 )
                 .await
             }
@@ -1767,21 +1829,6 @@ async fn capture_dependency_job(
                 let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
                 let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
 
-                if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                    if let Err(e) = sqlx::query!(
-                        r#"
-                        INSERT INTO metrics (id, value) 
-                            VALUES ('no_uv_usage_ansible', $1)
-                        "#,
-                        serde_json::to_value("").map_err(to_anyhow)?
-                    )
-                    .execute(db)
-                    .await
-                    {
-                        tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
-                    };
-                }
-
                 python_dep(
                     reqs,
                     job_id,
@@ -1795,8 +1842,6 @@ async fn capture_dependency_job(
                     &mut Some(occupancy_metrics),
                     None,
                     PythonAnnotations::default(),
-                    false,
-                    false,
                 )
                 .await
             }

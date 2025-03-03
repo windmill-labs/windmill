@@ -293,7 +293,7 @@
 		if ((input.type === 'template' || input.type == 'templatev2') && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
-					'`' + input.eval + '`',
+					'`' + input.eval.replaceAll('`', '\\`') + '`',
 					computeGlobalContext($worldStore, fullContext),
 					$state,
 					$mode == 'dnd',
@@ -316,10 +316,12 @@
 		}
 	}
 
-	function onValueChange(newValue: any): void {
+	function onValueChange(newValue: any, force?: boolean): void {
 		if (iterContext && $iterContext.disabled) return
-
-		if (lastInput?.type === 'connected' && newValue !== undefined && newValue !== null) {
+		if (
+			lastInput?.type === 'connected' &&
+			((newValue !== undefined && newValue !== null) || force)
+		) {
 			const { connection } = lastInput
 			if (!connection) {
 				// No connection

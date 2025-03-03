@@ -2044,7 +2044,7 @@ pub struct LoginUserInfo {
     pub email: Option<String>,
     pub name: Option<String>,
     pub company: Option<String>,
-
+    pub preferred_username: Option<String>,
     pub displayName: Option<String>,
 }
 
@@ -2476,6 +2476,22 @@ async fn update_username_in_workpsace<'c>(
         w_id
     )
     .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE flow_workspace_runnables SET flow_path = REGEXP_REPLACE(flow_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE flow_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE flow_workspace_runnables SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
     .await?;
 
     sqlx::query!(

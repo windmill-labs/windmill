@@ -14,6 +14,7 @@
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -118,7 +119,9 @@
 				}
 				Object.assign(flow, template)
 				const oldPath = templatePath.split('/')
-				initialPath = `u/${$userStore?.username.split('@')[0]}/${oldPath[oldPath.length - 1]}_fork`
+				initialPath = `u/${$userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}/${
+					oldPath[oldPath.length - 1]
+				}_fork`
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'settings-metadata'
@@ -145,11 +148,7 @@
 	let getSelectedId: (() => string) | undefined = undefined
 	let flowBuilder: FlowBuilder | undefined = undefined
 
-	let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
+	let getInitialAndModifiedValues: GetInitialAndModifiedValues | undefined = undefined
 </script>
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
@@ -167,9 +166,9 @@
 	{initialPath}
 	{pathStoreInit}
 	bind:getSelectedId
+	bind:getInitialAndModifiedValues
 	bind:this={flowBuilder}
 	newFlow
-	bind:savedFlow
 	{initialArgs}
 	{flowStore}
 	{flowStateStore}
@@ -177,5 +176,5 @@
 	{loading}
 	{savedPrimarySchedule}
 >
-	<UnsavedConfirmationModal savedValue={savedFlow} modifiedValue={$flowStore} /></FlowBuilder
->
+	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
+</FlowBuilder>

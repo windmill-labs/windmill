@@ -16,22 +16,27 @@
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	let usernames: string[]
 	let resources: string[]
 	let loading: boolean = false
+	let page: number | undefined = undefined
 
 	export let logs: AuditLog[] = []
 	export let username: string = 'all'
-	export let pageIndex: number | undefined = 0
+	export let pageIndex: number | undefined = 1
+	export let hasMore: boolean = false
 	export let before: string | undefined = undefined
 	export let after: string | undefined = undefined
 	export let perPage: number | undefined = 100
 	export let operation: string = 'all'
 	export let resource: string | undefined = 'all'
 	export let actionKind: ActionKind | 'all' = 'all'
+	export let scope: undefined | 'all_workspaces' | 'instance' = undefined
 
 	async function loadLogs(
 		username: string | undefined,
@@ -41,7 +46,8 @@
 		after: string | undefined,
 		operation: string | undefined,
 		resource: string | undefined,
-		actionKind: ActionKind | undefined | 'all'
+		actionKind: ActionKind | undefined | 'all',
+		scope: undefined | 'all_workspaces' | 'instance'
 	): Promise<void> {
 		loading = true
 
@@ -62,7 +68,7 @@
 		}
 
 		logs = await AuditService.listAuditLogs({
-			workspace: $workspaceStore!,
+			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
 			page,
 			perPage,
 			before,
@@ -70,8 +76,10 @@
 			username,
 			operation,
 			resource,
-			actionKind
+			actionKind,
+			allWorkspaces: scope === 'all_workspaces'
 		})
+		hasMore = logs.length > 0 && logs.length === perPage
 
 		loading = false
 	}
@@ -104,31 +112,19 @@
 			.sort()
 	}
 
-	$: {
-		if ($workspaceStore && refresh) {
-			loadUsers()
-			loadResources()
-			loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind)
-		}
+	$: $workspaceStore && refresh && refreshLogs()
+
+	let initialLoad = true
+	function refreshLogs() {
+		loadUsers()
+		loadResources()
+		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
+		tick().then(() => {
+			initialLoad = false
+		})
 	}
 
-	function updateQueryParams({
-		username,
-		perPage,
-		before,
-		after,
-		operation,
-		resource,
-		actionKind
-	}: {
-		username?: string | undefined
-		perPage?: number | undefined
-		before?: string | undefined
-		after?: string | undefined
-		operation?: string | undefined
-		resource?: string | undefined
-		actionKind?: ActionKind | undefined | 'all'
-	}) {
+	function updateLogs() {
 		const queryParams: string[] = []
 
 		function addQueryParam(key: string, value: string | number | undefined | null) {
@@ -138,50 +134,44 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', 0)
+		addQueryParam('page', page)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
 		addQueryParam('operation', operation)
 		addQueryParam('resource', resource)
 		addQueryParam('actionKind', actionKind)
-
+		if (scope && $workspaceStore == 'admins') {
+			addQueryParam('scope', scope)
+			addQueryParam('workspace', 'admins')
+		}
 		const query = '?' + queryParams.join('&')
 		goto(query)
+
+		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
+	}
+
+	function updateQueryParams() {
+		if (initialLoad) {
+			return
+		}
+		page = 1
+		pageIndex = 1
+		updateLogs()
 	}
 
 	function updatePageQueryParams(pageIndex?: number | undefined) {
-		const queryParams: string[] = []
-
-		function addQueryParam(key: string, value: string | number | undefined | null) {
-			if (value !== undefined && value !== null && value !== '' && value !== 'all') {
-				queryParams.push(`${key}=${encodeURIComponent(value)}`)
-			}
+		if (initialLoad) {
+			return
 		}
-
-		addQueryParam('username', username)
-		addQueryParam('page', pageIndex)
-		addQueryParam('perPage', perPage)
-		addQueryParam('before', before)
-		addQueryParam('after', after)
-		addQueryParam('operation', operation)
-		addQueryParam('resource', resource)
-		addQueryParam('actionKind', actionKind)
-
-		const query = '?' + queryParams.join('&')
-		goto(query)
+		page = pageIndex
+		updateLogs()
 	}
 
-	$: updateQueryParams({
-		username,
-		perPage,
-		before,
-		after,
-		operation,
-		resource,
-		actionKind
-	})
+	// observe all the variables that should trigger an update
+	$: username, perPage, before, after, operation, resource, actionKind, scope, updateQueryParams()
 
+	// observe the pageIndex variable that should trigger an update
 	$: updatePageQueryParams(pageIndex)
 
 	window.addEventListener('popstate', handlePopState)
@@ -296,6 +286,37 @@
 </script>
 
 <div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
+	{#if $workspaceStore == 'admins'}
+		<div class="flex gap-1 relative w-full">
+			<span class="text-xs absolute -top-4">Scope</span>
+			<ToggleButtonGroup
+				selected={scope ?? 'admins'}
+				on:selected={({ detail }) => {
+					scope = detail === 'admins' ? undefined : detail
+				}}
+				let:item
+			>
+				<ToggleButton
+					value={'admins'}
+					label="Admins"
+					tooltip="Displays events from the admins workspace only."
+					{item}
+				/>
+				<ToggleButton
+					value="all_workspaces"
+					label="All"
+					tooltip="Displays events from all workspaces."
+					{item}
+				/>
+				<ToggleButton
+					value="instance"
+					label="Instance"
+					tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
+					{item}
+				/>
+			</ToggleButtonGroup>
+		</div>
+	{/if}
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">After</span>
 		<input type="text" value={after ?? 'After'} disabled />
@@ -393,6 +414,7 @@
 				pageIndex = 1
 				perPage = 100
 				resource = 'all'
+				scope = undefined
 			}}
 			size="xs"
 		>

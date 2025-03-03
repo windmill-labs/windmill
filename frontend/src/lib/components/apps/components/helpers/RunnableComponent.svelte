@@ -144,15 +144,24 @@
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
 	function refreshIfAutoRefresh(src: 'arg changed' | 'static changed') {
+		// console.log(
+		// 	'refreshIfAutoRefresh',
+		// 	src,
+		// 	id,
+		// 	iterContext ? $iterContext : undefined,
+		// 	$rowContext ? $rowContext : undefined,
+		// 	firstRefresh
+		// )
 		if (firstRefresh) {
 			firstRefresh = false
 			if (
 				src == 'arg changed' &&
 				args == undefined &&
+				result != undefined &&
 				Object.keys(runnableInputValues ?? {}).length == 0 &&
 				Object.keys(extraQueryParams ?? {}).length == 0
 			) {
-				// console.debug(`Skipping refreshing ${id} because ${_src} (first)`)
+				console.log('skipping refresh because first refresh')
 				return
 			}
 		}
@@ -543,7 +552,7 @@
 	}
 
 	async function setResult(res: any, jobId: string | undefined) {
-		dispatch('resultSet')
+		dispatch('resultSet', res)
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -600,6 +609,7 @@
 			cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 				let rejectCb: (err: Error) => void
 				let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
+					dispatch('recompute')
 					rejectCb = reject
 					executeComponent(true, inlineScript, setRunnableJobEditorPanel, undefined, {
 						done: (x) => {

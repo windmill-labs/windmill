@@ -65,9 +65,9 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR,
-    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
+    TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -115,6 +115,25 @@ where
 }
 
 pub fn main() -> anyhow::Result<()> {
+    // https://github.com/denoland/deno/blob/main/cli/main.rs#L477
+    #[cfg(feature = "deno_core")]
+    let unrecognized_v8_flags = deno_core::v8_set_flags(vec![
+        "--stack-size=1024".to_string(),
+        // TODO(bartlomieju): I think this can be removed as it's handled by `deno_core`
+        // and its settings.
+        // deno_ast removes TypeScript `assert` keywords, so this flag only affects JavaScript
+        // TODO(petamoriken): Need to check TypeScript `assert` keywords in deno_ast
+        "--no-harmony-import-assertions".to_string(),
+    ])
+    .into_iter()
+    .skip(1)
+    .collect::<Vec<_>>();
+
+    #[cfg(feature = "deno_core")]
+    if !unrecognized_v8_flags.is_empty() {
+        println!("Unrecognized V8 flags: {:?}", unrecognized_v8_flags);
+    }
+
     #[cfg(feature = "deno_core")]
     deno_core::JsRuntime::init_platform(None, false);
     create_and_run_current_thread_inner(windmill_main())
@@ -722,6 +741,11 @@ Windmill Community Edition {GIT_VERSION}
                                                 }
                                             }
                                         },
+                                        "notify_webhook_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Webhook change detected, invalidating webhook cache: {}", workspace_id);
+                                            windmill_api::webhook_util::WEBHOOK_CACHE.remove(workspace_id);
+                                        },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
                                             match n.payload() {
@@ -960,7 +984,11 @@ async fn listen_pg(db: &DB) -> Option<PgListener> {
     };
 
     if let Err(e) = listener
-        .listen_all(vec!["notify_config_change", "notify_global_setting_change"])
+        .listen_all(vec![
+            "notify_config_change",
+            "notify_global_setting_change",
+            "notify_webhook_change",
+        ])
         .await
     {
         tracing::error!(error = %e, "Could not listen to database");
@@ -1041,10 +1069,8 @@ pub async fn run_workers(
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for x in [
-        LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
-        TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
@@ -1057,7 +1083,6 @@ pub async fn run_workers(
         TAR_PY311_CACHE_DIR,
         TAR_PY312_CACHE_DIR,
         TAR_PY313_CACHE_DIR,
-        PIP_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
@@ -1122,9 +1147,12 @@ pub async fn run_workers(
 
 async fn send_delayed_killpill(
     tx: &tokio::sync::broadcast::Sender<()>,
-    max_delay_secs: u64,
+    mut max_delay_secs: u64,
     context: &str,
 ) {
+    if max_delay_secs == 0 {
+        max_delay_secs = 1;
+    }
     // Random delay to avoid all servers/workers shutting down simultaneously
     let rd_delay = rand::rng().random_range(0..max_delay_secs);
     tracing::info!("Scheduling {context} shutdown in {rd_delay}s");

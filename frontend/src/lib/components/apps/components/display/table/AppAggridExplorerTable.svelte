@@ -17,7 +17,7 @@
 	import { Button } from '$lib/components/common'
 	import { cellRendererFactory, defaultCellRenderer } from './utils'
 	import { Download, Trash2 } from 'lucide-svelte'
-	import type { ColumnDef } from '../dbtable/utils'
+	import { ColumnIdentity, type ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
@@ -269,6 +269,14 @@
 		columnDefs.forEach((colDef, index) => {
 			let noField = !colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === ''
 
+			if (
+				(colDef.isidentity === ColumnIdentity.ByDefault ||
+					colDef.isidentity === ColumnIdentity.Always) &&
+				colDef.hideInsert == undefined
+			) {
+				colDef.hideInsert = true
+			}
+
 			// Check if 'field' property exists and is a non-empty string
 			if (noField && !(colDef.children && Array.isArray(colDef.children))) {
 				isValid = false
@@ -336,7 +344,6 @@
 					},
 					onGridReady: (e) => {
 						outputs?.ready.set(true)
-
 						$componentControl[id] = {
 							agGrid: { api: e.api, columnApi: e.columnApi },
 							setSelectedIndex: (index) => {

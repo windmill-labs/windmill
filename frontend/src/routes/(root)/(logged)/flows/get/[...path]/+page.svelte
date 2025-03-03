@@ -29,7 +29,6 @@
 		Trash,
 		ChevronUpSquare,
 		Share,
-		Badge,
 		Loader2,
 		GitFork,
 		Play,
@@ -67,18 +66,22 @@
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
+	import { onDestroy } from 'svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
 	$: path = $page.params.path
 	let shareModal: ShareModal
-	let deploymentInProgress = false
 
 	let scheduledForStr: string | undefined = undefined
 	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = undefined
 	let jsonView = false
+	let deploymentInProgress = false
+
+	let intervalId: NodeJS.Timeout | undefined = undefined
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -129,11 +132,30 @@
 		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
+		intervalId && clearInterval(intervalId)
+		deploymentInProgress = flow.lock_error_logs == ''
+		if (deploymentInProgress) {
+			intervalId = setInterval(syncer, 500)
+		}
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 
 	let isValid = true
 	let loading = false
+
+	async function syncer(): Promise<void> {
+		if (flow) {
+			const status = await FlowService.getFlowDeploymentStatus({
+				workspace: $workspaceStore!,
+				path: flow.path
+			})
+			if (status.lock_error_logs == undefined || status.lock_error_logs != '') {
+				deploymentInProgress = false
+				flow.lock_error_logs = status.lock_error_logs
+				clearInterval(intervalId)
+			}
+		}
+	}
 
 	async function runFlow(
 		scheduledForStr: string | undefined,
@@ -198,7 +220,7 @@
 		}
 
 		buttons.push({
-			label: `View runs`,
+			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
 				size: 'xs',
@@ -328,6 +350,10 @@
 		return menuItems
 	}
 
+	onDestroy(() => {
+		intervalId && clearInterval(intervalId)
+	})
+
 	function onKeyDown(event: KeyboardEvent) {
 		switch (event.key) {
 			case 'Enter':
@@ -442,10 +468,17 @@
 					</div>
 
 					{#if deploymentInProgress}
-						<Badge color="yellow">
+						<HeaderBadge color="yellow">
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
-						</Badge>
+						</HeaderBadge>
+					{/if}
+					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+						<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
+							<p class="font-bold">Error deploying this flow</p>
+							<p> This flow has not been deployed successfully because of the following errors: </p>
+							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+						</div>
 					{/if}
 
 					<div class="flex flex-col align-left">
@@ -587,7 +620,7 @@
 				<PostgresTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
-		
+
 		<svelte:fragment slot="nats">
 			<div class="p-2">
 				<NatsTriggersPanel path={flow.path ?? ''} isFlow />

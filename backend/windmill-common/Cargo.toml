@@ -61,6 +61,8 @@ async-stream.workspace = true
 const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
+jsonwebtoken.workspace = true
+backon.workspace = true
 
 semver.workspace = true
 croner = "2.0.6"

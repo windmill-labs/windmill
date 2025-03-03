@@ -11,7 +11,7 @@ export interface Setting {
 		label: string
 		tooltip?: string
 		// If not specified, label will be used
-		value?: any
+		value?: string
 	}[]
 	fieldType:
 		| 'text'
@@ -224,7 +224,7 @@ export const settings: Record<string, Setting[]> = {
 			requiresReloadOnChange: true
 		}
 	],
-	'Auth/OAuth': [],
+	'Auth/OAuth/SAML': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',

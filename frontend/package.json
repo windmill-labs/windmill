@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.465.0",
+	"version": "1.472.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -85,7 +85,7 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@anthropic-ai/sdk": "^0.32.1",
+		"@anthropic-ai/sdk": "^0.37.0",
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@codingame/monaco-vscode-configuration-service-override": "~11.1.2",
 		"@codingame/monaco-vscode-standalone-css-language-features": "~11.1.2",
@@ -146,7 +146,7 @@
 		"windmill-parser-wasm-csharp": "^1.437.1",
 		"windmill-parser-wasm-go": "^1.429.0",
 		"windmill-parser-wasm-php": "^1.429.0",
-		"windmill-parser-wasm-py": "^1.429.0",
+		"windmill-parser-wasm-py": "^1.467.1",
 		"windmill-parser-wasm-regex": "^1.439.0",
 		"windmill-parser-wasm-rust": "^1.429.0",
 		"windmill-parser-wasm-ts": "^1.429.0",

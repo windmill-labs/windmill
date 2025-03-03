@@ -136,7 +136,11 @@
 
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
-	const initialized = writable({ initialized: false, initializedComponents: [] })
+	const initialized = writable({
+		initialized: false,
+		initializedComponents: [],
+		runnableInitialized: {}
+	})
 	const panzoomActive = writable(false)
 
 	$secondaryMenuRightStore.isOpen = false

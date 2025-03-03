@@ -292,15 +292,22 @@
 																	sendUserToast('User updated')
 																	listUsers(activeOnly)
 																}}
+																let:item
 															>
-																<ToggleButton value={'user'} size="xs" label="User" />
+																<ToggleButton value={'user'} size="xs" label="User" {item} />
 																<ToggleButton
 																	value={'devops'}
 																	size="xs"
 																	label="Devops"
 																	tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
+																	{item}
 																/>
-																<ToggleButton value={'super_admin'} size="xs" label="Superadmin" />
+																<ToggleButton
+																	value={'super_admin'}
+																	size="xs"
+																	label="Superadmin"
+																	{item}
+																/>
 															</ToggleButtonGroup>
 														</td>
 														<td>

@@ -6,7 +6,7 @@
 	import RowInputEditor from './inputEditor/RowInputEditor.svelte'
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import UploadInputEditor from './inputEditor/UploadInputEditor.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, createEventDispatcher } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -46,6 +46,8 @@
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
+	const dispatch = createEventDispatcher()
+
 	let evalV2editor: EvalV2InputEditor
 	function applyConnection(connection: InputConnection) {
 		const expr = `${connection.componentId}.${connection.path}`
@@ -71,6 +73,7 @@
 	}
 
 	function closeConnection() {
+		dispatch('closeConnection')
 		$connectingInput = {
 			opened: false,
 			hoveredComponent: undefined,
@@ -80,6 +83,7 @@
 	}
 
 	function openConnection() {
+		dispatch('openConnection')
 		$connectingInput = {
 			opened: true,
 			input: undefined,
@@ -137,21 +141,28 @@
 								componentInput['expr'] = JSON.stringify(JSON.parse(componentInput['expr']), null, 4)
 							}
 						}}
+						let:item
 					>
-						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" />
+						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" {item} />
 						{#if userInputEnabled}
-							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" />
+							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" {item} />
 						{/if}
 						{#if fileUpload}
-							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
+							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 						{/if}
 						{#if componentInput?.type === 'connected'}
-							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
+							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
 						{/if}
 						{#if componentInput?.type === 'eval'}
-							<ToggleButton value="eval" icon={FunctionSquare} iconOnly tooltip="Eval Legacy" />
+							<ToggleButton
+								value="eval"
+								icon={FunctionSquare}
+								iconOnly
+								tooltip="Eval Legacy"
+								{item}
+							/>
 						{/if}
-						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" />
+						<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" {item} />
 					</ToggleButtonGroup>
 					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}
