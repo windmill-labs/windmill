@@ -108,11 +108,15 @@
 		}
 	}
 
-	function runTest() {
+	export function setArgs(nargs: Record<string, any>) {
+		args = nargs
+	}
+
+	export async function runTest() {
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 		//@ts-ignore
-		testJobLoader.runPreview(
+		let job = await testJobLoader.runPreview(
 			path,
 			code,
 			lang,
@@ -120,6 +124,7 @@
 			tag
 		)
 		setFocusToLogs()
+		return job
 	}
 
 	async function loadPastTests(): Promise<void> {

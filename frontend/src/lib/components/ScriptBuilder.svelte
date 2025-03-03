@@ -63,7 +63,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, onMount, setContext } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
@@ -76,6 +76,7 @@
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
+	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -93,6 +94,8 @@
 		window.history.replaceState(null, '', url)
 	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
+		undefined
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -137,6 +140,24 @@
 	const dispatch = createEventDispatcher()
 
 	$: initialPath != '' && loadTriggers()
+
+	onMount(() => {
+		if (functionExports) {
+			functionExports({
+				setPreviewArgs: (args: Record<string, any>) => {
+					scriptEditor?.setArgs(args)
+				},
+				runPreview: () => scriptEditor?.runTest(),
+				setCode: (code: string, language?: Script['language']) => {
+					if (language) {
+						script.language = language
+					}
+					editor?.setCode(code)
+				},
+				getCode: () => editor?.getCode() ?? ''
+			})
+		}
+	})
 
 	async function loadTriggers() {
 		$triggersCount = await ScriptService.getTriggersCountOfScript({
