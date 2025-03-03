@@ -68,7 +68,7 @@
 
 	<!--svelte-ignore a11y-no-static-element-interactions-->
 	{#if open}
-		<div use:melt={$menuElement} data-menu class="z-[6000]" on:click|stopPropagation>
+		<div use:melt={$menuElement} data-menu class="z-[6000]" on:click>
 			<div
 				class={twMerge(
 					'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
