@@ -35,6 +35,8 @@
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import PdfViewer from './display/PdfViewer.svelte'
+	import type { DisplayResultUi } from './custom_ui'
+	import { getContext, hasContext } from 'svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -48,6 +50,7 @@
 	export let nodeId: string | undefined = undefined
 	export let language: string | undefined = undefined
 	export let appPath: string | undefined = undefined
+	export let customUi: DisplayResultUi | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -389,6 +392,10 @@
 	let globalForceJson: boolean = false
 
 	let seeS3PreviewFileFromList = ''
+
+	const disableTooltips = hasContext('disableTooltips')
+		? getContext('disableTooltips') === true
+		: false
 </script>
 
 <HighlightTheme />
@@ -460,30 +467,36 @@
 					{/if}
 				</div>
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
-					<slot name="copilot-fix" />
+					{#if customUi?.disableAiFix !== true}
+						<slot name="copilot-fix" />
+					{/if}
 					{#if !disableExpand && !noControls}
-						<a
-							download="{filename ?? 'result'}.json"
-							class="-mt-1 text-current"
-							href={workspaceId && jobId
-								? nodeId
-									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						>
-							<Download size={14} />
-						</a>
-						<Popover
-							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-						>
-							<svelte:fragment slot="text">
-								The result renderer in Windmill supports rich display rendering, allowing you to
-								customize the display format of your results.
-							</svelte:fragment>
-							<div class="-mt-1">
-								<InfoIcon size={14} />
-							</div>
-						</Popover>
+						{#if customUi?.disableDownload !== true}
+							<a
+								download="{filename ?? 'result'}.json"
+								class="-mt-1 text-current"
+								href={workspaceId && jobId
+									? nodeId
+										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							>
+								<Download size={14} />
+							</a>
+						{/if}
+						{#if disableTooltips !== true}
+							<Popover
+								documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+							>
+								<svelte:fragment slot="text">
+									The result renderer in Windmill supports rich display rendering, allowing you to
+									customize the display format of your results.
+								</svelte:fragment>
+								<div class="-mt-1">
+									<InfoIcon size={14} />
+								</div>
+							</Popover>
+						{/if}
 						<button on:click={() => copyToClipboard(toJsonStr(result))} class="-mt-1">
 							<ClipboardCopy size={14} />
 						</button>
@@ -893,19 +906,21 @@
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
-					<Button
-						download="{filename ?? 'result'}.json"
-						href={workspaceId && jobId
-							? nodeId
-								? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-								: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						startIcon={{ icon: Download }}
-						color="light"
-						size="xs"
-					>
-						Download
-					</Button>
+					{#if customUi?.disableDownload !== true}
+						<Button
+							download="{filename ?? 'result'}.json"
+							href={workspaceId && jobId
+								? nodeId
+									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							startIcon={{ icon: Download }}
+							color="light"
+							size="xs"
+						>
+							Download
+						</Button>
+					{/if}
 					<Button
 						on:click={() => copyToClipboard(toJsonStr(result))}
 						color="light"
