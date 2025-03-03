@@ -13113,7 +13113,8 @@ components:
           php,
           rust,
           ansible,
-          csharp
+          csharp,
+          nu
         ]
 
     Preview:

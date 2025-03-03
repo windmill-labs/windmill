@@ -116,6 +116,9 @@ use crate::{
 #[cfg(feature = "rust")]
 use crate::rust_executor::handle_rust_job;
 
+#[cfg(feature = "nu")]
+use crate::nu_executor::{handle_nu_job, JobHandlerInput};
+
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
 
@@ -271,6 +274,7 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
+pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
@@ -2856,6 +2860,30 @@ mount {{
                 envs,
                 occupancy_metrics,
             )
+            .await
+        }
+        Some(ScriptLang::Nu) => {
+            #[cfg(not(feature = "nu"))]
+            return Err(
+                anyhow::anyhow!("Nu is not available because the feature is not enabled").into(),
+            );
+
+            #[cfg(feature = "nu")]
+            handle_nu_job(JobHandlerInput {
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
             .await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),

@@ -374,6 +374,7 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::Rust => "rs",
                 ScriptLang::Ansible => "playbook.yml",
                 ScriptLang::CSharp => "cs",
+                ScriptLang::Nu => "nu",
                 ScriptLang::OracleDB => "odb.sql",
             };
             archive
