@@ -90,6 +90,10 @@
 		// 32px (2rem) of top and bottom margin
 		wrapperHeight - headerHeight - 64
 	)
+
+	async function getMenuElements(): Promise<HTMLElement[]> {
+		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+	}
 </script>
 
 <InitializeComponent {id} />
@@ -176,7 +180,11 @@
 				<div
 					style={css?.popup?.style}
 					class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
-					use:clickOutside={false}
+					use:clickOutside={{
+						capture: false,
+						stopPropagation: false,
+						exclude: getMenuElements
+					}}
 					on:click_outside={(e) => {
 						if ($mode !== 'dnd' && !unclickableOutside) {
 							handleClickAway(e)
