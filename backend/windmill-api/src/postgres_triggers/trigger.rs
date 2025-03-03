@@ -880,7 +880,7 @@ impl CaptureConfigForPostgresTrigger {
         extra: Option<HashMap<String, Box<RawValue>>>,
     ) -> () {
         let args = PushArgsOwned { args: args.unwrap_or_default(), extra: None };
-        let extra = args.extra.as_ref().map(to_raw_value);
+        let extra = extra.as_ref().map(to_raw_value);
         if let Err(err) = insert_capture_payload(
             db,
             &self.workspace_id,
