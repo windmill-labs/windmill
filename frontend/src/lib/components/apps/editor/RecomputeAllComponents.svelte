@@ -70,7 +70,6 @@
 	})
 
 	function onRefresh(stopAfterClear: boolean, source: string, filteredIds?: string[]) {
-		console.log('onRefresh', stopAfterClear, source, filteredIds)
 		if (timeout) {
 			clearInterval(timeout)
 			timeout = undefined
@@ -115,7 +114,6 @@
 
 	let refreshing: string[] = []
 	function refresh(reason: string, filteredIds: string[] | undefined = undefined) {
-		console.log('refresh', reason, filteredIds)
 		let isFirstLoad = false
 		if (!firstLoad && reason == 'all initialized') {
 			console.log('refresh all first load', reason)

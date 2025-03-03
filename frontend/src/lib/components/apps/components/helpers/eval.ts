@@ -278,7 +278,7 @@ export async function eval_like(
 			}
 
 			if (typeof input === 'object' && input.s3) {
-				const workspaceId = (context as any).ctx.workspace
+				const workspaceId = ((context ?? {}) as any).ctx?.workspace
 				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${
 					input?.s3
 				}${input?.storage ? `&storage=${input.storage}` : ''}`

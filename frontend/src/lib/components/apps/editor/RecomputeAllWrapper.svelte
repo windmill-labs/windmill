@@ -26,7 +26,7 @@
 				<span slot="text"
 					><div class="flex flex-col">
 						{#each $bgRuns as bgRun}
-							<div class="flex gap-2 items-center">onRefresh
+							<div class="flex gap-2 items-center">
 								<div class="text-2xs">{bgRun}</div>
 							</div>
 						{/each}
