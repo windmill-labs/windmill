@@ -67,6 +67,7 @@ lazy_static::lazy_static! {
         } else {
             None
         }
+        r
     };
 }
 
