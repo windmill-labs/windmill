@@ -942,34 +942,21 @@
 													script.kind = detail
 													initContent(script.language, detail, template)
 												}}
+												let:item
 											>
-												Tag this script's purpose within flows such that it is available as the
-												corresponding action.
-											</Tooltip>
-										</svelte:fragment>
-										<ToggleButtonGroup
-											class="h-10"
-											selected={script.kind}
-											on:selected={({ detail }) => {
-												template = 'script'
-												script.kind = detail
-												initContent(script.language, detail, template)
-											}}
-											let:item
-										>
-											{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
-												<ToggleButton
-													label={title}
-													{value}
-													tooltip={desc}
-													{documentationLink}
-													icon={Icon}
-													showTooltipIcon={Boolean(desc)}
-													{item}
-												/>
-											{/each}
-										</ToggleButtonGroup>
-									</Section>
+												{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
+													<ToggleButton
+														label={title}
+														{value}
+														tooltip={desc}
+														{documentationLink}
+														icon={Icon}
+														showTooltipIcon={Boolean(desc)}
+														{item}
+													/>
+												{/each}
+											</ToggleButtonGroup>
+										</Section>
 									{/if}
 								</div>
 							</TabContent>
