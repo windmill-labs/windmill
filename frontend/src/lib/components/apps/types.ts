@@ -284,7 +284,7 @@ export type AppViewerContext = {
 	policy: Policy
 
 	recomputeAllContext: Writable<{
-		onRefresh?: (filteredIds?: string[]) => void
+		onRefresh?: (excludeIds?: string[]) => void
 		componentNumber?: number | undefined
 		interval?: number | undefined
 		refreshing?: string[] | undefined

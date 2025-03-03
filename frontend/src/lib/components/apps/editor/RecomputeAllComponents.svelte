@@ -69,7 +69,7 @@
 		}
 	})
 
-	function onRefresh(stopAfterClear: boolean, source: string, filteredIds?: string[]) {
+	function onRefresh(stopAfterClear: boolean, source: string, excludeIds?: string[]) {
 		if (timeout) {
 			clearInterval(timeout)
 			timeout = undefined
@@ -81,7 +81,7 @@
 			if (stopAfterClear) return
 		}
 		if (firstLoad) {
-			refresh('onClick ' + source, filteredIds)
+			refresh('onClick ' + source, excludeIds)
 		}
 
 		if ($recomputeAllContext.interval) {
@@ -113,7 +113,7 @@
 	}
 
 	let refreshing: string[] = []
-	function refresh(reason: string, filteredIds: string[] | undefined = undefined) {
+	function refresh(reason: string, excludeIds: string[] | undefined = undefined) {
 		let isFirstLoad = false
 		if (!firstLoad && reason == 'all initialized') {
 			console.log('refresh all first load', reason)
@@ -129,7 +129,7 @@
 		const promises = Object.keys($runnableComponents)
 			.flatMap((id) => {
 				if (
-					(filteredIds?.includes(id) ?? false) ||
+					(excludeIds?.includes(id) ?? false) ||
 					!$runnableComponents?.[id]?.autoRefresh &&
 					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
 				) {
@@ -178,7 +178,7 @@
 
 	onMount(() => {
 		$recomputeAllContext = {
-			onRefresh: (filteredIds) => onRefresh(false, 'allContext', filteredIds),
+			onRefresh: (excludeIds) => onRefresh(false, 'allContext', excludeIds),
 			setInter: (n) => setInter(n, 'all context'),
 		}
 	})
