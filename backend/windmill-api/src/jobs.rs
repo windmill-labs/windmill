@@ -4453,8 +4453,8 @@ async fn run_bundle_preview_script(
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
                     lock: preview.lock,
-                    concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
-                    concurrency_time_window_s: None, // TODO(gbouv): same as above
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
                     cache_ttl: None,
                     dedicated_worker: preview.dedicated_worker,
                     custom_concurrency_key: None,

@@ -2028,10 +2028,16 @@ async fn handle_queued_job(
             | JobKind::FlowPreview
             | JobKind::Flow
             | JobKind::FlowDependencies,
-            None,
-        ) => Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?),
+            x,
+        ) => match x.map(|x| x.0) {
+            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => {
+                Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?)
+            }
+            _ => None,
+        },
         _ => None,
     };
+
     let cached_res_path = if job.cache_ttl.is_some() {
         Some(cached_result_path(db, &client.get_authed().await, &job, preview_data.as_ref()).await)
     } else {
