@@ -295,6 +295,7 @@
 				{path}
 				bind:pinned={mock}
 				on:select={select}
+				moduleId={id}
 			/>
 		</OutputPicker>
 	</div>
