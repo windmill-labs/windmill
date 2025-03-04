@@ -12,7 +12,7 @@
 		Repeat,
 		Square,
 		SkipForward,
-		Voicemail,
+		Pin,
 		X
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -51,6 +51,7 @@
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
 	export let isTrigger: boolean = false
+
 	let pickableIds: Record<string, any> | undefined = undefined
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
@@ -77,6 +78,24 @@
 	let hover = false
 
 	const { viewport } = useSvelteFlow()
+
+	const { flowStateStore } = flowEditorContext
+	console.log('dbg flowStateStore', $flowStateStore)
+
+	let jsonData = {}
+	function updateJsonData(
+		id: string | undefined,
+		pickableIds: Record<string, any> | undefined,
+		flowPropPickerConfig: any | undefined,
+		flowStateStore: any | undefined
+	) {
+		if (!id) return
+		jsonData =
+			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
+				? { [id]: pickableIds[id] }
+				: flowStateStore?.[id]?.previewResult ?? {}
+	}
+	$: updateJsonData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
 </script>
 
 {#if deletable && id && editId}
@@ -241,7 +260,7 @@
 					transition:fade|local={{ duration: 200 }}
 					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 				>
-					<Voicemail size={12} />
+					<Pin size={12} />
 				</div>
 				<svelte:fragment slot="text">Mocked</svelte:fragment>
 			</Popover>
@@ -268,18 +287,13 @@
 			let:select
 		>
 			<OutputPickerInner
-				jsonData={id &&
-				$flowPropPickerConfig &&
-				pickableIds &&
-				Object.keys(pickableIds).includes(id)
-					? {
-							[id]: pickableIds[id]
-					  }
-					: {}}
+				{jsonData}
 				{selected}
 				{allowCopy}
 				prefix={'results'}
 				{isConnecting}
+				{path}
+				bind:pinned={mock}
 				on:select={select}
 			/>
 		</OutputPicker>

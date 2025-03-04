@@ -12,9 +12,12 @@
 	export let prefix: string = ''
 	export let allowCopy: boolean = false
 	export let isConnecting: boolean = false
-
+	export let path = ''
+	export let pinned: boolean = false
 	let jsonView = false
 	let clientHeight: number = 0
+
+	$: console.log('dbg json', jsonData)
 </script>
 
 <div class="w-full h-full flex flex-col p-1" bind:clientHeight>
@@ -22,7 +25,7 @@
 		<div class="flex flex-row items-center justify-between w-full">
 			<div class="flex flex-row items-center gap-0.5">
 				<FlowHistoryJobPicker
-					path={''}
+					{path}
 					floatingConfig={{
 						placement: 'left-start',
 						offset: { mainAxis: 10, crossAxis: -6 },
@@ -33,7 +36,7 @@
 						? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400'
 						: ''}
 				/>
-				<ToggleSimple>
+				<ToggleSimple bind:pressed={pinned}>
 					<Button
 						color="light"
 						size="xs2"
@@ -58,7 +61,11 @@
 		</div>
 	{/if}
 	<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
-		{#if jsonView}
+		{#if !jsonData || jsonData === 'never tested this far'}
+			<div class="flex flex-col items-center justify-center h-full">
+				<p class="text-xs text-secondary">Test this step to see results</p>
+			</div>
+		{:else if jsonView}
 			<SimpleEditor
 				small
 				fixedOverflowWidgets={false}
