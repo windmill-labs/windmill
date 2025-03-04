@@ -410,9 +410,11 @@ async fn create_snapshot_script(
                 == &windmill_common::utils::Mode::Standalone
                 && object_store.is_none()
             {
-                std::fs::create_dir_all(windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR)?;
+                std::fs::create_dir_all(
+                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
+                )?;
                 windmill_common::worker::write_file(
-                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                     &hash,
                     &String::from_utf8_lossy(&data),
                 )?;
