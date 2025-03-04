@@ -106,6 +106,7 @@ backon.workspace = true
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
+jsonschema.workspace = true
 
 [build-dependencies]
 deno_fetch = { workspace = true, optional = true }

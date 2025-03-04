@@ -9,6 +9,7 @@
 // #[cfg(feature = "otel")]
 // use opentelemetry::{global,  KeyValue};
 
+use anyhow::anyhow;
 use windmill_common::{
     apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
@@ -2305,6 +2306,7 @@ pub struct ContentReqLangEnvs {
     pub language: Option<ScriptLang>,
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
+    pub schema: Option<Box<serde_json::value::RawValue>>,
 }
 
 pub async fn get_hub_script_content_and_requirements(
@@ -2323,6 +2325,7 @@ pub async fn get_hub_script_content_and_requirements(
         language: Some(script.language),
         envs: None,
         codebase: None,
+        schema: Some(script.schema),
     })
 }
 
@@ -2342,7 +2345,9 @@ pub async fn get_script_content_by_hash(
             Some(x) if x.ends_with(".tar") => Some(format!("{}.tar", script_hash)),
             Some(_) => Some(script_hash.to_string()),
         },
+        schema: None,
     })
+
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2372,7 +2377,7 @@ async fn handle_code_execution_job(
         ScriptData,
         ScriptMetadata,
     );
-    let (ScriptData { code, lock }, ScriptMetadata { language, envs, codebase }) = match job
+    let (ScriptData { code, lock }, ScriptMetadata { language, envs, codebase, validate_schema, schema_validator}) = match job
         .job_kind
     {
         JobKind::Preview => {
@@ -2384,14 +2389,15 @@ async fn handle_code_execution_job(
 
             arc_data =
                 preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
-            metadata = ScriptMetadata { language: job.language, codebase, envs: None };
+            metadata =
+                ScriptMetadata { language: job.language, codebase, envs: None, validate_schema: false, schema_validator: None };
             (arc_data.as_ref(), &metadata)
         }
         JobKind::Script_Hub => {
-            let ContentReqLangEnvs { content, lockfile, language, envs, codebase } =
+            let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
                 get_hub_script_content_and_requirements(job.script_path.as_ref(), Some(db)).await?;
             data = ScriptData { code: content, lock: lockfile };
-            metadata = ScriptMetadata { language, envs, codebase };
+            metadata = ScriptMetadata { language, envs, codebase, validate_schema: false, schema_validator: None};
             (&data, &metadata)
         }
         JobKind::Script => {
@@ -2400,12 +2406,14 @@ async fn handle_code_execution_job(
         }
         JobKind::FlowScript => {
             arc_data = cache::flow::fetch_script(db, FlowNodeId(script_hash()?.0)).await?;
-            metadata = ScriptMetadata { language: job.language, envs: None, codebase: None };
+            metadata =
+                ScriptMetadata { language: job.language, envs: None, codebase: None, validate_schema:false, schema_validator: None };
             (arc_data.as_ref(), &metadata)
         }
         JobKind::AppScript => {
             arc_data = cache::app::fetch_script(db, AppScriptId(script_hash()?.0)).await?;
-            metadata = ScriptMetadata { language: job.language, envs: None, codebase: None };
+            metadata =
+                ScriptMetadata { language: job.language, envs: None, codebase: None, validate_schema: false, schema_validator: None };
             (arc_data.as_ref(), &metadata)
         }
         JobKind::DeploymentCallback => {
@@ -2414,10 +2422,10 @@ async fn handle_code_execution_job(
                 .as_ref()
                 .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
             if script_path.starts_with("hub/") {
-                let ContentReqLangEnvs { content, lockfile, language, envs, codebase } =
+                let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
                     get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
                 data = ScriptData { code: content, lock: lockfile };
-                metadata = ScriptMetadata { language, envs, codebase };
+                metadata = ScriptMetadata { language, envs, codebase, validate_schema: false, schema_validator: None };
                 (&data, &metadata)
             } else {
                 let hash = sqlx::query_scalar!(
@@ -2438,6 +2446,23 @@ async fn handle_code_execution_job(
             "handle_code_execution_job should never be reachable with a non-code execution job"
         ),
     };
+
+    tracing::error!("vs: {validate_schema} | validator: {schema_validator:?}");
+    if *validate_schema {
+        if let Some(sv) = schema_validator {
+            if let Some(args) = job.args.as_ref() {
+                sv.validate(args)?
+            }
+        }
+        tracing::debug!("No Schema Validator but should validate schema. Will attempt to construct one with MainArgSig");
+    }
+    // let validator = schema.as_ref().map(|s| make_schema_validator(s)).transpose()?;
+    // if let Some(v) = validator {
+    //     v.validate(job.args.as_ref()).map_err(|e| anyhow!("onono error: {}", e))?;
+    //     tracing::error!("Evrything is valid!!!");
+    // } else {
+    //     tracing::warn!("Nothing to validate as there was no schema found");
+    // }
 
     let language = *language;
     if language == Some(ScriptLang::Postgresql) {
