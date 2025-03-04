@@ -607,7 +607,10 @@ async fn list_invites(
 }
 
 lazy_static::lazy_static! {
-    static ref LOGOUT_BEHAVIOR: String = std::env::var("LOGOUT_BEHAVIOR").ok().unwrap_or_else(|| String::new());
+    static ref INVALIDATE_ALL_SESSIONS_ON_LOGOUT: bool = std::env::var("INVALIDATE_ALL_SESSIONS_ON_LOGOUT")
+        .unwrap_or("false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
 }
 
 #[derive(Deserialize)]
@@ -628,7 +631,7 @@ async fn logout(
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
 
-    let email = if *LOGOUT_BEHAVIOR == "invalidate-all" {
+    let email = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
         sqlx::query_scalar!(
             "WITH email_lookup AS (
                 SELECT email FROM token WHERE token = $1
@@ -648,7 +651,7 @@ async fn logout(
 
     if let Some(email) = email {
         let email = email.unwrap_or("noemail".to_string());
-        let audit_message = if *LOGOUT_BEHAVIOR == "invalidate-all" {
+        let audit_message = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
             "users.logout_all"
         } else {
             "users.logout"
