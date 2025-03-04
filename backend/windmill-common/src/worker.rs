@@ -105,6 +105,8 @@ lazy_static::lazy_static! {
 }
 
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
+pub const ROOT_STANDALONE_BUNDLE_DIR: &str = concatcp!(TMP_DIR, "/standalone_bundle/");
+
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 fn format_pull_query(peek: String) -> String {
