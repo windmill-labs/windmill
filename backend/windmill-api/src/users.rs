@@ -1707,6 +1707,16 @@ pub async fn create_session_token<'c>(
     cookies: Cookies,
 ) -> Result<String> {
     let token = rd_string(32);
+
+    if *INVALIDATE_OLD_SESSIONS {
+        sqlx::query!(
+            "DELETE FROM token WHERE email = $1 AND label = 'session'",
+            email
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
@@ -1719,15 +1729,6 @@ pub async fn create_session_token<'c>(
     )
     .execute(&mut **tx)
     .await?;
-
-    if *INVALIDATE_OLD_SESSIONS {
-        sqlx::query!(
-            "DELETE FROM token WHERE email = $1 AND label = 'session'",
-            email
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
 
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
     cookie.set_secure(IS_SECURE.read().await.clone());
