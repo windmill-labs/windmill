@@ -278,6 +278,7 @@
 										<ToggleButtonGroup
 											selected={role}
 											let:item
+											disabled={owner_name == 'u/' + $userStore?.username}
 											on:selected={async (e) => {
 												const role = e.detail
 												// const wasInFolder = (folder?.owners ?? []).includes(folder)
@@ -343,7 +344,7 @@
 								{/if}</td
 							>
 							<td>
-								{#if can_write}
+								{#if can_write && owner_name != 'u/' + $userStore?.username}
 									<button
 										class="ml-2 text-red-500"
 										on:click={async () => {
@@ -366,6 +367,8 @@
 											loadFolder()
 										}}>remove</button
 									>
+								{:else}
+									<span class="text-tertiary text-xs">cannot remove yourself</span>
 								{/if}</td
 							>
 						</tr>{/each}
