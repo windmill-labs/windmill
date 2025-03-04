@@ -1865,7 +1865,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
-             last_used_at, scopes FROM token WHERE email = $1 AND label != 'ephemeral-script' OR label IS NULL
+             last_used_at, scopes FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
