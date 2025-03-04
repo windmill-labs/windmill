@@ -96,6 +96,7 @@
 		}
 	}}
 	data-popover
+	on:click
 >
 	<slot name="trigger" {isOpen} />
 </button>

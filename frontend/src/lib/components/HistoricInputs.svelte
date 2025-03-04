@@ -11,6 +11,8 @@
 	export let runnableType: RunnableType | undefined = undefined
 	export let loading: boolean = false
 	export let selected: string | undefined = undefined
+	export let showAuthor = false
+	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
 
 	let historicList: HistoricList | undefined = undefined
 	const dispatch = createEventDispatcher()
@@ -140,6 +142,8 @@
 			{runnableId}
 			{runnableType}
 			{selected}
+			{showAuthor}
+			{placement}
 		/>
 	</div>
 </div>

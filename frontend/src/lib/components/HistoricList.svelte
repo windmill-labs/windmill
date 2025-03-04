@@ -8,6 +8,8 @@
 	export let runnableId: string | undefined
 	export let runnableType: RunnableType | undefined
 	export let selected: string | undefined = undefined
+	export let showAuthor = false
+	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
 
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
@@ -94,7 +96,13 @@
 		</colgroup>
 	</svelte:fragment>
 	<svelte:fragment let:item let:hover>
-		<JobSchemaPicker job={item} hovering={hover} payloadData={item.payloadData} />
+		<JobSchemaPicker
+			job={item}
+			hovering={hover}
+			payloadData={item.payloadData}
+			{showAuthor}
+			{placement}
+		/>
 	</svelte:fragment>
 	<svelte:fragment slot="empty">
 		<div class="text-center text-tertiary text-xs py-2">

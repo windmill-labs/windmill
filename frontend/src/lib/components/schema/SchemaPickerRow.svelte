@@ -1,16 +1,20 @@
 <script lang="ts">
 	import { copyToClipboard } from '$lib/utils'
-	import { json } from 'svelte-highlight/languages'
-	import Highlight from 'svelte-highlight'
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { CopyIcon } from 'lucide-svelte'
+	import { CopyIcon, ChevronRight } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import type { Placement } from '@floating-ui/dom'
 
 	export let payloadData: Record<string, any> | string
 	export let date: string | undefined
 	export let hovering = false
+	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+
+	let clientWidth = 0
+	const buttonWidth = 34
 
 	function formatDate(dateString: string | undefined): string {
 		if (!dateString) return ''
@@ -52,6 +56,23 @@
 			day: 'numeric'
 		}).format(date)
 	}
+
+	const fallbackPlacements: Placement[] =
+		placement === 'top-start' ? ['bottom-start'] : ['top-start']
+	const floatingConfig = {
+		placement,
+		strategy: 'fixed',
+		offset: { mainAxis: 4, crossAxis: -buttonWidth },
+		gutter: 0,
+		middleware: [
+			{
+				name: 'flip',
+				options: {
+					fallbackPlacements
+				}
+			}
+		]
+	}
 </script>
 
 <Cell>
@@ -67,61 +88,76 @@
 </Cell>
 
 <Cell class="items-center flex flex-row gap-2">
-	<Popover
-		class="w-full overflow-auto flex items-center justify-center"
-		contentClasses="max-w-[50vh] overflow-auto max-h-[50vh] min-w-60 min-h-28 "
-		placement="bottom-start"
-		usePointerDownOutside
-		closeOnOtherPopoverOpen
-	>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<svelte:fragment slot="trigger">
-			<div
-				class={twMerge(
-					'text-xs border w-full font-normal text-tertiary text-left p-1 rounded-md whitespace-nowrap overflow-hidden text-ellipsis',
-					hovering && 'border-surface'
-				)}
-			>
-				{JSON.stringify(payloadData)}
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="content">
-			{#if payloadData === 'WINDMILL_TOO_BIG'}
-				<div class="text-center text-tertiary text-xs">
-					Payload too big to preview but can still be loaded
-				</div>
-			{:else}
-				<div
-					class="relative p-2"
-					role="button"
-					tabindex="0"
-					aria-label="Copy JSON payload to clipboard"
-					on:click={() => {
-						copyToClipboard(JSON.stringify(payloadData))
-					}}
-					on:keydown
-				>
-					<Highlight
-						class={'h-full w-full'}
-						language={json}
-						code={JSON.stringify(payloadData ?? null, null, 4) ?? 'null'}
-					/>
+	<div class="flex items-center justify-center border grow min-w-0 rounded-md" bind:clientWidth>
+		<div
+			class={twMerge(
+				'grow min-w-0 text-xs p-1 font-normal text-tertiary text-left  whitespace-nowrap overflow-hidden text-ellipsis',
+				hovering && 'border-surface'
+			)}
+		>
+			{JSON.stringify(payloadData)}
+		</div>
 
-					<div class="absolute top-2 right-2 w-full h-full">
-						<Button
-							variant="contained"
-							size="xs2"
-							class="absolute top-0 right-0"
-							iconOnly
-							startIcon={{ icon: CopyIcon }}
-							nonCaptureEvent
-						/>
-					</div>
+		<Popover
+			class="w-fit"
+			placement="bottom-start"
+			usePointerDownOutside
+			closeOnOtherPopoverOpen
+			on:click={(e) => {
+				e.stopPropagation()
+			}}
+			{floatingConfig}
+		>
+			<svelte:fragment slot="trigger">
+				<Button
+					variant="contained"
+					size="xs2"
+					color="light"
+					btnClasses="bg-transparent hover:bg-surface"
+					nonCaptureEvent
+				>
+					<ChevronRight size={16} />
+				</Button>
+			</svelte:fragment>
+
+			<svelte:fragment slot="content">
+				<div
+					class="relative p-2 overflow-auto max-h-[40vh]"
+					style={`width: ${clientWidth - buttonWidth}px; min-width: ${clientWidth - buttonWidth}px`}
+				>
+					{#if payloadData === 'WINDMILL_TOO_BIG'}
+						<div class="text-center text-tertiary text-xs">
+							Payload too big to preview but can still be loaded
+						</div>
+					{:else}
+						<div
+							class="w-full h-full"
+							role="button"
+							tabindex="0"
+							aria-label="Copy JSON payload to clipboard"
+							on:click={() => {
+								copyToClipboard(JSON.stringify(payloadData))
+							}}
+							on:keydown
+						>
+							<ObjectViewer json={payloadData} allowCopy pureViewer />
+
+							<div class="absolute top-2 right-2">
+								<Button
+									variant="contained"
+									size="xs2"
+									class="absolute top-0 right-0"
+									iconOnly
+									startIcon={{ icon: CopyIcon }}
+									nonCaptureEvent
+								/>
+							</div>
+						</div>
+					{/if}
 				</div>
-			{/if}
-		</svelte:fragment>
-	</Popover>
+			</svelte:fragment>
+		</Popover>
+	</div>
 
 	<slot name="extra" />
 </Cell>
