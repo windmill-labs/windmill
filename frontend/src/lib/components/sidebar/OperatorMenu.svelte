@@ -90,6 +90,11 @@
 			href: `${base}/sqs_triggers`
 		},
 		{
+			label: 'MQTT triggers',
+			id: 'triggers',
+			href: `${base}/mqtt_triggers`
+		},
+		{
 			label: 'Audit logs',
 			id: 'audit_logs',
 			href: `${base}/audit_logs`

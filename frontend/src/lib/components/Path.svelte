@@ -18,6 +18,7 @@
 		KafkaTriggerService,
 		PostgresTriggerService,
 		NatsTriggerService,
+		MqttTriggerService,
 		SqsTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -44,6 +45,7 @@
 		| 'kafka_trigger'
 		| 'postgres_trigger'
 		| 'nats_trigger'
+		| 'mqtt_trigger'
 		| 'sqs_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
@@ -245,6 +247,11 @@
 			})
 		} else if (kind == 'nats_trigger') {
 			return await NatsTriggerService.existsNatsTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind === 'mqtt_trigger') {
+			return await MqttTriggerService.existsMqttTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})
