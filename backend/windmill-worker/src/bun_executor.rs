@@ -613,7 +613,7 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         {
             let bun_cache_path = format!(
                 "{}{}",
-                windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                 id
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
