@@ -773,7 +773,7 @@ pub async fn run_worker(
             worker_dir.clone(),
         );
         tokio::spawn(async move {
-            if let Err(e) = PyVersion::from_instance_version()
+            if let Err(e) = PyVersion::from_instance_version(&Uuid::nil(), "", &db)
                 .await
                 .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
                 .await

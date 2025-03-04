@@ -62,7 +62,6 @@
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
@@ -947,23 +946,26 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-<UnsavedConfirmationModal
-	{diffDrawer}
-	getInitialAndModifiedValues={() => ({
-		savedValue: savedApp,
-		modifiedValue: {
-			summary: $summary,
-			value: $app,
-			path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-			policy,
-			custom_path: customPath
-		}
-	})}
-	additionalExitAction={() => {
-		setTheme(priorDarkMode)
-	}}
-/>
 
+{#if $$slots.unsavedConfirmationModal}
+	<slot
+		name="unsavedConfirmationModal"
+		{diffDrawer}
+		additionalExitAction={() => {
+			setTheme(priorDarkMode)
+		}}
+		getInitialAndModifiedValues={() => ({
+			savedValue: savedApp,
+			modifiedValue: {
+				summary: $summary,
+				value: $app,
+				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+				policy,
+				custom_path: customPath
+			}
+		})}
+	/>
+{/if}
 <DeployOverrideConfirmationModal
 	bind:deployedBy
 	bind:confirmCallback
