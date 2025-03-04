@@ -1,5 +1,5 @@
 import { resourceTypesStore } from './components/resourceTypesStore'
-import { workspaceStore, userStore, usersWorkspaceStore, superadmin } from './stores'
+import { workspaceStore, userStore, usersWorkspaceStore, superadmin, devopsRole } from './stores'
 
 export function switchWorkspace(workspace: string | undefined) {
 	try {
@@ -26,4 +26,5 @@ export function clearStores(): void {
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)
 	superadmin.set(undefined)
+	devopsRole.set(undefined)
 }
