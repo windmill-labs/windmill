@@ -72,8 +72,7 @@
 		newToken = undefined
 		let date: Date | undefined
 		if (newTokenExpiration) {
-			date = new Date()
-			date.setDate(date.getDate() + newTokenExpiration)
+			date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 		}
 		newToken = await UserService.createToken({
 			requestBody: {
@@ -299,9 +298,13 @@
 								</label>
 								<select bind:value={newTokenExpiration}>
 									<option value={undefined}>No expiration</option>
-									<option value={7}>7d</option>
-									<option value={30}>30d</option>
-									<option value={90}>90d</option>
+									<option value={15*60}>15m</option>
+									<option value={30*60}>30m</option>
+									<option value={1*60*60}>1h</option>
+									<option value={1*24*60*60}>1d</option>
+									<option value={7*24*60*60}>7d</option>
+									<option value={30*24*60*60}>30d</option>
+									<option value={90*24*60*60}>90d</option>
 								</select>
 							</div>
 							<div class="flex items-end">

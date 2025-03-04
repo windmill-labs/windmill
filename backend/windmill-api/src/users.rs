@@ -55,7 +55,6 @@ use windmill_common::{
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_git_sync::handle_deployment_metadata;
-pub const TTL_TOKEN_DB_H: u32 = 72;
 
 const COOKIE_PATH: &str = "/";
 
@@ -1696,6 +1695,11 @@ async fn refresh_token(
     Ok("token refreshed".to_string())
 }
 
+lazy_static::lazy_static! {
+    static ref MAX_SESSION_VALIDITY_SECONDS: i64 = std::env::var("MAX_SESSION_VALIDITY_SECONDS").ok().unwrap_or_else(|| String::new()).parse::<i64>().unwrap_or(3 * 24 * 60 * 60);
+    static ref INVALIDATE_OLD_SESSIONS: bool = std::env::var("INVALIDATE_OLD_SESSIONS").ok().unwrap_or_else(|| String::new()).parse::<bool>().unwrap_or(false);
+}
+
 pub async fn create_session_token<'c>(
     email: &str,
     super_admin: bool,
@@ -1703,18 +1707,45 @@ pub async fn create_session_token<'c>(
     cookies: Cookies,
 ) -> Result<String> {
     let token = rd_string(32);
+
+    if *INVALIDATE_OLD_SESSIONS {
+        sqlx::query!(
+            "DELETE FROM token WHERE email = $1 AND label = 'session'",
+            email
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        audit_log(
+            &mut **tx,
+            &AuditAuthor {
+                email: email.to_string(),
+                username: email.to_string(),
+                username_override: None,
+            },
+            "users.token.invalidate_old_sessions",
+            ActionKind::Delete,
+            &"global",
+            None,
+            None,
+        )
+        .instrument(tracing::info_span!("token", email))
+        .await?;
+    }
+
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)",
+            VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, $5)",
         token,
         email,
         "session",
-        TTL_TOKEN_DB_H.to_string(),
+        &MAX_SESSION_VALIDITY_SECONDS.to_string(),
         super_admin
     )
     .execute(&mut **tx)
     .await?;
+
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
     cookie.set_secure(IS_SECURE.read().await.clone());
     cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
@@ -1725,7 +1756,7 @@ pub async fn create_session_token<'c>(
     }
 
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
-    expire += time::Duration::days(3);
+    expire += time::Duration::seconds(*MAX_SESSION_VALIDITY_SECONDS);
     cookie.set_expires(expire);
     cookies.add(cookie);
     Ok(token)
