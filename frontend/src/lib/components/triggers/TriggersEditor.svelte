@@ -15,9 +15,10 @@
 	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import { AwsIcon, KafkaIcon, NatsIcon } from '../icons'
+	import { KafkaIcon, MqttIcon, NatsIcon, AwsIcon } from '../icons'
 	import KafkaTriggersPanel from './kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
+	import MqttTriggersPanel from './mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 
 	export let noEditor: boolean
@@ -30,10 +31,15 @@
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 	export let args: Record<string, any> = {}
-	let eventStreamType: 'kafka' | 'nats' | 'sqs' = 'kafka'
+	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
 
 	$: {
-		if ($selectedTrigger === 'kafka' || $selectedTrigger === 'nats' || $selectedTrigger === 'sqs') {
+		if (
+			$selectedTrigger === 'kafka' ||
+			$selectedTrigger === 'nats' ||
+			$selectedTrigger === 'sqs' ||
+			$selectedTrigger === 'mqtt'
+		) {
 			eventStreamType = $selectedTrigger
 		}
 	}
@@ -57,7 +63,7 @@
 				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
 				<Tab
 					value="kafka"
-					otherValues={['sqs', 'nats']}
+					otherValues={['nats', 'sqs', 'mqtt']}
 					selectedClass="text-primary text-sm font-semibold"
 				>
 					Event streams
@@ -153,11 +159,12 @@
 									isEditor={true}
 								/>
 							</div>
-						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats' || $selectedTrigger === 'sqs'}
+						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats' || $selectedTrigger === 'sqs' || $selectedTrigger === 'mqtt'}
 							<div class="p-4 flex flex-col gap-2">
 								<ToggleButtonGroup bind:selected={eventStreamType} let:item>
 									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
 									<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
+									<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} {item} />
 									<ToggleButton value="sqs" label="SQS" icon={AwsIcon} {item} />
 								</ToggleButtonGroup>
 								{#if eventStreamType === 'kafka'}
@@ -186,6 +193,19 @@
 									/>
 								{:else if eventStreamType === 'sqs'}
 									<SqsTriggerPanel
+										on:applyArgs
+										on:addPreprocessor
+										on:updateSchema
+										on:testWithArgs
+										{newItem}
+										path={currentPath}
+										{isFlow}
+										isEditor={true}
+										{canHavePreprocessor}
+										{hasPreprocessor}
+									/>
+								{:else if eventStreamType === 'mqtt'}
+									<MqttTriggersPanel
 										on:applyArgs
 										on:addPreprocessor
 										on:updateSchema
