@@ -628,7 +628,7 @@ async fn logout(
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
 
-    let email = if *LOGOUT_BEHAVIOR == "all" {
+    let email = if *LOGOUT_BEHAVIOR == "invalidate-all" {
         sqlx::query_scalar!(
             "WITH email_lookup AS (
                 SELECT email FROM token WHERE token = $1
