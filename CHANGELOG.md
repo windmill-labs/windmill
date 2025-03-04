@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.474.0](https://github.com/windmill-labs/windmill/compare/v1.473.1...v1.474.0) (2025-03-04)
+
+
+### Features
+
+* add template script for all triggers ([#5424](https://github.com/windmill-labs/windmill/issues/5424)) ([0a9d8c6](https://github.com/windmill-labs/windmill/commit/0a9d8c6b8b95c0e1093aef89b2a1956dbe59bbee))
+* **frontend:** global recompute helper function ([#5408](https://github.com/windmill-labs/windmill/issues/5408)) ([b961efa](https://github.com/windmill-labs/windmill/commit/b961efa8691f806d437ba2cb303ad1a50fa618c4))
+* more controls on setting token duration ([#5421](https://github.com/windmill-labs/windmill/issues/5421)) ([534a824](https://github.com/windmill-labs/windmill/commit/534a8249d60f7de6b542c3b5b5ee0b5eda360f22))
+
+
+### Bug Fixes
+
+* do not depend on public schema anymore ([90b00f5](https://github.com/windmill-labs/windmill/commit/90b00f55011288115e00b7a30b3e8e91bc0b7f4b))
+* **python:** windows worker fails to install 3.10 ([#5409](https://github.com/windmill-labs/windmill/issues/5409)) ([ebb58e0](https://github.com/windmill-labs/windmill/commit/ebb58e0dc7cc104e0bbfd90cf7f37e40ffd0bbf5))
+
 ## [1.473.1](https://github.com/windmill-labs/windmill/compare/v1.473.0...v1.473.1) (2025-03-03)
 
 
