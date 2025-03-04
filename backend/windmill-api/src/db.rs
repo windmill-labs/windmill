@@ -51,6 +51,8 @@ lazy_static::lazy_static! {
                     (20241006144414, include_str!(
                         "../../custom_migrations/grant_all_current_schema.sql"
                     ).to_string()),
+                    (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
+                    (20221123151919, "".to_string()),
                     ].into_iter().collect();
 }
 
