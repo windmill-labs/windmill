@@ -44,7 +44,7 @@ use windmill_common::{
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
-    utils::{hostname, rd_string, Mode, GIT_VERSION},
+    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
@@ -238,63 +238,12 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let hostname = hostname();
 
-    let mut enable_standalone_indexer: bool = false;
+    let mode_and_addons = MODE_AND_ADDONS.clone();
+    let mode = mode_and_addons.mode;
 
-    let mode = std::env::var("MODE")
-        .map(|x| x.to_lowercase())
-        .map(|x| {
-            if &x == "server" {
-                println!("Binary is in 'server' mode");
-                Mode::Server
-            } else if &x == "worker" {
-                tracing::info!("Binary is in 'worker' mode");
-                #[cfg(windows)]
-                {
-                    println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
-                }
-                Mode::Worker
-            } else if &x == "agent" {
-                println!("Binary is in 'agent' mode");
-                if std::env::var("BASE_INTERNAL_URL").is_err() {
-                    panic!("BASE_INTERNAL_URL is required in agent mode")
-                }
-                if std::env::var("JOB_TOKEN").is_err() {
-                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
-                }
-
-                #[cfg(not(feature = "enterprise"))]
-                {
-                    panic!("Agent mode is only available in the EE, ignoring...");
-                }
-                #[cfg(feature = "enterprise")]
-                Mode::Agent
-            } else if &x == "indexer" {
-                tracing::info!("Binary is in 'indexer' mode");
-                #[cfg(not(feature = "tantivy"))]
-                {
-                    eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
-                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
-                }
-                #[cfg(feature = "tantivy")]
-                Mode::Indexer
-            } else if &x == "standalone+search"{
-                    enable_standalone_indexer = true;
-                    println!("Binary is in 'standalone' mode with search enabled");
-                    Mode::Standalone
-            }
-            else {
-                if &x != "standalone" {
-                    eprintln!("mode not recognized, defaulting to standalone: {x}");
-                } else {
-                    println!("Binary is in 'standalone' mode");
-                }
-                Mode::Standalone
-            }
-        })
-        .unwrap_or_else(|_| {
-            tracing::info!("Mode not specified, defaulting to standalone");
-            Mode::Standalone
-        });
+    if mode == Mode::Standalone {
+        println!("Running in standalone mode");
+    }
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     println!("jemalloc enabled");
@@ -537,8 +486,7 @@ Windmill Community Edition {GIT_VERSION}
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]
-        let should_index_jobs =
-            mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
+        let should_index_jobs = mode == Mode::Indexer || mode_and_addons.indexer;
 
         reload_indexer_config(&db).await;
 
