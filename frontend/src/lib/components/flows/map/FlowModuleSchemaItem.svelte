@@ -292,7 +292,6 @@
 				{allowCopy}
 				prefix={'results'}
 				{isConnecting}
-				{path}
 				bind:pinned={mock}
 				on:select={select}
 				moduleId={id}
