@@ -827,6 +827,10 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 `
+const JAVA_INIT_CODE = `
+hi
+`
+// KJQXZ 
 export const INITIAL_CODE = {
 	bun: {
 		scriptInitCodeBlock: BUN_INIT_BLOCK,
@@ -908,6 +912,7 @@ export const INITIAL_CODE = {
 	bunnative: {
 		script: BUNNATIVE_INIT_CODE
 	}
+// KJQXZ 
 }
 
 export function isInitialCode(content: string): boolean {
