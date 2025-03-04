@@ -276,9 +276,9 @@
 								{#if can_write}
 									<div>
 										<ToggleButtonGroup
+											disabled={owner_name == 'u/' + $userStore?.username && !$userStore?.is_admin}
 											selected={role}
 											let:item
-											disabled={owner_name == 'u/' + $userStore?.username}
 											on:selected={async (e) => {
 												const role = e.detail
 												// const wasInFolder = (folder?.owners ?? []).includes(folder)
@@ -344,7 +344,7 @@
 								{/if}</td
 							>
 							<td>
-								{#if can_write && owner_name != 'u/' + $userStore?.username}
+								{#if can_write && (owner_name != 'u/' + $userStore?.username || $userStore?.is_admin)}
 									<button
 										class="ml-2 text-red-500"
 										on:click={async () => {
