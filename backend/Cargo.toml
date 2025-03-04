@@ -23,6 +23,7 @@ members = [
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
     "./parsers/windmill-parser-nu",
+    "./parsers/windmill-parser-java",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
@@ -79,6 +80,7 @@ sqs_trigger = ["windmill-api/sqs_trigger"]
 python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 csharp = ["windmill-worker/csharp"]
+java = ["windmill-worker/java"]
 nu = ["windmill-worker/nu"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
@@ -156,6 +158,7 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
+windmill-parser-java = { path = "./parsers/windmill-parser-java" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
@@ -360,4 +363,5 @@ yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
 tree-sitter = {version = "0.23.0", features = []}
 tree-sitter-c-sharp = "0.23.0"
+tree-sitter-java = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }

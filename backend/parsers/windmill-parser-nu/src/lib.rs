@@ -34,14 +34,14 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
                             |PositionalArg { name, desc: _, shape, var_id: _, default_value },
                              has_default|
                              -> anyhow::Result<()> {
-                                let or = if has_default { Some(json!(null)) } else { None };
+                                let or_null = if has_default { Some(json!(null)) } else { None };
                                 sig.args.push(Arg {
                                     name: name.clone(),
                                     typ: glue_types(name, shape, true)?,
                                     otyp: None,
                                     default: default_value
                                         .and_then(|val| parse_default_value(val).ok())
-                                        .or(or),
+                                        .or(or_null),
                                     has_default,
                                     oidx: None,
                                 });
