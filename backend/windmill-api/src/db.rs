@@ -551,6 +551,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
         )
         .await?;
     });
+
     Ok(())
 }
 
@@ -765,6 +766,12 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort_2")
+            .execute(db)
+            .await?;
+    });
+
+    run_windmill_migration!("audit_timestamps", db, |tx| {
+        sqlx::query!("CREATE INDEX CONCURRENTLY ix_audit_timestamps ON audit (timestamp DESC)")
             .execute(db)
             .await?;
     });

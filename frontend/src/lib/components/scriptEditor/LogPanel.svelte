@@ -28,6 +28,7 @@
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import type { PreviewPanelUi } from '../custom_ui'
 
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
@@ -38,6 +39,7 @@
 	export let args: Record<string, any> | undefined = undefined
 	export let workspace: string | undefined = undefined
 	export let showCaptures: boolean = false
+	export let customUi: PreviewPanelUi | undefined = undefined
 
 	type DrawerContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -76,6 +78,7 @@
 				workspaceId={previewJob?.workspace_id}
 				jobId={previewJob?.id}
 				result={drawerContent.content}
+				customUi={customUi?.displayResult}
 			/>
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
@@ -91,8 +94,10 @@
 <div class="h-full flex flex-col">
 	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
 		<Tab value="logs" size="xs">Logs & Result</Tab>
-		<Tab value="history" size="xs">History</Tab>
-		{#if showCaptures}
+		{#if customUi?.disableHistory !== true}
+			<Tab value="history" size="xs">History</Tab>
+		{/if}
+		{#if showCaptures && customUi?.disableTriggerCaptures !== true}
 			<Tab value="captures" size="xs">Trigger captures</Tab>
 		{/if}
 
@@ -117,6 +122,7 @@
 									content={previewJob?.logs}
 									isLoading={previewJob?.['running'] == false && previewIsLoading}
 									tag={previewJob?.tag}
+									download={customUi?.disableDownload !== true}
 								/>
 							</Pane>
 							<Pane>
@@ -129,6 +135,7 @@
 												workspaceId={previewJob?.workspace_id}
 												jobId={previewJob?.id}
 												result={previewJob.result}
+												customUi={customUi?.displayResult}
 											>
 												<svelte:fragment slot="copilot-fix">
 													{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
