@@ -36,7 +36,6 @@ pub struct LoadImagePreviewQuery {
 #[derive(Deserialize)]
 pub struct DownloadFileQuery {
     pub file_key: String,
-    pub force_viewer_allowed_s3_keys: Option<String>,
 }
 
 pub fn workspaced_service() -> Router {
