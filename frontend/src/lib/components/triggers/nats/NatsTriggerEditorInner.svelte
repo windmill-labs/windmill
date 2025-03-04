@@ -237,6 +237,15 @@
 							allowRefresh={can_write}
 							allowEdit={!$userStore?.operator}
 						/>
+						{#if emptyString(script_path)}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href={itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F11634'}
+								target="_blank">Create from template</Button
+							>
+						{/if}
 					</div>
 				</Section>
 

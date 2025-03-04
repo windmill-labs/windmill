@@ -358,8 +358,8 @@
 									color="dark"
 									size="xs"
 									href={itemKind === 'flow'
-										? '/flows/add?hub=55'
-										: '/scripts/add?hub=hub%2F9088%2Fwindmill%2FHTTP%20route%20script%20with%20preprocessor%20template'}
+										? '/flows/add?hub=62'
+										: '/scripts/add?hub=hub%2F11627'}
 									target="_blank">Create from template</Button
 								>
 							{/if}
