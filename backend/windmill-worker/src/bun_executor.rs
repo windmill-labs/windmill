@@ -613,7 +613,7 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         {
             let bun_cache_path = format!(
                 "{}{}",
-                windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                 id
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
@@ -625,21 +625,22 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
                 )));
             }
         } else {
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             return Err(error::Error::ExecutionErr(
                 "codebase is an EE feature".to_string(),
             ));
-        }
 
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = object_store {
-            let dirs_splitted = bun_cache_path.split("/").collect_vec();
-            std::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/"))?;
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            if let Some(os) = object_store {
+                let dirs_splitted = bun_cache_path.split("/").collect_vec();
+                std::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/"))?;
 
-            let bytes = attempt_fetch_bytes(os, &path).await?;
-            tracing::info!("loading {bun_cache_path} from object store");
+                let bytes = attempt_fetch_bytes(os, &path).await?;
+                tracing::info!("loading {bun_cache_path} from object store");
 
-            std::fs::write(&bun_cache_path, &bytes)?;
-            extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
+                std::fs::write(&bun_cache_path, &bytes)?;
+                extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
+            }
         }
     }
 
