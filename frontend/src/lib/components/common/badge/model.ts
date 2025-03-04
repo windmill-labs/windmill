@@ -1,4 +1,4 @@
-type BaseColor = 'blue' | 'gray' | 'red' | 'green' | 'yellow' | 'indigo' | 'orange'
+type BaseColor = 'blue' | 'gray' | 'red' | 'green' | 'yellow' | 'indigo' | 'orange' | 'violet'
 export const ColorModifier = 'dark-'
 export type BadgeColor = BaseColor | `${typeof ColorModifier}${BaseColor}`
 

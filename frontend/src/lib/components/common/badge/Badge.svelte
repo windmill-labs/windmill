@@ -23,13 +23,15 @@
 		yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-100 dark:text-yellow-900',
 		orange: 'bg-orange-100 text-orange-800 dark:bg-orange-100 dark:text-orange-900',
 		indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-200 dark:text-indigo-900',
+		violet: 'bg-violet-100 text-violet-800 dark:bg-violet-200 dark:text-violet-900',
 		['dark-gray']: 'bg-gray-500 text-gray-100',
 		['dark-blue']: 'bg-blue-500 text-blue-100',
 		['dark-red']: 'bg-red-500 text-white',
 		['dark-green']: 'bg-green-500 text-green-100',
 		['dark-yellow']: 'bg-yellow-300 text-yellow-800',
 		['dark-indigo']: 'bg-indigo-500 text-indigo-100',
-		['dark-orange']: 'bg-orange-500 text-orange-100'
+		['dark-orange']: 'bg-orange-500 text-orange-100',
+		['dark-violet']: 'bg-violet-500 text-violet-100'
 	}
 	const hovers: Partial<Record<BadgeColor, string>> = {
 		gray: 'hover:bg-gray-200 dark:hover:bg-gray-300',
@@ -38,7 +40,8 @@
 		green: 'hover:bg-green-200 dark:hover:bg-green-300',
 		yellow: 'hover:bg-yellow-200 dark:hover:bg-yellow-300',
 		indigo: 'hover:bg-indigo-200 dark:hover:bg-indigo-300',
-		orange: 'hover:bg-orange-200 dark:hover:bg-orange-300'
+		orange: 'hover:bg-orange-200 dark:hover:bg-orange-300',
+		violet: 'hover:bg-violet-200 dark:hover:bg-violet-300'
 	}
 
 	$: badgeClass = classNames(

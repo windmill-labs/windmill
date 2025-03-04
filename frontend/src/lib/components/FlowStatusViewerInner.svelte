@@ -324,10 +324,7 @@
 	function updateInnerModules() {
 		if ($localModuleStates) {
 			innerModules.forEach((mod, i) => {
-				if (
-					mod.type === 'WaitingForEvents' &&
-					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
-				) {
+				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
 					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
 				} else if (
 					mod.type === 'WaitingForExecutor' &&

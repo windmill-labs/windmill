@@ -715,6 +715,8 @@
 						{/if}
 					{:else if job && 'success' in job}
 						<XCircle class="text-red-700" size={14} />
+					{:else if job && 'running' in job && job.running && job.suspend}
+						<Hourglass class="text-violet-500" size={14} />
 					{:else if job && 'running' in job && job.running}
 						<Circle class="text-yellow-500 fill-current" size={14} />
 					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
