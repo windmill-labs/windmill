@@ -79,7 +79,7 @@
 		app,
 		connectingInput,
 		bgRuns,
-		recomputeAllContext,
+		recomputeAllContext
 	} = getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -305,8 +305,16 @@
 				await setResult(r, job)
 				$state = $state
 			} catch (e) {
-				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
-				r = { error: { message: e.body ?? e.message } }
+				let additionalInfo = ''
+				if (
+					e.message.includes('Maximum call stack size exceeded') ||
+					e.message.includes('too much recursion')
+				) {
+					additionalInfo =
+						'This is likely due to a call to globalRecompute() in the frontend script. Please check your script for circular recomputes and disable the "Run on start and app refresh" toggle.'
+				}
+				sendUserToast(`Error running frontend script ${id}: ` + e.message + additionalInfo, true)
+				r = { error: { message: (e.body ?? e.message) + additionalInfo } }
 				await setResult(r, job)
 			}
 			loading = false

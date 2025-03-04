@@ -123,7 +123,7 @@ export async function eval_like(
 	runnableComponents: Record<string, { cb?: (() => void)[] }>,
 	noReturn: boolean,
 	groupContextId: string | undefined,
-	globalRecomputeFunction: ((excludeIds?: string[]) => void) | undefined
+	globalRecomputeFunction: ((excludeIds?: string) => void) | undefined
 ) {
 	const createProxy = (name: string, obj: any) => {
 		// console.log('Creating proxy', name, obj)
@@ -201,10 +201,10 @@ export async function eval_like(
 		(id) => {
 			runnableComponents[id]?.cb?.forEach((f) => f())
 		},
-		(excludeIds: string[] | undefined = undefined) => {
+		() => {
 			const callerId = ((context ?? {}) as any).id
 			if (callerId) {
-				globalRecomputeFunction?.([...(excludeIds ?? []), callerId])
+				globalRecomputeFunction?.(callerId)
 			}
 		},
 		(id) => {
