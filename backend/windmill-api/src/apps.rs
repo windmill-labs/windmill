@@ -1968,12 +1968,19 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     }
 }
 
+#[derive(Deserialize)]
+pub struct DownloadFileQueryWithForceViewerAllowedS3Keys {
+    #[serde(flatten)]
+    pub file_query: DownloadFileQuery,
+    pub force_viewer_allowed_s3_keys: Option<String>,
+}
+
 #[cfg(feature = "parquet")]
 async fn download_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<DownloadFileQuery>,
+    Query(query): Query<DownloadFileQueryWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
     let path = path.to_path();
 
@@ -1992,14 +1999,14 @@ async fn download_s3_file_from_app(
     check_if_allowed_to_access_s3_file_from_app(
         &db,
         &opt_authed,
-        &query.file_key,
+        &query.file_query.file_key,
         &w_id,
         &path,
         &policy,
     )
     .await?;
 
-    download_s3_file_internal(on_behalf_authed, &db, None, "", &w_id, query).await
+    download_s3_file_internal(on_behalf_authed, &db, None, "", &w_id, query.file_query).await
 }
 
 #[cfg(not(feature = "parquet"))]
