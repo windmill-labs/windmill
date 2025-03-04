@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { Info, Trash2 } from 'lucide-svelte'
+	import { DatabaseIcon, Info, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -17,6 +17,7 @@
 	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
+	import { AwsIcon, MqttIcon } from '../icons'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -161,7 +162,10 @@
 		http: Route,
 		email: Mail,
 		websocket: Unplug,
-		kafka: KafkaIcon
+		kafka: KafkaIcon,
+		mqtt: MqttIcon,
+		sqs: AwsIcon,
+		postgres: DatabaseIcon
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
