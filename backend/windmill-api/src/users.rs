@@ -1715,6 +1715,22 @@ pub async fn create_session_token<'c>(
         )
         .execute(&mut **tx)
         .await?;
+
+        audit_log(
+            &mut **tx,
+            &AuditAuthor {
+                email: email.to_string(),
+                username: email.to_string(),
+                username_override: None,
+            },
+            "users.token.invalidate_old_sessions",
+            ActionKind::Delete,
+            &"global",
+            None,
+            None,
+        )
+        .instrument(tracing::info_span!("token", email))
+        .await?;
     }
 
     sqlx::query!(
