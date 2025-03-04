@@ -13,7 +13,7 @@
 	import type { Placement } from '@floating-ui/core'
 	import { pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
-
+	import { createEventDispatcher } from 'svelte'
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
 	export let placement: Placement = 'bottom'
@@ -26,6 +26,8 @@
 	export let portal: string | HTMLElement | null = 'body'
 	export let closeOnOtherPopoverOpen: boolean = false
 
+	const dispatch = createEventDispatcher()
+
 	const {
 		elements: { trigger, content, arrow, close: closeElement },
 		states,
@@ -37,7 +39,10 @@
 			placement
 		},
 		portal,
-		onOpenChange: ({ next }) => {
+		onOpenChange: ({ curr, next }) => {
+			if (curr != next) {
+				dispatch('openChange', next)
+			}
 			if (closeOnOtherPopoverOpen) {
 				if (next) {
 					// Close previous popover if exists

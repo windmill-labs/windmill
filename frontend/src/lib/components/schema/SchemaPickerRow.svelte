@@ -1,13 +1,15 @@
 <script lang="ts">
-	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { copyToClipboard } from '$lib/utils'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import { json } from 'svelte-highlight/languages'
+	import Highlight from 'svelte-highlight'
 	import { twMerge } from 'tailwind-merge'
 	import Cell from '$lib/components/table/Cell.svelte'
+	import { Popover } from '$lib/components/meltComponents'
+	import { CopyIcon } from 'lucide-svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	export let payloadData: Record<string, any> | string
 	export let date: string | undefined
-	export let selected = false
 	export let hovering = false
 
 	function formatDate(dateString: string | undefined): string {
@@ -65,34 +67,61 @@
 </Cell>
 
 <Cell class="items-center flex flex-row gap-2">
-	<CustomPopover class="w-full overflow-auto flex items-center justify-center">
+	<Popover
+		class="w-full overflow-auto flex items-center justify-center"
+		contentClasses="max-w-[50vh] overflow-auto max-h-[50vh] min-w-60 min-h-28 "
+		placement="bottom-start"
+		usePointerDownOutside
+		closeOnOtherPopoverOpen
+	>
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div
-			class={twMerge(
-				'text-xs border w-full font-normal text-tertiary text-left p-1 rounded-md whitespace-nowrap overflow-hidden text-ellipsis',
-				hovering && 'border-surface'
-			)}
-			on:click={() => {
-				if (selected) {
-					copyToClipboard(JSON.stringify(payloadData))
-				}
-			}}
-		>
-			{JSON.stringify(payloadData)}
-		</div>
-		<svelte:fragment slot="overlay">
+		<svelte:fragment slot="trigger">
+			<div
+				class={twMerge(
+					'text-xs border w-full font-normal text-tertiary text-left p-1 rounded-md whitespace-nowrap overflow-hidden text-ellipsis',
+					hovering && 'border-surface'
+				)}
+			>
+				{JSON.stringify(payloadData)}
+			</div>
+		</svelte:fragment>
+		<svelte:fragment slot="content">
 			{#if payloadData === 'WINDMILL_TOO_BIG'}
 				<div class="text-center text-tertiary text-xs">
 					Payload too big to preview but can still be loaded
 				</div>
 			{:else}
-				<div class="max-w-60 overflow-auto">
-					<ObjectViewer json={payloadData} />
+				<div
+					class="relative p-2"
+					role="button"
+					tabindex="0"
+					aria-label="Copy JSON payload to clipboard"
+					on:click={() => {
+						copyToClipboard(JSON.stringify(payloadData))
+					}}
+					on:keydown
+				>
+					<Highlight
+						class={'h-full w-full'}
+						language={json}
+						code={JSON.stringify(payloadData ?? null, null, 4) ?? 'null'}
+					/>
+
+					<div class="absolute top-2 right-2 w-full h-full">
+						<Button
+							variant="contained"
+							size="xs2"
+							class="absolute top-0 right-0"
+							iconOnly
+							startIcon={{ icon: CopyIcon }}
+							nonCaptureEvent
+						/>
+					</div>
 				</div>
 			{/if}
 		</svelte:fragment>
-	</CustomPopover>
+	</Popover>
 
 	<slot name="extra" />
 </Cell>
