@@ -648,10 +648,15 @@ async fn logout(
 
     if let Some(email) = email {
         let email = email.unwrap_or("noemail".to_string());
+        let audit_message = if *LOGOUT_BEHAVIOR == "invalidate-all" {
+            "users.logout_all"
+        } else {
+            "users.logout"
+        };
         audit_log(
             &mut *tx,
             &AuditAuthor { email: email.clone(), username: email, username_override: None },
-            "users.logout",
+            audit_message,
             ActionKind::Delete,
             "global",
             Some(&truncate_token(&token)),
