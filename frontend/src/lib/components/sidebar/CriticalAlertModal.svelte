@@ -154,6 +154,9 @@
 				)
 			}
 			numUnacknowledgedCriticalAlerts = unacknowledged.length
+		} catch (e) {
+			console.error('Error fetching critical alerts', e)
+			sendUserToast('Error fetching critical alerts', true)
 		} finally {
 			checkingForNewAlerts = false
 		}
