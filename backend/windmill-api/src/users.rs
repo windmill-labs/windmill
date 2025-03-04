@@ -605,6 +605,13 @@ async fn list_invites(
     Ok(Json(rows))
 }
 
+lazy_static::lazy_static! {
+    static ref INVALIDATE_ALL_SESSIONS_ON_LOGOUT: bool = std::env::var("INVALIDATE_ALL_SESSIONS_ON_LOGOUT")
+        .unwrap_or("false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+}
+
 #[derive(Deserialize)]
 struct LogoutQuery {
     rd: Option<String>,
@@ -622,15 +629,36 @@ async fn logout(
     }
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
-    let email = sqlx::query_scalar!("DELETE FROM token WHERE token = $1 RETURNING email", token)
+
+    let email = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
+        sqlx::query_scalar!(
+            "WITH email_lookup AS (
+                SELECT email FROM token WHERE token = $1
+            )
+            DELETE FROM token
+            WHERE email = (SELECT email FROM email_lookup) AND label = 'session'
+            RETURNING email",
+            token
+        )
         .fetch_optional(&mut *tx)
-        .await?;
+        .await?
+    } else {
+        sqlx::query_scalar!("DELETE FROM token WHERE token = $1 RETURNING email", token)
+            .fetch_optional(&mut *tx)
+            .await?
+    };
+
     if let Some(email) = email {
         let email = email.unwrap_or("noemail".to_string());
+        let audit_message = if *INVALIDATE_ALL_SESSIONS_ON_LOGOUT {
+            "users.logout_all"
+        } else {
+            "users.logout"
+        };
         audit_log(
             &mut *tx,
             &AuditAuthor { email: email.clone(), username: email, username_override: None },
-            "users.logout",
+            audit_message,
             ActionKind::Delete,
             "global",
             Some(&truncate_token(&token)),
@@ -1876,7 +1904,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
-             last_used_at, scopes FROM token WHERE email = $1 AND label != 'ephemeral-script'
+             last_used_at, scopes FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
