@@ -18,7 +18,6 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use axum::extract::Multipart;
 
 use axum::{
@@ -42,7 +41,6 @@ use std::{
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
@@ -358,12 +356,6 @@ fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-async fn create_snapshot_script() -> Result<(StatusCode, String)> {
-    Err(Error::BadRequest("Upgrade to EE to use bundle".to_string()))
-}
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn create_snapshot_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -404,12 +396,35 @@ async fn create_snapshot_script(
             })?;
 
             uploaded = true;
+            let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+
+            if &windmill_common::utils::MODE_AND_ADDONS.mode
+                == &windmill_common::utils::Mode::Standalone
+            {
+                std::fs::create_dir_all(format!(
+                    "{}/script_bundle/{}",
+                    windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
+                    w_id
+                ))?;
+                windmill_common::worker::write_file(
+                    windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
+                    &path,
+                    &String::from_utf8_lossy(&data),
+                )?;
+                return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
+            }
+
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            {
+                return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
+            }
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
                 .read()
                 .await
                 .clone()
             {
-                let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
                 if let Err(e) = os
                     .put(&object_store::path::Path::from(path.clone()), data.into())
                     .await
