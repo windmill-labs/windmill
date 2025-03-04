@@ -1968,6 +1968,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     }
 }
 
+#[cfg(feature = "parquet")]
 #[derive(Deserialize)]
 pub struct DownloadFileQueryWithForceViewerAllowedS3Keys {
     #[serde(flatten)]
