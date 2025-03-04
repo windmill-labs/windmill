@@ -33,6 +33,7 @@
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
 	export let disabled = false
+	export let iconSize: number | undefined = undefined
 	export let initialValue:
 		| {
 				s3: string
@@ -534,6 +535,7 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
+			iconSize={iconSize}
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)
