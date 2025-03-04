@@ -547,6 +547,9 @@ export function inferSchema(
     inferedSchema = JSON.parse(parse_nu(content));
   } else if (language === "ansible") {
     inferedSchema = JSON.parse(parse_ansible(content));
+  } else if (language === "java") {
+    // inferedSchema = JSON.parse(parse_ansible(content));
+  	// KJQXZ 
   } else {
     throw new Error("Invalid language: " + language);
   }

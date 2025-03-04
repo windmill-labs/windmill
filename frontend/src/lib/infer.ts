@@ -186,6 +186,10 @@ export async function inferArgs(
 		} else if (language == 'nu') {
 			await initWasmNu()
 			inferedSchema = JSON.parse(parse_nu(code))
+		} else if (language == 'java') {
+			// await initWasmNu()
+			// inferedSchema = JSON.parse(parse_nu(code))
+			// KJQXZ 
 		} else {
 			return null
 		}

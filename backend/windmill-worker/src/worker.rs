@@ -276,6 +276,8 @@ pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
+pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
+// KJQXZ
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 

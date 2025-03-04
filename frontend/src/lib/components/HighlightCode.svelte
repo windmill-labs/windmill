@@ -64,6 +64,9 @@
 				return python
 			case 'ansible':
 				return yaml;
+			case 'java':
+				return csharp;
+			// KJQXZ 
 			default:
 				return typescript
 		}

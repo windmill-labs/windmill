@@ -145,6 +145,7 @@
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
+          # KJQXZ 
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {
@@ -236,6 +237,8 @@
             "csharp"
             "static_frontend"
             "rust"
+            "java"
+            # KJQXZ 
           ];
           doCheck = false;
 

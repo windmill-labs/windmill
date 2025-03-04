@@ -119,4 +119,8 @@ inventory:
     debug:
       msg: "Hello, world!"
 `,
+  java: `
+hi
+`,
+// KJQXZ 
 };

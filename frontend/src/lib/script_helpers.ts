@@ -964,8 +964,11 @@ export const INITIAL_CODE = {
 	},
 	bunnative: {
 		script: BUNNATIVE_INIT_CODE
-	}
-// KJQXZ 
+	},
+	java: {
+		script: JAVA_INIT_CODE
+	},
+	// KJQXZ 
 }
 
 export function isInitialCode(content: string): boolean {
@@ -1069,6 +1072,9 @@ export function initialCode(
 		return INITIAL_CODE.csharp.script
 	} else if (language == 'nu') {
 		return INITIAL_CODE.nu.script
+	} else if (language == 'java') {
+		return INITIAL_CODE.java.script
+		// KJQXZ 
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger
