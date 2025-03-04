@@ -21,7 +21,9 @@
 		JobService,
 		ResourceService,
 		SettingService,
-		type AIProvider
+		GitSyncService,
+		type AIProvider,
+		type GetConnectedRepositoriesResponse
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
@@ -40,6 +42,7 @@
 		CheckCircle2,
 		X,
 		Plus,
+		Github,
 		Loader2,
 		Save,
 		ExternalLink
@@ -66,6 +69,7 @@
 	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
 	import Description from '$lib/components/Description.svelte'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
+	import Section from '$lib/components/Section.svelte'
 	import MultiSelect from 'svelte-multiselect'
 	import Label from '$lib/components/Label.svelte'
 	import ArgEnum from '$lib/components/ArgEnum.svelte'
@@ -161,6 +165,9 @@
 			| 'deploy_to'
 			| 'error_handler') ?? 'users'
 	let usingOpenaiClientCredentialsOauth = false
+
+	let selectedGHAppAccountId: string | undefined = undefined
+	let selectedGHAppRepository: string | undefined = undefined
 
 	const latestGitSyncHubScript = hubPaths.gitSync
 
@@ -550,6 +557,8 @@
 			path: 'openai_client_credentials_oauth'
 		})
 
+		loadGithubInstallations()
+
 		loadedSettings = true
 	}
 
@@ -669,6 +678,33 @@
 	}
 
 	$: updateFromSearchTab($page.url.searchParams.get('tab'))
+
+	let githubInstallations: GetConnectedRepositoriesResponse = []
+
+	async function loadGithubInstallations() {
+		try {
+			const installations = await GitSyncService.getConnectedRepositories({
+				workspace: $workspaceStore!
+			})
+			githubInstallations = installations
+		} catch (err) {
+			console.error(err)
+			sendUserToast('Failed to load GitHub installations', true)
+			githubInstallations = []
+		}
+	}
+
+	function getRepositories(accountId: string) {
+		return githubInstallations.find((_) => _.account_id === accountId)?.repositories || []
+	}
+
+	let resourcePicker
+
+	function handleButtonClick() {
+		if (resourcePicker && resourcePicker.askNewResource && selectedGHAppRepository) {
+			resourcePicker.askNewResource({ url: selectedGHAppRepository })
+		}
+	}
 </script>
 
 <Portal name="workspace-settings">
@@ -1540,6 +1576,7 @@
 						<div class="flex mt-5 mb-1 gap-1">
 							{#key gitSyncRepository}
 								<ResourcePicker
+									bind:this={resourcePicker}
 									resourceType="git_repository"
 									initialValue={gitSyncRepository.git_repo_resource_path}
 									on:change={(ev) => {
@@ -1577,6 +1614,83 @@
 								</a>WARNING: Only read permissions are verified.
 							{/if}
 						</div>
+
+						{#if $workspaceStore}
+							<Section
+								label="GitHub App Installations"
+								collapsable={true}
+								small={true}
+								tooltip="Create a resource from GitHub app installations"
+							>
+								<div class="flex flex-col gap-2 pl-4 pb-2 w-full">
+									<div class="flex flex-col gap-2 pb-2 w-64">
+										<Button
+											color="none"
+											variant="border"
+											size="xs"
+											btnClasses="mt-1"
+											on:click={async () => {
+												const url = await GitSyncService.getGithubAppInstallationUrl({
+													workspace: $workspaceStore
+												})
+												if (url) {
+													window.open(url.installation_url, '_blank')
+												} else {
+													sendUserToast('Failed to get GitHub app installation URL', true)
+												}
+											}}
+											startIcon={{ icon: Github }}
+										>
+											Install GitHub app to workspace
+										</Button>
+									</div>
+								</div>
+
+								{#if githubInstallations.length > 0}
+									<div class="flex pl-4 gap-2 w-2/3 mb-4">
+										<div class="flex flex-col gap-1 flex-1">
+											<p class="text-sm font-semibold text-secondary">Github Account ID</p>
+											<select bind:value={selectedGHAppAccountId}>
+												<option value="" disabled>Select GitHub Account ID</option>
+												{#each githubInstallations as installation}
+													<option value={installation.account_id}>{installation.account_id}</option>
+												{/each}
+											</select>
+										</div>
+										{#if selectedGHAppAccountId}
+											<div class="flex flex-col gap-1 flex-1">
+												<p class="text-sm font-semibold text-secondary">Repository</p>
+												<div class="flex flex-row gap-2">
+													<select bind:value={selectedGHAppRepository}>
+														<option value="" disabled selected>Select Repository</option>
+														{#each getRepositories(selectedGHAppAccountId) as repository}
+															<option value={repository.url}>{repository.name}</option>
+														{/each}
+													</select>
+													<Button
+														disabled={!selectedGHAppRepository}
+														color="light"
+														variant="contained"
+														size="sm"
+														btnClasses="w-8 px-0.5 py-1.5"
+														on:click={handleButtonClick}
+														startIcon={{ icon: Plus }}
+													/>
+													<Button
+														color="light"
+														variant="contained"
+														size="sm"
+														btnClasses="w-8 px-0.5 py-1.5"
+														on:click={loadGithubInstallations}
+														startIcon={{ icon: RotateCw }}
+													/>
+												</div>
+											</div>
+										{/if}
+									</div>
+								{/if}
+							</Section>
+						{/if}
 
 						<div class="flex flex-col mt-5 mb-1 gap-4">
 							{#if gitSyncSettings && gitSyncRepository}
