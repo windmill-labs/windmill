@@ -319,6 +319,8 @@
 		) {
 			mountModal = true
 			loadCriticalAlertsMuted()
+		} else {
+			mountModal = false
 		}
 	}
 
