@@ -5,12 +5,14 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import Markdown from 'svelte-exmarkdown'
+	import { Markdown, type Plugin } from 'svelte-exmarkdown'
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import rehypeRaw from 'rehype-raw'
+	import { rehypeGithubAlerts } from 'rehype-github-alerts'
 	import { classNames } from '$lib/utils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = undefined
@@ -18,6 +20,11 @@
 	export let render: boolean
 	export let configuration: RichConfigurations
 
+	const plugins: Plugin[] = [
+		gfmPlugin(),
+		{ rehypePlugin: [rehypeRaw] },
+		{ rehypePlugin: [rehypeGithubAlerts] }
+	]
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
@@ -86,7 +93,7 @@
 			{id}
 			bind:initializing
 			bind:result
-			>{#if result}{#key result}<Markdown md={result} plugins={[gfmPlugin()]} />{/key}{/if}
+			>{#if result}{#key result}<Markdown md={result} {plugins} />{/key}{/if}
 		</RunnableWrapper>
 	</div>
 {:else}
@@ -142,5 +149,13 @@
 	}
 	.wm-markdown h4:last-child {
 		margin-bottom: 0;
+	}
+	.wm-markdown code:not([class~="not-prose"]):not(.not-prose *)::before,
+	.wm-markdown code:not([class~="not-prose"]):not(.not-prose *)::after {
+		content: none !important;
+	}
+	.wm-markdown.prose code::before,
+	.wm-markdown.prose code::after {
+		content: none !important;
 	}
 </style>

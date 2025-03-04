@@ -824,7 +824,21 @@
 			on:hideRightPanel={() => hideRightPanel()}
 			on:hideBottomPanel={() => hideBottomPanel()}
 			on:showBottomPanel={() => showBottomPanel()}
-		/>
+		>
+			<svelte:fragment
+				slot="unsavedConfirmationModal"
+				let:diffDrawer
+				let:additionalExitAction
+				let:getInitialAndModifiedValues
+			>
+				<slot
+					name="unsavedConfirmationModal"
+					{diffDrawer}
+					{additionalExitAction}
+					{getInitialAndModifiedValues}
+				/>
+			</svelte:fragment>
+		</AppEditorHeader>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div

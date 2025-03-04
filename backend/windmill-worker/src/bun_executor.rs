@@ -43,7 +43,7 @@ use windmill_common::{
     get_latest_hash_for_path,
     jobs::QueuedJob,
     scripts::ScriptLang,
-    worker::{exists_in_cache, save_cache, write_file},
+    worker::{exists_in_cache, save_cache, write_file, DISABLE_BUNDLING},
     DB,
 };
 
@@ -660,7 +660,7 @@ pub async fn prebundle_bun_script(
         return Ok(());
     }
     let annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
-    if annotation.nobundling {
+    if annotation.nobundling || *DISABLE_BUNDLING {
         return Ok(());
     }
     let origin = format!("{job_dir}/main.js");
@@ -802,23 +802,25 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
-    let (mut has_bundle_cache, cache_logs, local_path, remote_path) =
-        if requirements_o.is_some() && !annotation.nobundling && codebase.is_none() {
-            let (local_path, remote_path) = compute_bundle_local_and_remote_path(
-                inner_content,
-                requirements_o,
-                job.script_path(),
-                Some(db.clone()),
-                &job.workspace_id,
-            )
-            .await;
+    let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if requirements_o.is_some()
+        && !annotation.nobundling
+        && !*DISABLE_BUNDLING
+        && codebase.is_none()
+    {
+        let (local_path, remote_path) = compute_bundle_local_and_remote_path(
+            inner_content,
+            requirements_o,
+            job.script_path(),
+            Some(db.clone()),
+            &job.workspace_id,
+        )
+        .await;
 
-            let (cache, logs) =
-                windmill_common::worker::load_cache(&local_path, &remote_path).await;
-            (cache, logs, local_path, remote_path)
-        } else {
-            (false, "".to_string(), "".to_string(), "".to_string())
-        };
+        let (cache, logs) = windmill_common::worker::load_cache(&local_path, &remote_path).await;
+        (cache, logs, local_path, remote_path)
+    } else {
+        (false, "".to_string(), "".to_string(), "".to_string())
+    };
 
     if !codebase.is_some() && !has_bundle_cache {
         let _ = write_file(job_dir, "main.ts", inner_content)?;
@@ -1088,6 +1090,7 @@ try {{
 
     let build_cache = !has_bundle_cache
         && !annotation.nobundling
+        && !*DISABLE_BUNDLING
         && !codebase.is_some()
         && (requirements_o.is_some() || annotation.native);
 

@@ -620,6 +620,13 @@ pub async fn handle_flow_dependency_job(
 
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
+    sqlx::query!(
+        "DELETE FROM flow_workspace_runnables WHERE flow_path = $1 AND workspace_id = $2",
+        job_path,
+        job.workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
     let modified_ids;
     let errors;
     (flow.modules, tx, modified_ids, errors) = lock_modules(
@@ -980,6 +987,27 @@ async fn lock_modules<'c>(
                         default_node,
                     }
                     .into();
+                }
+                FlowModuleValue::Script { path, hash, .. } if !path.starts_with("hub/") => {
+                    sqlx::query!(
+                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        hash.map(|h| h.0),
+                        job.workspace_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                FlowModuleValue::Flow { path, .. } => {
+                    sqlx::query!(
+                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        job.workspace_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
                 }
                 _ => (),
             };
@@ -1673,7 +1701,7 @@ async fn python_dep(
 
     let final_version = annotated_pyv_numeric
         .and_then(|pyv| PyVersion::from_numeric(pyv))
-        .unwrap_or(PyVersion::from_instance_version().await);
+        .unwrap_or(PyVersion::from_instance_version(job_id, w_id, db).await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,

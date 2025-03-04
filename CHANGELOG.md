@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.473.1](https://github.com/windmill-labs/windmill/compare/v1.473.0...v1.473.1) (2025-03-03)
+
+
+### Bug Fixes
+
+* **backend:** copilot info exists_ai_resource ([#5415](https://github.com/windmill-labs/windmill/issues/5415)) ([844edd1](https://github.com/windmill-labs/windmill/commit/844edd1117bc5fdcc108adf53aec3974a7c66384))
+* improve cancel performance ([fba9e7e](https://github.com/windmill-labs/windmill/commit/fba9e7ef03b91d3e2c78ff833ddcc5207b7436d2))
+
+## [1.473.0](https://github.com/windmill-labs/windmill/compare/v1.472.1...v1.473.0) (2025-03-03)
+
+
+### Features
+
+* app s3 input anonymous delete  ([#5401](https://github.com/windmill-labs/windmill/issues/5401)) ([46c7845](https://github.com/windmill-labs/windmill/commit/46c784574add176cb75d3627c9d3f55b6fb945f8))
+* track workspace runnables used in flows ([#5369](https://github.com/windmill-labs/windmill/issues/5369)) ([7bf9e25](https://github.com/windmill-labs/windmill/commit/7bf9e25ede82486115eae71865202f85aa931a8d))
+
+
+### Bug Fixes
+
+* improve db loads by adding index on audit ([e1ff001](https://github.com/windmill-labs/windmill/commit/e1ff00117ca5b66dd0b9365e63b9ff7dc277bc2c))
+* migrations do not refer to public schema anymore ([#5400](https://github.com/windmill-labs/windmill/issues/5400)) ([3063001](https://github.com/windmill-labs/windmill/commit/3063001491b49a4b6d0cd5985818b32aa4d3f16f))
+* remove typings_extensions from python sdk ([04ffbf8](https://github.com/windmill-labs/windmill/commit/04ffbf8c266a06c3efcebcbbaee767f0ab0771e2))
+
+## [1.472.1](https://github.com/windmill-labs/windmill/compare/v1.472.0...v1.472.1) (2025-02-26)
+
+
+### Bug Fixes
+
+* disable bundling using env var ([#5396](https://github.com/windmill-labs/windmill/issues/5396)) ([cb559d6](https://github.com/windmill-labs/windmill/commit/cb559d6083553c400e18e6077002c4891289a8a2))
+
+## [1.472.0](https://github.com/windmill-labs/windmill/compare/v1.471.1...v1.472.0) (2025-02-26)
+
+
+
+### Bug Fixes
+
+* downgrade v8 to fix some rare panics ([5569e4d](https://github.com/windmill-labs/windmill/commit/5569e4d4953a01f2ad03ea8b71e695e833964bea))
+* **frontend:** markdown shows single backtick in single line code block ([#5391](https://github.com/windmill-labs/windmill/issues/5391)) ([7f290bb](https://github.com/windmill-labs/windmill/commit/7f290bbf6a33e2811dbe2bd8ee905c0fa8e8db3b))
+* migrate toggle to melt (4/4) ([#5329](https://github.com/windmill-labs/windmill/issues/5329)) ([69fc8a9](https://github.com/windmill-labs/windmill/commit/69fc8a98ae78bc01dc3d97f9732ee28864b323dd))
+
 ## [1.471.1](https://github.com/windmill-labs/windmill/compare/v1.471.0...v1.471.1) (2025-02-26)
 
 

@@ -11,8 +11,9 @@
 
 use windmill_common::{
     apps::AppScriptId,
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms},
     cache::{ScriptData, ScriptMetadata},
+    jwt,
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
     worker::{
@@ -205,12 +206,6 @@ pub async fn create_token_for_owner(
         return Ok(token.clone());
     }
 
-    let jwt_secret = JWT_SECRET.read().await;
-
-    if jwt_secret.is_empty() {
-        return Err(Error::internal_err("No JWT secret found".to_string()));
-    }
-
     let job_authed = match sqlx::query_as!(
         JobPerms,
         "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
@@ -248,17 +243,10 @@ pub async fn create_token_for_owner(
         scopes: None,
     };
 
-    let token = jsonwebtoken::encode(
-        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
-        &payload,
-        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|err| {
-        Error::internal_err(format!(
-            "Could not encode JWT token for job {job_id}: {:?}",
-            err
-        ))
-    })?;
+    let token = jwt::encode_with_internal_secret(&payload)
+        .await
+        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
+
     Ok(format!("jwt_{}", token))
 }
 
@@ -785,7 +773,7 @@ pub async fn run_worker(
             worker_dir.clone(),
         );
         tokio::spawn(async move {
-            if let Err(e) = PyVersion::from_instance_version()
+            if let Err(e) = PyVersion::from_instance_version(&Uuid::nil(), "", &db)
                 .await
                 .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
                 .await

@@ -18,6 +18,7 @@
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
+	import { NEVER_TESTED_THIS_FAR } from './flows/models'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -172,8 +173,11 @@
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	async function loadIndividualStepsStates() {
+		// console.log('loadIndividualStepsStates')
 		dfs($flowStore.value.modules, async (module) => {
-			if ($flowStateStore[module.id]?.previewResult) {
+			// console.log('module', $flowStateStore[module.id], module.id)
+			const prev = $flowStateStore[module.id]?.previewResult
+			if (prev && prev != NEVER_TESTED_THIS_FAR) {
 				return
 			}
 			const previousJobId = await JobService.listJobs({
@@ -183,6 +187,7 @@
 				page: 1,
 				perPage: 1
 			})
+			// console.log('previousJobId', previousJobId, module.id)
 
 			if (previousJobId.length > 0) {
 				const getJobResult = await JobService.getCompletedJobResultMaybe({
