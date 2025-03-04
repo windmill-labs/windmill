@@ -235,7 +235,7 @@
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'uploadS3'}
 			<div class="w-12/12 pb-2 flex flex-row mb-1 gap-1">
-				<input type="text" placeholder="S3 Folder prefix" bind:value={s3FolderPrefix} />
+				<input type="text" placeholder="S3 Folder prefix" bind:value={s3FolderPrefix} aria-label="S3 Folder prefix" />
 			</div>
 			<UploadInputEditor
 				bind:componentInput
