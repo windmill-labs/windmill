@@ -79,7 +79,7 @@
 	async function deleteScript(path: string): Promise<void> {
 		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
 		dispatch('change')
-		sendUserToast(`Delete script ${path}`)
+		sendUserToast(`Deleted script ${path}`)
 	}
 	let scheduleEditor: ScheduleEditor
 

@@ -396,44 +396,46 @@ async fn create_snapshot_script(
             })?;
 
             uploaded = true;
-            let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+                .read()
+                .await
+                .clone();
+
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            let object_store: Option<()> = None;
 
             if &windmill_common::utils::MODE_AND_ADDONS.mode
                 == &windmill_common::utils::Mode::Standalone
+                && object_store.is_none()
             {
-                std::fs::create_dir_all(format!(
-                    "{}/script_bundle/{}",
-                    windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
-                    w_id
-                ))?;
+                std::fs::create_dir_all(windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR)?;
                 windmill_common::worker::write_file(
-                    windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
-                    &path,
+                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                    &hash,
                     &String::from_utf8_lossy(&data),
                 )?;
-                return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
-            }
-
-            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-            {
-                return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
-            }
-
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                .read()
-                .await
-                .clone()
-            {
-                if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data.into())
-                    .await
-                {
-                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                    return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                }
             } else {
-                return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+                {
+                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
+                }
+
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                if let Some(os) = object_store {
+                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+
+                    if let Err(e) = os
+                        .put(&object_store::path::Path::from(path.clone()), data.into())
+                        .await
+                    {
+                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
+                    }
+                } else {
+                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                }
             }
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
