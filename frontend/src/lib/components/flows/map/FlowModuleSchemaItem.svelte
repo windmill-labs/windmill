@@ -12,7 +12,7 @@
 		Repeat,
 		Square,
 		SkipForward,
-		Voicemail,
+		Pin,
 		X
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -27,8 +27,11 @@
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
-	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
+	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
+
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
@@ -48,6 +51,7 @@
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
 	export let isTrigger: boolean = false
+
 	let pickableIds: Record<string, any> | undefined = undefined
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
@@ -72,6 +76,26 @@
 	let newId: string = id ?? ''
 
 	let hover = false
+
+	const { viewport } = useSvelteFlow()
+
+	const { flowStateStore } = flowEditorContext
+	console.log('dbg flowStateStore', $flowStateStore)
+
+	let jsonData = {}
+	function updateJsonData(
+		id: string | undefined,
+		pickableIds: Record<string, any> | undefined,
+		flowPropPickerConfig: any | undefined,
+		flowStateStore: any | undefined
+	) {
+		if (!id) return
+		jsonData =
+			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
+				? { [id]: pickableIds[id] }
+				: flowStateStore?.[id]?.previewResult ?? {}
+	}
+	$: updateJsonData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
 </script>
 
 {#if deletable && id && editId}
@@ -141,7 +165,7 @@
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
-	style="width: 275px; height: 34px; background-color: {bgColor};"
+	style="width: 275px; height: 38px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
 	on:click|preventDefault|stopPropagation
@@ -236,29 +260,45 @@
 					transition:fade|local={{ duration: 200 }}
 					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
 				>
-					<Voicemail size={12} />
+					<Pin size={12} />
 				</div>
 				<svelte:fragment slot="text">Mocked</svelte:fragment>
 			</Popover>
 		{/if}
 	</div>
 
-	<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
-		<svelte:fragment slot="icon">
-			<slot name="icon" />
-		</svelte:fragment>
-	</FlowModuleSchemaItemViewer>
+	<div class="flex flex-col w-full">
+		<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
+			<svelte:fragment slot="icon">
+				<slot name="icon" />
+			</svelte:fragment>
+		</FlowModuleSchemaItemViewer>
 
-	{#if id && $flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
-		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
-			<FlowPropPicker
-				json={{
-					[id]: pickableIds[id]
-				}}
+		<OutputPicker
+			zoom={$viewport?.zoom ?? 1}
+			{selected}
+			{hover}
+			let:allowCopy
+			isConnectingCandidate={!!id &&
+				!!$flowPropPickerConfig &&
+				!!pickableIds &&
+				Object.keys(pickableIds).includes(id)}
+			let:isConnecting
+			let:select
+		>
+			<OutputPickerInner
+				{jsonData}
+				{selected}
+				{allowCopy}
 				prefix={'results'}
+				{isConnecting}
+				{path}
+				bind:pinned={mock}
+				on:select={select}
+				moduleId={id}
 			/>
-		</div>
-	{/if}
+		</OutputPicker>
+	</div>
 
 	{#if deletable}
 		<button

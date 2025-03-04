@@ -67,7 +67,9 @@
 		annotation={flowJobs &&
 		(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 			? 'Iteration: ' +
-			  ((state?.selectedForloopIndex ?? 0) >= 0 ? (state?.selectedForloopIndex ?? 0) + 1 : state?.flow_jobs?.length) +
+			  ((state?.selectedForloopIndex ?? 0) >= 0
+					? (state?.selectedForloopIndex ?? 0) + 1
+					: state?.flow_jobs?.length) +
 			  '/' +
 			  (state?.iteration_total ?? '?')
 			: ''}

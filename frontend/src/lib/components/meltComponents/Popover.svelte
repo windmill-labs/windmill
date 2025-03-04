@@ -23,6 +23,7 @@
 	export let usePointerDownOutside: boolean = false
 	export let closeOnOutsideClick: boolean = true
 	export let contentClasses: string = ''
+	export let contentStyle: string = ''
 	export let portal: string | HTMLElement | null = 'body'
 	export let closeOnOtherPopoverOpen: boolean = false
 
@@ -59,7 +60,7 @@
 	$: sync.open(isOpen, (v) => (isOpen = v))
 
 	// Allow for dynamic closeOnOutsideClick
-	$: $closeOnOutsideClickOption = closeOnOutsideClick
+	$: $closeOnOutsideClickOption = usePointerDownOutside ? false : closeOnOutsideClick
 
 	export function close() {
 		isOpen = false
@@ -91,6 +92,7 @@
 		}
 	}}
 	data-popover
+	on:click
 >
 	<slot name="trigger" {isOpen} />
 </button>
@@ -101,6 +103,7 @@
 		transition:fade={{ duration: 0 }}
 		class={twMerge(' w-fit border rounded-md bg-surface shadow-lg', contentClasses, `z-[5001]`)}
 		data-popover
+		style={contentStyle}
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow} />
