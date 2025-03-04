@@ -2,6 +2,7 @@
 	import {
 		CancelablePromise,
 		KafkaTriggerService,
+		MqttTriggerService,
 		NatsTriggerService,
 		SqsTriggerService,
 		PostgresTriggerService,
@@ -11,7 +12,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
-	export let kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs'
+	export let kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt'
 	export let args: Record<string, any>
 	export let noButton = false
 	export let testLoading: boolean = false
@@ -21,7 +22,8 @@
 		nats: 'NATS server(s)',
 		kafka: 'Kafka broker(s)',
 		sqs: 'SQS',
-		postgres: 'Postgres'
+		postgres: 'Postgres',
+		mqtt: 'MQTT broker'
 	}
 
 	let promise: CancelablePromise<any> | null = null
@@ -45,6 +47,11 @@
 				})
 			} else if (kind === 'kafka') {
 				promise = KafkaTriggerService.testKafkaConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			} else if (kind === 'mqtt') {
+				promise = MqttTriggerService.testMqttConnection({
 					workspace: $workspaceStore!,
 					requestBody: args as any
 				})

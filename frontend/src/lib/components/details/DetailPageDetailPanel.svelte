@@ -15,6 +15,7 @@
 		| 'postgres'
 		| 'scheduledPoll'
 		| 'kafka'
+		| 'mqtt'
 		| 'sqs'
 		| 'nats' = 'webhooks'
 	export let flow_json: any | undefined = undefined
@@ -58,6 +59,7 @@
 						<slot slot="postgres" name="postgres" />
 						<slot slot="kafka" name="kafka" />
 						<slot slot="nats" name="nats" />
+						<slot slot="mqtt" name="mqtt" />
 						<slot slot="sqs" name="sqs" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />
