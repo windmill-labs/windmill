@@ -579,20 +579,22 @@ pub async fn generate_bun_bundle(
     Ok(())
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
     use crate::global_cache::extract_tar;
 
     let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-    let bun_cache_path = format!("{}/{}", crate::ROOT_CACHE_NOMOUNT_DIR, path);
+    let bun_cache_path = format!(
+        "{}/{}",
+        windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
+        path
+    );
     let is_tar = id.ends_with(".tar");
 
     let dst = format!(
         "{job_dir}/{}",
         if is_tar { "codebase.tar" } else { "main.js" }
     );
-    let dirs_splitted = bun_cache_path.split("/").collect_vec();
-    tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
+
     if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
         tracing::info!("loading {bun_cache_path} from cache");
         if is_tar {
@@ -604,35 +606,47 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
             #[cfg(windows)]
             std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
         }
-    } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-        .read()
-        .await
-        .clone()
-    {
-        let bytes = attempt_fetch_bytes(os, &path).await?;
-
-        tokio::fs::write(&bun_cache_path, &bytes).await?;
-        if is_tar {
-            extract_tar(bytes, job_dir).await?;
-        } else {
-            #[cfg(unix)]
-            tokio::fs::symlink(bun_cache_path, dst).await?;
-
-            #[cfg(windows)]
-            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
+    } else {
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            if &windmill_common::utils::MODE_AND_ADDONS.mode
+                == &windmill_common::utils::Mode::Standalone
+            {
+                return Err(error::Error::ExecutionErr(format!(
+                    "(standalone bundle test mode) could not find codebase at {bun_cache_path}"
+                )));
+            } else {
+                return Err(error::Error::ExecutionErr(
+                    "codebase is an EE feature".to_string(),
+                ));
+            }
         }
 
-        // extract_tar(bytes, job_dir).await?;
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .clone()
+        {
+            let dirs_splitted = bun_cache_path.split("/").collect_vec();
+            tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
+
+            let bytes = attempt_fetch_bytes(os, &path).await?;
+
+            tokio::fs::write(&bun_cache_path, &bytes).await?;
+            if is_tar {
+                extract_tar(bytes, job_dir).await?;
+            } else {
+                #[cfg(unix)]
+                tokio::fs::symlink(bun_cache_path, dst).await?;
+
+                #[cfg(windows)]
+                std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
+            }
+        }
     }
 
-    return Ok(());
-}
-
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()> {
-    return Err(error::Error::ExecutionErr(
-        "codebase is an EE feature".to_string(),
-    ));
+    Ok(())
 }
 
 pub async fn prebundle_bun_script(
@@ -836,13 +850,6 @@ pub async fn handle_bun_job(
     }
     let main_override = job.script_entrypoint_override.as_deref();
     let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
-
-    #[cfg(not(feature = "enterprise"))]
-    if annotation.nodejs || annotation.npm {
-        return Err(error::Error::ExecutionErr(
-            "Nodejs / npm mode is an EE feature".to_string(),
-        ));
-    }
 
     if has_bundle_cache {
         let target;

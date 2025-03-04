@@ -104,6 +104,7 @@ lazy_static::lazy_static! {
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 }
 
+pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 fn format_pull_query(peek: String) -> String {
