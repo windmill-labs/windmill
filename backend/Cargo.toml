@@ -22,11 +22,12 @@ members = [
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
+    "./parsers/windmill-parser-nu",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros",
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
 ]
 
 [workspace.package]
@@ -78,6 +79,7 @@ sqs_trigger = ["windmill-api/sqs_trigger"]
 python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 csharp = ["windmill-worker/csharp"]
+nu = ["windmill-worker/nu"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
 http_trigger = ["windmill-api/http_trigger"]
@@ -154,6 +156,7 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
+windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
@@ -307,6 +310,9 @@ rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
 pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
+nu-parser = { version = "0.101.0", default-features = false }
+nu-protocol = { version = "0.101.0", default-features = false }
+nu-cmd-lang = { version = "0.101.0", default-features = false }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }

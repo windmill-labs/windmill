@@ -753,8 +753,12 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
+<<<<<<< HEAD
 						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'java', 'dependency'].includes(job.tag)}
 							<!-- KJQXZ -->
+=======
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'dependency', 'nu'].includes(job.tag)}
+>>>>>>> nu-lang
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>

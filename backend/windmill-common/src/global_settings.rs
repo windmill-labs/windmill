@@ -58,6 +58,7 @@ pub const ENV_SETTINGS: [&str; 57] = [
     "S3_CACHE_BUCKET",
     "COOKIE_DOMAIN",
     "PYTHON_PATH",
+    "NU_PATH",
     "DENO_PATH",
     "GO_PATH",
     "GOPRIVATE",
