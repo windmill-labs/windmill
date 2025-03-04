@@ -364,6 +364,8 @@ impl PyVersion {
 
         let mut child_cmd = Command::new(uv_cmd);
 
+        child_cmd.env_clear();
+
         #[cfg(windows)]
         {
             child_cmd
@@ -382,7 +384,6 @@ impl PyVersion {
 
         let output = child_cmd
             // .current_dir(job_dir)
-            .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .args([
