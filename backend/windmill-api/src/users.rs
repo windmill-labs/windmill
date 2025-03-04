@@ -1697,6 +1697,7 @@ async fn refresh_token(
 
 lazy_static::lazy_static! {
     static ref MAX_SESSION_VALIDITY_SECONDS: i64 = std::env::var("MAX_SESSION_VALIDITY_SECONDS").ok().unwrap_or_else(|| String::new()).parse::<i64>().unwrap_or(3 * 24 * 60 * 60);
+    static ref INVALIDATE_OLD_SESSIONS: bool = std::env::var("INVALIDATE_OLD_SESSIONS").ok().unwrap_or_else(|| String::new()).parse::<bool>().unwrap_or(false);
 }
 
 pub async fn create_session_token<'c>(
@@ -1718,6 +1719,16 @@ pub async fn create_session_token<'c>(
     )
     .execute(&mut **tx)
     .await?;
+
+    if *INVALIDATE_OLD_SESSIONS {
+        sqlx::query!(
+            "DELETE FROM token WHERE email = $1 AND label = 'session'",
+            email
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
     cookie.set_secure(IS_SECURE.read().await.clone());
     cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
