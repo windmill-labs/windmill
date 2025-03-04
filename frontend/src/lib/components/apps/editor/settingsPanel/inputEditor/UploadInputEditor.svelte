@@ -8,6 +8,7 @@
 	export let componentInput: UploadAppInput | UploadS3AppInput | undefined
 	export let fileUpload: UploadAppInput['fileUpload'] | UploadS3AppInput['fileUploadS3'] | undefined
 	export let s3: boolean | undefined = false
+	export let prefix: string | undefined = undefined
 	export let workspace: string | undefined = undefined
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
@@ -27,6 +28,10 @@
 		customClass="text-sm py-4"
 		{fileUploads}
 		{workspace}
+		pathTransformer={({ file }) => {
+			const cleanPrefix = prefix ? `${prefix.replace(/^\/+|\/+$/g, '')}/` : ''
+			return `${cleanPrefix}${file.name}`
+		}}
 		on:addition={({ detail }) => {
 			if (componentInput) {
 				componentInput.value = `s3://${detail.path}`
