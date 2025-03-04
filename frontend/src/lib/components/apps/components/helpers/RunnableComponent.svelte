@@ -78,7 +78,8 @@
 		selectedComponent,
 		app,
 		connectingInput,
-		bgRuns
+		bgRuns,
+		recomputeAllContext
 	} = getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -286,7 +287,7 @@
 			try {
 				r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, {
+					computeGlobalContext($worldStore, id, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined
@@ -297,14 +298,23 @@
 					$worldStore,
 					$runnableComponents,
 					true,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext)?.onRefresh
 				)
 
 				await setResult(r, job)
 				$state = $state
 			} catch (e) {
-				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
-				r = { error: { message: e.body ?? e.message } }
+				let additionalInfo = ''
+				if (
+					e.message.includes('Maximum call stack size exceeded') ||
+					e.message.includes('too much recursion')
+				) {
+					additionalInfo =
+						'This is likely due to a call to globalRecompute() in the frontend script. Please check your script for circular recomputes and disable the "Run on start and app refresh" toggle.'
+				}
+				sendUserToast(`Error running frontend script ${id}: ` + e.message + additionalInfo, true)
+				r = { error: { message: (e.body ?? e.message) + additionalInfo } }
 				await setResult(r, job)
 			}
 			loading = false
@@ -519,7 +529,7 @@
 				raw.set(res)
 				const transformerResult = await eval_like(
 					transformer.content,
-					computeGlobalContext($worldStore, {
+					computeGlobalContext($worldStore, id, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined,
@@ -531,7 +541,8 @@
 					$worldStore,
 					$runnableComponents,
 					true,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext)?.onRefresh
 				)
 				return transformerResult
 			} catch (err) {
