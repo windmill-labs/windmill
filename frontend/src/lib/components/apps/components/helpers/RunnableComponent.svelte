@@ -299,7 +299,7 @@
 					$runnableComponents,
 					true,
 					groupContext?.id,
-					get(recomputeAllContext).onRefresh
+					get(recomputeAllContext)?.onRefresh
 				)
 
 				await setResult(r, job)
@@ -534,7 +534,7 @@
 					$runnableComponents,
 					true,
 					groupContext?.id,
-					get(recomputeAllContext).onRefresh
+					get(recomputeAllContext)?.onRefresh
 				)
 				return transformerResult
 			} catch (err) {

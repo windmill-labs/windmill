@@ -278,7 +278,7 @@
 				$runnableComponents,
 				false,
 				groupContext?.id,
-				get(recomputeAllContext).onRefresh
+				get(recomputeAllContext)?.onRefresh
 			)
 			error = ''
 			return r
@@ -305,7 +305,7 @@
 					$runnableComponents,
 					false,
 					groupContext?.id,
-					get(recomputeAllContext).onRefresh
+					get(recomputeAllContext)?.onRefresh
 				)
 				error = ''
 				return r
