@@ -606,6 +606,10 @@ async fn list_invites(
     Ok(Json(rows))
 }
 
+lazy_static::lazy_static! {
+    static ref LOGOUT_BEHAVIOR: String = std::env::var("LOGOUT_BEHAVIOR").ok().unwrap_or_else(|| String::new());
+}
+
 #[derive(Deserialize)]
 struct LogoutQuery {
     rd: Option<String>,
@@ -624,7 +628,7 @@ async fn logout(
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
 
-    let email = if std::env::var("LOGOUT_BEHAVIOR").ok() == Some("all".to_string()) {
+    let email = if *LOGOUT_BEHAVIOR == "all" {
         sqlx::query_scalar!(
             "WITH email_lookup AS (
                 SELECT email FROM token WHERE token = $1
