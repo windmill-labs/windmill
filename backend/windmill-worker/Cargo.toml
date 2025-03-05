@@ -30,12 +30,13 @@ python = ["dep:windmill-parser-py", "dep:windmill-parser-py-imports"]
 csharp = ["dep:windmill-parser-csharp"]
 rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
-java = ["dep:windmill-parser-java"]
+java = ["dep:windmill-parser-java", "dep:quick-xml"]
 
 [dependencies]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-macros.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
@@ -51,6 +52,8 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
+quick-xml = { workspace = true, optional = true }
+toml.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true

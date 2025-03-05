@@ -126,6 +126,25 @@
               cd ./frontend
               npm run dev $*
             '')
+            (pkgs.writeScriptBin "wm-minio" ''
+              set -e
+              cd ./backend
+              mkdir -p .minio-data/wmill
+              ${pkgs.minio}/bin/minio server ./.minio-data
+            '')
+            # Generate keys
+            # TODO: Do not set new keys if ran multiple times
+            (pkgs.writeScriptBin "wm-minio-keys" ''
+              set -e
+              cd ./backend
+              ${pkgs.minio-client}/bin/mc alias set 'wmill-minio-dev' 'http://localhost:9000' 'minioadmin' 'minioadmin'
+              ${pkgs.minio-client}/bin/mc admin accesskey create myminio | tee .minio-data/secrets.txt
+              echo ""
+              echo 'Saving to: ./backend/.minio-data/secrets.txt'
+              echo "bucket: wmill"
+              echo "endpoint: http://localhost:9000"
+            '')
+
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
@@ -140,12 +159,14 @@
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
+          MAVEN_PATH = "${pkgs.maven}/bin/mvn";
+          JAVA_PATH = "${pkgs.jdk17}/bin/java";
+          # KJQXZ 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
-          # KJQXZ 
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {

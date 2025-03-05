@@ -376,6 +376,8 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::CSharp => "cs",
                 ScriptLang::Nu => "nu",
                 ScriptLang::OracleDB => "odb.sql",
+                ScriptLang::Java => "java",
+                // KJQXZ
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -609,10 +611,7 @@ pub(crate) async fn tarball_workspace(
             for trigger in sqs_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(
-                        &trigger_str,
-                        &format!("{}.sqs_trigger.json", trigger.path),
-                    )
+                    .write_to_archive(&trigger_str, &format!("{}.sqs_trigger.json", trigger.path))
                     .await?;
             }
         }

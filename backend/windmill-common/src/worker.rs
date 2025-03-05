@@ -49,6 +49,8 @@ lazy_static::lazy_static! {
         "ansible".to_string(),
         "csharp".to_string(),
         "nu".to_string(),
+        "java".to_string(),
+        // KJQXZ
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
@@ -465,7 +467,7 @@ pub async fn save_cache(
             .await
         {
             tracing::error!(
-                "Failed to put go bin to object store: {_remote_cache_path}. Error: {:?}",
+                "Failed to put bin to object store: {_remote_cache_path}. Error: {:?}",
                 e
             );
         } else {

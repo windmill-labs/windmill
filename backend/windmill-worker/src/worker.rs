@@ -119,6 +119,9 @@ use crate::rust_executor::handle_rust_job;
 #[cfg(feature = "nu")]
 use crate::nu_executor::{handle_nu_job, JobHandlerInput};
 
+#[cfg(feature = "java")]
+use crate::java_executor::{handle_java_job, JobHandlerInput};
+
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
 
@@ -2872,6 +2875,31 @@ mount {{
 
             #[cfg(feature = "nu")]
             handle_nu_job(JobHandlerInput {
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
+            .await
+        }
+        Some(ScriptLang::Java) => {
+            #[cfg(not(feature = "java"))]
+            return Err(anyhow::anyhow!(
+                "Java is not available because the feature is not enabled"
+            )
+            .into());
+
+            #[cfg(feature = "java")]
+            handle_java_job(JobHandlerInput {
                 mem_peak,
                 canceled_by,
                 job,
