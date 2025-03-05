@@ -134,6 +134,7 @@
 
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
+								{connecting}
 								json={json[key]}
 								level={level + 1}
 								currentPath={computeFullKey(key, rawKey)}
