@@ -356,12 +356,12 @@ function ZipFSElement(
     )
       ? "flow"
       : p.endsWith("app.json")
-        ? "app"
-        : p.endsWith("script.json")
-          ? "script"
-          : p.endsWith("resource.json")
-            ? "resource"
-            : "other";
+      ? "app"
+      : p.endsWith("script.json")
+      ? "script"
+      : p.endsWith("resource.json")
+      ? "resource"
+      : "other";
 
     const isJson = p.endsWith(".json");
 
@@ -391,7 +391,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() { },
+                async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -402,7 +402,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "flow.yaml"),
-              async *getChildren() { },
+              async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(flow, yamlOptions);
@@ -418,7 +418,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() { },
+                async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -429,7 +429,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
-              async *getChildren() { },
+              async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
@@ -494,7 +494,7 @@ function ZipFSElement(
         r.push({
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
-          async *getChildren() { },
+          async *getChildren() {},
           // deno-lint-ignore require-await
           async getContentText() {
             return lock;
@@ -517,7 +517,7 @@ function ZipFSElement(
               removeSuffix(finalPath, ".resource.json") +
               ".resource.file." +
               formatExtension,
-            async *getChildren() { },
+            async *getChildren() {},
             // deno-lint-ignore require-await
             async getContentText() {
               return fileContent;
@@ -578,24 +578,27 @@ export async function* readDirRecursiveWithIgnore(
     // getContentBytes(): Promise<Uint8Array>;
     getContentText(): Promise<string>;
   }[] = [
-      {
-        path: root.path,
-        ignored: ignore(root.path, root.isDirectory),
-        isDirectory: root.isDirectory,
-        c: root.getChildren,
-        // getContentBytes(): Promise<Uint8Array> {
-        //   throw undefined;
-        // },
-        getContentText(): Promise<string> {
-          throw undefined;
-        },
+    {
+      path: root.path,
+      ignored: ignore(root.path, root.isDirectory),
+      isDirectory: root.isDirectory,
+      c: root.getChildren,
+      // getContentBytes(): Promise<Uint8Array> {
+      //   throw undefined;
+      // },
+      getContentText(): Promise<string> {
+        throw undefined;
       },
-    ];
+    },
+  ];
 
   while (stack.length > 0) {
     const e = stack.pop()!;
     yield e;
     for await (const e2 of e.c()) {
+      if (e2.path.startsWith(".git" + SEP)) {
+        continue;
+      }
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
@@ -641,6 +644,7 @@ export async function elementsToMap(
         path.endsWith(".kafka_trigger" + ext) ||
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
+        path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext))
     )
       continue;
@@ -721,9 +725,9 @@ async function compareDynFSElement(
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-      elementsToMap(els1, ignore, json, skips),
-      elementsToMap(els2, ignore, json, skips),
-    ])
+        elementsToMap(els1, ignore, json, skips),
+        elementsToMap(els2, ignore, json, skips),
+      ])
     : [await elementsToMap(els1, ignore, json, skips), {}];
 
   const changes: Change[] = [];
@@ -887,6 +891,7 @@ function getOrderFromPath(p: string) {
     typ == "kafka_trigger" ||
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
+    typ == "mqtt_trigger" ||
     typ == "sqs_trigger"
   ) {
     return 8;
@@ -1273,8 +1278,8 @@ function prettyChanges(changes: Change[]) {
       log.info(
         colors.yellow(
           `~ ${getTypeStrFromPath(change.path)} ` +
-          change.path +
-          (change.codebase ? ` (codebase changed)` : "")
+            change.path +
+            (change.codebase ? ` (codebase changed)` : "")
         )
       );
       if (change.before != change.after) {
@@ -1375,6 +1380,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
   );
 
   const globalDeps = await findGlobalDeps();
+
+  console.log("globalDeps", globalDeps);
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
@@ -1479,7 +1486,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     }
     const groupedChangesArray = Array.from(groupedChanges.entries());
     log.info(
-      `found changes for ${groupedChangesArray.length
+      `found changes for ${
+        groupedChangesArray.length
       } items with a total of ${groupedChangesArray.reduce(
         (acc, [_, changes]) => acc + changes.length,
         0
@@ -1720,6 +1728,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                     path: removeSuffix(target, ".postgres_trigger.json"),
                   });
                   break;
+                case "mqtt_trigger":
+                    await wmill.deleteMqttTrigger({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, ".mqtt_trigger.json"),
+                    });
+                    break;
                 case "sqs_trigger":
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
@@ -1786,7 +1800,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     }
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId
+        `\nDone! All ${changes.length} changes pushed to the remote workspace ${
+          workspace.workspaceId
         } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
       )
     );
