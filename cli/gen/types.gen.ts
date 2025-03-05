@@ -374,7 +374,7 @@ export type MainArgSignature = {
 
 export type type2 = 'Valid' | 'Invalid';
 
-export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
+export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp' | 'nu';
 
 export type Preview = {
     content?: string;
@@ -1007,7 +1007,9 @@ export type GlobalUserInfo = {
 
 export type login_type = 'password' | 'github';
 
-export type Flow = OpenFlow & FlowMetadata;
+export type Flow = OpenFlow & FlowMetadata & {
+    lock_error_logs?: string;
+};
 
 export type ExtraPerms = {
     [key: string]: (boolean);
@@ -1923,6 +1925,10 @@ export type ListAuditLogsData = {
      * filter on created after (exclusive) timestamp
      */
     after?: string;
+    /**
+     * get audit logs for all workspaces
+     */
+    allWorkspaces?: boolean;
     /**
      * filter on started before (inclusive) timestamp
      */
@@ -4209,6 +4215,15 @@ export type GetFlowByPathData = {
 };
 
 export type GetFlowByPathResponse = (Flow);
+
+export type GetFlowDeploymentStatusData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetFlowDeploymentStatusResponse = ({
+    lock_error_logs?: string;
+});
 
 export type GetTriggersCountOfFlowData = {
     path: string;

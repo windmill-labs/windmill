@@ -64,7 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,php,mysql,mssql,bigquery,oracledb,postgres_trigger,mqtt_trigger,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,php,mysql,mssql,bigquery,oracledb,postgres_trigger,mqtt_trigger,websocket,python,smtp,csharp,static_frontend,rust,nu
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -81,7 +81,7 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,php,mysql,mssql,bigquery,oracledb,postgres_trigger,mqtt_trigger,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,deno_core,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,php,mysql,mssql,bigquery,oracledb,postgres_trigger,mqtt_trigger,websocket,python,smtp,csharp,static_frontend,rust,nu
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}

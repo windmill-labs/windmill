@@ -76,6 +76,7 @@ export const getAuditLog = (data: GetAuditLogData): CancelablePromise<GetAuditLo
  * @param data.excludeOperations comma separated list of operations to exclude
  * @param data.resource filter on exact or prefix name of resource
  * @param data.actionKind filter on type of operation
+ * @param data.allWorkspaces get audit logs for all workspaces
  * @returns AuditLog a list of audit logs
  * @throws ApiError
  */
@@ -95,7 +96,8 @@ export const listAuditLogs = (data: ListAuditLogsData): CancelablePromise<ListAu
         operations: data.operations,
         exclude_operations: data.excludeOperations,
         resource: data.resource,
-        action_kind: data.actionKind
+        action_kind: data.actionKind,
+        all_workspaces: data.allWorkspaces
     }
 }); };
 
@@ -3658,6 +3660,23 @@ export const getFlowByPath = (data: GetFlowByPathData): CancelablePromise<GetFlo
     },
     query: {
         with_starred_info: data.withStarredInfo
+    }
+}); };
+
+/**
+ * get flow deployment status
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns unknown flow status
+ * @throws ApiError
+ */
+export const getFlowDeploymentStatus = (data: GetFlowDeploymentStatusData): CancelablePromise<GetFlowDeploymentStatusResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/flows/deployment_status/p/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
     }
 }); };
 

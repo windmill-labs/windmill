@@ -934,7 +934,7 @@
 													>
 														<LanguageIcon {lang} />
 														<span class="ml-2 py-2 truncate">{label}</span>
-														{#if lang === 'ansible'}
+														{#if lang === 'ansible' || lang === 'nu'}
 															<span class="text-tertiary !text-xs"> BETA </span>
 														{/if}
 													</Button>

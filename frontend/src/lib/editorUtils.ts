@@ -82,6 +82,8 @@ export function langToExt(lang: string): string {
 			return 'yml'
 		case 'csharp':
 			return 'cs'
+		case 'nu':
+			return 'nu'
 		default:
 			return 'unknown'
 	}

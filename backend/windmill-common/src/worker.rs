@@ -48,6 +48,7 @@ lazy_static::lazy_static! {
         "rust".to_string(),
         "ansible".to_string(),
         "csharp".to_string(),
+        "nu".to_string(),
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()

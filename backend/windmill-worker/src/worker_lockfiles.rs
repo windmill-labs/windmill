@@ -2027,6 +2027,7 @@ async fn capture_dependency_job(
         ScriptLang::Graphql => Ok("".to_owned()),
         ScriptLang::OracleDB => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
+        ScriptLang::Nu => Ok("".to_owned()),
         ScriptLang::Powershell => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),
     }
