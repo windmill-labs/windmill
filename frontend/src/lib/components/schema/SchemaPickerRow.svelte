@@ -4,19 +4,27 @@
 	import { twMerge } from 'tailwind-merge'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { CopyIcon, ChevronRight } from 'lucide-svelte'
+	import { CopyIcon, Eye } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Placement } from '@floating-ui/dom'
+	import { isObjectTooBig } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
 
 	export let payloadData: Record<string, any> | string
 	export let date: string | undefined
 	export let hovering = false
 	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
 	export let viewerOpen = false
+	export let limitPayloadSize = false
+	export let forceLoad = false
 
 	let clientWidth = 0
 	let popover: Popover | undefined = undefined
+
 	const buttonWidth = 34
+	const dispatch = createEventDispatcher()
+	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
+	const isTooBig = payloadData === 'WINDMILL_TOO_BIG' || payloadTooBigForPreview
 
 	function formatDate(dateString: string | undefined): string {
 		if (!dateString) return ''
@@ -105,14 +113,16 @@
 		<Popover
 			bind:this={popover}
 			class="w-fit"
-			placement="bottom-start"
 			usePointerDownOutside
 			closeOnOtherPopoverOpen
 			on:click={(e) => {
 				e.stopPropagation()
 			}}
 			{floatingConfig}
-			on:openChange
+			on:openChange={({ detail }) => {
+				forceLoad = false
+				dispatch('openChange', detail)
+			}}
 		>
 			<svelte:fragment slot="trigger">
 				<Button
@@ -122,7 +132,7 @@
 					btnClasses="bg-transparent hover:bg-surface"
 					nonCaptureEvent
 				>
-					<ChevronRight size={16} />
+					<Eye size={16} />
 				</Button>
 			</svelte:fragment>
 
@@ -133,7 +143,20 @@
 				>
 					{#if payloadData === 'WINDMILL_TOO_BIG'}
 						<div class="text-center text-tertiary text-xs">
-							Payload too big to preview but can still be loaded
+							{#if limitPayloadSize}
+								Payload too big to be used
+							{:else}
+								Payload too big to preview but can still be loaded
+							{/if}
+						</div>
+					{:else if payloadTooBigForPreview && !forceLoad}
+						<div class="text-center text-tertiary text-xs">
+							Payload too big for preview
+							{#if limitPayloadSize}or for use here{/if}.
+
+							<button class="text-disabled hover:underline" on:click={() => (forceLoad = true)}>
+								Load preview anyway
+							</button>
 						</div>
 					{:else}
 						<div
@@ -165,7 +188,7 @@
 		</Popover>
 	</div>
 
-	<slot name="extra" />
+	<slot name="extra" {isTooBig} />
 </Cell>
 
 <style>

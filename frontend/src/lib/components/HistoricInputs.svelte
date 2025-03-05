@@ -13,6 +13,7 @@
 	export let selected: string | undefined = undefined
 	export let showAuthor = false
 	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let limitPayloadSize = false
 
 	let historicList: HistoricList | undefined = undefined
 	const dispatch = createEventDispatcher()
@@ -144,6 +145,7 @@
 			{selected}
 			{showAuthor}
 			{placement}
+			{limitPayloadSize}
 		/>
 	</div>
 </div>

@@ -28,12 +28,15 @@
 	export let addButton = false
 	export let canEdit = false
 	export let fullHeight = true
+	export let limitPayloadSize = false
 
 	let selected: number | undefined = undefined
 	let testKind: 'preprocessor' | 'main' = 'main'
 	let isEmpty: boolean = true
 	let infiniteList: InfiniteList | null = null
 	let capturesLength = 0
+	let openStates: Record<string, boolean> = {}
+	let viewerOpen = false
 
 	$: hasPreprocessor && (testKind = 'preprocessor')
 
@@ -184,6 +187,11 @@
 		}
 	}
 
+	function updateViewerOpenState(itemId: string, isOpen: boolean) {
+		openStates[itemId] = isOpen
+		viewerOpen = Object.values(openStates).some((state) => state)
+	}
+
 	$: path && infiniteList && initLoadCaptures()
 </script>
 
@@ -247,14 +255,23 @@
 			</svelte:fragment>
 			<svelte:fragment let:item let:hover>
 				{@const captureIcon = captureKindToIcon[item.trigger_kind]}
-				<SchemaPickerRow date={item.created_at} payloadData={item.payloadData} hovering={hover}>
+				<SchemaPickerRow
+					date={item.created_at}
+					payloadData={item.payloadData}
+					hovering={hover}
+					on:openChange={({ detail }) => {
+						updateViewerOpenState(item.id, detail)
+					}}
+					{viewerOpen}
+					{limitPayloadSize}
+				>
 					<svelte:fragment slot="start">
 						<div class="center-center">
 							<svelte:component this={captureIcon} size={12} />
 						</div>
 					</svelte:fragment>
 
-					<svelte:fragment slot="extra">
+					<svelte:fragment slot="extra" let:isTooBig>
 						{#if canEdit}
 							<div class="flex flex-row items-center gap-2 px-2">
 								{#if testKind === 'preprocessor' && !hasPreprocessor}
@@ -300,9 +317,10 @@
 														args: true
 													})
 												},
-												disabled: !isFlow || testKind !== 'main'
+												disabled: isTooBig,
+												hidden: !isFlow || testKind !== 'main'
 											}
-										].filter((item) => !item.disabled)}
+										].filter((item) => !item.hidden)}
 										on:click={async () => {
 											const payloadData = await getPayload(item)
 											if (isFlow && testKind === 'main') {

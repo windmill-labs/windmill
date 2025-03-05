@@ -10,6 +10,7 @@
 	export let showAuthor = false
 	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
 	export let viewerOpen = false
+	export let limitPayloadSize = false
 </script>
 
 <SchemaPickerRow
@@ -19,6 +20,7 @@
 	{placement}
 	{viewerOpen}
 	on:openChange
+	{limitPayloadSize}
 >
 	<svelte:fragment slot="start">
 		<div class="center-center">

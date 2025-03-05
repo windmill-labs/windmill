@@ -10,6 +10,7 @@
 	export let selected: string | undefined = undefined
 	export let showAuthor = false
 	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let limitPayloadSize = false
 
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
@@ -113,6 +114,7 @@
 			on:openChange={({ detail }) => {
 				updateViewerOpenState(item.id, detail)
 			}}
+			{limitPayloadSize}
 		/>
 	</svelte:fragment>
 	<svelte:fragment slot="empty">

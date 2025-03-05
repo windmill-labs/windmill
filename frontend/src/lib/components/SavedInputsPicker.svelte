@@ -4,17 +4,14 @@
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { Edit, Trash2, Save, Eye, CopyIcon } from 'lucide-svelte'
+	import { Edit, Trash2, Save } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import PopoverV2 from '$lib/components/meltComponents/Popover.svelte'
-	import { json } from 'svelte-highlight/languages'
-	import Highlight from 'svelte-highlight'
-	import { copyToClipboard } from '$lib/utils'
+	import SavedInputsPickerViewer from './SavedInputsPickerViewer.svelte'
 
 	export let previewArgs: any = undefined
 	export let runnableId: string | undefined = undefined
@@ -22,6 +19,7 @@
 	export let isValid: boolean = false
 	export let noButton: boolean = false
 	export let jsonView: boolean = false
+	export let limitPayloadSize: boolean = false
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -36,7 +34,10 @@
 	let draft = true
 	let selectedInput: string | null = null
 	let isEditing: EditableInput | null = null
-	let popoverOpen: string | null = null
+	let forceLoad = false
+	let viewerOpen = false
+	let openStates: Record<string, boolean> = {}
+	let clientWidth: number = 0
 
 	const dispatch = createEventDispatcher()
 
@@ -180,6 +181,11 @@
 		}
 	}
 
+	function updateViewerOpenState(itemId: string, isOpen: boolean) {
+		openStates[itemId] = isOpen
+		viewerOpen = Object.values(openStates).some((state) => state)
+	}
+
 	$: $workspaceStore &&
 		runnableId &&
 		runnableType &&
@@ -227,6 +233,10 @@
 					</colgroup>
 				</svelte:fragment>
 				<svelte:fragment let:item let:hover>
+					{@const editOptions =
+						item.created_by == $userStore?.username ||
+						$userStore?.is_admin ||
+						$userStore?.is_super_admin}
 					<Cell>
 						<div class="center-center">
 							<Save size={12} />
@@ -235,6 +245,7 @@
 					<Cell>
 						<div
 							class="w-full flex items-center text-sm justify-between gap-4 py-1 text-left transition-all"
+							bind:clientWidth
 						>
 							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
 								{#if isEditing && isEditing.id === item.id}
@@ -254,62 +265,23 @@
 										{item.name}
 									</small>
 								{/if}
-								{#if item.created_by == $userStore?.username || $userStore?.is_admin || $userStore?.is_super_admin}
-									<div class="items-center flex gap-2">
-										<PopoverV2
-											class="w-full overflow-auto flex items-center justify-center"
-											contentClasses="max-w-[50vh] overflow-auto max-h-[50vh] min-w-60 min-h-28 resize"
-											floatingConfig={{ placement: 'bottom-start', strategy: 'absolute' }}
-											on:openChange={(e) => {
-												popoverOpen = e.detail ? item.id : null
-											}}
-										>
-											<svelte:fragment slot="trigger">
-												<Eye
-													class={hover || popoverOpen === item.id ? 'block w-4 h-4' : 'hidden '}
-												/>
-											</svelte:fragment>
-											<svelte:fragment slot="content">
-												<div class="p-2">
-													{#if item.payloadData === 'WINDMILL_TOO_BIG'}
-														<div class="text-center text-tertiary text-xs">
-															Payload too big to preview but can still be loaded
-														</div>
-													{:else}
-														<div
-															class="relative p-2"
-															role="button"
-															tabindex="0"
-															aria-label="Copy JSON payload to clipboard"
-															on:click={() => {
-																copyToClipboard(JSON.stringify(item.payloadData))
-															}}
-															on:keydown
-														>
-															<Highlight
-																class={'h-full w-full'}
-																language={json}
-																code={JSON.stringify(item.payloadData ?? null, null, 4) ?? 'null'}
-															/>
 
-															<div class="absolute top-2 right-2 w-full h-full">
-																<Button
-																	variant="contained"
-																	size="xs2"
-																	class="absolute top-0 right-0"
-																	iconOnly
-																	startIcon={{ icon: CopyIcon }}
-																	nonCaptureEvent
-																/>
-															</div>
-														</div>
-													{/if}
-												</div>
-											</svelte:fragment>
-										</PopoverV2>
-
+								<div class="items-center flex gap-2">
+									<SavedInputsPickerViewer
+										payloadData={item.payloadData}
+										{limitPayloadSize}
+										{forceLoad}
+										{hover}
+										{viewerOpen}
+										on:openChange={(e) => {
+											updateViewerOpenState(item.id, e.detail)
+										}}
+										maxWidth={clientWidth}
+										{editOptions}
+									/>
+									{#if editOptions}
 										{#if !isEditing || isEditing?.id !== item.id}
-											<div class={hover || popoverOpen === item.id ? 'block -my-2' : 'hidden'}>
+											<div class={hover || openStates[item.id] ? 'block -my-2' : 'hidden'}>
 												<Toggle
 													size="xs"
 													options={{ right: 'shared' }}
@@ -327,7 +299,7 @@
 											size="xs"
 											variant="border"
 											spacingSize="xs2"
-											btnClasses={hover || popoverOpen === item.id ? 'block -my-2' : 'hidden'}
+											btnClasses={hover || openStates[item.id] ? 'block -my-2 ' : 'hidden'}
 											on:click={(e) => {
 												e.stopPropagation()
 												if (isEditing?.id === item.id) {
@@ -346,10 +318,10 @@
 											spacingSize="xs2"
 											variant="contained"
 											btnClasses={twMerge(
-												isEditing?.id === item.id || hover || popoverOpen === item.id
+												isEditing?.id === item.id || hover || openStates[item.id]
 													? 'block -my-2'
 													: 'hidden',
-												'hover:text-white hover:bg-red-500 text-red-500'
+												'bg-transparent hover:text-white hover:bg-red-500 text-red-500'
 											)}
 											on:click={() => {
 												infiniteList?.deleteItem(item.id)
@@ -357,10 +329,12 @@
 										>
 											<Trash2 class="w-4 h-4" />
 										</Button>
-									</div>
-								{:else}
-									<span class="text-xs text-tertiary">By {item.created_by}</span>
-								{/if}
+									{:else}
+										<span class="text-xs text-tertiary px-2 w-28 truncate" title={item.created_by}
+											>{item.created_by}</span
+										>
+									{/if}
+								</div>
 							</div>
 						</div>
 					</Cell>
