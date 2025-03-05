@@ -98,6 +98,7 @@ pub const ENV_SETTINGS: [&str; 57] = [
     "OTEL_TRACING",
     "OTEL_LOGS",
     "DISABLE_S3_STORE",
+    "PG_SCHEMA",
 ];
 
 use crate::error;

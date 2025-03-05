@@ -51,6 +51,8 @@ lazy_static::lazy_static! {
                     (20241006144414, include_str!(
                         "../../custom_migrations/grant_all_current_schema.sql"
                     ).to_string()),
+                    (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
+                    (20221123151919, "".to_string()),
                     ].into_iter().collect();
 }
 
@@ -551,6 +553,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
         )
         .await?;
     });
+
     Ok(())
 }
 
@@ -765,6 +768,12 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             .await?;
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort_2")
+            .execute(db)
+            .await?;
+    });
+
+    run_windmill_migration!("audit_timestamps", db, |tx| {
+        sqlx::query!("CREATE INDEX CONCURRENTLY ix_audit_timestamps ON audit (timestamp DESC)")
             .execute(db)
             .await?;
     });

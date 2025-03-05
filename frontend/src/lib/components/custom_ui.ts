@@ -36,9 +36,25 @@ export type FlowBuilderWhitelabelCustomUi = {
 	downloadLogs?: boolean
 }
 
+export type DisplayResultUi = {
+	disableAiFix?: boolean
+	disableDownload?: boolean
+}
+
+export type PreviewPanelUi = {
+	disableHistory?: boolean
+	disableTriggerCaptures?: boolean
+	disableTriggerButton?: boolean
+	displayResult?: DisplayResultUi
+	disableVariablePicker?: boolean
+	disableDownload?: boolean
+}
+
 export type EditorBarUi = {
 	contextVar?: boolean
 	variable?: boolean
+	resource?: boolean
+	reset?: boolean
 	type?: boolean
 	assistants?: boolean
 	multiplayer?: boolean
@@ -50,17 +66,44 @@ export type EditorBarUi = {
 	useVsCode?: boolean
 }
 
+export type EditableSchemaFormUi = {
+	jsonOnly?: boolean
+	disableVariablePicker?: boolean
+}
+
+export type SettingsPanelMetadataUi = {
+	languages?: SupportedLanguage[]
+	disableScriptKind?: boolean
+	editableSchemaForm?: EditableSchemaFormUi
+	disableMute?: boolean
+}
+
+export type SettingsPanelUi = {
+	metadata?: SettingsPanelMetadataUi
+	disableMetadata?: boolean
+	disableRuntime?: boolean
+	disableGeneratedUi?: boolean
+	disableTriggers?: boolean
+}
+
 export type ScriptEditorWhitelabelCustomUi = {
 	editorBar?: EditorBarUi
+	previewPanel?: PreviewPanelUi
+	disableTooltips?: boolean
 }
 
 export type ScriptBuilderWhitelabelCustomUi = {
 	topBar?: {
 		path?: boolean
+		editablePath?: boolean
 		settings?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		diff?: boolean
 	}
+	settingsPanel?: SettingsPanelUi
+	disableTooltips?: boolean
+
 	editorBar?: EditorBarUi
+	previewPanel?: PreviewPanelUi
 }

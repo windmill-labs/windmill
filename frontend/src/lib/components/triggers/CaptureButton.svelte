@@ -10,6 +10,7 @@
 	import NatsIcon from '../icons/NatsIcon.svelte'
 	import AwsIcon from '../icons/AwsIcon.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
 
 	export let small = false
 
@@ -41,7 +42,13 @@
 		{
 			icon: AwsIcon,
 			displayName: 'SQS',
-			action: () => handleClick('sqs')
+			action: () => handleClick('sqs'),
+			disabled: !$enterpriseLicense
+		},
+		{
+			icon: MqttIcon,
+			displayName: 'MQTT',
+			action: () => handleClick('mqtt')
 		},
 		{
 			icon: Database,

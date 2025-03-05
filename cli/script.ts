@@ -119,7 +119,7 @@ export async function findResourceFile(path: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "Found two resource files for the same resource" +
-      validCandidates.join(", ")
+        validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -214,7 +214,9 @@ export async function handleFile(
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
         log.info(
-          `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+          `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
+            0
+          )}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
       }
       if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
@@ -236,25 +238,30 @@ export async function handleFile(
           tarball.append(file);
         }
         const endTime = performance.now();
-        log.info(`Finished creating tarball for ${path}: ${(tarball.size / 1024).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`);
+        log.info(
+          `Finished creating tarball for ${path}: ${(
+            tarball.size / 1024
+          ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+        );
         bundleContent = tarball;
       }
     }
-    let typed =
-      opts?.skipScriptsMetadata ? undefined :
-        (await parseMetadataFile(
-          remotePath,
-          opts
-            ? {
-              ...opts,
-              path,
-              workspaceRemote: workspace,
-              schemaOnly: codebase ? true : undefined,
-            }
-            : undefined,
-          globalDeps,
-          codebases
-        )
+    let typed = opts?.skipScriptsMetadata
+      ? undefined
+      : (
+          await parseMetadataFile(
+            remotePath,
+            opts
+              ? {
+                  ...opts,
+                  path,
+                  workspaceRemote: workspace,
+                  schemaOnly: codebase ? true : undefined,
+                }
+              : undefined,
+            globalDeps,
+            codebases
+          )
         )?.payload;
 
     const workspaceId = workspace.workspaceId;
@@ -341,19 +348,19 @@ export async function handleFile(
             deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
-            remote.ws_error_handler_muted &&
+              remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
             typed.concurrency_time_window_s ==
-            remote.concurrency_time_window_s &&
+              remote.concurrency_time_window_s &&
             typed.concurrent_limit == remote.concurrent_limit &&
             Boolean(typed.restart_unless_cancelled) ==
-            Boolean(remote.restart_unless_cancelled) &&
+              Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
-            Boolean(remote.visible_to_runner_only) &&
+              Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             Boolean(typed.has_preprocessor) ==
-            Boolean(remote.has_preprocessor) &&
+              Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
             typed.timeout == remote.timeout &&
             //@ts-ignore
@@ -366,23 +373,39 @@ export async function handleFile(
         }
       }
 
-
       log.info(`Updating script ${remotePath} ...`);
       const body = {
         ...requestBodyCommon,
         parent_hash: remote.hash,
       };
-      const execTime = await createScript(bundleContent, workspaceId, body, workspace);
-      log.info(colors.yellow.bold(`Updated script ${remotePath} (${execTime.toFixed(0)}ms)`));
+      const execTime = await createScript(
+        bundleContent,
+        workspaceId,
+        body,
+        workspace
+      );
+      log.info(
+        colors.yellow.bold(
+          `Updated script ${remotePath} (${execTime.toFixed(0)}ms)`
+        )
+      );
     } else {
       log.info(`Creating new script ${remotePath} ...`);
       const body = {
         ...requestBodyCommon,
         parent_hash: undefined,
       };
-      const execTime = await createScript(bundleContent, workspaceId, body, workspace);
-      log.info(colors.yellow.bold(`Created new script ${remotePath} (${execTime.toFixed(0)}ms)`));
-
+      const execTime = await createScript(
+        bundleContent,
+        workspaceId,
+        body,
+        workspace
+      );
+      log.info(
+        colors.yellow.bold(
+          `Created new script ${remotePath} (${execTime.toFixed(0)}ms)`
+        )
+      );
     }
     return true;
   }
@@ -428,7 +451,8 @@ async function createScript(
       });
     } catch (e: any) {
       throw Error(
-        `Script creation for ${body.path} with parent ${body.parent_hash
+        `Script creation for ${body.path} with parent ${
+          body.parent_hash
         }  was not successful: ${e.body ?? e.message} `
       );
     }
@@ -454,7 +478,8 @@ async function createScript(
     });
     if (req.status != 201) {
       throw Error(
-        `Script snapshot creation was not successful: ${req.status} - ${req.statusText
+        `Script snapshot creation was not successful: ${req.status} - ${
+          req.statusText
         } - ${await req.text()} `
       );
     }
@@ -466,8 +491,8 @@ export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? exts.map((x) => filePath.replace(".script.json", x))
     : filePath.endsWith("script.lock")
-      ? exts.map((x) => filePath.replace(".script.lock", x))
-      : exts.map((x) => filePath.replace(".script.yaml", x));
+    ? exts.map((x) => filePath.replace(".script.lock", x))
+    : exts.map((x) => filePath.replace(".script.yaml", x));
 
   const validCandidates = (
     await Promise.all(
@@ -486,7 +511,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more than one candidate found: " +
-      validCandidates.join(", ")
+        validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -844,13 +869,13 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
   const composers: { [key: string]: string } = {};
   const els = await FSFSElement(Deno.cwd(), []);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
-    p = "/" + p;
+    p = SEP + p;
     return (
       !isDir &&
       !(
-        p.endsWith("/package.json") ||
-        p.endsWith("requirements.txt") ||
-        p.endsWith("composer.json")
+        p.endsWith(SEP + "package.json") ||
+        p.endsWith(SEP + "requirements.txt") ||
+        p.endsWith(SEP + "composer.json")
       )
     );
   }, els)) {
@@ -874,7 +899,9 @@ async function generateMetadata(
   } & SyncOptions,
   scriptPath: string | undefined
 ) {
-  log.info("This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`");
+  log.info(
+    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`"
+  );
   if (scriptPath == "") {
     scriptPath = undefined;
   }

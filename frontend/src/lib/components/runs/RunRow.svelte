@@ -90,6 +90,10 @@
 			<Badge color="red" baseClass="!px-1.5">
 				<X size={14} />
 			</Badge>
+		{:else if 'running' in job && job.running && job.suspend}
+			<Badge color="violet" baseClass="!px-1.5" title="Suspended">
+				<Hourglass size={14} />
+			</Badge>
 		{:else if 'running' in job && job.running}
 			<Badge color="yellow" baseClass="!px-1.5">
 				<Play size={14} />

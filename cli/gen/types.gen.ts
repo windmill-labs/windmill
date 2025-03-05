@@ -626,6 +626,7 @@ export type TriggersCount = {
     postgres_count?: number;
     kafka_count?: number;
     nats_count?: number;
+    mqtt_count?: number;
     sqs_count?: number;
 };
 
@@ -681,6 +682,75 @@ export type WebsocketTriggerInitialMessage = {
         args: ScriptArgs;
         is_flow: boolean;
     };
+};
+
+export type QoS = 0 | 1 | 2;
+
+export type CommonMqttConfig = {
+    will?: {
+        topic?: string;
+        message?: Array<(number)>;
+        qos?: QoS;
+        retain?: boolean;
+    };
+};
+
+export type MqttV3Config = CommonMqttConfig & {
+    clean_session?: boolean;
+};
+
+export type MqttV5Config = CommonMqttConfig & {
+    clean_start?: boolean;
+    keep_alive?: number;
+    session_expiration?: number;
+    receive_maximum?: number;
+    maximum_packet_size?: number;
+};
+
+export type SubscribeTopic = {
+    qos: QoS;
+    topic: string;
+};
+
+export type MqttClientVersion = 'v3' | 'v5';
+
+export type MqttTrigger = TriggerExtraProperty & {
+    mqtt_resource_path: string;
+    subscribe_topics: Array<SubscribeTopic>;
+    v3_config?: MqttV3Config;
+    v5_config?: MqttV5Config;
+    client_id?: string;
+    client_version?: MqttClientVersion;
+    server_id?: string;
+    last_server_ping?: string;
+    error?: string;
+    enabled: boolean;
+};
+
+export type NewMqttTrigger = {
+    mqtt_resource_path: string;
+    subscribe_topics: Array<SubscribeTopic>;
+    client_id?: string;
+    v3_config?: MqttV3Config;
+    v5_config?: MqttV5Config;
+    client_version?: MqttClientVersion;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled?: boolean;
+};
+
+export type EditMqttTrigger = {
+    mqtt_resource_path: string;
+    subscribe_topics: Array<SubscribeTopic>;
+    client_id?: string;
+    v3_config?: MqttV3Config;
+    v5_config?: MqttV5Config;
+    client_version?: MqttClientVersion;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled: boolean;
 };
 
 export type SqsTrigger = TriggerExtraProperty & {
@@ -1289,7 +1359,7 @@ export type CriticalAlert = {
     workspace_id?: (string) | null;
 };
 
-export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats' | 'postgres' | 'sqs';
+export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats' | 'postgres' | 'sqs' | 'mqtt';
 
 export type Capture = {
     trigger_kind: CaptureTriggerKind;
@@ -2826,6 +2896,7 @@ export type GetUsedTriggersResponse = ({
     kafka_used: boolean;
     nats_used: boolean;
     postgres_used: boolean;
+    mqtt_used: boolean;
     sqs_used: boolean;
 });
 
@@ -6055,6 +6126,95 @@ export type TestSqsConnectionData = {
 
 export type TestSqsConnectionResponse = (string);
 
+export type CreateMqttTriggerData = {
+    /**
+     * new mqtt trigger
+     */
+    requestBody: NewMqttTrigger;
+    workspace: string;
+};
+
+export type CreateMqttTriggerResponse = (string);
+
+export type UpdateMqttTriggerData = {
+    path: string;
+    /**
+     * updated trigger
+     */
+    requestBody: EditMqttTrigger;
+    workspace: string;
+};
+
+export type UpdateMqttTriggerResponse = (string);
+
+export type DeleteMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type DeleteMqttTriggerResponse = (string);
+
+export type GetMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetMqttTriggerResponse = (MqttTrigger);
+
+export type ListMqttTriggersData = {
+    isFlow?: boolean;
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    /**
+     * filter by path
+     */
+    path?: string;
+    pathStart?: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    workspace: string;
+};
+
+export type ListMqttTriggersResponse = (Array<MqttTrigger>);
+
+export type ExistsMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type ExistsMqttTriggerResponse = (boolean);
+
+export type SetMqttTriggerEnabledData = {
+    path: string;
+    /**
+     * updated mqtt trigger enable
+     */
+    requestBody: {
+        enabled: boolean;
+    };
+    workspace: string;
+};
+
+export type SetMqttTriggerEnabledResponse = (string);
+
+export type TestMqttConnectionData = {
+    /**
+     * test mqtt connection
+     */
+    requestBody: {
+        connection: {
+            [key: string]: unknown;
+        };
+    };
+    workspace: string;
+};
+
+export type TestMqttConnectionResponse = (string);
+
 export type IsValidPostgresConfigurationData = {
     path: string;
     workspace: string;
@@ -6589,7 +6749,7 @@ export type ListAutoscalingEventsData = {
 export type ListAutoscalingEventsResponse = (Array<AutoscalingEvent>);
 
 export type GetGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
     path: string;
     workspace: string;
 };
@@ -6599,7 +6759,7 @@ export type GetGranularAclsResponse = ({
 });
 
 export type AddGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
     path: string;
     /**
      * acl to add
@@ -6614,7 +6774,7 @@ export type AddGranularAclsData = {
 export type AddGranularAclsResponse = (string);
 
 export type RemoveGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
     path: string;
     /**
      * acl to add
