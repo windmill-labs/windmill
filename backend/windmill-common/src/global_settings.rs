@@ -40,7 +40,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 57] = [
+pub const ENV_SETTINGS: [&str; 58] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
