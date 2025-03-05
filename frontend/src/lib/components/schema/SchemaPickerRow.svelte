@@ -12,8 +12,10 @@
 	export let date: string | undefined
 	export let hovering = false
 	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let viewerOpen = false
 
 	let clientWidth = 0
+	let popover: Popover | undefined = undefined
 	const buttonWidth = 34
 
 	function formatDate(dateString: string | undefined): string {
@@ -73,6 +75,8 @@
 			}
 		]
 	}
+
+	$: hovering && viewerOpen && popover?.open()
 </script>
 
 <Cell>
@@ -99,6 +103,7 @@
 		</div>
 
 		<Popover
+			bind:this={popover}
 			class="w-fit"
 			placement="bottom-start"
 			usePointerDownOutside
@@ -107,6 +112,7 @@
 				e.stopPropagation()
 			}}
 			{floatingConfig}
+			on:openChange
 		>
 			<svelte:fragment slot="trigger">
 				<Button

@@ -13,6 +13,8 @@
 
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
+	let viewerOpen = false
+	let openStates: Record<string, boolean> = {} // Track open state for each item
 
 	export function refresh() {
 		if (infiniteList) {
@@ -84,6 +86,11 @@
 		return payloadData
 	}
 
+	function updateViewerOpenState(itemId: string, isOpen: boolean) {
+		openStates[itemId] = isOpen
+		viewerOpen = Object.values(openStates).some((state) => state)
+	}
+
 	$: $workspaceStore && runnableId && runnableType && infiniteList && initLoadInputs()
 </script>
 
@@ -102,6 +109,10 @@
 			payloadData={item.payloadData}
 			{showAuthor}
 			{placement}
+			{viewerOpen}
+			on:openChange={({ detail }) => {
+				updateViewerOpenState(item.id, detail)
+			}}
 		/>
 	</svelte:fragment>
 	<svelte:fragment slot="empty">

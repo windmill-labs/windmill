@@ -9,9 +9,17 @@
 	export let hovering = false
 	export let showAuthor = false
 	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let viewerOpen = false
 </script>
 
-<SchemaPickerRow {payloadData} date={job.created_at} {hovering} {placement}>
+<SchemaPickerRow
+	{payloadData}
+	date={job.created_at}
+	{hovering}
+	{placement}
+	{viewerOpen}
+	on:openChange
+>
 	<svelte:fragment slot="start">
 		<div class="center-center">
 			<div
