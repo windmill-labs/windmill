@@ -34,7 +34,6 @@
 	let draft = true
 	let selectedInput: string | null = null
 	let isEditing: EditableInput | null = null
-	let forceLoad = false
 	let viewerOpen = false
 	let openStates: Record<string, boolean> = {}
 	let clientWidth: number = 0
@@ -270,7 +269,6 @@
 									<SavedInputsPickerViewer
 										payloadData={item.payloadData}
 										{limitPayloadSize}
-										{forceLoad}
 										{hover}
 										{viewerOpen}
 										on:openChange={(e) => {

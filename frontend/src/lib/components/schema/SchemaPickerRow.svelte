@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { copyToClipboard } from '$lib/utils'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { CopyIcon, Eye } from 'lucide-svelte'
+	import { CopyIcon, Eye, Loader2 } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Placement } from '@floating-ui/dom'
 	import { isObjectTooBig } from '$lib/utils'
@@ -21,6 +21,9 @@
 	let clientWidth = 0
 	let popover: Popover | undefined = undefined
 	let popoverOpen = false
+	let objectViewerLoaded = false
+	let popoverFullyOpened = false
+	let popoverOpenTimeout: ReturnType<typeof setTimeout> | null = null
 
 	const buttonWidth = 34
 	const dispatch = createEventDispatcher()
@@ -85,9 +88,38 @@
 		]
 	}
 
-	$: if (hovering && viewerOpen && popover && !popoverOpen) {
-		popover.open()
+	function handlePopoverChange(event: CustomEvent<boolean>) {
+		const isOpen = event.detail
+		popoverOpen = isOpen
+
+		if (!isOpen) {
+			objectViewerLoaded = false
+			popoverFullyOpened = false
+			forceLoad = false
+		} else {
+			// Set a small delay to ensure the popover is fully rendered before
+			// marking it as fully opened
+			setTimeout(() => {
+				popoverFullyOpened = true
+			}, 50)
+		}
+
+		dispatch('openChange', isOpen)
 	}
+
+	function handleHoveringChange(isHovering: boolean) {
+		if (isHovering && viewerOpen && popover && !popoverOpen) {
+			popoverOpenTimeout = setTimeout(() => {
+				popover?.open()
+				popoverOpenTimeout = null
+			}, 100)
+		} else if (!isHovering && popoverOpenTimeout) {
+			clearTimeout(popoverOpenTimeout)
+			popoverOpenTimeout = null
+		}
+	}
+
+	$: handleHoveringChange(hovering)
 </script>
 
 <Cell>
@@ -122,11 +154,7 @@
 				e.stopPropagation()
 			}}
 			{floatingConfig}
-			on:openChange={({ detail }) => {
-				popoverOpen = detail
-				forceLoad = false
-				dispatch('openChange', detail)
-			}}
+			on:openChange={handlePopoverChange}
 		>
 			<svelte:fragment slot="trigger">
 				<Button
@@ -153,15 +181,6 @@
 								Payload too big to preview but can still be loaded
 							{/if}
 						</div>
-					{:else if payloadTooBigForPreview && !forceLoad}
-						<div class="text-center text-tertiary text-xs">
-							Payload too big for preview
-							{#if limitPayloadSize}or for use here{/if}.
-
-							<button class="text-disabled hover:underline" on:click={() => (forceLoad = true)}>
-								Load preview anyway
-							</button>
-						</div>
 					{:else}
 						<div
 							class="w-full h-full"
@@ -173,7 +192,23 @@
 							}}
 							on:keydown
 						>
-							<ObjectViewer json={payloadData} allowCopy pureViewer />
+							{#if !objectViewerLoaded && isTooBig}
+								<div class="flex justify-center items-center py-4">
+									<Loader2 size={20} class="animate-spin text-primary" />
+									<span class="ml-2 text-xs text-tertiary">Loading data...</span>
+								</div>
+							{/if}
+
+							{#if popoverFullyOpened || !isTooBig}
+								<div class={!objectViewerLoaded && isTooBig ? 'invisible h-0 overflow-hidden' : ''}>
+									<ObjectViewerWrapper
+										json={payloadData}
+										allowCopy
+										pureViewer
+										on:mounted={() => (objectViewerLoaded = true)}
+									/>
+								</div>
+							{/if}
 
 							<div class="absolute top-2 right-2">
 								<Button

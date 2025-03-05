@@ -1,21 +1,20 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
 	import { copyToClipboard, isObjectTooBig } from '$lib/utils'
-	import { Eye, CopyIcon } from 'lucide-svelte'
+	import { Eye, CopyIcon, Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	export let payloadData: any
 	export let limitPayloadSize: boolean = false
-	export let forceLoad: boolean = false
 	export let hover: boolean = false
 	export let viewerOpen: boolean = false
 	export let maxWidth: number | undefined = undefined
 	export let editOptions: boolean = true
 
 	const dispatch = createEventDispatcher()
-	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' || isObjectTooBig(payloadData)
+	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
 	const buttonWidth = 34
 	const floatingConfig = {
 		placement: 'bottom-end',
@@ -35,21 +34,53 @@
 
 	let popover: Popover | undefined
 	let popoverOpen = false
+	let hoverTimeout: ReturnType<typeof setTimeout> | undefined
+	let objectViewerLoaded = false
+	let popoverFullyOpened = false
 
-	$: if (hover && viewerOpen && popover && !popoverOpen) {
-		popover.open()
+	function handlePopoverChange(event: CustomEvent<boolean>) {
+		const isOpen = event.detail
+		popoverOpen = isOpen
+
+		if (!isOpen) {
+			objectViewerLoaded = false
+			popoverFullyOpened = false
+		} else {
+			// Set a small delay to ensure the popover is fully rendered before
+			// marking it as fully opened
+			setTimeout(() => {
+				popoverFullyOpened = true
+			}, 50)
+		}
+
+		dispatch('openChange', isOpen)
 	}
+
+	function handleHoverChange(isHovering: boolean) {
+		if (isHovering) {
+			// Start debounce timer when hovering starts
+			hoverTimeout = setTimeout(() => {
+				if (viewerOpen && popover && !popoverOpen) {
+					popover.open()
+				}
+			}, 100)
+		} else {
+			// Clear timeout if hover ends before debounce period
+			if (hoverTimeout) {
+				clearTimeout(hoverTimeout)
+				hoverTimeout = undefined
+			}
+		}
+	}
+
+	$: handleHoverChange(hover)
 	$: ajustedWidth = maxWidth ? Math.abs(maxWidth - xOffset) : undefined
 </script>
 
 <Popover
 	bind:this={popover}
 	{floatingConfig}
-	on:openChange={({ detail }) => {
-		popoverOpen = detail
-		dispatch('openChange', detail)
-		forceLoad = false
-	}}
+	on:openChange={handlePopoverChange}
 	on:click={(e) => {
 		e.stopPropagation()
 	}}
@@ -82,15 +113,6 @@
 						Payload too big to preview but can still be loaded
 					{/if}
 				</div>
-			{:else if payloadTooBigForPreview && !forceLoad}
-				<div class="text-center text-tertiary text-xs">
-					Payload too big for preview
-					{#if limitPayloadSize}or for use here{/if}.
-
-					<button class="text-disabled hover:underline" on:click={() => (forceLoad = true)}>
-						Load preview anyway
-					</button>
-				</div>
 			{:else}
 				<div
 					class="relative p-2"
@@ -102,7 +124,27 @@
 					}}
 					on:keydown
 				>
-					<ObjectViewer json={payloadData} />
+					{#if !objectViewerLoaded && payloadTooBigForPreview}
+						<div class="flex justify-center items-center py-4">
+							<Loader2 size={20} class="animate-spin text-primary" />
+							<span class="ml-2 text-xs text-tertiary">Loading data...</span>
+						</div>
+					{/if}
+
+					{#if popoverFullyOpened || !payloadTooBigForPreview}
+						<div
+							class={!objectViewerLoaded && payloadTooBigForPreview
+								? 'invisible h-0 overflow-hidden'
+								: ''}
+						>
+							<ObjectViewerWrapper
+								json={payloadData}
+								allowCopy
+								pureViewer
+								on:mounted={() => (objectViewerLoaded = true)}
+							/>
+						</div>
+					{/if}
 
 					<div class="absolute top-2 right-2 w-full h-full">
 						<Button
