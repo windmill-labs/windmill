@@ -302,8 +302,6 @@
 			fileDeletionInProgress = false
 			deletionModalOpen = false
 		}
-		fileDeletionInProgress = false
-		deletionModalOpen = false
 		sendUserToast(`${fileKey} deleted from S3 bucket`)
 		displayedFileKeys = [...displayedFileKeys.filter((key) => key !== fileKey)]
 		delete allFilesByKey[fileKey]
