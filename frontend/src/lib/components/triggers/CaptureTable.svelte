@@ -16,7 +16,6 @@
 	import InfiniteList from '../InfiniteList.svelte'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
-	import { clickOutside } from '$lib/utils'
 	import type { Capture } from '$lib/gen'
 
 	export let path: string
@@ -33,7 +32,6 @@
 	let testKind: 'preprocessor' | 'main' = 'main'
 	let isEmpty: boolean = true
 	let infiniteList: InfiniteList | null = null
-	let firstClick = true
 	let capturesLength = 0
 
 	$: hasPreprocessor && (testKind = 'preprocessor')
@@ -122,7 +120,7 @@
 
 	async function handleSelect(capture: any) {
 		if (selected === capture.id) {
-			deselect()
+			resetSelected()
 		} else {
 			const payloadData = await getPayload(capture)
 			selected = capture.id
@@ -147,13 +145,15 @@
 		return payloadData
 	}
 
-	function deselect() {
+	export function resetSelected(dispatchEvent: boolean = true) {
 		selected = undefined
-		dispatch('select', undefined)
+		if (dispatchEvent) {
+			dispatch('select', undefined)
+		}
 	}
 
 	onDestroy(() => {
-		deselect()
+		resetSelected()
 	})
 
 	const captureKindToIcon: Record<string, any> = {
@@ -164,15 +164,9 @@
 		kafka: KafkaIcon
 	}
 
-	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
-		) as HTMLElement[]
-	}
-
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
-			deselect()
+			resetSelected()
 			event.stopPropagation()
 			event.preventDefault()
 		}
@@ -231,14 +225,6 @@
 			: capturesLength > 7
 			? 'h-[300px]'
 			: 'h-fit'}
-		use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-		on:click_outside={() => {
-			if (firstClick) {
-				firstClick = false
-				return
-			}
-			deselect()
-		}}
 	>
 		<InfiniteList
 			bind:this={infiniteList}

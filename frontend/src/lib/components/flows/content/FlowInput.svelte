@@ -308,7 +308,20 @@
 			savedPreviewArgs = undefined
 		}
 	}
+
 	let historicInputs: HistoricInputs | undefined = undefined
+	let captureTable: CaptureTable | undefined = undefined
+	let savedInputsPicker: SavedInputsPicker | undefined = undefined
+	let jsonInputs: JsonInputs | undefined = undefined
+	let firstStepInputs: FirstStepInputs | undefined = undefined
+
+	function resetSelected() {
+		historicInputs?.resetSelected(true)
+		captureTable?.resetSelected(true)
+		savedInputsPicker?.resetSelected(true)
+		jsonInputs?.resetSelected(true)
+		firstStepInputs?.resetSelected(true)
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -425,7 +438,7 @@
 								startIcon={{ icon: X }}
 								shortCut={{ key: 'esc', withoutModifier: true }}
 								on:click={() => {
-									historicInputs?.resetSelected(true)
+									resetSelected()
 								}}
 							/>
 						</div>
@@ -464,12 +477,12 @@
 							}}
 						>
 							<HistoricInputs
-								bind:this={historicInputs}
 								runnableId={initialPath ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
 								}}
+								bind:this={historicInputs}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
@@ -493,6 +506,7 @@
 									isFlow={true}
 									headless={true}
 									addButton={false}
+									bind:this={captureTable}
 								/>
 							</div>
 						</FlowInputEditor>
@@ -514,6 +528,7 @@
 								}}
 								previewArgs={previewArguments}
 								{isValid}
+								bind:this={savedInputsPicker}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
@@ -533,6 +548,8 @@
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
+								selected={!!previewArguments}
+								bind:this={jsonInputs}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
@@ -544,6 +561,7 @@
 							title="First step's inputs"
 						>
 							<FirstStepInputs
+								bind:this={firstStepInputs}
 								on:connectFirstNode={({ detail }) => {
 									connectFirstNode = detail.connectFirstNode
 								}}
