@@ -1,6 +1,5 @@
 import { minimatch } from 'minimatch'
 import {
-	CancelablePromise,
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
@@ -8,21 +7,6 @@ import {
 	PostgresTriggerService,
 	SqsTriggerService,
 	WebsocketTriggerService,
-	type CreateSqsTriggerData,
-	type EditHttpTrigger,
-	type EditKafkaTrigger,
-	type EditMqttTrigger,
-	type EditNatsTrigger,
-	type EditPostgresTrigger,
-	type EditSqsTrigger,
-	type EditWebsocketTrigger,
-	type NewHttpTrigger,
-	type NewKafkaTrigger,
-	type NewMqttTrigger,
-	type NewNatsTrigger,
-	type NewPostgresTrigger,
-	type NewSqsTrigger,
-	type NewWebsocketTrigger,
 	type WorkspaceDeployUISettings
 } from './gen'
 import type { TriggerKind } from './components/triggers'
@@ -40,26 +24,6 @@ export type Kind =
 	| 'resource_type'
 	| 'folder'
 	| 'triggers'
-
-type CreateTriggerType =
-	| NewSqsTrigger
-	| NewMqttTrigger
-	| NewHttpTrigger
-	| NewWebsocketTrigger
-	| NewPostgresTrigger
-	| NewKafkaTrigger
-	| NewNatsTrigger
-
-type UpdateTriggerType =
-	| EditSqsTrigger
-	| EditMqttTrigger
-	| EditHttpTrigger
-	| EditWebsocketTrigger
-	| EditPostgresTrigger
-	| EditKafkaTrigger
-	| EditNatsTrigger
-
-export type GetTriggerData = CreateTriggerType & UpdateTriggerType
 
 export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
 	include_path: [],
