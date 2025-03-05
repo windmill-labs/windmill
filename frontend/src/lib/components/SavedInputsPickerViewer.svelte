@@ -34,16 +34,20 @@
 	const xOffset = editOptions ? 218 : 168 // width of the optional buttons on the right
 
 	let popover: Popover | undefined
+	let popoverOpen = false
 
-	$: hover && viewerOpen && popover?.open()
+	$: if (hover && viewerOpen && popover && !popoverOpen) {
+		popover.open()
+	}
 	$: ajustedWidth = maxWidth ? Math.abs(maxWidth - xOffset) : undefined
 </script>
 
 <Popover
 	bind:this={popover}
 	{floatingConfig}
-	on:openChange={(e) => {
-		dispatch('openChange', e.detail)
+	on:openChange={({ detail }) => {
+		popoverOpen = detail
+		dispatch('openChange', detail)
 		forceLoad = false
 	}}
 	on:click={(e) => {

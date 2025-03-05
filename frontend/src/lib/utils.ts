@@ -1131,7 +1131,7 @@ export type Item = {
 
 export function isObjectTooBig(obj: any): boolean {
 	const MAX_DEPTH = 10
-	const MAX_ITEMS = 30
+	const MAX_ITEMS = 50
 
 	function analyze(obj: any, currentDepth: number = 0): { totalItems: number; maxDepth: number } {
 		if (currentDepth > MAX_DEPTH) {

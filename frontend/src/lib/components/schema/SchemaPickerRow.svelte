@@ -20,6 +20,7 @@
 
 	let clientWidth = 0
 	let popover: Popover | undefined = undefined
+	let popoverOpen = false
 
 	const buttonWidth = 34
 	const dispatch = createEventDispatcher()
@@ -84,7 +85,9 @@
 		]
 	}
 
-	$: hovering && viewerOpen && popover?.open()
+	$: if (hovering && viewerOpen && popover && !popoverOpen) {
+		popover.open()
+	}
 </script>
 
 <Cell>
@@ -120,6 +123,7 @@
 			}}
 			{floatingConfig}
 			on:openChange={({ detail }) => {
+				popoverOpen = detail
 				forceLoad = false
 				dispatch('openChange', detail)
 			}}
