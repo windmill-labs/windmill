@@ -2,16 +2,21 @@
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import DeployWorkspace from './DeployWorkspace.svelte'
-
-	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app' | 'raw_app'
+	import { type AdditionalInformations, type Kind } from '$lib/utils_deployable'
 
 	let initialPath: string | undefined = undefined
 	let kind: Kind | undefined = undefined
-
 	let drawer: Drawer | undefined = undefined
 	let workspaceToDeployTo: string | undefined = undefined
 	let deployWorkspace: DeployWorkspace | undefined = undefined
-	export async function openDrawer(initialPath_l: string, kind_l: Kind) {
+	let additionalInformations: AdditionalInformations | undefined = undefined
+
+	export async function openDrawer(
+		initialPath_l: string,
+		kind_l: Kind,
+		additionalInformations_l?: AdditionalInformations
+	) {
+		additionalInformations = additionalInformations_l
 		initialPath = initialPath_l
 		kind = kind_l
 		drawer?.openDrawer()
@@ -20,11 +25,12 @@
 
 <Drawer bind:this={drawer} size="900px">
 	<DrawerContent title="Deploy {initialPath}" on:close={drawer.closeDrawer}>
-		{#if kind != undefined && initialPath != undefined}
+		{#if (kind != 'triggers' && kind != undefined && initialPath != undefined) || (kind === 'triggers' && initialPath != undefined && additionalInformations?.triggers != undefined)}
 			<DeployWorkspace
 				hideButton
 				{initialPath}
 				{kind}
+				{additionalInformations}
 				bind:workspaceToDeployTo
 				bind:this={deployWorkspace}
 			/>

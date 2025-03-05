@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { SqsTriggerService, type SqsTrigger } from '$lib/gen'
+	import {
+		SqsTriggerService,
+		WorkspaceService,
+		type SqsTrigger,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import {
 		canWrite,
 		displayDate,
@@ -15,8 +20,8 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, Database } from 'lucide-svelte'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, Database, FileUp } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -29,13 +34,26 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	type TriggerD = SqsTrigger & { canWrite: boolean }
 
 	let triggers: TriggerD[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let deploymentDrawer: DeployWorkspaceDrawer
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
 		triggers = (await SqsTriggerService.listSqsTriggers({ workspace: $workspaceStore! })).map(
 			(x) => {
@@ -198,6 +216,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <SqsTriggerEditor on:update={loadTriggers} bind:this={sqsTriggerEditor} />
 
 <SearchItems
@@ -375,6 +394,21 @@
 												sqsTriggerEditor?.openEdit(path, is_flow)
 											}
 										},
+										...(isDeployable('triggers', path, deployUiSettings)
+											? [
+													{
+														displayName: 'Deploy to prod/staging',
+														icon: FileUp,
+														action: () => {
+															deploymentDrawer.openDrawer(path, 'triggers', {
+																triggers: {
+																	kind: 'sqs'
+																}
+															})
+														}
+													}
+											  ]
+											: []),
 										{
 											displayName: 'Audit logs',
 											icon: Eye,

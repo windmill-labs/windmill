@@ -539,7 +539,8 @@
 					apps: (settings.deploy_ui.include_type?.indexOf('app') ?? -1) >= 0,
 					resources: (settings.deploy_ui.include_type?.indexOf('resource') ?? -1) >= 0,
 					variables: (settings.deploy_ui.include_type?.indexOf('variable') ?? -1) >= 0,
-					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0
+					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0,
+					triggers: (settings.deploy_ui.include_type?.indexOf('triggers') ?? -1) >= 0
 				}
 			}
 		}
@@ -562,6 +563,7 @@
 			resources: boolean
 			variables: boolean
 			secrets: boolean
+			triggers: boolean
 		}
 	}
 

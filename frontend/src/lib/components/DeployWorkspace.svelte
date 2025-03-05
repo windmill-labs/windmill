@@ -22,22 +22,21 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import {
+		existsTrigger,
+		getTriggerDependency,
+		getTriggersDeployData,
+		getTriggerValue,
+		type AdditionalInformations,
+		type Kind
+	} from '$lib/utils_deployable'
+	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 
-	type Kind =
-		| 'script'
-		| 'resource'
-		| 'schedule'
-		| 'variable'
-		| 'flow'
-		| 'app'
-		| 'raw_app'
-		| 'resource_type'
-		| 'folder'
-
 	export let kind: Kind
 	export let initialPath: string = ''
+	export let additionalInformations: AdditionalInformations | undefined = undefined
 	export let workspaceToDeployTo: string | undefined = undefined
 	export let hideButton: boolean = false
 
@@ -148,6 +147,11 @@
 				}
 
 				return [...recObj(res.value), { kind: 'resource_type', path: res.resource_type }]
+			} else if (kind == 'triggers') {
+				if (additionalInformations?.triggers) {
+					return getTriggerDependency(additionalInformations.triggers.kind, path, $workspaceStore!)
+				}
+				throw new Error('Missing trigger information')
 			}
 			return []
 		}
@@ -171,60 +175,70 @@
 	}
 
 	async function checkAlreadyExists(kind: Kind, path: string): Promise<boolean> {
-		if (kind == 'flow') {
-			return await FlowService.existsFlowByPath({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'script') {
-			return await ScriptService.existsScriptByPath({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'app') {
-			return await AppService.existsApp({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'raw_app') {
-			return await RawAppService.existsRawApp({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'variable') {
-			return await VariableService.existsVariable({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'resource') {
-			return await ResourceService.existsResource({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'schedule') {
-			return await ScheduleService.existsSchedule({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'resource_type') {
-			return await ResourceService.existsResourceType({
-				workspace: workspaceToDeployTo!,
-				path: path
-			})
-		} else if (kind == 'folder') {
-			let exists = true
-			try {
+		let exists = true
+		try {
+			if (kind == 'flow') {
+				exists = await FlowService.existsFlowByPath({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'script') {
+				exists = await ScriptService.existsScriptByPath({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'app') {
+				exists = await AppService.existsApp({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'raw_app') {
+				exists = await RawAppService.existsRawApp({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'variable') {
+				exists = await VariableService.existsVariable({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'resource') {
+				exists = await ResourceService.existsResource({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'schedule') {
+				exists = await ScheduleService.existsSchedule({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'resource_type') {
+				exists = await ResourceService.existsResourceType({
+					workspace: workspaceToDeployTo!,
+					path: path
+				})
+			} else if (kind == 'folder') {
 				await FolderService.getFolder({
 					workspace: workspaceToDeployTo!,
 					name: path
 				})
-			} catch (e) {
-				exists = false
+			} else if (kind === 'triggers') {
+				if (additionalInformations?.triggers) {
+					exists = await existsTrigger(
+						{ workspace: workspaceToDeployTo!, path },
+						additionalInformations.triggers.kind
+					)
+				} else {
+					throw new Error('Missing triggers kind')
+				}
+			} else {
+				throw new Error(`Unknown kind ${kind}`)
 			}
-			return exists
-		} else {
-			throw new Error(`Unknown kind ${kind}`)
+		} catch (error) {
+			sendUserToast(error.body ? error.body : error instanceof Error ? error.message : error, true)
+			exists = false
 		}
+		return exists
 	}
 
 	const deploymentStatus: Record<
@@ -405,6 +419,27 @@
 						name: path
 					}
 				})
+			} else if (kind === 'triggers') {
+				if (additionalInformations?.triggers) {
+					const { data, createFn, updateFn } = await getTriggersDeployData(
+						additionalInformations.triggers.kind,
+						path,
+						$workspaceStore!
+					)
+					if (alreadyExists) {
+						await updateFn({
+							workspace: workspaceToDeployTo!,
+							requestBody: data
+						} as any)
+					} else {
+						await createFn({
+							workspace: workspaceToDeployTo!,
+							requestBody: data
+						} as any)
+					}
+				} else {
+					throw new Error('Missing triggers kind')
+				}
 			} else {
 				throw new Error(`Unknown kind ${kind}`)
 			}
@@ -501,6 +536,12 @@
 				})
 				return {
 					name: folder.name
+				}
+			} else if (kind == 'triggers') {
+				if (additionalInformations?.triggers) {
+					return await getTriggerValue(additionalInformations.triggers.kind, path, workspace)
+				} else {
+					throw new Error(`Missing triggers informations`)
 				}
 			} else {
 				throw new Error(`Unknown kind ${kind}`)
