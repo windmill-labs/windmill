@@ -1213,6 +1213,9 @@
 					<Toggle
 						on:change={({ detail }) => {
 							customPath = detail ? '' : undefined
+							if (customPath === undefined) {
+								customPathError = ''
+							}
 						}}
 						checked={customPath !== undefined}
 						options={{
