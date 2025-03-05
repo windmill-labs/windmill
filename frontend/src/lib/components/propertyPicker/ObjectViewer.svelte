@@ -41,8 +41,7 @@
 		if (arg === undefined) {
 			return 'undefined'
 		}
-		const keys = Object.keys(arg)
-		if (keys.length === 1 && keys.includes('s3')) {
+		if (Object.keys(arg).length === 1 && Object.keys(arg).includes('s3')) {
 			return 's3object'
 		}
 		return typeof arg
@@ -131,6 +130,7 @@
 								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
 							</Button>
 						</AnimatedButton>
+						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self

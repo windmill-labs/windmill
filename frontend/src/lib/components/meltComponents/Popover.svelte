@@ -14,6 +14,7 @@
 	import { pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
+
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
 	export let placement: Placement = 'bottom'

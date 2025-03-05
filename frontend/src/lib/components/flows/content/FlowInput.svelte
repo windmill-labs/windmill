@@ -482,12 +482,12 @@
 							}}
 						>
 							<HistoricInputs
+								bind:this={historicInputs}
 								runnableId={initialPath ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
 								}}
-								bind:this={historicInputs}
 								limitPayloadSize
 							/>
 						</FlowInputEditor>
