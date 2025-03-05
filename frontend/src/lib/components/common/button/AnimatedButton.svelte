@@ -18,7 +18,9 @@
 		{wrapperClasses}
 		{ringColor}
 		{darkMode}
-	/>
+	>
+		<slot />
+	</AnimatedButtonInner>
 {:else}
 	<div class={wrapperClasses}>
 		<slot />
