@@ -40,6 +40,7 @@
 		onClick?: (e?: Event) => void
 		href?: string
 		icon?: any
+		disabled?: boolean
 	}
 	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
 
@@ -49,6 +50,7 @@
 			displayName: item.label,
 			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
 			icon: item.icon,
+			disabled: item.disabled ?? false,
 			href: item.href
 		}))
 	}
