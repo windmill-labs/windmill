@@ -242,19 +242,40 @@ pub async fn load_otel(db: &DB) {
         if let Some(v) = v {
             let deser = serde_json::from_value::<OtelSetting>(v);
             if let Ok(o) = deser {
-                let metrics_enabled = o.metrics_enabled.unwrap_or(false);
-                let logs_enabled = o.logs_enabled.unwrap_or(false);
-                let tracing_enabled = o.tracing_enabled.unwrap_or(false);
+                let metrics_enabled = o.metrics_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_METRICS_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
+                let logs_enabled = o.logs_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_LOGS_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
+                let tracing_enabled = o.tracing_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_TRACING_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
 
                 OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
                 OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
-                if let Some(endpoint) = o.otel_exporter_otlp_endpoint.as_ref() {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint);
-                }
-                if let Some(headers) = o.otel_exporter_otlp_headers.as_ref() {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers);
-                }
+
+                let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    Some(endpoint.clone())
+                } else {
+                    std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()
+                };
+
+                let headers = if let Some(headers) = o.otel_exporter_otlp_headers {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    Some(headers.clone())
+                } else {
+                    std::env::var("OTEL_EXPORTER_OTLP_HEADERS").ok()
+                };
+
                 if let Some(protocol) = o.otel_exporter_otlp_protocol {
                     std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
                 }
@@ -262,7 +283,7 @@ pub async fn load_otel(db: &DB) {
                     std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
                 }
                 println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
-                o.otel_exporter_otlp_endpoint, o.otel_exporter_otlp_headers.is_some());
+                endpoint, headers.is_some());
             } else {
                 tracing::error!("Error deserializing otel settings");
             }
