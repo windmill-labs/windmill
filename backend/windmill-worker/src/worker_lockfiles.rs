@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
@@ -261,13 +262,36 @@ pub async fn handle_dependency_job(
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
-    let script_data = match job.script_hash {
-        Some(hash) => &cache::script::fetch(db, hash).await?.0,
+    let script_data = &match job.script_hash {
+        Some(hash) => match cache::script::fetch(db, hash).await {
+            Ok(d) => Cow::Owned(d.0),
+            Err(e) => {
+                let logs2 = sqlx::query_scalar!(
+                    "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+                    &job.id,
+                    &job.workspace_id
+                )
+                .fetch_optional(db)
+                .await?
+                .flatten()
+                .unwrap_or_else(|| "no logs".to_string());
+                sqlx::query!(
+                    "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+                    &format!("{logs2}\n{e}"),
+                    &job.script_hash.unwrap_or(ScriptHash(0)).0,
+                    &job.workspace_id
+                )
+                .execute(db)
+                .await?;
+                return Err(Error::ExecutionErr(format!("Error creating schema validator: {e}")))
+            }
+        },
         _ => match preview_data {
-            Some(RawData::Script(data)) => data,
+            Some(RawData::Script(data)) => Cow::Borrowed(data),
             _ => return Err(Error::internal_err("expected script hash")),
         },
     };
+
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
