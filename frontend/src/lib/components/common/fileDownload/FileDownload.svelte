@@ -15,7 +15,9 @@ focus-within:border-blue-500 hover:bg-blue-50 dark:hover:bg-frost-900 focus-with
 duration-200 rounded-lg p-1 gap-2"
 	href={`${base}/api/w/${workspaceId ?? $workspaceStore}${
 		appPath ? `/apps_u/download_s3_file/${appPath}` : '/job_helpers/download_s3_file'
-	}?file_key=${s3object?.s3}${s3object?.storage ? `&storage=${s3object.storage}` : ''}`}
+	}?file_key=${encodeURIComponent(s3object?.s3 ?? '')}${
+		s3object?.storage ? `&storage=${s3object.storage}` : ''
+	}`}
 	download={s3object?.s3.split('/').pop() ?? 'unnamed_download.file'}
 >
 	<Download />
