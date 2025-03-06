@@ -6,26 +6,24 @@
 	import { Popover } from '$lib/components/meltComponents'
 	import { CopyIcon, Eye, Loader2 } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import type { Placement } from '@floating-ui/dom'
 	import { isObjectTooBig } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
+	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions'
 
 	export let payloadData: Record<string, any> | string
 	export let date: string | undefined
 	export let hovering = false
-	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
 	export let viewerOpen = false
 	export let limitPayloadSize = false
 	export let forceLoad = false
 
-	let clientWidth = 0
 	let popover: Popover | undefined = undefined
 	let popoverOpen = false
 	let objectViewerLoaded = false
 	let popoverFullyOpened = false
 	let popoverOpenTimeout: ReturnType<typeof setTimeout> | null = null
 
-	const buttonWidth = 34
 	const dispatch = createEventDispatcher()
 	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
 	const isTooBig = payloadData === 'WINDMILL_TOO_BIG' || payloadTooBigForPreview
@@ -71,21 +69,12 @@
 		}).format(date)
 	}
 
-	const fallbackPlacements: Placement[] =
-		placement === 'top-start' ? ['bottom-start'] : ['top-start']
-	const floatingConfig = {
+	const floatingConfig: FloatingConfig = {
 		placement,
-		strategy: 'fixed',
-		offset: { mainAxis: 4, crossAxis: -buttonWidth },
+		strategy: 'absolute',
+		offset: { mainAxis: 4 },
 		gutter: 0,
-		middleware: [
-			{
-				name: 'flip',
-				options: {
-					fallbackPlacements
-				}
-			}
-		]
+		fitViewport: true
 	}
 
 	function handlePopoverChange(event: CustomEvent<boolean>) {
@@ -135,7 +124,7 @@
 </Cell>
 
 <Cell class="items-center flex flex-row gap-2">
-	<div class="flex items-center justify-center border grow min-w-0 rounded-md" bind:clientWidth>
+	<div class="flex items-center justify-center border grow min-w-0 rounded-md">
 		<div
 			class={twMerge(
 				'grow min-w-0 text-xs p-1 font-normal text-tertiary text-left  whitespace-nowrap overflow-hidden text-ellipsis',
@@ -148,6 +137,7 @@
 		<Popover
 			bind:this={popover}
 			class="w-fit"
+			contentClasses="overflow-auto"
 			usePointerDownOutside
 			closeOnOtherPopoverOpen
 			on:click={(e) => {
@@ -169,10 +159,7 @@
 			</svelte:fragment>
 
 			<svelte:fragment slot="content">
-				<div
-					class="relative p-2 overflow-auto max-h-[40vh]"
-					style={`width: ${clientWidth - buttonWidth}px; min-width: ${clientWidth - buttonWidth}px`}
-				>
+				<div class="relative p-2 max-w-[400px]">
 					{#if payloadData === 'WINDMILL_TOO_BIG'}
 						<div class="text-center text-tertiary text-xs">
 							{#if limitPayloadSize}
@@ -193,14 +180,17 @@
 							on:keydown
 						>
 							{#if !objectViewerLoaded && isTooBig}
-								<div class="flex justify-center items-center py-4">
+								<div class="flex justify-center items-center p-4">
 									<Loader2 size={20} class="animate-spin text-primary" />
 									<span class="ml-2 text-xs text-tertiary">Loading data...</span>
 								</div>
 							{/if}
 
 							{#if popoverFullyOpened || !isTooBig}
-								<div class={!objectViewerLoaded && isTooBig ? 'invisible h-0 overflow-hidden' : ''}>
+								<div
+									class={(!objectViewerLoaded && isTooBig ? 'invisible h-0 overflow-hidden' : '') +
+										' pr-6'}
+								>
 									<ObjectViewerWrapper
 										json={payloadData}
 										allowCopy

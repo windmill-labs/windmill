@@ -9,7 +9,7 @@
 	export let runnableType: RunnableType | undefined
 	export let selected: string | undefined = undefined
 	export let showAuthor = false
-	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
 	export let limitPayloadSize = false
 
 	let infiniteList: InfiniteList | undefined = undefined

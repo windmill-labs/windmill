@@ -12,7 +12,7 @@
 	export let loading: boolean = false
 	export let selected: string | undefined = undefined
 	export let showAuthor = false
-	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'top-end'
 	export let limitPayloadSize = false
 
 	let historicList: HistoricList | undefined = undefined

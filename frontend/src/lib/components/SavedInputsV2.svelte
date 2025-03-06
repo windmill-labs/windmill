@@ -113,7 +113,7 @@
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
 					showAuthor
-					placement="top-start"
+					placement="top-end"
 				/>
 			</Section>
 		</Pane>
