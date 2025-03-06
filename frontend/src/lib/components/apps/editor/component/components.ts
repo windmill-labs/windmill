@@ -485,6 +485,7 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
 		'svg encoded as base64'
@@ -3071,6 +3072,10 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: '/logo.svg',
 					fieldType: 'text',
 					fileUpload: {
+						accept: 'image/*',
+						convertTo: 'base64'
+					},
+					fileUploadS3: {
 						accept: 'image/*',
 						convertTo: 'base64'
 					}

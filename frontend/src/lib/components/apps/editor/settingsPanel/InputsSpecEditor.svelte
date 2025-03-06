@@ -5,13 +5,24 @@
 	import EvalInputEditor from './inputEditor/EvalInputEditor.svelte'
 	import RowInputEditor from './inputEditor/RowInputEditor.svelte'
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
+	import { Button } from '$lib/components/common'
 	import UploadInputEditor from './inputEditor/UploadInputEditor.svelte'
 	import { getContext, createEventDispatcher } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Loader2, Pen, Plug2, Upload, User } from 'lucide-svelte'
+	import {
+		FunctionSquare,
+		Loader2,
+		Pen,
+		Plug2,
+		Upload,
+		UploadCloud,
+		User,
+		Pipette
+	} from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
@@ -30,6 +41,7 @@
 	export let format: string | undefined
 	export let selectOptions: string[] | undefined
 	export let fileUpload: UploadAppInput['fileUpload'] | undefined = undefined
+	export let fileUploadS3: UploadAppInput['fileUploadS3'] | undefined = undefined
 	export let placeholder: string | undefined
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
@@ -44,11 +56,22 @@
 	export let markdownTooltip: string | undefined = undefined
 	export let securedContext = false
 
-	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
 	let evalV2editor: EvalV2InputEditor
+	let s3FilePicker: S3FilePicker | undefined
+	let s3PickerSelection: { s3: string; storage?: string } | undefined = undefined
+	let s3FolderPrefix: string = ''
+	$: s3PickerSelection && updateSelectedS3File()
+
+	function updateSelectedS3File() {
+		if (s3PickerSelection) {
+			componentInput['value'] = `s3://${s3PickerSelection.s3}`
+		}
+	}
+
 	function applyConnection(connection: InputConnection) {
 		const expr = `${connection.componentId}.${connection.path}`
 		//@ts-ignore
@@ -150,6 +173,15 @@
 						{#if fileUpload}
 							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 						{/if}
+						{#if fileUploadS3}
+							<ToggleButton
+								value="uploadS3"
+								icon={UploadCloud}
+								iconOnly
+								tooltip="Upload S3"
+								{item}
+							/>
+						{/if}
 						{#if componentInput?.type === 'connected'}
 							<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
 						{/if}
@@ -201,6 +233,38 @@
 			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
+		{:else if componentInput?.type === 'uploadS3'}
+			<div class="w-12/12 pb-2 flex flex-row mb-1 gap-1">
+				<input type="text" placeholder="S3 Folder prefix" bind:value={s3FolderPrefix} aria-label="S3 Folder prefix" />
+			</div>
+			<UploadInputEditor
+				bind:componentInput
+				fileUpload={fileUploadS3}
+				s3={true}
+				{workspace}
+				prefix={s3FolderPrefix}
+			/>
+			<Button
+				variant="border"
+				color="light"
+				size="xs"
+				btnClasses="mt-1"
+				on:click={() => {
+					s3PickerSelection = undefined
+					s3FilePicker?.open?.()
+				}}
+				startIcon={{ icon: Pipette }}
+			>
+				Choose an existing file
+			</Button>
+			<S3FilePicker
+				bind:this={s3FilePicker}
+				folderOnly={false}
+				fromWorkspaceSettings={true}
+				bind:selectedFileKey={s3PickerSelection}
+				readOnlyMode={false}
+				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
+			/>
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
 		{/if}

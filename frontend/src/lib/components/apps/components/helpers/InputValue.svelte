@@ -6,7 +6,8 @@
 		EvalAppInput,
 		EvalV2AppInput,
 		TemplateV2Input,
-		UploadAppInput
+		UploadAppInput,
+		UploadS3AppInput
 	} from '../../inputType'
 	import type {
 		AppEditorContext,
@@ -235,6 +236,8 @@
 			}
 		} else if (lastInput?.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
+		} else if (lastInput?.type == 'uploadS3') {
+			value = (lastInput as UploadS3AppInput).value
 		} else {
 			value = undefined
 		}
