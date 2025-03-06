@@ -542,7 +542,7 @@
 				if (additionalInformations?.triggers) {
 					return await getTriggerValue(additionalInformations.triggers.kind, path, workspace)
 				} else {
-					throw new Error(`Missing triggers informations`)
+					throw new Error(`Missing trigger information`)
 				}
 			} else {
 				throw new Error(`Unknown kind ${kind}`)
