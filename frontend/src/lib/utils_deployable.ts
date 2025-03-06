@@ -5,6 +5,7 @@ import {
 	MqttTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
+	ScheduleService,
 	SqsTriggerService,
 	WebsocketTriggerService,
 	type WorkspaceDeployUISettings
@@ -78,6 +79,8 @@ export async function existsTrigger(
 		return await WebsocketTriggerService.existsWebsocketTrigger(data)
 	} else if (triggerKind === 'nats') {
 		return await NatsTriggerService.existsNatsTrigger(data)
+	} else if (triggerKind === 'schedules') {
+		return await ScheduleService.existsSchedule(data)
 	}
 
 	throw new Error(`Unexpected trigger kind ${triggerKind}`)
@@ -161,134 +164,157 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 			createFn: HttpTriggerService.createHttpTrigger,
 			updateFn: HttpTriggerService.updateHttpTrigger
 		}
+	} else if (kind === 'schedules') {
+		const schedulesTrigger = await ScheduleService.getSchedule({
+			workspace: workspace!,
+			path: path
+		})
+		return {
+			data: schedulesTrigger,
+			createFn: ScheduleService.createSchedule,
+			updateFn: ScheduleService.updateSchedule
+		}
 	}
+
 	throw new Error(`Unexpected trigger kind got: ${kind}`)
 }
 
 export async function getTriggerValue(kind: TriggerKind, path: string, workspace: string) {
 	if (kind === 'sqs') {
-		const { script_path, queue_url, aws_resource_path, message_attributes, enabled } =
+		const { enabled, script_path, is_flow, queue_url, aws_resource_path, message_attributes } =
 			await SqsTriggerService.getSqsTrigger({
 				workspace: workspace!,
 				path: path
 			})
 
 		return {
+			enabled,
 			script_path,
+			is_flow,
 			queue_url,
 			aws_resource_path,
-			message_attributes,
-			enabled
+			message_attributes
 		}
 	} else if (kind === 'kafka') {
-		const { script_path, topics, kafka_resource_path, group_id, enabled } =
+		const { enabled, script_path, is_flow, kafka_resource_path, topics, group_id } =
 			await KafkaTriggerService.getKafkaTrigger({
 				workspace: workspace!,
 				path: path
 			})
 
 		return {
+			enabled,
 			script_path,
-			topics,
+			is_flow,
 			kafka_resource_path,
-			group_id,
-			enabled
+			topics,
+			group_id
 		}
 	} else if (kind === 'mqtt') {
 		const {
+			enabled,
 			script_path,
+			is_flow,
 			mqtt_resource_path,
 			v3_config,
 			v5_config,
-			subscribe_topics,
 			client_id,
-			client_version,
-			enabled
+			subscribe_topics,
+			client_version
 		} = await MqttTriggerService.getMqttTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
 		return {
+			enabled,
 			script_path,
+			is_flow,
 			mqtt_resource_path,
 			v3_config,
 			v5_config,
 			client_id,
 			subscribe_topics,
-			client_version,
-			enabled
+			client_version
 		}
 	} else if (kind === 'nats') {
 		const {
+			enabled,
 			script_path,
+			is_flow,
 			nats_resource_path,
 			use_jetstream,
 			stream_name,
 			consumer_name,
-			subjects,
-			enabled
+			subjects
 		} = await NatsTriggerService.getNatsTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
 		return {
+			enabled,
 			script_path,
+			is_flow,
 			nats_resource_path,
 			use_jetstream,
 			stream_name,
 			consumer_name,
-			subjects,
-			enabled
+			subjects
 		}
 	} else if (kind === 'postgres') {
 		const {
+			enabled,
 			script_path,
+			is_flow,
 			postgres_resource_path,
-			publication_name,
 			replication_slot_name,
-			enabled
+			publication_name
 		} = await PostgresTriggerService.getPostgresTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
 		return {
+			enabled,
 			script_path,
+			is_flow,
 			postgres_resource_path,
 			replication_slot_name,
-			publication_name,
-			enabled
+			publication_name
 		}
 	} else if (kind === 'websockets') {
 		const {
+			enabled,
 			script_path,
+			is_flow,
 			url,
 			url_runnable_args,
 			can_return_message,
 			filters,
-			initial_messages,
-			enabled
+			initial_messages
 		} = await WebsocketTriggerService.getWebsocketTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
 		return {
+			enabled,
 			script_path,
+			is_flow,
 			url,
 			url_runnable_args,
 			can_return_message,
 			filters,
-			initial_messages,
-			enabled
+			initial_messages
 		}
 	} else if (kind === 'routes') {
 		const {
+			script_path,
+			is_flow,
+			http_method,
 			route_path,
 			static_asset_config,
-			http_method,
 			is_async,
 			requires_auth,
 			is_static_website
@@ -298,14 +324,67 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 		})
 
 		return {
+			script_path,
+			is_flow,
+			http_method,
 			route_path,
 			static_asset_config,
-			http_method,
 			is_async,
 			requires_auth,
 			is_static_website
 		}
+	} else if (kind === 'schedules') {
+		const {
+			script_path,
+			is_flow,
+			on_failure,
+			schedule,
+			timezone,
+			on_failure_times,
+			on_failure_exact,
+			on_failure_extra_args,
+			on_recovery,
+			on_recovery_times,
+			on_recovery_extra_args,
+			on_success,
+			on_success_extra_args,
+			ws_error_handler_muted,
+			retry,
+			summary,
+			no_flow_overlap,
+			tag,
+			paused_until,
+			cron_version
+		} = await ScheduleService.getSchedule({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			script_path,
+			is_flow,
+			on_failure,
+			schedule,
+			timezone,
+			on_failure_times,
+			on_failure_exact,
+			on_failure_extra_args,
+			on_recovery,
+			on_recovery_times,
+			on_recovery_extra_args,
+			on_success,
+			on_success_extra_args,
+			ws_error_handler_muted,
+			retry,
+			summary,
+			no_flow_overlap,
+			tag,
+			paused_until,
+			cron_version
+		}
 	}
+
+	throw new Error(`Unexpected trigger kind got: ${kind}`)
 }
 
 function getKindValue(script_path: string, is_flow: boolean): { kind: Kind; path: string } {
@@ -371,7 +450,15 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 		})
 
 		result.push(getKindValue(script_path, is_flow))
-	}
+	} else if (kind === 'schedules') {
+		const { script_path, is_flow } = await ScheduleService.getSchedule({
+			workspace: workspace!,
+			path: path
+		})
 
+		result.push(getKindValue(script_path, is_flow))
+	} else {
+		throw new Error(`Unexpected trigger kind got: ${kind}`)
+	}
 	return result
 }

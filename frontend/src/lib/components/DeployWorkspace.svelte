@@ -428,6 +428,7 @@
 					)
 					if (alreadyExists) {
 						await updateFn({
+							path,
 							workspace: workspaceToDeployTo!,
 							requestBody: data
 						} as any)
