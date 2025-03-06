@@ -1128,3 +1128,38 @@ export type Item = {
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
 }
+
+export function isObjectTooBig(obj: any): boolean {
+	const MAX_DEPTH = 10
+	const MAX_ITEMS = 50
+
+	function analyze(obj: any, currentDepth: number = 0): { totalItems: number; maxDepth: number } {
+		if (currentDepth > MAX_DEPTH) {
+			return { totalItems: 1, maxDepth: currentDepth }
+		}
+
+		if (typeof obj !== 'object' || obj === null) {
+			return { totalItems: 1, maxDepth: currentDepth }
+		}
+
+		let totalItems = 1
+		let maxDepth = currentDepth
+
+		for (const key in obj) {
+			const result = analyze(obj[key], currentDepth + 1)
+
+			if (result.maxDepth > MAX_DEPTH) {
+				return result
+			}
+			totalItems += result.totalItems
+			if (result.maxDepth > maxDepth) {
+				maxDepth = result.maxDepth
+			}
+		}
+
+		return { totalItems, maxDepth }
+	}
+
+	const { totalItems, maxDepth } = analyze(obj)
+	return maxDepth > MAX_DEPTH || totalItems > MAX_ITEMS
+}

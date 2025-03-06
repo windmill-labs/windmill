@@ -87,7 +87,7 @@
 			<slot name="header" />
 			<Tabs bind:selected={mobileTab}>
 				<Tab value="form">Run form</Tab>
-				<Tab value="saved_inputs">Saved Inputs</Tab>
+				<Tab value="saved_inputs">Inputs</Tab>
 				{#if !isOperator}
 					<Tab value="triggers">Triggers</Tab>
 				{/if}
