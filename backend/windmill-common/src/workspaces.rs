@@ -27,7 +27,7 @@ pub enum ObjectType {
     ResourceType,
     User,
     Group,
-    Triggers
+    Trigger
 }
 
 #[derive(Serialize, Deserialize, Debug)]
