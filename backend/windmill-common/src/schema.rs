@@ -343,7 +343,7 @@ impl SchemaValidator {
         if let Some(draft_version) = schema.get("$schema") {
             match draft_version.as_str() {
                 Some("https://json-schema.org/draft/2020-12/schema") => (),
-                _ => return Err(anyhow!("Supplied scehma draft version is unsuported").into()),
+                _ => return Err(anyhow!("Supplied schema draft version is unsuported").into()),
             }
         } else {
             return Err(anyhow!("No draft version supplied").into());

@@ -2505,7 +2505,7 @@ async fn handle_code_execution_job(
                 )? {
                     schema_validator_from_main_arg_sig(&sig).validate(args)?;
                 } else {
-                    return Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be infered from the code for language `{language:?}`. Try removing schema validation for this job").into());
+                    return Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the code for language `{language:?}`. Try removing schema validation for this job").into());
                 }
             }
             append_logs(
