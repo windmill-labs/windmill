@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { MqttTriggerService, type MqttTrigger } from '$lib/gen'
+	import {
+		MqttTriggerService,
+		WorkspaceService,
+		type MqttTrigger,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import {
 		canWrite,
 		displayDate,
@@ -15,8 +20,8 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -30,12 +35,26 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
 	import { MqttIcon } from '$lib/components/icons'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	type TriggerM = MqttTrigger & { canWrite: boolean }
 
 	let triggers: TriggerM[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let deploymentDrawer: DeployWorkspaceDrawer
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 
 	async function loadTriggers(): Promise<void> {
 		triggers = (await MqttTriggerService.listMqttTriggers({ workspace: $workspaceStore! })).map(
@@ -199,6 +218,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <MqttTriggerEditor on:update={loadTriggers} bind:this={mqttTriggerEditor} />
 
 <SearchItems
@@ -374,6 +394,21 @@
 												mqttTriggerEditor?.openEdit(path, is_flow)
 											}
 										},
+										...(isDeployable('trigger', path, deployUiSettings)
+											? [
+													{
+														displayName: 'Deploy to prod/staging',
+														icon: FileUp,
+														action: () => {
+															deploymentDrawer.openDrawer(path, 'trigger', {
+																triggers: {
+																	kind: 'mqtt'
+																}
+															})
+														}
+													}
+											  ]
+											: []),
 										{
 											displayName: 'Audit logs',
 											icon: Eye,
