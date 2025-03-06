@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.475.0](https://github.com/windmill-labs/windmill/compare/v1.474.0...v1.475.0) (2025-03-06)
+
+
+### Features
+
+* **backend:** option to invalidate all sessions on logout ([#5419](https://github.com/windmill-labs/windmill/issues/5419)) ([e9044f0](https://github.com/windmill-labs/windmill/commit/e9044f0b9b1647e0fc74e5e3cce39a4fc2718672))
+* deploy triggers to prod/staging workspace ([#5429](https://github.com/windmill-labs/windmill/issues/5429)) ([b210ae3](https://github.com/windmill-labs/windmill/commit/b210ae36f7c1fd8860241aa5908cefc0ac956b7b))
+* **frontend:** improve flow suspend status display ([#5425](https://github.com/windmill-labs/windmill/issues/5425)) ([a845733](https://github.com/windmill-labs/windmill/commit/a8457337cec870e9e3d6a053f4fbe89f58229401))
+* **frontend:** pick image from workspace storage bucket ([#5382](https://github.com/windmill-labs/windmill/issues/5382)) ([8dbe0fa](https://github.com/windmill-labs/windmill/commit/8dbe0fa6446a34bd60484f1b5ac828ff9f892735))
+* kafka mTLS ([#5449](https://github.com/windmill-labs/windmill/issues/5449)) ([371c892](https://github.com/windmill-labs/windmill/commit/371c892f9aa43fe2757b4d23ee076781b237f11f))
+* MQTT triggers ([#5277](https://github.com/windmill-labs/windmill/issues/5277)) ([5c39037](https://github.com/windmill-labs/windmill/commit/5c39037aea35f9bdf780f1946abbb384533ee547))
+
+
+### Bug Fixes
+
+* **cli:** fix wmill user create-token with email and password ([a16cab0](https://github.com/windmill-labs/windmill/commit/a16cab0923f3be46f181dffc209a10c711873f86))
+* **frontend:** fix many s3 file picker bugs ([#5428](https://github.com/windmill-labs/windmill/issues/5428)) ([4fabc2a](https://github.com/windmill-labs/windmill/commit/4fabc2a8256b5088b1af61baf81355cd556d23e2))
+* **frontend:** improve capture payload preview ([#5417](https://github.com/windmill-labs/windmill/issues/5417)) ([fd56a63](https://github.com/windmill-labs/windmill/commit/fd56a639d21366bea5129409d805feefb22659c1))
+* improve objectviewer performance ([2444f4f](https://github.com/windmill-labs/windmill/commit/2444f4f23e5212fa4d2ff8542d864118d4b4feb9))
+* s3 file picker delete + better s3 path handling ([#5454](https://github.com/windmill-labs/windmill/issues/5454)) ([ae618c7](https://github.com/windmill-labs/windmill/commit/ae618c79dff08e8e9fe1f4ce69665ad7faeac006))
+
 ## [1.474.0](https://github.com/windmill-labs/windmill/compare/v1.473.1...v1.474.0) (2025-03-04)
 
 
