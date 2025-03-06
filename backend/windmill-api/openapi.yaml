@@ -15266,7 +15266,7 @@ components:
               - resource
               - variable
               - secret
-              - triggers
+              - trigger
 
     WorkspaceDefaultScripts:
       type: object

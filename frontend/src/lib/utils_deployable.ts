@@ -12,7 +12,7 @@ import {
 } from './gen'
 import type { TriggerKind } from './components/triggers'
 
-type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'triggers'
+type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger'
 
 export type Kind =
 	| 'script'
@@ -24,11 +24,11 @@ export type Kind =
 	| 'raw_app'
 	| 'resource_type'
 	| 'folder'
-	| 'triggers'
+	| 'trigger'
 
 export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
 	include_path: [],
-	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret', 'triggers']
+	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret', 'trigger']
 }
 
 export type AdditionalInformations = {
@@ -83,7 +83,9 @@ export async function existsTrigger(
 		return await ScheduleService.existsSchedule(data)
 	}
 
-	throw new Error(`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, websockets, nats, schedules.`)
+	throw new Error(
+		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, websockets, nats, schedules.`
+	)
 }
 
 export async function getTriggersDeployData(kind: TriggerKind, path: string, workspace: string) {
@@ -387,20 +389,40 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 	throw new Error(`Unexpected trigger kind got: ${kind}`)
 }
 
-function getKindValue(script_path: string, is_flow: boolean): { kind: Kind; path: string } {
-	return { kind: is_flow ? 'flow' : 'script', path: script_path }
+function retrieveScriptOrFlowKind(path: string, is_flow: boolean): { kind: Kind; path: string } {
+	return {
+		kind: is_flow ? 'flow' : 'script',
+		path
+	}
+}
+
+function retrieveKindsValues({
+	resource_path,
+	script_path,
+	is_flow
+}: {
+	resource_path?: string
+	script_path: string
+	is_flow: boolean
+}) {
+	const result: { kind: Kind; path: string }[] = []
+
+	if (resource_path) {
+		result.push({ kind: 'resource', path: resource_path })
+	}
+	result.push(retrieveScriptOrFlowKind(script_path, is_flow))
+	return result
 }
 
 export async function getTriggerDependency(kind: TriggerKind, path: string, workspace: string) {
-	const result: { kind: Kind; path: string }[] = []
+	let result: { kind: Kind; path: string }[]
 	if (kind === 'sqs') {
 		const { aws_resource_path, script_path, is_flow } = await SqsTriggerService.getSqsTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
-		result.push({ kind: 'resource', path: aws_resource_path })
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ resource_path: aws_resource_path, script_path, is_flow })
 	} else if (kind === 'kafka') {
 		const { kafka_resource_path, script_path, is_flow } = await KafkaTriggerService.getKafkaTrigger(
 			{
@@ -409,24 +431,21 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 			}
 		)
 
-		result.push({ kind: 'resource', path: kafka_resource_path })
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ resource_path: kafka_resource_path, script_path, is_flow })
 	} else if (kind === 'mqtt') {
 		const { mqtt_resource_path, script_path, is_flow } = await MqttTriggerService.getMqttTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
-		result.push({ kind: 'resource', path: mqtt_resource_path })
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ resource_path: mqtt_resource_path, script_path, is_flow })
 	} else if (kind === 'nats') {
 		const { nats_resource_path, script_path, is_flow } = await NatsTriggerService.getNatsTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
-		result.push({ kind: 'resource', path: nats_resource_path })
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ resource_path: nats_resource_path, script_path, is_flow })
 	} else if (kind === 'postgres') {
 		const { postgres_resource_path, script_path, is_flow } =
 			await PostgresTriggerService.getPostgresTrigger({
@@ -434,29 +453,45 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 				path: path
 			})
 
-		result.push({ kind: 'resource', path: postgres_resource_path })
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ resource_path: postgres_resource_path, script_path, is_flow })
 	} else if (kind === 'websockets') {
-		const { script_path, is_flow } = await WebsocketTriggerService.getWebsocketTrigger({
-			workspace: workspace!,
-			path: path
-		})
+		const { script_path, is_flow, url, initial_messages } =
+			await WebsocketTriggerService.getWebsocketTrigger({
+				workspace: workspace!,
+				path: path
+			})
 
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ script_path, is_flow })
+
+		const SCRIPT_PREFIX = '$script:'
+		const FLOW_PREFIX = '$flow:'
+
+		if (url.startsWith(SCRIPT_PREFIX))
+			result.push(retrieveScriptOrFlowKind(url.substring(SCRIPT_PREFIX.length), false))
+		else if (url.startsWith(FLOW_PREFIX))
+			result.push(retrieveScriptOrFlowKind(url.substring(FLOW_PREFIX.length), true))
+
+		initial_messages?.map((message) => {
+			if ('runnable_result' in message) {
+				result.push(
+					retrieveScriptOrFlowKind(message.runnable_result.path, message.runnable_result.is_flow)
+				)
+			}
+		})
 	} else if (kind === 'routes') {
 		const { script_path, is_flow } = await HttpTriggerService.getHttpTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ script_path, is_flow })
 	} else if (kind === 'schedules') {
 		const { script_path, is_flow } = await ScheduleService.getSchedule({
 			workspace: workspace!,
 			path: path
 		})
 
-		result.push(getKindValue(script_path, is_flow))
+		result = retrieveKindsValues({ script_path, is_flow })
 	} else {
 		throw new Error(`Unexpected trigger kind got: ${kind}`)
 	}

@@ -540,7 +540,7 @@
 					resources: (settings.deploy_ui.include_type?.indexOf('resource') ?? -1) >= 0,
 					variables: (settings.deploy_ui.include_type?.indexOf('variable') ?? -1) >= 0,
 					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0,
-					triggers: (settings.deploy_ui.include_type?.indexOf('triggers') ?? -1) >= 0
+					triggers: (settings.deploy_ui.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
 		}

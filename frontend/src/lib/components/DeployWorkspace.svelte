@@ -147,7 +147,7 @@
 				}
 
 				return [...recObj(res.value), { kind: 'resource_type', path: res.resource_type }]
-			} else if (kind == 'triggers') {
+			} else if (kind == 'trigger') {
 				if (additionalInformations?.triggers) {
 					return getTriggerDependency(additionalInformations.triggers.kind, path, $workspaceStore!)
 				}
@@ -222,7 +222,7 @@
 					workspace: workspaceToDeployTo!,
 					name: path
 				})
-			} else if (kind === 'triggers') {
+			} else if (kind === 'trigger') {
 				if (additionalInformations?.triggers) {
 					exists = await existsTrigger(
 						{ workspace: workspaceToDeployTo!, path },
@@ -419,7 +419,7 @@
 						name: path
 					}
 				})
-			} else if (kind === 'triggers') {
+			} else if (kind === 'trigger') {
 				if (additionalInformations?.triggers) {
 					const { data, createFn, updateFn } = await getTriggersDeployData(
 						additionalInformations.triggers.kind,
@@ -538,7 +538,7 @@
 				return {
 					name: folder.name
 				}
-			} else if (kind == 'triggers') {
+			} else if (kind == 'trigger') {
 				if (additionalInformations?.triggers) {
 					return await getTriggerValue(additionalInformations.triggers.kind, path, workspace)
 				} else {

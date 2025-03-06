@@ -414,13 +414,13 @@
 													kafkaTriggerEditor?.openEdit(path, is_flow)
 												}
 											},
-											...(isDeployable('triggers', path, deployUiSettings)
+											...(isDeployable('trigger', path, deployUiSettings)
 												? [
 														{
 															displayName: 'Deploy to prod/staging',
 															icon: FileUp,
 															action: () => {
-																deploymentDrawer.openDrawer(path, 'triggers', {
+																deploymentDrawer.openDrawer(path, 'trigger', {
 																	triggers: {
 																		kind: 'kafka'
 																	}

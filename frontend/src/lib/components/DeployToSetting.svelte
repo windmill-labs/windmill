@@ -22,7 +22,7 @@
 		secrets: boolean
 		triggers: boolean
 	}
-	type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'triggers'
+	type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger'
 
 	const all_ok: DeployUITypeMap = {
 		scripts: true,
@@ -66,7 +66,7 @@
 			result.push('secret')
 		}
 		if (typesMap.triggers == expectedValue) {
-			result.push('triggers')
+			result.push('trigger')
 		}
 		return result
 	}
@@ -193,7 +193,7 @@
 			</div>
 			<Toggle
 				bind:checked={deployUiSettings.include_type.triggers}
-				options={{ right: 'Triggers' }}
+				options={{ right: 'Trigger' }}
 			/>
 		</div>
 	</div>
