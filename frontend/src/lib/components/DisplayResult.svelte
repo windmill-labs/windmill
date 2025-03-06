@@ -729,7 +729,8 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
+										}?file_key=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
@@ -740,7 +741,8 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
+										}?file_key=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{/if}
@@ -798,8 +800,9 @@
 											<img
 												alt="preview rendered"
 												class="w-auto h-full"
-												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
-													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+													s3object.s3
+												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
 											/>
 										</div>
 									{:else}
@@ -815,8 +818,9 @@
 									<div class="h-96 mt-2 border">
 										<PdfViewer
 											allowFullscreen
-											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
-												(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+												s3object.s3
+											)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
 										/>
 									</div>
 								{/if}

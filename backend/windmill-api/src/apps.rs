@@ -1850,7 +1850,8 @@ async fn delete_s3_file_from_app(
 
     let s3_client = build_object_store_client(&s3_resource).await?;
 
-    let path = object_store::path::Path::from(file_key.as_str());
+    let path = object_store::path::Path::parse(file_key.as_str())
+        .map_err(|e| Error::internal_err(format!("Error parsing file key: {}", e)))?;
 
     s3_client.delete(&path).await.map_err(|err| {
         tracing::error!("Error deleting file: {:?}", err);
