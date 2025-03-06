@@ -263,6 +263,7 @@
 				fromWorkspaceSettings={true}
 				bind:selectedFileKey={s3PickerSelection}
 				readOnlyMode={false}
+				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
 			/>
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
