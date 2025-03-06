@@ -8,7 +8,7 @@
 	export let payloadData: any | undefined = undefined
 	export let hovering = false
 	export let showAuthor = false
-	export let placement: 'bottom-start' | 'top-start' = 'bottom-start'
+	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
 	export let viewerOpen = false
 	export let limitPayloadSize = false
 </script>

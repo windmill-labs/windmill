@@ -71,7 +71,7 @@
 
 	const floatingConfig: FloatingConfig = {
 		placement,
-		strategy: 'absolute',
+		strategy: 'fixed',
 		offset: { mainAxis: 4 },
 		gutter: 0,
 		fitViewport: true
