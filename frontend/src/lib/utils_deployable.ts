@@ -31,7 +31,7 @@ export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
 	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret', 'trigger']
 }
 
-export type AdditionalInformations = {
+export type AdditionalInformation = {
 	triggers?: {
 		kind: TriggerKind
 	}

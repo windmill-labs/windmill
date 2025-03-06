@@ -27,7 +27,7 @@
 		getTriggerDependency,
 		getTriggersDeployData,
 		getTriggerValue,
-		type AdditionalInformations,
+		type AdditionalInformation,
 		type Kind
 	} from '$lib/utils_deployable'
 	import { sendUserToast } from '$lib/toast'
@@ -36,7 +36,7 @@
 
 	export let kind: Kind
 	export let initialPath: string = ''
-	export let additionalInformations: AdditionalInformations | undefined = undefined
+	export let additionalInformation: AdditionalInformation | undefined = undefined
 	export let workspaceToDeployTo: string | undefined = undefined
 	export let hideButton: boolean = false
 
@@ -148,8 +148,8 @@
 
 				return [...recObj(res.value), { kind: 'resource_type', path: res.resource_type }]
 			} else if (kind == 'trigger') {
-				if (additionalInformations?.triggers) {
-					return getTriggerDependency(additionalInformations.triggers.kind, path, $workspaceStore!)
+				if (additionalInformation?.triggers) {
+					return getTriggerDependency(additionalInformation.triggers.kind, path, $workspaceStore!)
 				}
 				throw new Error('Missing trigger information')
 			}
@@ -223,10 +223,10 @@
 					name: path
 				})
 			} else if (kind === 'trigger') {
-				if (additionalInformations?.triggers) {
+				if (additionalInformation?.triggers) {
 					exists = await existsTrigger(
 						{ workspace: workspaceToDeployTo!, path },
-						additionalInformations.triggers.kind
+						additionalInformation.triggers.kind
 					)
 				} else {
 					throw new Error('Missing triggers kind')
@@ -420,9 +420,9 @@
 					}
 				})
 			} else if (kind === 'trigger') {
-				if (additionalInformations?.triggers) {
+				if (additionalInformation?.triggers) {
 					const { data, createFn, updateFn } = await getTriggersDeployData(
-						additionalInformations.triggers.kind,
+						additionalInformation.triggers.kind,
 						path,
 						$workspaceStore!
 					)
@@ -539,8 +539,8 @@
 					name: folder.name
 				}
 			} else if (kind == 'trigger') {
-				if (additionalInformations?.triggers) {
-					return await getTriggerValue(additionalInformations.triggers.kind, path, workspace)
+				if (additionalInformation?.triggers) {
+					return await getTriggerValue(additionalInformation.triggers.kind, path, workspace)
 				} else {
 					throw new Error(`Missing trigger information`)
 				}
