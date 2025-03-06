@@ -40,7 +40,24 @@ impl SchemaValidationRule {
         match p {
             JsonPrimitiveType::String => {
                 schema_rules.push(SchemaValidationRule::IsString);
+
+                if let Some(format) = val.get("format").and_then(|f| f.as_str()) {
+                    if format == "date" || format == "date-time" {
+                        schema_rules.push(SchemaValidationRule::IsDatetime);
+                    }
+
+                    if format == "email" {
+                        schema_rules.push(SchemaValidationRule::IsEmail);
+                    }
+                }
+
+                if let Some(encoding) = val.get("contentEncoding").and_then(|e| e.as_str()) {
+                    if encoding == "base64" {
+                        schema_rules.push(SchemaValidationRule::IsBytes);
+                    }
+                }
             }
+
             JsonPrimitiveType::Number => {
                 schema_rules.push(SchemaValidationRule::IsNumber);
             }
@@ -50,17 +67,39 @@ impl SchemaValidationRule {
             JsonPrimitiveType::Object => {
                 let mut obj_rules = vec![];
 
-                let properties = val
-                    .get("properties")
-                    .ok_or(anyhow!("Object type should have field `properties`"))?
-                    .as_object()
-                    .ok_or(anyhow!("Field properties should be an object"))?;
+                if let Some(properties) = val.get("properties") {
+                    let properties = properties
+                        .as_object()
+                        .ok_or(anyhow!("Field properties should be an object"))?;
 
-                for (key, v) in properties {
-                    obj_rules.push((key.clone(), SchemaValidationRule::from_value(v)?))
+                    for (key, v) in properties {
+                        obj_rules.push((key.clone(), SchemaValidationRule::from_value(v)?))
+                    }
+
+                    schema_rules.push(SchemaValidationRule::IsObject(obj_rules));
+                } else if let Some(one_of) = val.get("oneOf") {
+                    let one_of = one_of
+                        .as_array()
+                        .ok_or(anyhow!("`oneOf` needs to be an array"))?;
+                    let mut rules = vec![];
+
+                    for variant in one_of {
+                        rules.push(SchemaValidationRule::from_value(variant)?);
+                    }
+
+                    schema_rules.push(SchemaValidationRule::IsUnionType(rules))
+                } else {
+                    let is_resource = val
+                        .get("format")
+                        .and_then(|f| f.as_str())
+                        .map(|f| f.starts_with("resource"))
+                        .unwrap_or(false);
+                    if !is_resource {
+                        return Err(anyhow!(
+                        "Object type should have a `properties` or `anyOf` field, or be a resource"
+                        ));
+                    }
                 }
-
-                schema_rules.push(SchemaValidationRule::IsObject(obj_rules));
             }
             JsonPrimitiveType::Array => {
                 let items = val
@@ -83,6 +122,15 @@ impl SchemaValidationRule {
     }
 
     fn from_value(val: &Value) -> Result<Vec<Self>, Error> {
+        if let Some(any_of) = val.get("anyOf").and_then(|any_of| any_of.as_array()) {
+            let mut r = vec![];
+
+            for variant in any_of {
+                r.push(SchemaValidationRule::from_value(variant)?);
+            }
+            return Ok(vec![SchemaValidationRule::IsUnionType(r)]);
+        }
+
         let mut schema_rules = vec![];
 
         let typ = val.get("type").ok_or(anyhow!("Missing `type` field"))?;
@@ -212,6 +260,7 @@ impl SchemaValidationRule {
                     )));
                 }
             }
+            // TODO: Implement validation on these
             SchemaValidationRule::IsDatetime => (),
             SchemaValidationRule::IsEmail => (),
             SchemaValidationRule::IsBytes => (),
@@ -359,5 +408,177 @@ impl JsonPrimitiveType {
             }
             other => return Err(anyhow!("Received unsupported type `{other}`").into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn value_to_rawvalue_map(value: Value) -> Result<HashMap<String, Box<RawValue>>, anyhow::Error> {
+        match value {
+            Value::Object(map) => {
+                let mut result = HashMap::new();
+                for (key, val) in map {
+                    let raw = serde_json::to_string(&val)?; // Serialize the Value to a string
+                    let raw_value: Box<RawValue> = serde_json::from_str(&raw)?; // Convert string to Box<RawValue>
+                    result.insert(key, raw_value);
+                }
+                Ok(result)
+            }
+            _ => Err(anyhow!("Expected a JSON object")),
+        }
+    }
+    #[test]
+    fn test_parse_and_validate_schema() {
+        let schema = r#"{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "a": {
+            "contentEncoding": "base64",
+            "default": null,
+            "description": "",
+            "originalType": "bytes",
+            "type": "string"
+        },
+        "b": {
+            "default": null,
+            "description": "",
+            "enum": [
+                "my",
+                "enum"
+            ],
+            "originalType": "enum",
+            "type": "string"
+        },
+        "e": {
+            "default": "inferred type string from default arg",
+            "description": "",
+            "originalType": "string",
+            "type": "string"
+        },
+        "f": {
+            "default": {
+                "nested": "object"
+            },
+            "description": "",
+            "properties": {
+                "nested": {
+                    "description": "",
+                    "type": "string",
+                    "originalType": "string"
+                }
+            },
+            "type": "object"
+        },
+        "g": {
+            "default": null,
+            "description": "",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "Variant 1",
+                    "properties": {
+                        "label": {
+                            "description": "",
+                            "type": "string",
+                            "originalType": "enum",
+                            "enum": [
+                                "Variant 1"
+                            ]
+                        },
+                        "foo": {
+                            "description": "",
+                            "type": "string",
+                            "originalType": "string"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "title": "Variant 2",
+                    "properties": {
+                        "label": {
+                            "description": "",
+                            "type": "string",
+                            "originalType": "enum",
+                            "enum": [
+                                "Variant 2"
+                            ]
+                        },
+                        "bar": {
+                            "description": "",
+                            "type": "number"
+                        }
+                    }
+                }
+            ],
+            "type": "object"
+        }
+    },
+    "required": [
+        "a",
+        "b",
+        "g"
+    ],
+    "type": "object"
+}
+"#;
+
+        let validator = SchemaValidator::from_schema(schema)
+            .expect("Schema couldn't be built from a valid schema");
+
+        let args = json!(
+                    {
+                        "g": {
+                                "label": "Variant 1",
+                                "foo": ""
+                        },
+                        "f": {
+                                "nested": "object"
+                        },
+                        "e": "inferred type string from default arg",
+                        "b": "my",
+                        "a": null
+                    }
+        );
+
+        validator.validate(&value_to_rawvalue_map(args).unwrap()).err().expect("Validation should not work for this");
+
+        let args = json!(
+                    {
+                        "g": {
+                                "label": "Variant 1",
+                                "foo": ""
+                        },
+                        "f": {
+                                "nested": "object"
+                        },
+                        "e": "inferred type string from default arg",
+                        "b": "not_enum",
+                        "a": "123"
+                    }
+        );
+
+        validator.validate(&value_to_rawvalue_map(args).unwrap()).err().expect("Validation should not work for this");
+
+        let args = json!(
+                    {
+                        "g": {
+                                "label": "Variant 1",
+                                "foo": ""
+                        },
+                        "f": {
+                                "nested": "object"
+                        },
+                        "e": "inferred type string from default arg",
+                        "b": "my",
+                        "a": "123"
+                    }
+        );
+
+        validator.validate(&value_to_rawvalue_map(args).unwrap()).expect("Validation should work for this");
     }
 }
