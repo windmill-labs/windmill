@@ -451,7 +451,7 @@ const buttonColorOptions = [...BUTTON_COLORS]
 export const selectOptions = {
 	buttonColorOptions,
 	tabsKindOptions: ['tabs', 'sidebar', 'accordion', 'invisibleOnView'],
-	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
+	buttonSizeOptions: ['xs2', 'xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
 	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
 	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
@@ -485,6 +485,7 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
 		'svg encoded as base64'
@@ -3073,6 +3074,10 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'image/*',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'image/*',
+						convertTo: 'base64'
 					}
 				},
 				sourceKind: {
@@ -3688,6 +3693,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								fieldType: 'boolean',
 								tooltip: 'If allowed, the user will be able to select more than one file'
 							},
+							allowDelete: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to delete files'
+							},
 							text: {
 								type: 'static',
 								value: 'Drag and drop files or click to select them',
@@ -4157,7 +4168,22 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				defaultRefreshInterval: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: [
+						{ value: '0', label: 'Once' },
+						{ value: '5', label: 'Every 5 seconds' },
+						{ value: '10', label: 'Every 10 seconds' },
+						{ value: '15', label: 'Every 15 seconds' },
+						{ value: '20', label: 'Every 20 seconds' },
+						{ value: '25', label: 'Every 25 seconds' },
+						{ value: '30', label: 'Every 30 seconds' }
+					],
+					value: '0'
+				}
+			},
 			menuItems: true
 		}
 	}

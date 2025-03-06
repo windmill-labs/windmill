@@ -15,7 +15,6 @@
 	import GridViewer from './GridViewer.svelte'
 	import Component from './component/Component.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { columnConfiguration } from '../gridUtils'
 	import { deepEqual } from 'fast-equals'
 	import { dfs, maxHeight } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
@@ -127,7 +126,11 @@
 
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: worldStore,
-		initialized: writable({ initialized: false, initializedComponents: [] }),
+		initialized: writable({
+			initialized: false,
+			initializedComponents: [],
+			runnableInitialized: {}
+		}),
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,
@@ -292,8 +295,6 @@
 					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
-					let:hidden
-					cols={columnConfiguration}
 					{maxRow}
 					breakpoint={$breakpoint}
 				>
@@ -308,7 +309,6 @@
 							selected={false}
 							locked={true}
 							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-							{hidden}
 						/>
 					</div>
 				</GridViewer>

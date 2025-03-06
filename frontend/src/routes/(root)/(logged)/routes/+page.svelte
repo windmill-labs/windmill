@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
+	import {
+		HttpTriggerService,
+		WorkspaceService,
+		type HttpTrigger,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -9,8 +14,8 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { Route, Code, Eye, Pen, Plus, Share, Trash } from 'lucide-svelte'
+	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
+	import { Route, Code, Eye, Pen, Plus, Share, Trash, FileUp } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -21,13 +26,26 @@
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
 	import RouteEditor from '$lib/components/triggers/http/RouteEditor.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let deploymentDrawer: DeployWorkspaceDrawer
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
 		triggers = (await HttpTriggerService.listHttpTriggers({ workspace: $workspaceStore! })).map(
 			(x) => {
@@ -151,6 +169,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <RouteEditor on:update={loadTriggers} bind:this={routeEditor} />
 
 <SearchItems
@@ -183,9 +202,9 @@
 				<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind}>
-						<ToggleButton small value="trigger" label="Route" icon={Route} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+						<ToggleButton small value="trigger" label="Route" icon={Route} {item} />
+						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
@@ -293,6 +312,21 @@
 													routeEditor?.openEdit(path, is_flow)
 												}
 											},
+											...(isDeployable('trigger', path, deployUiSettings)
+												? [
+														{
+															displayName: 'Deploy to prod/staging',
+															icon: FileUp,
+															action: () => {
+																deploymentDrawer.openDrawer(path, 'trigger', {
+																	triggers: {
+																		kind: 'routes'
+																	}
+																})
+															}
+														}
+												  ]
+												: []),
 											{
 												displayName: 'Audit logs',
 												icon: Eye,

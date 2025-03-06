@@ -6,10 +6,11 @@
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import { Download, PanelRightOpen } from 'lucide-svelte'
+	import { Download, PanelRightOpen, TriangleAlertIcon } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
+	import Popover from '../Popover.svelte'
 
 	export let json: any
 	export let level = 0
@@ -133,6 +134,7 @@
 
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
+								{connecting}
 								json={json[key]}
 								level={level + 1}
 								currentPath={computeFullKey(key, rawKey)}
@@ -166,6 +168,17 @@
 									<span class="text-2xs">null</span>
 								{:else if typeof json[key] == 'string'}
 									<span class="text-2xs">"{truncate(json[key], 200)}"</span>
+								{:else if typeof json[key] == 'number' && Number.isInteger(json[key]) && !Number.isSafeInteger(json[key])}
+									<span class="inline-flex flex-row gap-1 items-center text-2xs">
+										{truncate(JSON.stringify(json[key]), 200)}
+										<Popover>
+											<TriangleAlertIcon size={14} class="text-yellow-500 mb-0.5" />
+											<svelte:fragment slot="text">
+												This number is too large for the frontend to handle correctly and may be
+												rounded.
+											</svelte:fragment>
+										</Popover>
+									</span>
 								{:else}
 									<span class="text-2xs">
 										{truncate(JSON.stringify(json[key]), 200)}
@@ -188,9 +201,9 @@
 					{#if getTypeAsString(json) === 's3object'}
 						<a
 							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
-							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}${
-								json?.storage ? `&storage=${json.storage}` : ''
-							}`}
+							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+								json?.s3 ?? ''
+							)}${json?.storage ? `&storage=${json.storage}` : ''}`}
 							download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
 						>
 							<span class="flex items-center gap-1"><Download size={12} />download</span>

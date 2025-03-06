@@ -12,7 +12,7 @@ use crate::db::ApiAuthed;
 use crate::triggers::{
     get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
 };
-use crate::utils::WithStarredInfoQuery;
+use crate::utils::{RunnableKind, WithStarredInfoQuery};
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -59,11 +59,16 @@ pub fn workspaced_service() -> Router {
         .route("/get_triggers_count/*path", get(get_triggers_count))
         .route("/list_tokens/*path", get(list_tokens))
         .route("/get/*path", get(get_flow_by_path))
+        .route("/deployment_status/p/*path", get(get_deployment_status))
         .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
         .route("/history/p/*path", get(get_flow_history))
         .route("/get_latest_version/*path", get(get_latest_version))
+        .route(
+            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route(
             "/history_update/v/:version/p/*path",
             post(update_flow_history),
@@ -323,6 +328,28 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT f.path
+            FROM flow_workspace_runnables fwr 
+            JOIN flow f 
+                ON fwr.flow_path = f.path AND fwr.workspace_id = f.workspace_id
+            WHERE fwr.runnable_path = $1 AND fwr.runnable_is_flow = $2 AND fwr.workspace_id = $3"#,
+        path.to_path(),
+        matches!(runnable_kind, RunnableKind::Flow),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
+}
+
 async fn create_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -356,8 +383,8 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, \
-         dependency_job, draft_only, tag, dedicated_worker, visible_to_runner_only, on_behalf_of_email, value, schema, edited_by, edited_at) 
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11::text::json, $12, now())",
+         dependency_job, lock_error_logs, draft_only, tag, dedicated_worker, visible_to_runner_only, on_behalf_of_email, value, schema, edited_by, edited_at) 
+         VALUES ($1, $2, $3, $4, NULL, '', $5, $6, $7, $8, $9, $10, $11::text::json, $12, now())",
         w_id,
         nf.path,
         nf.summary,
@@ -683,7 +710,7 @@ async fn update_flow(
 
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3,\
-        dependency_job = NULL, draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, on_behalf_of_email = $7, \
+        dependency_job = NULL, lock_error_logs = '', draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, on_behalf_of_email = $7, \
         value = $8, schema = $9::text::json, edited_by = $10, edited_at = now()
         WHERE path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path }, // if new path, do not rename directly (to avoid flow_version foreign key constraint)
@@ -950,6 +977,31 @@ async fn list_tokens(
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
+#[derive(FromRow, Serialize)]
+struct DeploymentStatus {
+    lock_error_logs: Option<String>,
+}
+async fn get_deployment_status(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<DeploymentStatus> {
+    let path = path.to_path();
+    let mut tx = db.begin().await?;
+    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
+        DeploymentStatus,
+        "SELECT lock_error_logs FROM flow WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let status = not_found_if_none(status_o, "DeploymentStatus", path)?;
+
+    tx.commit().await?;
+    Ok(Json(status))
+}
+
 async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -961,7 +1013,7 @@ async fn get_flow_by_path(
 
     let flow_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
+            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
             FROM flow
             LEFT JOIN favorite
             ON favorite.favorite_kind = 'flow' 
@@ -978,7 +1030,7 @@ async fn get_flow_by_path(
             .await?
     } else {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
+            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
             FROM flow
             LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
             WHERE flow.path = $1 AND flow.workspace_id = $2"

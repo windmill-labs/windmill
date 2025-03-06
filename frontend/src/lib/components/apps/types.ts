@@ -22,7 +22,8 @@ import type {
 	StaticAppInput,
 	TemplateV2AppInput,
 	UploadAppInput,
-	UserAppInput
+	UploadS3AppInput,
+	UserAppInput,
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
@@ -59,6 +60,7 @@ export type Configuration =
 	| EvalAppInput
 	| EvalV2AppInput
 	| UploadAppInput
+	| UploadS3AppInput
 	| ResultAppInput
 	| TemplateV2AppInput
 
@@ -139,13 +141,13 @@ export type HiddenRunnable = {
 
 export type AppTheme =
 	| {
-			type: 'path'
-			path: string
-	  }
+		type: 'path'
+		path: string
+	}
 	| {
-			type: 'inlined'
-			css: string
-	  }
+		type: 'inlined'
+		css: string
+	}
 
 export type App = {
 	grid: GridItem[]
@@ -162,6 +164,7 @@ export type App = {
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 	theme: AppTheme | undefined
+	lazyInitRequire?: string[] | undefined
 	hideLegacyTopBar?: boolean | undefined
 	mobileViewOnSmallerScreens?: boolean | undefined
 	version?: number
@@ -199,6 +202,7 @@ export type AppViewerContext = {
 	initialized: Writable<{
 		initializedComponents: string[]
 		initialized: boolean
+		runnableInitialized: Record<string, any>
 	}>
 	selectedComponent: Writable<string[] | undefined>
 	mode: Writable<EditorMode>
@@ -282,7 +286,7 @@ export type AppViewerContext = {
 	policy: Policy
 
 	recomputeAllContext: Writable<{
-		onClick?: () => void
+		onRefresh?: (excludeId?: string) => void
 		componentNumber?: number | undefined
 		interval?: number | undefined
 		refreshing?: string[] | undefined

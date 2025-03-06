@@ -120,26 +120,28 @@
 		{/if}
 		<div class="flex flex-col w-full gap-4">
 			<label class="block grow w-full">
-				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-					<div>
-						Path
-						<Required required={true} />
+				<div class="flex flex-col gap-1">
+					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+						<div>
+							Path
+							<Required required={true} />
+						</div>
+						<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
 					</div>
-					<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
+					<!-- svelte-ignore a11y-autofocus -->
+					<input
+						type="text"
+						autocomplete="off"
+						bind:value={route_path}
+						disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+						class={routeError === ''
+							? ''
+							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+						on:input={() => {
+							dirtyRoutePath = true
+						}}
+					/>
 				</div>
-				<!-- svelte-ignore a11y-autofocus -->
-				<input
-					type="text"
-					autocomplete="off"
-					bind:value={route_path}
-					disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-					class={routeError === ''
-						? ''
-						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-					on:input={() => {
-						dirtyRoutePath = true
-					}}
-				/>
 			</label>
 
 			<ToggleButtonGroup
@@ -148,12 +150,13 @@
 				disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
 					!can_write ||
 					!!static_asset_config}
+				let:item
 			>
-				<ToggleButton label="GET" value="get" />
-				<ToggleButton label="POST" value="post" />
-				<ToggleButton label="PUT" value="put" />
-				<ToggleButton label="PATCH" value="patch" />
-				<ToggleButton label="DELETE" value="delete" />
+				<ToggleButton label="GET" value="get" {item} />
+				<ToggleButton label="POST" value="post" {item} />
+				<ToggleButton label="PUT" value="put" {item} />
+				<ToggleButton label="PATCH" value="patch" {item} />
+				<ToggleButton label="DELETE" value="delete" {item} />
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full mt-2">
 				<div class="flex justify-start w-full">

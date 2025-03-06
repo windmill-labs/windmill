@@ -1,14 +1,11 @@
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
+use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use object_store::ObjectStore;
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use std::sync::Arc;
@@ -22,11 +19,10 @@ pub async fn build_tar_and_push(
     folder: String,
     // python_311
     python_xyz: String,
-    no_uv: bool,
 ) -> error::Result<()> {
     use object_store::path::Path;
 
-    use crate::{TAR_PIP_CACHE_DIR, TAR_PYBASE_CACHE_DIR};
+    use crate::TAR_PYBASE_CACHE_DIR;
 
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
@@ -34,11 +30,7 @@ pub async fn build_tar_and_push(
     // e.g. tiny==1.0.0
     let folder_name = folder.split("/").last().unwrap();
 
-    let prefix = if no_uv {
-        TAR_PIP_CACHE_DIR
-    } else {
-        &format!("{TAR_PYBASE_CACHE_DIR}/{}", python_xyz)
-    };
+    let prefix = &format!("{TAR_PYBASE_CACHE_DIR}/{}", python_xyz);
     let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
@@ -59,10 +51,7 @@ pub async fn build_tar_and_push(
     // })?;
     if let Err(e) = s3_client
         .put(
-            &Path::from(format!(
-                "/tar/{TARGET}/{}/{folder_name}.tar",
-                if no_uv { "pip" } else { &python_xyz }
-            )),
+            &Path::from(format!("/tar/{TARGET}/{python_xyz}/{folder_name}.tar")),
             std::fs::read(&tar_path)?.into(),
         )
         .await
@@ -92,7 +81,6 @@ pub async fn pull_from_tar(
     folder: String,
     // python_311
     python_xyz: String,
-    no_uv: bool,
 ) -> error::Result<()> {
     use windmill_common::s3_helpers::attempt_fetch_bytes;
 
@@ -102,13 +90,10 @@ pub async fn pull_from_tar(
 
     let start = Instant::now();
 
-    let tar_path = format!(
-        "tar/{TARGET}/{}/{folder_name}.tar",
-        if no_uv { "pip".to_owned() } else { python_xyz }
-    );
+    let tar_path = format!("tar/{TARGET}/{python_xyz}/{folder_name}.tar");
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
-    extract_tar(bytes, &folder).await.map_err(|e| {
+    extract_tar(bytes, &folder).map_err(|e| {
         tracing::error!("Failed to extract piptar {folder_name}. Error: {:?}", e);
         e
     })?;
@@ -121,21 +106,20 @@ pub async fn pull_from_tar(
     Ok(())
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
+pub fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use bytes::Buf;
-    use tokio::fs::{self};
 
     let start: Instant = Instant::now();
-    fs::create_dir_all(&folder).await?;
+    std::fs::create_dir_all(&folder)?;
 
     let mut ar = tar::Archive::new(tar.reader());
 
     if let Err(e) = ar.unpack(folder) {
         tracing::info!("Failed to untar to {folder}. Error: {:?}", e);
-        fs::remove_dir_all(&folder).await?;
+        std::fs::remove_dir_all(&folder)?;
         return Err(error::Error::ExecutionErr(format!(
-            "Failed to untar tar {folder}"
+            "Failed to untar tar {folder}. Error: {:?}",
+            e
         )));
     }
     tracing::info!(

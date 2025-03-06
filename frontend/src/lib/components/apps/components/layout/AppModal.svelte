@@ -40,6 +40,9 @@
 		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
 
+	let everRender = render
+	$: render && !everRender && (everRender = true)
+
 	//used so that we can count number of outputs setup for first refresh
 	const outputs = initOutput($worldStore, id, {
 		open: false
@@ -87,6 +90,10 @@
 		// 32px (2rem) of top and bottom margin
 		wrapperHeight - headerHeight - 64
 	)
+
+	async function getMenuElements(): Promise<HTMLElement[]> {
+		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+	}
 </script>
 
 <InitializeComponent {id} />
@@ -110,7 +117,7 @@
 	/>
 {/each}
 
-{#if render}
+{#if everRender}
 	<div class="h-full w-full">
 		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 			<Button
@@ -144,92 +151,98 @@
 			</Button>
 		</AlignWrapper>
 	</div>
-{/if}
-<Portal target="#app-editor-top-level-drawer" name="app-modal">
-	<Disposable
-		{id}
-		let:handleClickAway
-		let:zIndex
-		let:open
-		bind:this={disposable}
-		on:open={() => {
-			outputs?.open.set(true)
-			onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
-		}}
-		on:close={() => {
-			outputs?.open.set(false)
-			onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
-		}}
-	>
-		<div
-			class={twMerge(
-				`${
-					$mode == 'dnd' ? 'absolute' : 'fixed'
-				} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
-				open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
-			)}
-			style="z-index: {zIndex}"
-			bind:clientHeight={wrapperHeight}
+	<Portal target="#app-editor-top-level-drawer" name="app-modal">
+		<Disposable
+			{id}
+			let:handleClickAway
+			let:zIndex
+			let:open
+			bind:this={disposable}
+			on:open={() => {
+				outputs?.open.set(true)
+				onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+			}}
+			on:close={() => {
+				outputs?.open.set(false)
+				onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+			}}
 		>
 			<div
-				style={css?.popup?.style}
-				class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
-				use:clickOutside={false}
-				on:click_outside={(e) => {
-					if ($mode !== 'dnd' && !unclickableOutside) {
-						handleClickAway(e)
-					}
-				}}
+				class={twMerge(
+					`${
+						$mode == 'dnd' ? 'absolute' : 'fixed'
+					} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
+					open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
+				)}
+				style="z-index: {zIndex}"
+				bind:clientHeight={wrapperHeight}
 			>
 				<div
-					class="px-4 py-2 border-b flex justify-between items-center"
-					bind:clientHeight={headerHeight}
-				>
-					<div>{resolvedConfig.modalTitle}</div>
-					<div class="w-8">
-						<button
-							on:click|stopPropagation={() => {
-								disposable?.closeDrawer()
-							}}
-							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
-						>
-							<X class="text-tertiary" />
-						</button>
-					</div>
-				</div>
-
-				<div
-					class={twMerge('wm-modal h-full', 'overflow-y-auto')}
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
-							$focusedGrid = {
-								parentComponentId: id,
-								subGridIndex: 0
-							}
+					style={css?.popup?.style}
+					class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
+					use:clickOutside={{
+						capture: false,
+						stopPropagation: false,
+						exclude: getMenuElements
+					}}
+					on:click_outside={(e) => {
+						if ($mode !== 'dnd' && !unclickableOutside) {
+							handleClickAway(e)
 						}
 					}}
 				>
-					{#if $app.subgrids?.[`${id}-0`]}
-						<SubGridEditor
-							visible={open && render}
-							{id}
-							{containerHeight}
-							subGridId={`${id}-0`}
-							on:focus={() => {
-								if (!$connectingInput.opened) {
-									$selectedComponent = [id]
-									$focusedGrid = {
-										parentComponentId: id,
-										subGridIndex: 0
-									}
+					<div
+						class="px-4 py-2 border-b flex justify-between items-center"
+						bind:clientHeight={headerHeight}
+					>
+						<div>{resolvedConfig.modalTitle}</div>
+						<div class="w-8">
+							<button
+								on:click|stopPropagation={() => {
+									disposable?.closeDrawer()
+								}}
+								class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
+							>
+								<X class="text-tertiary" />
+							</button>
+						</div>
+					</div>
+
+					<div
+						class={twMerge('wm-modal h-full', 'overflow-y-auto')}
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: 0
 								}
-							}}
-						/>
-					{/if}
+							}
+						}}
+					>
+						{#if $app.subgrids?.[`${id}-0`]}
+							<SubGridEditor
+								visible={open && render}
+								{id}
+								{containerHeight}
+								subGridId={`${id}-0`}
+								on:focus={() => {
+									if (!$connectingInput.opened) {
+										$selectedComponent = [id]
+										$focusedGrid = {
+											parentComponentId: id,
+											subGridIndex: 0
+										}
+									}
+								}}
+							/>
+						{/if}
+					</div>
 				</div>
 			</div>
-		</div>
-	</Disposable>
-</Portal>
+		</Disposable>
+	</Portal>
+{:else if $app.subgrids?.[`${id}-0`]}
+	<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+{/if}

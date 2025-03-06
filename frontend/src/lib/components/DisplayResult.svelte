@@ -35,6 +35,8 @@
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import PdfViewer from './display/PdfViewer.svelte'
+	import type { DisplayResultUi } from './custom_ui'
+	import { getContext, hasContext } from 'svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -48,6 +50,7 @@
 	export let nodeId: string | undefined = undefined
 	export let language: string | undefined = undefined
 	export let appPath: string | undefined = undefined
+	export let customUi: DisplayResultUi | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -76,6 +79,7 @@
 		| 'pdf'
 		| undefined
 
+	let hasBigInt = false
 	$: resultKind = inferResultKind(result)
 
 	export let forceJson = false
@@ -166,6 +170,13 @@
 					return 'json'
 				} else {
 					largeObject = size > DISPLAY_MAX_SIZE
+				}
+
+				if (!largeObject) {
+					hasBigInt = checkIfHasBigInt(result)
+					if (hasBigInt) {
+						return 'json'
+					}
 				}
 
 				if (Array.isArray(result)) {
@@ -261,6 +272,21 @@
 		} catch (e) {
 			return 'error stringifying object: ' + e.toString()
 		}
+	}
+
+	function checkIfHasBigInt(result: any) {
+		if (typeof result === 'number' && Number.isInteger(result) && !Number.isSafeInteger(result)) {
+			return true
+		}
+
+		if (Array.isArray(result)) {
+			return result.some(checkIfHasBigInt)
+		}
+
+		if (result && typeof result === 'object') {
+			return Object.values(result).some(checkIfHasBigInt)
+		}
+		return false
 	}
 
 	function contentOrRootString(obj: string | { filename: string; content: string } | undefined) {
@@ -366,6 +392,10 @@
 	let globalForceJson: boolean = false
 
 	let seeS3PreviewFileFromList = ''
+
+	const disableTooltips = hasContext('disableTooltips')
+		? getContext('disableTooltips') === true
+		: false
 </script>
 
 <HighlightTheme />
@@ -379,10 +409,11 @@
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
+					let:item
 				>
-					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
 
-					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
 				</ToggleButtonGroup>
 			</div>
 		{/if}
@@ -401,55 +432,71 @@
 			/>
 		{/each}</div
 	>
-{:else if resultKind === 'nondisplayable'}<div class="text-red-400">Non displayable object</div
-	>{:else}<div
+{:else if resultKind === 'nondisplayable'}
+	<div class="text-red-400">Non displayable object</div>
+{:else}
+	<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
 			: 'min-h-[160px]'}"
-		>{#if result != undefined && length != undefined && largeObject != undefined}<div
-				class="flex justify-between items-center w-full"
-				><div class="text-tertiary text-sm">
+	>
+		{#if result != undefined && length != undefined && largeObject != undefined}
+			<div class="flex justify-between items-center w-full">
+				<div class="text-tertiary text-sm flex flex-row gap-2 items-center">
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
+							let:item
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
 							}}
 						>
 							{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
+								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
 							{:else}
-								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+								<ToggleButton
+									class="px-1.5"
+									value="pretty"
+									label="Pretty"
+									icon={Highlighter}
+									{item}
+								/>
 							{/if}
-							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
 						</ToggleButtonGroup>
 					{/if}
 				</div>
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
-					<slot name="copilot-fix" />
+					{#if customUi?.disableAiFix !== true}
+						<slot name="copilot-fix" />
+					{/if}
 					{#if !disableExpand && !noControls}
-						<a
-							download="{filename ?? 'result'}.json"
-							class="-mt-1 text-current"
-							href={workspaceId && jobId
-								? nodeId
-									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						>
-							<Download size={14} />
-						</a>
-						<Popover
-							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-						>
-							<svelte:fragment slot="text">
-								The result renderer in Windmill supports rich display rendering, allowing you to
-								customize the display format of your results.
-							</svelte:fragment>
-							<div class="-mt-1">
-								<InfoIcon size={14} />
-							</div>
-						</Popover>
+						{#if customUi?.disableDownload !== true}
+							<a
+								download="{filename ?? 'result'}.json"
+								class="-mt-1 text-current"
+								href={workspaceId && jobId
+									? nodeId
+										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							>
+								<Download size={14} />
+							</a>
+						{/if}
+						{#if disableTooltips !== true}
+							<Popover
+								documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+							>
+								<svelte:fragment slot="text">
+									The result renderer in Windmill supports rich display rendering, allowing you to
+									customize the display format of your results.
+								</svelte:fragment>
+								<div class="-mt-1">
+									<InfoIcon size={14} />
+								</div>
+							</Popover>
+						{/if}
 						<button on:click={() => copyToClipboard(toJsonStr(result))} class="-mt-1">
 							<ClipboardCopy size={14} />
 						</button>
@@ -458,8 +505,9 @@
 						</button>
 					{/if}
 				</div>
-			</div><div class="grow"
-				>{#if !forceJson && resultKind === 'table-col'}
+			</div>
+			<div class="grow">
+				{#if !forceJson && resultKind === 'table-col'}
 					{@const data = 'table-col' in result ? result['table-col'] : result}
 					<AutoDataTable objects={objectOfArraysToObjects(data)} />
 				{:else if !forceJson && resultKind === 'table-row'}
@@ -681,7 +729,8 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
+										}?file_key=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
@@ -692,7 +741,8 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
+										}?file_key=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{/if}
@@ -750,8 +800,9 @@
 											<img
 												alt="preview rendered"
 												class="w-auto h-full"
-												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
-													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+													s3object.s3
+												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
 											/>
 										</div>
 									{:else}
@@ -767,8 +818,9 @@
 									<div class="h-96 mt-2 border">
 										<PdfViewer
 											allowFullscreen
-											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
-												(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+												s3object.s3
+											)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
 										/>
 									</div>
 								{/if}
@@ -779,7 +831,7 @@
 					<div class="prose-xs dark:prose-invert !list-disc !list-outside">
 						<Markdown md={result?.md ?? result?.markdown} />
 					</div>
-				{:else if largeObject}
+				{:else if largeObject || hasBigInt}
 					{#if result && typeof result === 'object' && 'file' in result}
 						<div
 							><a
@@ -789,34 +841,36 @@
 							>
 						</div>
 					{:else}
-						<div class="text-sm text-tertiary"
-							><a
-								download="{filename ?? 'result'}.json"
-								href={workspaceId && jobId
-									? nodeId
-										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-							>
-								Download {filename ? '' : 'as JSON'}
-							</a>
-							{#if download_as_csv}
-								<DownloadCsv
-									getContent={() => convertJsonToCsv(result)}
-									customText="Download as CSV"
-								/>
-							{/if}
-						</div>
+						{#if largeObject}
+							<div class="text-sm text-tertiary"
+								><a
+									download="{filename ?? 'result'}.json"
+									href={workspaceId && jobId
+										? nodeId
+											? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+											: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+										: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+								>
+									Download {filename ? '' : 'as JSON'}
+								</a>
+								{#if download_as_csv}
+									<DownloadCsv
+										getContent={() => convertJsonToCsv(result)}
+										customText="Download as CSV"
+									/>
+								{/if}
+							</div>
 
-						<div class="mt-1 mb-2">
-							<Alert
-								size="xs"
-								title="Large result detected"
-								type="warning"
-								tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
-								documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
-							/>
-						</div>
+							<div class="mt-1 mb-2">
+								<Alert
+									size="xs"
+									title="Large result detected"
+									type="warning"
+									tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
+									documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
+								/>
+							</div>
+						{/if}
 						{#if result && result != 'WINDMILL_TOO_BIG'}
 							<ObjectViewer json={result} />
 						{/if}
@@ -856,19 +910,21 @@
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
-					<Button
-						download="{filename ?? 'result'}.json"
-						href={workspaceId && jobId
-							? nodeId
-								? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-								: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						startIcon={{ icon: Download }}
-						color="light"
-						size="xs"
-					>
-						Download
-					</Button>
+					{#if customUi?.disableDownload !== true}
+						<Button
+							download="{filename ?? 'result'}.json"
+							href={workspaceId && jobId
+								? nodeId
+									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							startIcon={{ icon: Download }}
+							color="light"
+							size="xs"
+						>
+							Download
+						</Button>
+					{/if}
 					<Button
 						on:click={() => copyToClipboard(toJsonStr(result))}
 						color="light"

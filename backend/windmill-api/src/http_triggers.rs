@@ -75,7 +75,7 @@ pub fn workspaced_service() -> Router {
         .route("/route_exists", post(exists_route))
 }
 
-#[derive(Serialize, Deserialize, sqlx::Type)]
+#[derive(Serialize, Deserialize, sqlx::Type, Debug)]
 #[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum HttpMethod {
@@ -538,7 +538,7 @@ async fn get_http_route_trigger(
         let route_path = trigger.route_path.clone();
         if trigger.is_static_website {
             router
-                .insert(format!("{}/*wm_subpath", route_path), idx)
+                .insert(format!("/{}/*wm_subpath", route_path), idx)
                 .unwrap_or_else(|e| {
                     tracing::warn!(
                         "Failed to consider http trigger route {}: {:?}",
@@ -547,19 +547,22 @@ async fn get_http_route_trigger(
                     );
                 });
         }
-        router.insert(route_path.as_str(), idx).unwrap_or_else(|e| {
-            tracing::warn!(
-                "Failed to consider http trigger route {}: {:?}",
-                route_path,
-                e,
-            );
-        });
+        router
+            .insert(format!("/{}", route_path), idx)
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to consider http trigger route {}: {:?}",
+                    route_path,
+                    e,
+                );
+            });
     }
 
-    let trigger_idx = router.at(route_path.0.as_str()).ok();
+    let requested_path = format!("/{}", route_path.0);
+    let trigger_idx = router.at(requested_path.as_str()).ok();
 
     let matchit::Match { value: trigger_idx, params } =
-        not_found_if_none(trigger_idx, "Trigger", route_path.0.as_str())?;
+        not_found_if_none(trigger_idx, "Trigger", requested_path.as_str())?;
 
     let trigger = triggers.remove(trigger_idx.to_owned());
 

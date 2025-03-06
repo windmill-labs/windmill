@@ -59,6 +59,10 @@ impl Authable for Authed {
     }
 }
 
+lazy_static::lazy_static! {
+    pub static ref PG_SCHEMA: Option<String> = std::env::var("PG_SCHEMA").ok();
+}
+
 impl UserDB {
     pub fn new(db: DB) -> Self {
         Self { db }
@@ -94,6 +98,12 @@ impl UserDB {
         sqlx::query(&format!("SET LOCAL ROLE {}", user))
             .execute(&mut *tx)
             .await?;
+
+        if let Some(schema) = PG_SCHEMA.as_ref() {
+            sqlx::query(&format!("SET LOCAL search_path TO {}", schema))
+                .execute(&mut *tx)
+                .await?;
+        }
 
         sqlx::query!(
             "SELECT set_config('session.user', $1, true)",

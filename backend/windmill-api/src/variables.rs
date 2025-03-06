@@ -19,6 +19,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde_json::Value;
+
 use windmill_audit::audit_ee::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
@@ -31,9 +32,9 @@ use windmill_common::{
 };
 
 use lazy_static::lazy_static;
-use windmill_common::variables::{decrypt, encrypt};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
+use windmill_common::variables::{decrypt, encrypt};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 lazy_static! {

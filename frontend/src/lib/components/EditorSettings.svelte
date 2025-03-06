@@ -2,19 +2,21 @@
 	import { Settings } from 'lucide-svelte'
 	import FormatOnSave from './FormatOnSave.svelte'
 	import VimMode from './VimMode.svelte'
-	import { Button, Popup } from './common'
+	import { Button } from './common'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import type { EditorBarUi } from './custom_ui'
+	import Popover from './meltComponents/Popover.svelte'
 
 	export let customUi: EditorBarUi = {}
 </script>
 
 {#if customUi?.autoformatting != false || customUi?.vimMode != false || customUi?.aiCompletion != false}
-	<Popup
+	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+		usePointerDownOutside
+		contentClasses="flex flex-col gap-y-2 p-4"
 	>
-		<svelte:fragment slot="button">
+		<svelte:fragment slot="trigger">
 			<Button
 				btnClasses="text-tertiary"
 				color="light"
@@ -26,7 +28,7 @@
 			/>
 		</svelte:fragment>
 
-		<div class="flex flex-col gap-y-2">
+		<svelte:fragment slot="content">
 			{#if customUi?.autoformatting != false}
 				<div>
 					<FormatOnSave />
@@ -42,6 +44,6 @@
 					<CodeCompletionStatus />
 				</div>
 			{/if}
-		</div>
-	</Popup>
+		</svelte:fragment>
+	</Popover>
 {/if}

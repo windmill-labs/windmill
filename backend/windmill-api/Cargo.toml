@@ -29,6 +29,8 @@ oauth2 = ["dep:async-oauth2"]
 http_trigger = ["dep:matchit"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
+mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
+sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -36,6 +38,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
+windmill-parser-py.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 tokio.workspace = true
@@ -118,3 +121,6 @@ byteorder = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 rust_decimal = { workspace = true, optional = true }
 rust-postgres-native-tls = { workspace = true, optional = true}
+rumqttc = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true } 
+aws-config = { workspace = true, optional = true}

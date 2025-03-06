@@ -196,10 +196,26 @@
 	}
 
 	function connectProperty(rawValue: string) {
-		arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
-		arg.type = 'javascript'
-		propertyType = 'javascript'
-		monaco?.setCode(arg.expr)
+		// Extract path from variable('x') or resource('x') format
+		const varMatch = rawValue.match(/^variable\('([^']+)'\)$/)
+		const resourceMatch = rawValue.match(/^resource\('([^']+)'\)$/)
+
+		if (varMatch) {
+			arg.type = 'static'
+			propertyType = 'static'
+			arg.value = '$var:' + varMatch[1]
+			monacoTemplate?.setCode(arg.value)
+		} else if (resourceMatch) {
+			arg.type = 'static'
+			propertyType = 'static'
+			arg.value = '$res:' + resourceMatch[1]
+			monacoTemplate?.setCode(arg.value)
+		} else {
+			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
+			arg.type = 'javascript'
+			propertyType = 'javascript'
+			monaco?.setCode(arg.expr)
+		}
 	}
 
 	function onFocus() {
@@ -342,6 +358,7 @@
 					<div>
 						<ToggleButtonGroup
 							selected={propertyType}
+							let:item
 							on:selected={(e) => {
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
@@ -401,9 +418,10 @@
 									value="static"
 									size="xs2"
 									label={'${}'}
+									{item}
 								/>
 							{:else}
-								<ToggleButton small label="Static" value="static" />
+								<ToggleButton small label="Static" value="static" {item} />
 							{/if}
 
 							{#if codeInjectionDetected && propertyType == 'static'}
@@ -425,6 +443,7 @@
 									tooltip="JavaScript expression ('flow_input' or 'results')."
 									value="javascript"
 									icon={FunctionSquare}
+									{item}
 								/>
 							{/if}
 						</ToggleButtonGroup>

@@ -11,7 +11,8 @@
 		superadmin
 	} from '$lib/stores'
 	import Modal2 from '../common/modal/Modal2.svelte'
-	import { Button, Popup } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import List from '$lib/components/common/layout/List.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { BellOff, Bell, ExternalLink, Settings } from 'lucide-svelte'
@@ -153,6 +154,9 @@
 				)
 			}
 			numUnacknowledgedCriticalAlerts = unacknowledged.length
+		} catch (e) {
+			console.error('Error fetching critical alerts', e)
+			sendUserToast('Error fetching critical alerts', true)
 		} finally {
 			checkingForNewAlerts = false
 		}
@@ -171,12 +175,12 @@
 	<svelte:fragment slot="header-right">
 		<List horizontal>
 			{#if $superadmin || $userStore?.is_admin}
-				<Popup
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					target="#mute-settings-button"
-					preventPopupClosingOnClickInside={true}
+				<Popover
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+					portal="#mute-settings-button"
+					contentClasses="p-4"
 				>
-					<svelte:fragment slot="button">
+					<svelte:fragment slot="trigger">
 						<div id="mute-settings-button">
 							<Button variant="border" color="light" nonCaptureEvent>
 								{#if muteSettings.global || muteSettings.workspace}
@@ -187,76 +191,81 @@
 							</Button>
 						</div>
 					</svelte:fragment>
-					<List justify="start">
-						<div class="w-full">
-							{#if $superadmin}
+					<svelte:fragment slot="content">
+						<List justify="start">
+							<div class="w-full">
+								{#if $superadmin}
+									<Toggle
+										on:change={saveGlobalMuteSetting}
+										bind:checked={muteSettings.global}
+										options={{
+											right: 'Automatically acknowledge critical alerts instance wide'
+										}}
+										size="xs"
+										stopPropagation={true}
+									/>
+								{/if}
+							</div>
+
+							<div class="w-full">
 								<Toggle
-									on:change={saveGlobalMuteSetting}
-									bind:checked={muteSettings.global}
+									on:change={saveWorkSpaceMuteSetting}
+									bind:checked={muteSettings.workspace}
 									options={{
-										right: 'Automatically acknowledge critical alerts instance wide'
+										right: 'Automatically acknowledge critical alerts for current workspace'
 									}}
 									size="xs"
 									stopPropagation={true}
 								/>
-							{/if}
-						</div>
-
-						<div class="w-full">
-							<Toggle
-								on:change={saveWorkSpaceMuteSetting}
-								bind:checked={muteSettings.workspace}
-								options={{
-									right: 'Automatically acknowledge critical alerts for current workspace'
-								}}
-								size="xs"
-								stopPropagation={true}
-							/>
-						</div>
-					</List>
-				</Popup>
+							</div>
+						</List>
+					</svelte:fragment>
+				</Popover>
 			{/if}
 
 			{#if $superadmin}
-				<Popup
-					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-					target="#settings-button"
+				<Popover
+					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
+					portal="#settings-button"
+					contentClasses="p-4"
 				>
-					<svelte:fragment slot="button">
+					<svelte:fragment slot="trigger">
 						<div id="settings-button">
 							<Button variant="border" color="light" nonCaptureEvent>
 								<Settings size="16" />
 							</Button>
 						</div>
 					</svelte:fragment>
-					<List justify="start" gap="none">
-						<div class="w-full">
-							<Button
-								size="xs"
-								color="light"
-								href="{base}/?workspace=admins#superadmin-settings"
-								target="_blank"
-							>
-								<div class="w-full">
-									<List horizontal justify="between" gap="sm">
-										<div>Instance Critical Alert Settings</div>
-										<ExternalLink size="16" />
-									</List>
-								</div>
-							</Button>
-						</div>
-						<div class="w-full">
-							<Button
-								size="xs"
-								color="light"
-								href="{base}/workspace_settings?tab=error_handler"
-								target="_blank"
-							>
-								Workspace Critical Alert Settings <ExternalLink size="16" />
-							</Button>
-						</div>
-					</List>
-				</Popup>
+					<svelte:fragment slot="content">
+						<List justify="start" gap="none">
+							<div class="w-full">
+								<Button
+									size="xs"
+									color="light"
+									href="{base}/?workspace=admins#superadmin-settings"
+									target="_blank"
+								>
+									<div class="w-full">
+										<List horizontal justify="between" gap="sm">
+											<div>Instance Critical Alert Settings</div>
+											<ExternalLink size="16" />
+										</List>
+									</div>
+								</Button>
+							</div>
+							<div class="w-full">
+								<Button
+									size="xs"
+									color="light"
+									href="{base}/workspace_settings?tab=error_handler"
+									target="_blank"
+								>
+									Workspace Critical Alert Settings <ExternalLink size="16" />
+								</Button>
+							</div>
+						</List>
+					</svelte:fragment>
+				</Popover>
 			{:else}
 				<Button
 					size="xs"

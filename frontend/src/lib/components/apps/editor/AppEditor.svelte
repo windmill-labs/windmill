@@ -136,7 +136,11 @@
 
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
-	const initialized = writable({ initialized: false, initializedComponents: [] })
+	const initialized = writable({
+		initialized: false,
+		initializedComponents: [],
+		runnableInitialized: {}
+	})
 	const panzoomActive = writable(false)
 
 	$secondaryMenuRightStore.isOpen = false
@@ -225,7 +229,7 @@
 			try {
 				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
 			} catch (err) {
-				console.error(err)
+				console.error('Error storing frontend draft in localStorage', err)
 			}
 		}, 500)
 	}
@@ -820,7 +824,21 @@
 			on:hideRightPanel={() => hideRightPanel()}
 			on:hideBottomPanel={() => hideBottomPanel()}
 			on:showBottomPanel={() => showBottomPanel()}
-		/>
+		>
+			<svelte:fragment
+				slot="unsavedConfirmationModal"
+				let:diffDrawer
+				let:additionalExitAction
+				let:getInitialAndModifiedValues
+			>
+				<slot
+					name="unsavedConfirmationModal"
+					{diffDrawer}
+					{additionalExitAction}
+					{getInitialAndModifiedValues}
+				/>
+			</svelte:fragment>
+		</AppEditorHeader>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div

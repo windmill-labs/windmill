@@ -76,6 +76,21 @@ export type UploadInput = {
 	value: string
 }
 
+export type UploadS3Input = {
+	type: 'uploadS3'
+	value: string
+}
+
+export type FileUploadData = {
+	name: string
+	size: number
+	progress: number
+	cancelled?: boolean
+	errorMessage?: string
+	path?: string
+	file?: File
+}
+
 export type EvalInput = {
 	type: 'eval'
 	expr: string
@@ -149,6 +164,7 @@ export type AppInputSpec<T extends InputType, U, V extends InputType = never> = 
 	| EvalInput
 	| EvalInputV2
 	| UploadInput
+	| UploadS3Input
 	| ResultInput
 	| TemplateInput
 	| TemplateV2Input
@@ -173,6 +189,10 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 		 * @default false
 		 */
 		convertTo?: ReadFileAs
+	}
+	fileUploadS3?: {
+		accept: string
+		multiple?: boolean
 	}
 	noStatic?: boolean
 	onDemandOnly?: boolean
@@ -243,6 +263,7 @@ export type StaticAppInputOnDemand = Extract<StaticAppInput, { onDemandOnly: tru
 export type TemplateV2AppInput = Extract<AppInput, { type: 'templatev2' }>
 
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
+export type UploadS3AppInput = Extract<AppInput, { type: 'uploadS3' }>
 
 export type RichAppInput =
 	| AppInput

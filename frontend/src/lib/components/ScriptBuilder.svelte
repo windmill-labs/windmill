@@ -11,7 +11,6 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { page } from '$app/stores'
 	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -64,7 +63,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, onMount, setContext } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
@@ -76,6 +75,8 @@
 		PYTHON_PREPROCESSOR_MODULE_CODE
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
+	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
+	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -93,6 +94,15 @@
 		window.history.replaceState(null, '', url)
 	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
+		undefined
+
+	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedScript,
+			modifiedValue: script
+		}
+	}
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -130,6 +140,25 @@
 	const dispatch = createEventDispatcher()
 
 	$: initialPath != '' && loadTriggers()
+
+	onMount(() => {
+		if (functionExports) {
+			console.log('functionExports set')
+			functionExports({
+				setPreviewArgs: (args: Record<string, any>) => {
+					scriptEditor?.setArgs(args)
+				},
+				runPreview: async () => await scriptEditor?.runTest(),
+				setCode: (code: string, language?: Script['language']) => {
+					if (language) {
+						script.language = language
+					}
+					editor?.setCode(code)
+				},
+				getCode: () => editor?.getCode() ?? ''
+			})
+		}
+	})
 
 	async function loadTriggers() {
 		$triggersCount = await ScriptService.getTriggersCountOfScript({
@@ -172,9 +201,13 @@
 		$defaultScripts?.order ?? Object.keys(defaultScriptLanguages)
 	)
 		.map((l) => [defaultScriptLanguages[l], l])
-		.filter(
-			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
+		.filter((x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1]))
+		.filter((x) => {
+			if (customUi?.settingsPanel?.metadata?.languages === undefined) {
+				return true
+			}
+			return customUi.settingsPanel.metadata.languages.includes(x[1] as SupportedLanguage)
+		}) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
 
 	const scriptKindOptions: {
 		value: Script['kind']
@@ -237,16 +270,17 @@
 	}
 
 	async function isTemplateScript() {
-		let getInitBlockTemplate = $page.url.searchParams.get('id')
-		if (getInitBlockTemplate === null) {
+		const params = new URLSearchParams(window.location.search)
+		const templateId = params.get('id')
+		if (templateId === null) {
 			return undefined
 		}
 		try {
-			getInitBlockTemplate = await PostgresTriggerService.getTemplateScript({
+			const templateScript = await PostgresTriggerService.getTemplateScript({
 				workspace: $workspaceStore!,
-				id: getInitBlockTemplate as string
+				id: templateId
 			})
-			return getInitBlockTemplate
+			return templateScript
 		} catch (error) {
 			sendUserToast(
 				'An error occured when trying to load your template script, please try again later',
@@ -646,7 +680,24 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = 'metadata'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = (() => {
+		if (customUi?.settingsPanel?.disableMetadata !== true) {
+			// first option: either no custom UI or metadata is enabled
+			return 'metadata'
+		}
+		if (customUi?.settingsPanel?.disableRuntime !== true) {
+			return 'runtime'
+		}
+		if (customUi?.settingsPanel?.disableGeneratedUi !== true) {
+			return 'ui'
+		}
+		if (customUi?.settingsPanel?.disableTriggers !== true) {
+			return 'triggers'
+		}
+		return 'metadata'
+	})()
+
+	setContext('disableTooltips', customUi?.disableTooltips === true)
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
@@ -720,23 +771,31 @@
 			<!-- svelte-ignore a11y-autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
-					<Tab value="metadata">Metadata</Tab>
-					<Tab value="runtime">Runtime</Tab>
-					<Tab value="ui">
-						Generated UI
-						<Tooltip
-							documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
-						>
-							The arguments are synced with the main signature but you may refine the parts that
-							cannot be inferred from the type directly.
-						</Tooltip>
-					</Tab>
-					<Tab value="triggers">
-						Triggers
-						<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
-							Configure how this script will be triggered.
-						</Tooltip>
-					</Tab>
+					{#if customUi?.settingsPanel?.disableMetadata !== true}
+						<Tab value="metadata">Metadata</Tab>
+					{/if}
+					{#if customUi?.settingsPanel?.disableRuntime !== true}
+						<Tab value="runtime">Runtime</Tab>
+					{/if}
+					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
+						<Tab value="ui">
+							Generated UI
+							<Tooltip
+								documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
+							>
+								The arguments are synced with the main signature but you may refine the parts that
+								cannot be inferred from the type directly.
+							</Tooltip>
+						</Tab>
+					{/if}
+					{#if customUi?.settingsPanel?.disableTriggers !== true}
+						<Tab value="triggers">
+							Triggers
+							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
+								Configure how this script will be triggered.
+							</Tooltip>
+						</Tab>
+					{/if}
 
 					<svelte:fragment slot="content">
 						<div class="min-h-0 grow overflow-y-auto">
@@ -744,14 +803,16 @@
 								<div class="flex flex-col gap-8 px-4 py-2">
 									<Section label="Metadata">
 										<svelte:fragment slot="action">
-											<div class="flex flex-row items-center gap-2">
-												<ErrorHandlerToggleButton
-													kind="script"
-													scriptOrFlowPath={script.path}
-													bind:errorHandlerMuted={script.ws_error_handler_muted}
-													iconOnly={false}
-												/>
-											</div>
+											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
+												<div class="flex flex-row items-center gap-2">
+													<ErrorHandlerToggleButton
+														kind="script"
+														scriptOrFlowPath={script.path}
+														bind:errorHandlerMuted={script.ws_error_handler_muted}
+														iconOnly={false}
+													/>
+												</div>
+											{/if}
 										</svelte:fragment>
 										<div class="flex flex-col gap-4">
 											<Label label="Summary">
@@ -885,36 +946,40 @@
 										</div>
 									</Section>
 
-									<Section label="Script kind">
-										<svelte:fragment slot="header">
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/script_editor/script_kinds"
+									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
+										<Section label="Script kind">
+											<svelte:fragment slot="header">
+												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/script_editor/script_kinds"
+												>
+													Tag this script's purpose within flows such that it is available as the
+													corresponding action.
+												</Tooltip>
+											</svelte:fragment>
+											<ToggleButtonGroup
+												class="h-10"
+												selected={script.kind}
+												on:selected={({ detail }) => {
+													template = 'script'
+													script.kind = detail
+													initContent(script.language, detail, template)
+												}}
+												let:item
 											>
-												Tag this script's purpose within flows such that it is available as the
-												corresponding action.
-											</Tooltip>
-										</svelte:fragment>
-										<ToggleButtonGroup
-											class="h-10"
-											selected={script.kind}
-											on:selected={({ detail }) => {
-												template = 'script'
-												script.kind = detail
-												initContent(script.language, detail, template)
-											}}
-										>
-											{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
-												<ToggleButton
-													label={title}
-													{value}
-													tooltip={desc}
-													{documentationLink}
-													icon={Icon}
-													showTooltipIcon={Boolean(desc)}
-												/>
-											{/each}
-										</ToggleButtonGroup>
-									</Section>
+												{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
+													<ToggleButton
+														label={title}
+														{value}
+														tooltip={desc}
+														{documentationLink}
+														icon={Icon}
+														showTooltipIcon={Boolean(desc)}
+														{item}
+													/>
+												{/each}
+											</ToggleButtonGroup>
+										</Section>
+									{/if}
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
@@ -1313,7 +1378,10 @@
 								</div>
 							</TabContent>
 							<TabContent value="ui" class="h-full p-4">
-								<ScriptSchema bind:schema={script.schema} />
+								<ScriptSchema
+									bind:schema={script.schema}
+									customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
+								/>
 							</TabContent>
 							<TabContent value="triggers">
 								<TriggersEditor
@@ -1388,18 +1456,20 @@
 					{#if customUi?.topBar?.path != false}
 						<div class="flex justify-start w-full border rounded-md overflow-hidden">
 							<div>
-								<button
-									on:click={async () => {
-										metadataOpen = true
-									}}
-								>
-									<Badge
-										color="gray"
-										class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+								{#if customUi?.topBar?.editablePath != false}
+									<button
+										on:click={async () => {
+											metadataOpen = true
+										}}
 									>
-										<Pen size={12} class="mr-2" /> Path
-									</Badge>
-								</button>
+										<Badge
+											color="gray"
+											class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+										>
+											<Pen size={12} class="mr-2" /> Path
+										</Badge>
+									</button>
+								{/if}
 							</div>
 							<input
 								type="text"

@@ -596,6 +596,9 @@ export async function* readDirRecursiveWithIgnore(
     const e = stack.pop()!;
     yield e;
     for await (const e2 of e.c()) {
+      if (e2.path.startsWith(".git" + SEP)) {
+        continue;
+      }
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
@@ -640,7 +643,9 @@ export async function elementsToMap(
         path.endsWith(".websocket_trigger" + ext) ||
         path.endsWith(".kafka_trigger" + ext) ||
         path.endsWith(".nats_trigger" + ext) ||
-        path.endsWith(".postgres_trigger" + ext))
+        path.endsWith(".postgres_trigger" + ext) ||
+        path.endsWith(".mqtt_trigger" + ext) ||
+        path.endsWith(".sqs_trigger" + ext))
     )
       continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
@@ -885,7 +890,9 @@ function getOrderFromPath(p: string) {
     typ == "websocket_trigger" ||
     typ == "kafka_trigger" ||
     typ == "nats_trigger" ||
-    typ == "postgres_trigger"
+    typ == "postgres_trigger" ||
+    typ == "mqtt_trigger" ||
+    typ == "sqs_trigger"
   ) {
     return 8;
   } else if (typ == "variable") {
@@ -1374,6 +1381,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
 
   const globalDeps = await findGlobalDeps();
 
+  console.log("globalDeps", globalDeps);
+
   const tracker: ChangeTracker = await buildTracker(changes);
 
   const staleScripts: string[] = [];
@@ -1717,6 +1726,18 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   await wmill.deletePostgresTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".postgres_trigger.json"),
+                  });
+                  break;
+                case "mqtt_trigger":
+                    await wmill.deleteMqttTrigger({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, ".mqtt_trigger.json"),
+                    });
+                    break;
+                case "sqs_trigger":
+                  await wmill.deleteSqsTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".sqs_trigger.json"),
                   });
                   break;
                 case "variable":

@@ -17,17 +17,17 @@
 			let username = $userStore?.username ?? ''
 			let pgroups = $userStore?.pgroups ?? []
 			let pusername = `u/${username}`
-			let extraPermsKeys = Object.keys(extraPerms)
+			let extraPermsKeys = Object.keys(extraPerms ?? {})
 
 			if (pusername in extraPermsKeys) {
-				if (extraPerms[pusername]) {
+				if (extraPerms?.[pusername]) {
 					kind = 'write'
 				} else {
 					kind = 'read'
 				}
 				reason = 'This item was shared to you personally'
 			} else {
-				let writeGroup = pgroups.find((x) => extraPermsKeys.includes(x) && extraPerms[x])
+				let writeGroup = pgroups.find((x) => extraPermsKeys.includes(x) && extraPerms?.[x])
 				if (writeGroup) {
 					kind = 'write'
 					reason = `This item was write shared to the group ${writeGroup} which you are a member of`

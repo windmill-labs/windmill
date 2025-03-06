@@ -1,0 +1,132 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                mqtt_resource_path,\n                subscribe_topics as \"subscribe_topics!: Vec<SqlxJson<SubscribeTopic>>\",\n                v3_config as \"v3_config!: Option<SqlxJson<MqttV3Config>>\",\n                v5_config as \"v5_config!: Option<SqlxJson<MqttV5Config>>\",\n                client_version as \"client_version: _\",\n                client_id,\n                workspace_id,\n                path,\n                script_path,\n                is_flow,\n                edited_by,\n                email,\n                edited_at,\n                server_id,\n                last_server_ping,\n                extra_perms,\n                error,\n                enabled\n            FROM\n                mqtt_trigger\n            WHERE\n                enabled IS TRUE\n                AND (last_server_ping IS NULL OR\n                    last_server_ping < now() - interval '15 seconds'\n                )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mqtt_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "subscribe_topics!: Vec<SqlxJson<SubscribeTopic>>",
+        "type_info": "JsonbArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "v3_config!: Option<SqlxJson<MqttV3Config>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "v5_config!: Option<SqlxJson<MqttV5Config>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_version: _",
+        "type_info": {
+          "Custom": {
+            "name": "mqtt_client_version",
+            "kind": {
+              "Enum": [
+                "v3",
+                "v5"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "client_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "server_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "last_server_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7b6e8dac5f83fcbae95056c4206bf4de1b12d6c8aab32f1f55d7f2c230c5c08e"
+}

@@ -247,7 +247,7 @@ pub async fn cancel_job<'c>(
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
-            "SELECT id AS \"id!\" FROM v2_job WHERE parent_job = $1 AND workspace_id = $2",
+            "SELECT id AS \"id!\" FROM v2_job_queue INNER JOIN v2_job USING (id) WHERE parent_job = $1 AND v2_job.workspace_id = $2",
             p_job,
             w_id
         )
@@ -566,6 +566,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let result_columns = result_columns.as_ref();
     let _job_id = queued_job.id;
     let (opt_uuid, _duration, _skip_downstream_error_handlers) = (|| async {
+
+        // let start = std::time::Instant::now();
+
         let mut tx = db.begin().await?;
 
         let job_id = queued_job.id;
@@ -663,7 +666,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         // tracing::error!("Added completed job {:#?}", queued_job);
 
         let mut _skip_downstream_error_handlers = false;
-        tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
+        tx = delete_job(tx, &job_id).await?;
         // tracing::error!("3 {:?}", start.elapsed());
 
         if queued_job.is_flow_step {
@@ -858,6 +861,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             "inserted completed job: {} (success: {success})",
             queued_job.id
         );
+        // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
         Ok((None, _duration, _skip_downstream_error_handlers)) as windmill_common::error::Result<(Option<Uuid>, i64, bool)>
     })
     .retry(
@@ -1377,12 +1381,17 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
             let exact = schedule.on_failure_exact.unwrap_or(false);
             if times > 1 || exact {
                 let past_jobs = sqlx::query!(
-                    "SELECT
-                        success AS \"success!\",
-                        result AS \"result: Json<Box<RawValue>>\",
-                        started_at AS \"started_at!\"
-                    FROM v2_as_completed_job
-                    WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                    // Query plan:
+                    // - use of the  `ix_v2_job_root_by_path` index;
+                    //   hence the `parent_job IS NULL` clause.
+                    // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
+                    //   table scan.
+                    "SELECT status = 'success' AS \"success!\"
+                    FROM v2_job j JOIN v2_job_completed USING (id)
+                    WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+                        AND parent_job IS NULL
+                        AND runnable_path = $3
+                        AND j.id != $4
                     ORDER BY created_at DESC
                     LIMIT $5",
                     &schedule.workspace_id,
@@ -1448,11 +1457,19 @@ async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
             let tx = db.begin().await?;
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
             let past_jobs = sqlx::query!(
-                "SELECT
-                    success AS \"success!\",
+                // Query plan:
+                // - use of the  `ix_v2_job_root_by_path` index;
+                //   hence the `parent_job IS NULL` clause.
+                // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
+                //   table scan.
+                "SELECT status = 'success' AS \"success!\",
                     result AS \"result: Json<Box<RawValue>>\",
                     started_at AS \"started_at!\"\
-                FROM v2_as_completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4
+                FROM v2_job j JOIN v2_job_completed USING (id)
+                WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+                    AND parent_job IS NULL
+                    AND runnable_path = $3
+                    AND j.id != $4
                 ORDER BY created_at DESC
                 LIMIT $5",
                 &schedule.workspace_id,
@@ -2095,12 +2112,15 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
+                // let instant = std::time::Instant::now();
                 let r = sqlx::query_as::<_, PulledJob>(query)
                     .bind(worker_name)
                     .fetch_optional(db)
                     .await?;
 
                 if let Some(pulled_job) = r {
+                    // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
+
                     highest_priority_job = Some(pulled_job);
                     break;
                 }
@@ -2581,21 +2601,17 @@ async fn extract_result_from_job_result(
 
 pub async fn delete_job<'c>(
     mut tx: Transaction<'c, Postgres>,
-    w_id: &str,
-    job_id: Uuid,
+    job_id: &Uuid,
 ) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
 
-    let job_removed = sqlx::query_scalar!(
-        "DELETE FROM v2_job_queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
-        w_id,
-        job_id
-    )
-    .fetch_optional(&mut *tx)
-    .await;
+    let job_removed =
+        sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
+            .fetch_optional(&mut *tx)
+            .await;
 
     if let Err(job_removed) = job_removed {
         tracing::error!(

@@ -274,14 +274,6 @@
 					</Label>
 				</div>
 
-				<WebsocketEditorConfigSection
-					bind:url
-					bind:url_runnable_args
-					{dirtyUrl}
-					{can_write}
-					bind:isValid
-				/>
-
 				<Section label="Runnable" class="flex flex-col gap-4">
 					<div>
 						<p class="text-xs mb-1 text-tertiary">
@@ -298,6 +290,15 @@
 								allowRefresh={can_write}
 								allowEdit={!$userStore?.operator}
 							/>
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4 mt-2"
+									color="dark"
+									size="xs"
+									href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F11636'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
 						</div>
 					</div>
 
@@ -313,6 +314,14 @@
 						}}
 					/>
 				</Section>
+
+				<WebsocketEditorConfigSection
+					bind:url
+					bind:url_runnable_args
+					{dirtyUrl}
+					{can_write}
+					bind:isValid
+				/>
 
 				<Section label="Initial messages">
 					<p class="text-xs mb-1 text-tertiary">

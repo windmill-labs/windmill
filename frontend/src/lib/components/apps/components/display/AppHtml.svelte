@@ -13,7 +13,7 @@
 	export let customCss: ComponentCustomCSS<'htmlcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -35,25 +35,31 @@
 	/>
 {/each}
 
-<div
-	on:pointerdown={(e) => {
-		e?.preventDefault()
-	}}
-	class="h-full w-full"
->
-	<RunnableWrapper
-		{outputs}
-		{render}
-		autoRefresh
-		{componentInput}
-		{id}
-		bind:initializing
-		bind:result
+{#if render}
+	<div
+		on:pointerdown={(e) => {
+			if ($mode !== 'preview') {
+				e?.preventDefault()
+			}
+		}}
+		class="h-full w-full"
 	>
-		<div class="w-full h-full overflow-auto">
-			{#key result}
-				{@html result}
-			{/key}
-		</div>
-	</RunnableWrapper>
-</div>
+		<RunnableWrapper
+			{outputs}
+			{render}
+			autoRefresh
+			{componentInput}
+			{id}
+			bind:initializing
+			bind:result
+		>
+			<div class="w-full h-full overflow-auto">
+				{#key result}
+					{@html result}
+				{/key}
+			</div>
+		</RunnableWrapper>
+	</div>
+{:else}
+	<RunnableWrapper {outputs} render={false} autoRefresh {componentInput} {id} />
+{/if}

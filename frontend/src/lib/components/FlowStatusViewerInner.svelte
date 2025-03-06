@@ -88,7 +88,7 @@
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
 
 	let retry_selected = ''
-	let timeout: NodeJS.Timeout
+	let timeout: NodeJS.Timeout | undefined = undefined
 
 	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
 	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
@@ -324,10 +324,7 @@
 	function updateInnerModules() {
 		if ($localModuleStates) {
 			innerModules.forEach((mod, i) => {
-				if (
-					mod.type === 'WaitingForEvents' &&
-					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
-				) {
+				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
 					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
@@ -403,7 +400,7 @@
 		}
 	}
 
-	$: isForloopSelected && globalModuleStates && loadJobInProgress()
+	$: isForloopSelected && globalModuleStates && debounceLoadJobInProgress()
 
 	async function getNewJob(jobId: string, initialJob: Job | undefined) {
 		if (
@@ -421,10 +418,33 @@
 		}
 	}
 
+	let debounceJobId: string | undefined = undefined
+	let lastRefreshed: Date | undefined = undefined
+	function debounceLoadJobInProgress() {
+		const pollingRate = reducedPolling ? 5000 : 1000
+		if (
+			lastRefreshed &&
+			new Date().getTime() - lastRefreshed.getTime() < pollingRate &&
+			debounceJobId == jobId
+		) {
+			timeout && clearTimeout(timeout)
+		}
+		timeout = setTimeout(() => {
+			loadJobInProgress()
+			lastRefreshed = new Date()
+			debounceJobId = jobId
+			timeout = undefined
+		}, pollingRate)
+	}
+
 	let errorCount = 0
 	let notAnonynmous = false
+	let started = false
 	async function loadJobInProgress() {
-		dispatch('start')
+		if (!started) {
+			started = true
+			dispatch('start')
+		}
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
 				const newJob = await getNewJob(jobId, initialJob)
@@ -447,7 +467,7 @@
 			}
 		}
 		if (job?.type !== 'CompletedJob' && errorCount < 4 && !destroyed) {
-			timeout = setTimeout(() => loadJobInProgress(), reducedPolling ? 5000 : 1000)
+			debounceLoadJobInProgress()
 		} else {
 			dispatch('done', job)
 		}
@@ -1286,7 +1306,7 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							<div class="pt-2 max-h-[80vh] grow flex flex-col">
+							<div class="pt-2 grow flex flex-col">
 								{#if selectedNode}
 									{@const node = $localModuleStates[selectedNode]}
 
@@ -1365,7 +1385,6 @@
 												/>
 											</div>
 										{/if}
-
 										<FlowJobResult
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}

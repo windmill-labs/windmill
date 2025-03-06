@@ -150,6 +150,10 @@ export async function pushObj(
     await pushTrigger("nats", workspace, p, befObj, newObj);
   } else if (typeEnding === "postgres_trigger") {
     await pushTrigger("postgres", workspace, p, befObj, newObj);
+  } else if (typeEnding === "mqtt_trigger") {
+    await pushTrigger("mqtt", workspace, p, befObj, newObj);
+  } else if (typeEnding === "sqs_trigger") {
+    await pushTrigger("sqs", workspace, p, befObj, newObj);
   } else if (typeEnding === "user") {
     await pushWorkspaceUser(workspace, p, befObj, newObj);
   } else if (typeEnding === "group") {
@@ -197,6 +201,8 @@ export function getTypeStrFromPath(
   | "kafka_trigger"
   | "nats_trigger"
   | "postgres_trigger"
+  | "mqtt_trigger"
+  | "sqs_trigger"
   | "user"
   | "group"
   | "settings"
@@ -242,6 +248,8 @@ export function getTypeStrFromPath(
     typeEnding === "kafka_trigger" ||
     typeEnding === "nats_trigger" ||
     typeEnding === "postgres_trigger" ||
+    typeEnding === "mqtt_trigger" ||
+    typeEnding === "sqs_trigger" ||
     typeEnding === "user" ||
     typeEnding === "group" ||
     typeEnding === "settings" ||

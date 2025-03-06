@@ -8,6 +8,9 @@
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
+	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
+	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false
@@ -29,6 +32,14 @@
 			bind:url={args.url}
 			bind:url_runnable_args={args.url_runnable_args}
 			showCapture={false}
+		/>
+	{:else if triggerType === 'postgres'}
+		<PostgresEditorConfigSection
+			can_write={true}
+			headless={true}
+			showCapture={false}
+			bind:publication={args.publication}
+			bind:postgres_resource_path={args.postgres_resource_path}
 		/>
 	{:else if triggerType === 'webhook'}
 		<WebhooksConfigSection
@@ -61,5 +72,26 @@
 		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{:else if triggerType === 'nats'}
 		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
+	{:else if triggerType === 'mqtt'}
+		<MqttEditorConfigSection
+			bind:v3_config={args.v3_config}
+			bind:v5_config={args.v5_config}
+			bind:client_version={args.client_version}
+			bind:subscribe_topics={args.subscribe_topics}
+			bind:mqtt_resource_path={args.mqtt_resource_path}
+			bind:client_id={args.client_id}
+			showCapture={false}
+			headless={true}
+			can_write={true}
+		/>
+	{:else if triggerType === 'sqs'}
+		<SqsTriggerEditorConfigSection
+			bind:queue_url={args.queue_url}
+			bind:aws_resource_path={args.aws_resource_path}
+			bind:message_attributes={args.message_attributes}
+			headless={true}
+			can_write={true}
+			showCapture={false}
+		/>
 	{/if}
 </div>

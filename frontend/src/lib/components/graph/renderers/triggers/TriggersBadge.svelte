@@ -10,8 +10,7 @@
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon } from '$lib/components/icons'
 
 	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -27,9 +26,11 @@
 		| 'websockets'
 		| 'kafka'
 		| 'nats'
+		| 'mqtt'
 		| 'emails'
 		| 'eventStreams'
 		| 'postgres'
+		| 'sqs'
 	)[] = showOnlyWithCount
 		? ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'nats', 'emails']
 		: ['webhooks', 'schedules', 'routes', 'websockets', 'eventStreams', 'emails']
@@ -66,6 +67,8 @@
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
 		emails: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count' },
+		mqtt: { icon: MqttIcon, countKey: 'mqtt_count' },
+		sqs: { icon: AwsIcon, countKey: 'sqs_count' },
 		eventStreams: { icon: PlugZap }
 	}
 
@@ -77,7 +80,7 @@
 
 {#each triggersToDisplay as type}
 	{@const { icon, countKey } = triggerTypeConfig[type]}
-	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense)}
+	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense) && !(type === 'mqtt')}
 		<Popover>
 			<svelte:fragment slot="text">{camelCaseToWords(type)}</svelte:fragment>
 			<TriggerButton
@@ -88,7 +91,10 @@
 				selected={selected &&
 					($selectedTrigger === type ||
 						(type === 'eventStreams' &&
-							($selectedTrigger === 'kafka' || $selectedTrigger === 'nats')))}
+							($selectedTrigger === 'kafka' ||
+								$selectedTrigger === 'nats' ||
+								$selectedTrigger === 'sqs' ||
+								$selectedTrigger === 'mqtt')))}
 			>
 				{#if countKey}
 					<TriggerCount count={$triggersCount?.[countKey]} />

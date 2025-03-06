@@ -80,3 +80,14 @@ export function computeS3FileInputPolicy(s3Config: any, app: App) {
 		file_key_regex
 	}
 }
+
+export function computeS3ImageViewerPolicy(config: any, app: App) {
+	if (
+		config.sourceKind.value === 's3 (workspace storage)' ||
+		config.source.value.startsWith('s3://')
+	) {
+		return { s3_path: config.source.value.replace('s3://', ''), resource: 'default' }
+	} else {
+		return undefined
+	}
+}

@@ -21,7 +21,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::{fs::File, io::AsyncReadExt};
+use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
@@ -44,7 +44,7 @@ use windmill_common::{
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
-    utils::{hostname, rd_string, Mode, GIT_VERSION},
+    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
@@ -59,19 +59,15 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(feature = "enterprise")]
-use windmill_common::METRICS_ADDR;
-
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
-    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
+    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
+    DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
     POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR,
-    TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
+    TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -119,6 +115,25 @@ where
 }
 
 pub fn main() -> anyhow::Result<()> {
+    // https://github.com/denoland/deno/blob/main/cli/main.rs#L477
+    #[cfg(feature = "deno_core")]
+    let unrecognized_v8_flags = deno_core::v8_set_flags(vec![
+        "--stack-size=1024".to_string(),
+        // TODO(bartlomieju): I think this can be removed as it's handled by `deno_core`
+        // and its settings.
+        // deno_ast removes TypeScript `assert` keywords, so this flag only affects JavaScript
+        // TODO(petamoriken): Need to check TypeScript `assert` keywords in deno_ast
+        "--no-harmony-import-assertions".to_string(),
+    ])
+    .into_iter()
+    .skip(1)
+    .collect::<Vec<_>>();
+
+    #[cfg(feature = "deno_core")]
+    if !unrecognized_v8_flags.is_empty() {
+        println!("Unrecognized V8 flags: {:?}", unrecognized_v8_flags);
+    }
+
     #[cfg(feature = "deno_core")]
     deno_core::JsRuntime::init_platform(None, false);
     create_and_run_current_thread_inner(windmill_main())
@@ -223,63 +238,12 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let hostname = hostname();
 
-    let mut enable_standalone_indexer: bool = false;
+    let mode_and_addons = MODE_AND_ADDONS.clone();
+    let mode = mode_and_addons.mode;
 
-    let mode = std::env::var("MODE")
-        .map(|x| x.to_lowercase())
-        .map(|x| {
-            if &x == "server" {
-                println!("Binary is in 'server' mode");
-                Mode::Server
-            } else if &x == "worker" {
-                tracing::info!("Binary is in 'worker' mode");
-                #[cfg(windows)]
-                {
-                    println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
-                }
-                Mode::Worker
-            } else if &x == "agent" {
-                println!("Binary is in 'agent' mode");
-                if std::env::var("BASE_INTERNAL_URL").is_err() {
-                    panic!("BASE_INTERNAL_URL is required in agent mode")
-                }
-                if std::env::var("JOB_TOKEN").is_err() {
-                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
-                }
-
-                #[cfg(not(feature = "enterprise"))]
-                {
-                    panic!("Agent mode is only available in the EE, ignoring...");
-                }
-                #[cfg(feature = "enterprise")]
-                Mode::Agent
-            } else if &x == "indexer" {
-                tracing::info!("Binary is in 'indexer' mode");
-                #[cfg(not(feature = "tantivy"))]
-                {
-                    eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
-                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
-                }
-                #[cfg(feature = "tantivy")]
-                Mode::Indexer
-            } else if &x == "standalone+search"{
-                    enable_standalone_indexer = true;
-                    println!("Binary is in 'standalone' mode with search enabled");
-                    Mode::Standalone
-            }
-            else {
-                if &x != "standalone" {
-                    eprintln!("mode not recognized, defaulting to standalone: {x}");
-                } else {
-                    println!("Binary is in 'standalone' mode");
-                }
-                Mode::Standalone
-            }
-        })
-        .unwrap_or_else(|_| {
-            tracing::info!("Mode not specified, defaulting to standalone");
-            Mode::Standalone
-        });
+    if mode == Mode::Standalone {
+        println!("Running in standalone mode");
+    }
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     println!("jemalloc enabled");
@@ -373,6 +337,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let is_agent = mode == Mode::Agent;
 
+    let mut migration_handle: Option<JoinHandle<()>> = None;
     #[cfg(feature = "parquet")]
     let disable_s3_store = std::env::var("DISABLE_S3_STORE")
         .ok()
@@ -385,7 +350,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         if !skip_migration {
             // migration code to avoid break
-            windmill_api::migrate_db(&db).await?;
+            migration_handle = windmill_api::migrate_db(&db).await?;
         } else {
             tracing::info!("SKIP_MIGRATION set, skipping db migration...")
         }
@@ -521,8 +486,7 @@ Windmill Community Edition {GIT_VERSION}
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]
-        let should_index_jobs =
-            mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
+        let should_index_jobs = mode == Mode::Indexer || mode_and_addons.indexer;
 
         reload_indexer_config(&db).await;
 
@@ -683,6 +647,14 @@ Windmill Community Edition {GIT_VERSION}
                 loop {
                     tokio::select! {
                         biased;
+                        Some(_) = async { if let Some(jh) = migration_handle.take() {
+                            tracing::info!("migration job finished");
+                            Some(jh.await)
+                        } else {
+                            None
+                        }} => {
+                           continue;
+                        },
                         _ = monitor_killpill_rx.recv() => {
                             tracing::info!("received killpill for monitor job");
                             break;
@@ -716,6 +688,11 @@ Windmill Community Edition {GIT_VERSION}
                                                     tracing::debug!("config changed but did not target this server/worker");
                                                 }
                                             }
+                                        },
+                                        "notify_webhook_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Webhook change detected, invalidating webhook cache: {}", workspace_id);
+                                            windmill_api::webhook_util::WEBHOOK_CACHE.remove(workspace_id);
                                         },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
@@ -893,14 +870,25 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let metrics_f = async {
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                #[cfg(not(feature = "enterprise"))]
-                tracing::error!("Metrics are only available in the EE, ignoring...");
+            let enabled = METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 
-                #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
-                    .await;
+            #[cfg(not(all(feature = "enterprise", feature = "prometheus")))]
+            if enabled {
+                tracing::error!("Metrics are only available in the EE, ignoring...");
             }
+
+            #[cfg(all(feature = "enterprise", feature = "prometheus"))]
+            if let Err(e) = windmill_common::serve_metrics(
+                *windmill_common::METRICS_ADDR,
+                _killpill_phase2_rx,
+                num_workers > 0,
+                enabled,
+            )
+            .await
+            {
+                tracing::error!("Error serving metrics: {e:#}");
+            }
+
             Ok(()) as anyhow::Result<()>
         };
 
@@ -944,7 +932,11 @@ async fn listen_pg(db: &DB) -> Option<PgListener> {
     };
 
     if let Err(e) = listener
-        .listen_all(vec!["notify_config_change", "notify_global_setting_change"])
+        .listen_all(vec![
+            "notify_config_change",
+            "notify_global_setting_change",
+            "notify_webhook_change",
+        ])
         .await
     {
         tracing::error!(error = %e, "Could not listen to database");
@@ -1025,10 +1017,8 @@ pub async fn run_workers(
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for x in [
-        LOCK_CACHE_DIR,
         TMP_LOGS_DIR,
         UV_CACHE_DIR,
-        TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
@@ -1041,8 +1031,6 @@ pub async fn run_workers(
         TAR_PY311_CACHE_DIR,
         TAR_PY312_CACHE_DIR,
         TAR_PY313_CACHE_DIR,
-        PIP_CACHE_DIR,
-        BUN_DEPSTAR_CACHE_DIR,
         BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
@@ -1107,9 +1095,12 @@ pub async fn run_workers(
 
 async fn send_delayed_killpill(
     tx: &tokio::sync::broadcast::Sender<()>,
-    max_delay_secs: u64,
+    mut max_delay_secs: u64,
     context: &str,
 ) {
+    if max_delay_secs == 0 {
+        max_delay_secs = 1;
+    }
     // Random delay to avoid all servers/workers shutting down simultaneously
     let rd_delay = rand::rng().random_range(0..max_delay_secs);
     tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
