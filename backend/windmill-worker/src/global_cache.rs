@@ -118,7 +118,8 @@ pub fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
         tracing::info!("Failed to untar to {folder}. Error: {:?}", e);
         std::fs::remove_dir_all(&folder)?;
         return Err(error::Error::ExecutionErr(format!(
-            "Failed to untar tar {folder}"
+            "Failed to untar tar {folder}. Error: {:?}",
+            e
         )));
     }
     tracing::info!(
