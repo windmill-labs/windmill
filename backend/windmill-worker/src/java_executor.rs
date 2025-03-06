@@ -1,12 +1,14 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, process::Stdio, sync::Arc, time::Instant};
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{create_dir_all, metadata, read_to_string, File},
     io::AsyncWriteExt,
     process::Command,
+    sync::Semaphore,
 };
 use uuid::Uuid;
 use windmill_common::{
@@ -15,7 +17,7 @@ use windmill_common::{
     jobs::QueuedJob,
     s3_helpers::OBJECT_STORE_CACHE_SETTINGS,
     utils::calculate_hash,
-    worker::{save_cache, write_file},
+    worker::{pad_string, save_cache, write_file},
 };
 use windmill_macros::annotations;
 use windmill_parser::Arg;
@@ -30,184 +32,14 @@ use crate::{
     get_common_bun_proc_envs,
     global_cache::{build_tar_and_push, pull_from_tar},
     handle_child, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
-    NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    MAVEN_CONFIG, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
-
-pub const BUN_LOCK_SPLIT: &str = "\n//bun.lock\n";
-pub const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
-pub const BUN_LOCK_SPLIT_WINDOWS: &str = "\r\n//bun.lock\r\n";
-pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
-
-pub const EMPTY_FILE: &str = "<empty>";
-
-// /// Returns (package.json, bun.lock(b), is_empty, is_binary)
-// fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
-//     if let Some(index) = lockfile.find(BUN_LOCK_SPLIT) {
-//         // Split using "\n//bun.lock\n"
-//         let (before, after_with_sep) = lockfile.split_at(index);
-//         let after = &after_with_sep[BUN_LOCK_SPLIT.len()..];
-//         (before, Some(after), after == EMPTY_FILE, false)
-//     } else if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT) {
-//         // Split using "\n//bun.lockb\n"
-//         let (before, after_with_sep) = lockfile.split_at(index);
-//         let after = &after_with_sep[BUN_LOCKB_SPLIT.len()..];
-//         (before, Some(after), after == EMPTY_FILE, true)
-//     } else if let Some(index) = lockfile.find(BUN_LOCK_SPLIT_WINDOWS) {
-//         // Split using "\r\n//bun.lock\r\n"
-//         let (before, after_with_sep) = lockfile.split_at(index);
-//         let after = &after_with_sep[BUN_LOCK_SPLIT_WINDOWS.len()..];
-//         (before, Some(after), after == EMPTY_FILE, false)
-//     } else if let Some(index) = lockfile.find(BUN_LOCKB_SPLIT_WINDOWS) {
-//         // Split using "\r\n//bun.lockb\r\n"
-//         let (before, after_with_sep) = lockfile.split_at(index);
-//         let after = &after_with_sep[BUN_LOCKB_SPLIT_WINDOWS.len()..];
-//         (before, Some(after), after == EMPTY_FILE, true)
-//     } else {
-//         (lockfile, None, false, false)
-//     }
-// }
-// pub async fn gen_bun_lockfile(
-//     mem_peak: &mut i32,
-//     canceled_by: &mut Option<CanceledBy>,
-//     job_id: &Uuid,
-//     w_id: &str,
-//     db: Option<&sqlx::Pool<sqlx::Postgres>>,
-//     token: &str,
-//     script_path: &str,
-//     job_dir: &str,
-//     base_internal_url: &str,
-//     worker_name: &str,
-//     export_pkg: bool,
-//     raw_deps: Option<String>,
-//     npm_mode: bool,
-//     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-// ) -> Result<Option<String>> {
-//     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
-
-//     let mut empty_deps = false;
-
-//     if let Some(raw_deps) = raw_deps {
-//         gen_bunfig(job_dir).await?;
-//         write_file(job_dir, "package.json", raw_deps.as_str())?;
-//     } else {
-//         let _ = write_file(
-//             &job_dir,
-//             "build.js",
-//             &format!(
-//                 r#"
-// {}
-
-// {RELATIVE_BUN_BUILDER}
-// "#,
-//                 RELATIVE_BUN_LOADER
-//                     .replace("W_ID", w_id)
-//                     .replace("BASE_INTERNAL_URL", base_internal_url)
-//                     .replace("TOKEN", token)
-//                     .replace(
-//                         "CURRENT_PATH",
-//                         &crate::common::use_flow_root_path(script_path)
-//                     )
-//                     .replace("RAW_GET_ENDPOINT", "raw")
-//             ),
-//         )?;
-
-//         gen_bunfig(job_dir).await?;
-
-//         let mut child_cmd = Command::new(&*BUN_PATH);
-//         child_cmd
-//             .current_dir(job_dir)
-//             .env_clear()
-//             .envs(common_bun_proc_envs.clone())
-//             .args(vec!["run", "build.js"])
-//             .stdout(Stdio::piped())
-//             .stderr(Stdio::piped());
-
-//         #[cfg(windows)]
-//         child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-
-//         let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
-
-//         if let Some(db) = db {
-//             handle_child(
-//                 job_id,
-//                 db,
-//                 mem_peak,
-//                 canceled_by,
-//                 child_process,
-//                 false,
-//                 worker_name,
-//                 w_id,
-//                 "bun build",
-//                 None,
-//                 false,
-//                 occupancy_metrics,
-//             )
-//             .await?;
-//         } else {
-//             child_process.wait().await?;
-//         }
-
-//         let new_package_json = read_file_content(&format!("{job_dir}/package.json")).await?;
-//         empty_deps = new_package_json
-//             == r#"{
-//   "dependencies": {}
-// }"#;
-//     }
-
-//     if !empty_deps {
-//         install_bun_lockfile(
-//             mem_peak,
-//             canceled_by,
-//             job_id,
-//             w_id,
-//             db,
-//             job_dir,
-//             worker_name,
-//             common_bun_proc_envs,
-//             npm_mode,
-//             occupancy_metrics,
-//         )
-//         .await?;
-//     } else {
-//         if let Some(db) = db {
-//             append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
-//         }
-//     }
-
-//     if export_pkg {
-//         let mut content = "".to_string();
-//         {
-//             let mut file = File::open(format!("{job_dir}/package.json")).await?;
-//             file.read_to_string(&mut content).await?;
-//         }
-//         if !npm_mode {
-//             #[cfg(any(target_os = "linux", target_os = "macos"))]
-//             content.push_str(BUN_LOCK_SPLIT);
-
-//             #[cfg(target_os = "windows")]
-//             content.push_str(BUN_LOCK_SPLIT_WINDOWS);
-
-//             {
-//                 let file = format!("{job_dir}/bun.lock");
-//                 if !empty_deps && tokio::fs::metadata(&file).await.is_ok() {
-//                     let mut file = File::open(&file).await?;
-//                     let mut buf = String::default();
-//                     file.read_to_string(&mut buf).await?;
-//                     content.push_str(&buf);
-//                 } else {
-//                     content.push_str(&EMPTY_FILE);
-//                 }
-//             }
-//         }
-//         Ok(Some(content))
-//     } else {
-//         Ok(None)
-//     }
-// }
-
-// TODO: jared
-
-const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
+lazy_static::lazy_static! {
+    static ref JAVA_CONCURRENT_DOWNLOADS: usize = std::env::var("JAVA_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+}
+const NSJAIL_CONFIG_INSTALL_JAVA_CONTENT: &str =
+    include_str!("../nsjail/install.java.config.proto");
+const NSJAIL_CONFIG_RUN_JAVA_CONTENT: &str = include_str!("../nsjail/run.java.config.proto");
 const POM_XML_TEMPLATE: &str = r#"
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -236,16 +68,6 @@ const POM_XML_TEMPLATE: &str = r#"
                     </archive>
                 </configuration>
             </plugin>
-            <plugin>
-              <groupId>org.codehaus.mojo</groupId>
-              <artifactId>exec-maven-plugin</artifactId>
-              <version>3.2.0</version>
-              <configuration>
-                  <mainClass>net.script.App</mainClass>
-                  <arguments>
-                  </arguments>
-              </configuration>
-            </plugin>
         </plugins>
     </build>
     <dependencies>
@@ -256,8 +78,100 @@ const POM_XML_TEMPLATE: &str = r#"
       </dependency>
       SPREAD_DEPENDENCIES
     </dependencies>
+    <repositories>
+      SPREAD_REPOS
+    </repositories>
 </project>
 "#;
+// <repository>
+//     <id>nexus-releases</id>
+//     <url>http://localhost:8081/repository/maven-releases/</url>
+// </repository>
+// <repository>
+//     <id>nexus-snapshots</id>
+//     <url>http://localhost:8081/repository/maven-snapshots/</url>
+// </repository>
+
+pub async fn init_java<'a>(
+    // base_internal_url: &'a str,
+    worker_name: &'a str,
+    db: &'a sqlx::Pool<sqlx::Postgres>,
+) -> Result<(), Error> {
+    // let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+
+    let pom = POM_XML_TEMPLATE
+        .to_owned()
+        .replace("SPREAD_DEPENDENCIES", &format!(""))
+        .replace("SPREAD_REPOS", &format!(""));
+
+    let init_dir = format!("{JAVA_CACHE_DIR}/init");
+    create_dir_all(&init_dir).await?;
+    File::create(format!("{JAVA_CACHE_DIR}/init/pom.xml"))
+        .await?
+        .write_all(&pom.into_bytes())
+        .await?;
+
+    let child = {
+        // append_logs(
+        //     &job.id,
+        //     &job.workspace_id,
+        //     format!("\n\n--- INIT JAVA ---\n"),
+        //     db.clone(),
+        // )
+        // .await;
+
+        let mut cmd = Command::new(if cfg!(windows) {
+            "mvn"
+        } else {
+            MAVEN_PATH.as_str()
+        });
+        cmd.env_clear()
+            .current_dir(init_dir)
+            .env(
+                "MAVEN_OPTS",
+                "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+            )
+            .env("PATH", PATH_ENV.as_str())
+            // .env("BASE_INTERNAL_URL", base_internal_url)
+            // .envs(envs)
+            // .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
+            .args(&[
+                "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
+                "dependency:go-offline",
+                // "exec:java",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+        start_child_process(cmd, "mvn").await?
+    };
+    handle_child::handle_child(
+        &Uuid::nil(),
+        db,
+        &mut 0,
+        &mut None,
+        child,
+        !*DISABLE_NSJAIL,
+        worker_name,
+        // &job.workspace_id,
+        "",
+        "mvn",
+        None,
+        false,
+        &mut None,
+    )
+    .await
+}
 
 pub async fn resolve_dependencies<'a>(
     job_id: &Uuid,
@@ -272,8 +186,27 @@ pub async fn resolve_dependencies<'a>(
 ) -> Result<String, Error> {
     let find_requirements = code
         .lines()
-        .find_position(|x| x.starts_with("//requirements:") || x.starts_with("// requirements:"));
+        .find_position(|x| x.starts_with("//<dependency>") || x.starts_with("// <dependency>"));
     let deps = if let Some((pos, _)) = find_requirements {
+        code.lines()
+            .skip(pos)
+            .map_while(|x| {
+                if x.starts_with("//") {
+                    Some(x.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n")
+            .replace("//", "")
+    } else {
+        "".to_owned()
+    };
+    let find_repos = code
+        .lines()
+        .find_position(|x| x.starts_with("//<repository>") || x.starts_with("// <repository>"));
+    let repos = if let Some((pos, _)) = find_repos {
         code.lines()
             .skip(pos + 1)
             .map_while(|x| {
@@ -291,7 +224,8 @@ pub async fn resolve_dependencies<'a>(
     };
     let pom = POM_XML_TEMPLATE
         .to_owned()
-        .replace("SPREAD_DEPENDENCIES", &format!("{deps}"));
+        .replace("SPREAD_DEPENDENCIES", &format!("{deps}"))
+        .replace("SPREAD_REPOS", &format!("{repos}"));
 
     let req_hash = format!("java-{}", calculate_hash(&pom));
 
@@ -439,29 +373,8 @@ pub fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
     ))
 }
 
-// #[derive(Deserialize, Serialize, Default)]
-// #[serde(rename = "dependency")]
-// struct POMDependency {
-//     #[serde(rename = "groupId")]
-//     group_id: String,
-//     #[serde(rename = "artifactId")]
-//     artifact_id: String,
-//     version: String,
-//     #[serde(rename = "type")]
-//     ty: String,
-//     scope: String,
-//     optional: bool,
-// }
-
 pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
     let Annotations { jared, no_s3, no_lock_cache } = Annotations::parse(&args.inner_content);
-    // --- Handle imports ---
-    // --- Wrap and write to fs ---
-
-    // let xml_deps =
-    //     quick_xml::se::to_string(&toml::de::from_str::<POMDependency>(&toml_deps).unwrap())
-    //         .unwrap_or_default();
-    let mut not_installed = vec![];
     {
         create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
         let app_path = format!("{}/src/main/java/net/script/", args.job_dir);
@@ -475,105 +388,55 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
             .write_all(&format!("package net.script;\n {}", args.inner_content).into_bytes())
             .await?;
     }
+    let deps = resolve_dependencies(
+        &args.job.id,
+        &args.inner_content,
+        args.mem_peak,
+        args.canceled_by,
+        &args.job_dir,
+        &args.db,
+        &args.worker_name,
+        &args.job.workspace_id,
+        args.occupancy_metrics,
+    )
+    .await?;
 
-    let classpath = if !no_s3 {
-        let deps = resolve_dependencies(
-            &args.job.id,
-            &args.inner_content,
-            &mut args.mem_peak,
-            &mut &mut args.canceled_by,
-            &args.job_dir,
-            &args.db,
-            &args.worker_name,
-            &args.job.workspace_id,
-            &mut args.occupancy_metrics,
-        )
-        .await?
-        .lines()
-        .map(|l| {
-            let l = l.replace(":jar", "");
-            let mut iterator = l.split(":");
-
-            let group_id = iterator.next().unwrap();
-            let artifact_id = iterator.next().unwrap();
-            let version = iterator.next().unwrap();
-
-            let path = format!(
-                "/tmp/windmill/cache/java/maven-jars/{}/{artifact_id}/{version}",
-                group_id.replace(".", "/")
-            );
-
-            (path, format!("{group_id}:{artifact_id}:{version}"))
-        })
-        .collect_vec();
-        let classpath = deps
-            .clone()
-            .into_iter()
-            .map(|(path, ..)| path + "/*")
-            .collect_vec()
-            .join(":")
-            + ":target/main.jar";
-
-        let mut to_install = vec![];
-        for (dep, name) in &deps {
-            if metadata(dep).await.is_ok() {
-                dbg!("There", dep);
-                // panic!("");
-                // req_paths.push(venv_p);
-                // in_cache.push(req.to_string());
-            } else {
-                dbg!("Not there", dep);
-                to_install.push((dep.clone(), name.clone()));
-                // There is no valid or no wheel at all. Regardless of if there is content or not, we will overwrite it with --reinstall flag
-                // req_with_penv.push((req.to_string(), venv_p));
-            }
+    if let Some(mvn_config) = MAVEN_CONFIG.read().await.clone() {
+        {
+            let dir = format!("{JAVA_CACHE_DIR}/maven-jars");
+            create_dir_all(&dir).await?;
+            write_file(&dir, "settings.xml", &mvn_config)?;
         }
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
-
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if is_not_pro {
-            for (dep, name) in to_install {
-                if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                    tokio::select! {
-                        pull = pull_from_tar(os, dep.clone(), "".into(), Some(name.clone())) => {
-                            if let Err(e) = pull {
-                                not_installed.push((dep, name));
-                            } else {
-                                append_logs(
-                                    &args.job.id,
-                                    &args.job.workspace_id,
-                                    format!("\n{dep} pulled from s3"),
-                                    args.db.clone(),
-                                )
-                                .await;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        dbg!(classpath)
-    } else {
-        "".to_owned()
-    };
-    jar(&mut args).await?;
-    run(&mut args, classpath).await?;
-    #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
-    {
-        for (dep, name) in not_installed {
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                tokio::spawn(build_tar_and_push(
-                    os,
-                    // push.replace("/", "_").clone(),
-                    dep.clone(),
-                    "".into(),
-                    Some(name.clone()),
-                    // None,
-                ));
-            }
+        {
+            let dir = format!("{JAVA_CACHE_DIR}/maven-meta");
+            create_dir_all(&dir).await?;
+            write_file(&dir, "settings.xml", &mvn_config)?;
         }
     }
+    // #[cfg(feature = "java")]
+    // {
+    // let (db, worker_name, hostname, worker_dir) = (
+    //     db.clone(),
+    //     worker_name.clone(),
+    //     hostname.to_owned(),
+    //     worker_dir.clone(),
+    // );
+    // tokio::spawn(async move {
+    // init_java(&args.worker_name, &args.db).await?;
+    // if let Err(e) = crate::java_executor::init_java(&args.worker_name, &args.db).await {
+    // tracing::warn!(
+    //     worker = %worker_name,
+    //     hostname = %hostname,
+    //     worker_dir = %worker_dir,
+    //     "Cannot preinstall essential dependencies for java: {e}"//
+    // );
+    // }
+    // });
+    // }
+
+    jar(&mut args).await?;
+    let classpath = install(&mut args, deps, no_s3).await?;
+    run(&mut args, classpath).await?;
     // --- Retrieve results ---
     {
         read_result(&args.job_dir).await
@@ -641,6 +504,399 @@ public class App{
     )
 }
 
+async fn install<'a>(
+    JobHandlerInput {
+        occupancy_metrics,
+        mem_peak,
+        canceled_by,
+        worker_name,
+        job,
+        db,
+        job_dir,
+        shared_mount,
+        client,
+        envs,
+        base_internal_url,
+        inner_content,
+        ..
+    }: &mut JobHandlerInput<'a>,
+    deps: String,
+    no_s3: bool,
+) -> Result<String, Error> {
+    // Total to install
+    let mut to_install = vec![];
+    // Only install by maven
+    let mut mvn_install = vec![];
+    let total_to_install;
+    // let mut not_installed = vec![];
+    let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
+    // Append logs with line like this:
+    // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
+    #[allow(unused_assignments)]
+    async fn print_success(
+        mut s3_pull: bool,
+        mut s3_push: bool,
+        job_id: &Uuid,
+        w_id: &str,
+        req: &str,
+        req_tl: usize,
+        counter_arc: Arc<tokio::sync::Mutex<usize>>,
+        total_to_install: usize,
+        instant: std::time::Instant,
+        db: Pool<Postgres>,
+    ) {
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            (s3_pull, s3_push) = (false, false);
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if OBJECT_STORE_CACHE_SETTINGS.read().await.is_none() {
+            (s3_pull, s3_push) = (false, false);
+        }
+
+        let mut counter = counter_arc.lock().await;
+        *counter += 1;
+
+        append_logs(
+            job_id,
+            w_id,
+            format!(
+                "\n{}+  {}{}{}|  in {}ms",
+                pad_string(&format!("[{}/{total_to_install}]", counter), 9),
+                // Because we want to align to max len [999/999] we take ^
+                //                                     123456789
+                pad_string(&req, req_tl + 1),
+                // Margin to the right    ^
+                if s3_pull { "<< (S3) " } else { "" },
+                if s3_push { " > (S3) " } else { "" },
+                instant.elapsed().as_millis(),
+            ),
+            db,
+        )
+        .await;
+        // Drop lock, so next print success can fire
+    }
+    let deps = deps
+        .lines()
+        .map(|l| {
+            let l = l.replace(":jar", "");
+            let mut iterator = l.split(":");
+
+            let group_id = iterator.next().unwrap();
+            let artifact_id = iterator.next().unwrap();
+            let version = iterator.next().unwrap();
+
+            let path = format!(
+                "/tmp/windmill/cache/java/maven-jars/{}/{artifact_id}/{version}",
+                group_id.replace(".", "/")
+            );
+
+            (path, format!("{group_id}:{artifact_id}:{version}"))
+        })
+        .collect_vec();
+
+    let classpath = deps
+        .clone()
+        .into_iter()
+        .map(|(path, ..)| path + "/*")
+        .collect_vec()
+        .join(":")
+        + ":target/main.jar";
+
+    for (dep, name) in &deps {
+        if metadata(dep).await.is_ok() {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("\n{name} already in cache"),
+                db.clone(),
+            )
+            .await;
+        } else {
+            to_install.push((dep.clone(), name.clone()));
+        }
+    }
+    total_to_install = to_install.len();
+    if total_to_install == 0 {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("\n\nINFO: All dependencies are present, skipping install\n"),
+            db.clone(),
+        )
+        .await;
+
+        return Ok(classpath);
+    }
+    let mut name_tl = 0;
+    for (.., name) in &to_install {
+        if name.len() > name_tl {
+            name_tl = name.len();
+        }
+    }
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
+
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if is_not_pro {
+        for (path, name) in to_install {
+            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+                let (path_2, name_2, job_id_2, w_id_2, db_2, counter_arc) = (
+                    path.clone(),
+                    name.clone(),
+                    job.id.clone(),
+                    job.workspace_id.clone(),
+                    db.clone(),
+                    counter_arc.clone(),
+                );
+                let start = std::time::Instant::now();
+                tokio::select! {
+                    pull = pull_from_tar(os, path.clone(), "".into(), Some(name.clone())) => {
+                        if let Err(e) = pull {
+                            mvn_install.push((path, name));
+                        } else {
+                            print_success(
+                                true,
+                                false,
+                                &job_id_2,
+                                &w_id_2,
+                                &name,
+                                name_tl,
+                                counter_arc,
+                                total_to_install,
+                                start,
+                                db_2,
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Parallelism level (N)
+    let parallel_limit = // Semaphore will panic if value less then 1
+        JAVA_CONCURRENT_DOWNLOADS.clamp(1, 30);
+
+    // tracing::info!(
+    //     workspace_id = %job.w_id,
+    //     // is_ok = out,
+    //     "Java install parallel limit: {}, job: {}",
+    //     parallel_limit,
+    //     job_id
+    // );
+    let client = &client.get_authed().await;
+    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+
+    append_logs(
+        &job.id,
+        &job.workspace_id,
+        format!("\n\n--- INSTALLATION ---\n"),
+        db.clone(),
+    )
+    .await;
+
+    let mut handles = vec![];
+    let semaphore = Arc::new(Semaphore::new(parallel_limit));
+    // let mut handles = Vec::with_capacity(total_to_install);
+    for (path, name) in mvn_install {
+        let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
+
+        if let Err(_) = permit {
+            // tracing::error!(
+            //     workspace_id = %w_id,
+            //     "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
+            // );
+            break;
+        }
+
+        let permit = permit.unwrap();
+
+        // tracing::info!(
+        //     workspace_id = %w_id,
+        //     "started setup python dependencies"
+        // );
+        // tokio::spawn()
+        // let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+        //     append_logs(
+        //         &job.id,
+        //         &job.workspace_id,
+        //         format!("\n\n--- ISOLATED INSTALLATION ---\n"),
+        //         db.clone(),
+        //     )
+        //     .await;
+
+        //     create_dir_all(&format!("{}/nsjail-configs", &job_dir)).await?;
+        //     write_file(
+        //         &format!("{}/nsjail-configs", &job_dir),
+        //         &format!("install.{name}.proto",),
+        //         &NSJAIL_CONFIG_INSTALL_JAVA_CONTENT
+        //             .replace("{JOB_DIR}", job_dir)
+        //             .replace("{DEP_PATH}", &path)
+        //             // .replace("{SHARED_MOUNT}", &shared_mount)
+        //             .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        //     )?;
+        //     let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        //     nsjail_cmd
+        //         .env_clear()
+        //         .current_dir(job_dir.clone())
+        //         .env("PATH", PATH_ENV.as_str())
+        //         .env("BASE_INTERNAL_URL", base_internal_url.clone())
+        //         .envs(envs.clone())
+        //         .envs(reserved_variables.clone())
+        //         .envs(PROXY_ENVS.clone())
+        //         .env(
+        //             "MAVEN_OPTS",
+        //             "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+        //         )
+        //         .args(vec![
+        //             "--config",
+        //             &format!("nsjail-configs/install.{name}.proto"),
+        //             "--",
+        //             MAVEN_PATH.as_str(),
+        //             // "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
+        //             // "install",
+        //             // "-DskipTests",
+        //             // "-Dmaven.test.skip=true",
+        //             // "-DskipCompile",
+        //             // "dependency:go-offline",
+        //             "dependency:get",
+        //             &format!("-Dartifact={name}"),
+        //             "-Dtransitive=false",
+        //             "-q",
+        //         ])
+        //         .stdout(Stdio::piped())
+        //         .stderr(Stdio::piped());
+
+        //     start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        // } else {
+        //     // append_logs(
+        //     //     &job.id,
+        let child = {
+            let mut cmd = Command::new(if cfg!(windows) {
+                "mvn"
+            } else {
+                MAVEN_PATH.as_str()
+            });
+            cmd.env_clear()
+                .current_dir(job_dir.to_owned())
+                .env(
+                    "MAVEN_OPTS",
+                    "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+                )
+                .env("PATH", PATH_ENV.as_str())
+                // .env("BASE_INTERNAL_URL", base_internal_url)
+                // .envs(envs)
+                // .envs(reserved_variables)
+                .envs(PROXY_ENVS.clone())
+                .args(&[
+                    // "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
+                    // "install",
+                    // "-DskipTests",
+                    // "-Dmaven.test.skip=true",
+                    // "-DskipCompile",
+                    // "dependency:go-offline",
+                    "dependency:get",
+                    &format!("-Dartifact={name}"),
+                    "-Dtransitive=false",
+                    "-q",
+                ])
+                // .args(&["-classpath", &classpath, "net.script.App"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            {
+                cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+                    .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                    .env(
+                        "TMP",
+                        std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                    );
+            }
+            start_child_process(cmd, "mvn").await?
+        };
+
+        // handle_child::handle_child(
+        //     &job.id,
+        //     db,
+        //     mem_peak,
+        //     canceled_by,
+        //     child,
+        //     !*DISABLE_NSJAIL,
+        //     worker_name,
+        //     &job.workspace_id,
+        //     "mvn",
+        //     job.timeout,
+        //     false,
+        //     &mut Some(occupancy_metrics),
+        // )
+        // .await?;
+        let (path_2, name_2, job_id_2, w_id_2, db_2, counter_arc) = (
+            path.clone(),
+            name.clone(),
+            job.id.clone(),
+            job.workspace_id.clone(),
+            db.clone(),
+            counter_arc.clone(),
+        );
+        let start = std::time::Instant::now();
+        let handle = tokio::spawn(async move {
+            let _permit = permit;
+            // let job_id = job_id_2.clone();
+
+            if let Ok(output) = child.wait_with_output().await {
+                if output.status.success() {
+                    print_success(
+                        false,
+                        true,
+                        &job_id_2,
+                        &w_id_2,
+                        &name,
+                        name_tl,
+                        counter_arc,
+                        total_to_install,
+                        start,
+                        db_2,
+                    )
+                    .await;
+                    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                    {
+                        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+                            tokio::spawn(build_tar_and_push(
+                                os,
+                                // push.replace("/", "_").clone(),
+                                path_2,
+                                "".into(),
+                                Some(name_2),
+                                // None,
+                            ));
+                        }
+                    }
+                } else {
+                    append_logs(
+                        &job_id_2,
+                        &w_id_2,
+                        String::from_utf8(output.stderr).unwrap(),
+                        db_2.clone(),
+                    )
+                    .await;
+                }
+            } else {
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await.unwrap();
+    }
+
+    Ok(classpath)
+}
+
 async fn run<'a>(
     JobHandlerInput {
         occupancy_metrics,
@@ -661,7 +917,51 @@ async fn run<'a>(
     let client = &client.get_authed().await;
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
 
-    let child = {
+    let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("\n\n--- ISOLATED JAVA CODE EXECUTION ---\n"),
+            db.clone(),
+        )
+        .await;
+
+        write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_JAVA_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", JAVA_CACHE_DIR)
+                .replace("{SHARED_MOUNT}", &shared_mount)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )?;
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
+            .env_clear()
+            .current_dir(job_dir)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(envs)
+            .envs(reserved_variables)
+            .envs(PROXY_ENVS.clone())
+            .env(
+                "MAVEN_OPTS",
+                "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+            )
+            .args(vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                JAVA_PATH.as_str(),
+                "-classpath",
+                &classpath,
+                "net.script.App",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+    } else {
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -759,6 +1059,13 @@ async fn jar<'a>(
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
         #[cfg(windows)]
         let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("\n\nPulled existing jar\n"),
+            db.clone(),
+        )
+        .await;
 
         symlink.map_err(|e| {
             Error::ExecutionErr(format!(
@@ -824,17 +1131,6 @@ async fn jar<'a>(
             &mut Some(occupancy_metrics),
         )
         .await?;
-
-        //     tokio::fs::copy(
-        //     &format!("{job_dir}/target/main.jar"),
-        //     format! {"{job_dir}/script.jar"},
-        // )
-        // .await
-        // .map_err(|e| {
-        //     Error::ExecutionErr(format!(
-        //         "could not copy built binary from [...]/target/script.java to {job_dir}/script.java : {e:?}"
-        //     ))
-        // })?;
 
         match save_cache(
             &bin_path,
