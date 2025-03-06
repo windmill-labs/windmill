@@ -109,6 +109,8 @@ async function remove(opts: GlobalOptions, email: string) {
 async function createToken(
   opts: GlobalOptions & { email: string; password: string }
 ) {
+  await requireLogin(opts);
+
   if (opts.email && opts.password) {
     log.info(
       "Token: " +
@@ -119,9 +121,9 @@ async function createToken(
           },
         }))
     );
+    return;
   }
 
-  await requireLogin(opts);
   log.info("Token: " + (await wmill.createToken({ requestBody: {} })));
 }
 
