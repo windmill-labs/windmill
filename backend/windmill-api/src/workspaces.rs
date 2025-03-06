@@ -459,7 +459,6 @@ async fn get_settings(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
-
     tx.commit().await?;
     Ok(Json(settings))
 }
@@ -926,7 +925,7 @@ async fn edit_git_sync_config(
     Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct EditDeployUIConfig {
     #[cfg(feature = "enterprise")]
     deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
@@ -954,7 +953,6 @@ async fn edit_deploy_ui_config(
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
-
     let args_for_audit = format!("{:?}", new_config.deploy_ui_settings);
     audit_log(
         &mut *tx,
