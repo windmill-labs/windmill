@@ -92,8 +92,7 @@
 							},
 							key: {
 								type: 'string',
-								description: 'Client key for authentication to the server, in PEM format',
-								password: true
+								description: 'Client key for authentication to the server, in PEM format'
 							},
 							key_password: {
 								type: 'string',
@@ -142,8 +141,7 @@
 							},
 							key: {
 								type: 'string',
-								description: 'Client key for authentication to the server, in PEM format',
-								password: true
+								description: 'Client key for authentication to the server, in PEM format'
 							},
 							key_password: {
 								type: 'string',
