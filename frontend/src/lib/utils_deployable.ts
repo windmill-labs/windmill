@@ -83,7 +83,7 @@ export async function existsTrigger(
 		return await ScheduleService.existsSchedule(data)
 	}
 
-	throw new Error(`Unexpected trigger kind ${triggerKind}`)
+	throw new Error(`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, websockets, nats, schedules.`)
 }
 
 export async function getTriggersDeployData(kind: TriggerKind, path: string, workspace: string) {
