@@ -14,6 +14,7 @@ use windmill_common::{
     apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
     cache::{ScriptData, ScriptMetadata},
+    schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
     worker::{
@@ -48,6 +49,7 @@ use std::{
     },
     time::Duration,
 };
+use windmill_parser::MainArgSignature;
 
 use uuid::Uuid;
 
@@ -107,6 +109,7 @@ use crate::{
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
     result_processor::{process_result, start_background_processor},
+    schema::schema_validator_from_main_arg_sig,
     worker_flow::{handle_flow, update_flow_status_in_progress},
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
@@ -2347,7 +2350,6 @@ pub async fn get_script_content_by_hash(
         },
         schema: None,
     })
-
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2377,9 +2379,10 @@ async fn handle_code_execution_job(
         ScriptData,
         ScriptMetadata,
     );
-    let (ScriptData { code, lock }, ScriptMetadata { language, envs, codebase, validate_schema, schema_validator}) = match job
-        .job_kind
-    {
+    let (
+        ScriptData { code, lock },
+        ScriptMetadata { language, envs, codebase, validate_schema, schema_validator },
+    ) = match job.job_kind {
         JobKind::Preview => {
             let codebase = match job.script_hash.map(|x| x.0) {
                 Some(PREVIEW_IS_CODEBASE_HASH) => Some(job.id.to_string()),
@@ -2389,15 +2392,38 @@ async fn handle_code_execution_job(
 
             arc_data =
                 preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
-            metadata =
-                ScriptMetadata { language: job.language, codebase, envs: None, validate_schema: false, schema_validator: None };
+            let validate_schema = job
+                .language
+                .as_ref()
+                .map(|l| should_validate_schema(&arc_data.code, l))
+                .unwrap_or(false);
+            metadata = ScriptMetadata {
+                language: job.language,
+                codebase,
+                envs: None,
+                validate_schema,
+                schema_validator: None,
+            };
             (arc_data.as_ref(), &metadata)
         }
         JobKind::Script_Hub => {
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
                 get_hub_script_content_and_requirements(job.script_path.as_ref(), Some(db)).await?;
+
+            // Hub scripts are not cached so we are forced to run this validation from scratch everytime
+            let validate_schema = language
+                .as_ref()
+                .map(|language| should_validate_schema(&content, language))
+                .unwrap_or(false);
+            let schema_validator = if validate_schema {
+                schema.map(|s| SchemaValidator::from_schema(s.get())).transpose().map_err(|e| anyhow!("Couldn't create schema validator for script requiring schema validation: {e}"))?
+            } else {
+                None
+            };
+
             data = ScriptData { code: content, lock: lockfile };
-            metadata = ScriptMetadata { language, envs, codebase, validate_schema: false, schema_validator: None};
+            metadata =
+                ScriptMetadata { language, envs, codebase, validate_schema, schema_validator };
             (&data, &metadata)
         }
         JobKind::Script => {
@@ -2406,14 +2432,34 @@ async fn handle_code_execution_job(
         }
         JobKind::FlowScript => {
             arc_data = cache::flow::fetch_script(db, FlowNodeId(script_hash()?.0)).await?;
-            metadata =
-                ScriptMetadata { language: job.language, envs: None, codebase: None, validate_schema:false, schema_validator: None };
+            let validate_schema = job
+                .language
+                .as_ref()
+                .map(|language| should_validate_schema(&arc_data.code, language))
+                .unwrap_or(false);
+            metadata = ScriptMetadata {
+                language: job.language,
+                envs: None,
+                codebase: None,
+                validate_schema,
+                schema_validator: None,
+            };
             (arc_data.as_ref(), &metadata)
         }
         JobKind::AppScript => {
             arc_data = cache::app::fetch_script(db, AppScriptId(script_hash()?.0)).await?;
-            metadata =
-                ScriptMetadata { language: job.language, envs: None, codebase: None, validate_schema: false, schema_validator: None };
+            let validate_schema = job
+                .language
+                .as_ref()
+                .map(|language| should_validate_schema(&arc_data.code, language))
+                .unwrap_or(false);
+            metadata = ScriptMetadata {
+                language: job.language,
+                envs: None,
+                codebase: None,
+                validate_schema,
+                schema_validator: None,
+            };
             (arc_data.as_ref(), &metadata)
         }
         JobKind::DeploymentCallback => {
@@ -2425,7 +2471,13 @@ async fn handle_code_execution_job(
                 let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
                     get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
                 data = ScriptData { code: content, lock: lockfile };
-                metadata = ScriptMetadata { language, envs, codebase, validate_schema: false, schema_validator: None };
+                metadata = ScriptMetadata {
+                    language,
+                    envs,
+                    codebase,
+                    validate_schema: false,
+                    schema_validator: None,
+                };
                 (&data, &metadata)
             } else {
                 let hash = sqlx::query_scalar!(
@@ -2447,22 +2499,46 @@ async fn handle_code_execution_job(
         ),
     };
 
-    tracing::error!("vs: {validate_schema} | validator: {schema_validator:?}");
     if *validate_schema {
-        if let Some(sv) = schema_validator {
-            if let Some(args) = job.args.as_ref() {
-                sv.validate(args)?
+        if let Some(args) = job.args.as_ref() {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                "\n--- ARGS VALIDATION ---\nScript contains `schema_validation` annotation, running schema validation for the script arguments...\n",
+                db,
+            )
+            .await;
+            if let Some(sv) = schema_validator {
+                sv.validate(args)?;
+            } else {
+                append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    "No schema validator loaded, parsing script to verify arguments through the main function signature.\n",
+                    db,
+                )
+                .await;
+
+                if let Some(sig) = parse_sig_of_lang(
+                    code,
+                    language.as_ref(),
+                    job.script_entrypoint_override.clone(),
+                )? {
+                    schema_validator_from_main_arg_sig(&sig).validate(args)?;
+                } else {
+                    return Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be infered from the code for language `{language:?}`. Try removing schema validation for this job").into());
+                }
             }
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                "Script arguments are valid!\n\n",
+                db,
+            )
+            .await;
         }
-        tracing::debug!("No Schema Validator but should validate schema. Will attempt to construct one with MainArgSig");
+        tracing::debug!("No Schema Validator but validate_schema=true. Will attempt to construct one using MainArgSig before code execution");
     }
-    // let validator = schema.as_ref().map(|s| make_schema_validator(s)).transpose()?;
-    // if let Some(v) = validator {
-    //     v.validate(job.args.as_ref()).map_err(|e| anyhow!("onono error: {}", e))?;
-    //     tracing::error!("Evrything is valid!!!");
-    // } else {
-    //     tracing::warn!("Nothing to validate as there was no schema found");
-    // }
 
     let language = *language;
     if language == Some(ScriptLang::Postgresql) {
@@ -2921,4 +2997,45 @@ mount {{
     // println!("handled job: {:?}",  SystemTime::now());
 
     result
+}
+
+fn parse_sig_of_lang(
+    code: &str,
+    language: Option<&ScriptLang>,
+    main_override: Option<String>,
+) -> Result<Option<MainArgSignature>> {
+    Ok(if let Some(lang) = language {
+        match lang {
+            ScriptLang::Nativets | ScriptLang::Deno | ScriptLang::Bun | ScriptLang::Bunnative => {
+                Some(windmill_parser_ts::parse_deno_signature(
+                    code,
+                    true,
+                    main_override,
+                )?)
+            }
+            ScriptLang::Python3 => Some(windmill_parser_py::parse_python_signature(
+                code,
+                main_override,
+            )?),
+            ScriptLang::Go => Some(windmill_parser_go::parse_go_sig(code)?),
+            ScriptLang::Bash => Some(windmill_parser_bash::parse_bash_sig(code)?),
+            ScriptLang::Powershell => Some(windmill_parser_bash::parse_powershell_sig(code)?),
+            ScriptLang::Postgresql => Some(windmill_parser_sql::parse_pgsql_sig(code)?),
+            ScriptLang::Mysql => Some(windmill_parser_sql::parse_mysql_sig(code)?),
+            ScriptLang::Bigquery => Some(windmill_parser_sql::parse_bigquery_sig(code)?),
+            ScriptLang::Snowflake => Some(windmill_parser_sql::parse_snowflake_sig(code)?),
+            ScriptLang::Graphql => None,
+            ScriptLang::Mssql => Some(windmill_parser_sql::parse_mssql_sig(code)?),
+            ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code)?),
+            ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(
+                code,
+                main_override,
+            )?),
+            ScriptLang::Rust => Some(windmill_parser_rust::parse_rust_signature(code)?),
+            ScriptLang::Ansible => Some(windmill_parser_yaml::parse_ansible_sig(code)?),
+            ScriptLang::CSharp => Some(windmill_parser_csharp::parse_csharp_signature(code)?),
+        }
+    } else {
+        None
+    })
 }

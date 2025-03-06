@@ -30,6 +30,7 @@ pub enum SchemaValidationRule {
     IsObject(Vec<(String, Vec<SchemaValidationRule>)>),
     IsArray(Vec<SchemaValidationRule>),
     IsUnionType(Vec<Vec<SchemaValidationRule>>),
+    IsBytes,
 }
 
 impl SchemaValidationRule {
@@ -187,7 +188,7 @@ impl SchemaValidationRule {
                 if let Some(arr) = val.as_array() {
                     for (i, el) in arr.iter().enumerate() {
                         for r in vec {
-                            r.apply_rule(&format!("key[{i}]"), el)?;
+                            r.apply_rule(&format!("{key}[{i}]"), el)?;
                         }
                     }
                 } else {
@@ -211,8 +212,9 @@ impl SchemaValidationRule {
                     )));
                 }
             }
-            SchemaValidationRule::IsDatetime => todo!(),
-            SchemaValidationRule::IsEmail => todo!(),
+            SchemaValidationRule::IsDatetime => (),
+            SchemaValidationRule::IsEmail => (),
+            SchemaValidationRule::IsBytes => (),
         }
 
         Ok(())

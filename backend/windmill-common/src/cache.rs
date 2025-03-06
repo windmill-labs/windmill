@@ -7,6 +7,7 @@
 //!   This shall only be used for testing, e.g. [`sqlx::test`] spawn a database per test,
 //!   and there is only one test per thread, so using thread-local cache avoid unexpected results.
 
+use anyhow::anyhow;
 use crate::{
     apps::AppScriptId,
     error,
@@ -565,8 +566,7 @@ pub mod script {
                         schema_validator: if r.schema_validation {
                             r.schema
                                 .map(|schema_str| {
-                                    // let schema = serde_json::from_str(&schema_str)?;
-                                    SchemaValidator::from_schema(&schema_str)
+                                    SchemaValidator::from_schema(&schema_str).map_err(|e| anyhow!("Couldn't create schema validator for script requiring schema validation: {e}"))
                                 })
                                 .transpose()?
                         } else {
