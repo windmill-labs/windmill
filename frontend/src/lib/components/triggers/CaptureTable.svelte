@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { Info, Trash2 } from 'lucide-svelte'
+	import { DatabaseIcon, Info, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -18,6 +18,7 @@
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import { clickOutside } from '$lib/utils'
 	import type { Capture } from '$lib/gen'
+	import { AwsIcon, MqttIcon } from '../icons'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -161,7 +162,10 @@
 		http: Route,
 		email: Mail,
 		websocket: Unplug,
-		kafka: KafkaIcon
+		kafka: KafkaIcon,
+		mqtt: MqttIcon,
+		sqs: AwsIcon,
+		postgres: DatabaseIcon
 	}
 
 	async function getPropPickerElements(): Promise<HTMLElement[]> {
@@ -208,13 +212,15 @@
 					on:selected={(e) => {
 						initLoadCaptures(e.detail)
 					}}
+					let:item
 				>
-					<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small />
+					<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small {item} />
 					<ToggleButton
 						value="preprocessor"
 						label="Preprocessor"
 						small
 						tooltip="When the runnable has a preprocessor, it receives additional information about the request"
+						{item}
 					/>
 				</ToggleButtonGroup>
 			</div>

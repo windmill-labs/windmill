@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Badge, Popup, type AlertType } from '../common'
+	import { Badge, type AlertType } from '../common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import Label from '../Label.svelte'
@@ -120,19 +121,21 @@
 	$: warning = computeWarning(value, value)
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		strategy: 'fixed',
 		placement: 'left-start',
 		middleware: [offset(8), flip(), shift()]
 	}}
-	containerClasses="border rounded-lg shadow-lg bg-surface p-4  max-h-[512px] overflow-y-auto"
+	contentClasses="max-h-[70vh] overflow-y-auto p-4 flex flex-col gap-4 w-96"
+	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="button">
+	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
-	{#if value}
-		<div class="flex flex-col w-96 p-2 gap-4">
+
+	<svelte:fragment slot="content">
+		{#if value}
 			<Section label="Column settings">
 				<svelte:fragment slot="header">
 					<Badge color="blue">
@@ -388,6 +391,6 @@
 					</Label>
 				</div>
 			</Section>
-		</div>
-	{/if}
-</Popup>
+		{/if}
+	</svelte:fragment>
+</Popover>

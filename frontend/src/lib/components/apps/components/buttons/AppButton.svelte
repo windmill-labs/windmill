@@ -77,9 +77,13 @@
 	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
 
 	function getIconSize() {
-		switch (resolvedConfig.size as 'xs' | 'sm' | 'md' | 'lg' | 'xl') {
+		switch (resolvedConfig.size as 'xs' | 'xs2' | 'xs3' | 'sm' | 'md' | 'lg' | 'xl') {
 			case 'xs':
 				return 14
+			case 'xs2':
+				return 12
+			case 'xs3':
+				return 10
 			case 'sm':
 				return 16
 			case 'md':

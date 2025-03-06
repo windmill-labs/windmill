@@ -40,7 +40,24 @@ class Windmill:
         self.workspace = workspace or os.environ.get("WM_WORKSPACE")
         self.path = os.environ.get("WM_JOB_PATH")
 
+        self.mocked_api = self.get_mocked_api()
+
         assert self.workspace, f"workspace required as an argument or as WM_WORKSPACE environment variable"
+
+    def get_mocked_api(self) -> Optional[dict]:
+        mocked_path = os.environ.get("WM_MOCKED_API_FILE")
+        if not mocked_path:
+            return None
+        logger.info("Using mocked API from %s", mocked_path)
+        mocked_api = {"variables": {}, "resources": {}}
+        try:
+            with open(mocked_path, "r") as f:
+                incoming_mocked_api = json.load(f)
+            mocked_api = {**mocked_api, **incoming_mocked_api}
+        except Exception as e:
+            logger.warning("Error parsing mocked API file at path %s Using empty mocked API.", mocked_path)
+            logger.debug(e)
+        return mocked_api
 
     def get_client(self) -> httpx.Client:
         return httpx.Client(
@@ -277,10 +294,22 @@ class Windmill:
             return result_text
 
     def get_variable(self, path: str) -> str:
+        if self.mocked_api is not None:
+            variables = self.mocked_api["variables"]
+            try:
+                result = variables[path]
+                return result
+            except KeyError:
+                logger.info(f"MockedAPI present, but variable not found at {path}, falling back to real API")
+
         """Get variable from Windmill"""
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
     def set_variable(self, path: str, value: str, is_secret: bool = False) -> None:
+        if self.mocked_api is not None:
+            self.mocked_api["variables"][path] = value
+            return
+
         """Set variable from Windmill"""
         # check if variable exists
         r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
@@ -307,6 +336,18 @@ class Windmill:
         path: str,
         none_if_undefined: bool = False,
     ) -> dict | None:
+        if self.mocked_api is not None:
+            resources = self.mocked_api["resources"]
+            try:
+                result = resources[path]
+                return result
+            except KeyError:
+                # NOTE: should mocked_api respect `none_if_undefined`?
+                if none_if_undefined:
+                    logger.info(f"resource not found at ${path}, but none_if_undefined is True, so returning None")
+                    return None
+                logger.info(f"MockedAPI present, but resource not found at ${path}, falling back to real API")
+
         """Get resource from Windmill"""
         try:
             return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
@@ -322,6 +363,10 @@ class Windmill:
         path: str,
         resource_type: str,
     ):
+        if self.mocked_api is not None:
+            self.mocked_api["resources"][path] = value
+            return
+
         # check if resource exists
         r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
         if r.status_code == 404:

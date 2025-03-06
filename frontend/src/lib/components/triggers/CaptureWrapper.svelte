@@ -14,9 +14,11 @@
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 	import { invalidRelations } from './postgres/utils'
+	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
 
 	export let isFlow: boolean
 	export let path: string
@@ -78,11 +80,8 @@
 			acc[c.trigger_kind] = c
 			return acc
 		}, {})
-
-		if (
-			(captureType === 'postgres' || captureType === 'websocket' || captureType === 'kafka' || captureType === 'sqs') &&
-			captureActive
-		) {
+		const streamingCapture = ['postgres', 'websocket', 'kafka', 'sqs', 'mqtt']
+		if (streamingCapture.includes(captureType) && captureActive) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -121,7 +120,19 @@
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
 		} else {
-			args = {}
+			switch (captureType) {
+				case 'mqtt':
+					//define these field so any reactive statement that may use them will not crash trying to access their property
+					args = {
+						v3_config: DEFAULT_V3_CONFIG,
+						v5_config: DEFAULT_V5_CONFIG,
+						client_version: 'v5',
+						subscribe_topics: []
+					}
+					break
+				default:
+					args = {}
+			}
 		}
 		ready = true
 	}
@@ -151,7 +162,7 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-	const streamingCaptures = ['sqs', 'websocket', 'postgres', 'kafka', 'nats']
+	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats']
 	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
@@ -298,6 +309,25 @@
 				on:updateSchema
 				on:addPreprocessor
 				on:captureToggle={handleCapture}
+			/>
+		{:else if captureType === 'mqtt'}
+			<MqttEditorConfigSection
+				can_write={true}
+				headless={true}
+				{showCapture}
+				{captureInfo}
+				bind:v3_config={args.v3_config}
+				bind:v5_config={args.v5_config}
+				bind:client_version={args.client_version}
+				bind:subscribe_topics={args.subscribe_topics}
+				bind:mqtt_resource_path={args.mqtt_resource_path}
+				bind:client_id={args.client_id}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{:else if captureType === 'sqs'}
 			<SqsTriggerEditorConfigSection

@@ -24,7 +24,6 @@
 		History,
 		Laptop2,
 		Loader2,
-		MoreVertical,
 		RefreshCw,
 		Save,
 		Smartphone,
@@ -63,15 +62,13 @@
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -86,10 +83,13 @@
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
-	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
-	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
+	import {
+		computeS3FileInputPolicy,
+		computeWorkspaceS3FileInputPolicy,
+		computeS3ImageViewerPolicy
+	} from './appUtilsS3'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
@@ -346,6 +346,17 @@
 		}
 
 		policy.s3_inputs = s3_inputs
+
+		const s3FileKeys = items
+			.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
+			.map((x) => {
+				const c = x.data as AppComponent
+				const config = c.configuration as any
+				return computeS3ImageViewerPolicy(config, $app)
+			})
+			.filter(Boolean) as { s3_path?: string | undefined; resource?: string | undefined }[]
+
+		policy.allowed_s3_keys = s3FileKeys
 	}
 
 	async function processRunnable(
@@ -950,21 +961,26 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-<UnsavedConfirmationModal
-	{diffDrawer}
-	savedValue={savedApp}
-	modifiedValue={{
-		summary: $summary,
-		value: $app,
-		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy,
-		custom_path: customPath
-	}}
-	additionalExitAction={() => {
-		setTheme(priorDarkMode)
-	}}
-/>
 
+{#if $$slots.unsavedConfirmationModal}
+	<slot
+		name="unsavedConfirmationModal"
+		{diffDrawer}
+		additionalExitAction={() => {
+			setTheme(priorDarkMode)
+		}}
+		getInitialAndModifiedValues={() => ({
+			savedValue: savedApp,
+			modifiedValue: {
+				summary: $summary,
+				value: $app,
+				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+				policy,
+				custom_path: customPath
+			}
+		})}
+	/>
+{/if}
 <DeployOverrideConfirmationModal
 	bind:deployedBy
 	bind:confirmCallback
@@ -1212,6 +1228,9 @@
 					<Toggle
 						on:change={({ detail }) => {
 							customPath = detail ? '' : undefined
+							if (customPath === undefined) {
+								customPathError = ''
+							}
 						}}
 						checked={customPath !== undefined}
 						options={{
@@ -1548,70 +1567,92 @@
 			/>
 
 			{#if $app}
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
+				<ToggleButtonGroup
+					class="h-[30px]"
+					selected={$app.fullscreen ? 'true' : 'false'}
+					on:selected={({ detail }) => {
+						$app.fullscreen = detail === 'true'
+					}}
+					let:item
+				>
 					<ToggleButton
 						icon={AlignHorizontalSpaceAround}
-						value={false}
+						value={'false'}
 						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="The width is of the app if the full width of its container"
 						icon={Expand}
-						value={true}
+						value={'true'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 				</ToggleButtonGroup>
 			{/if}
 			{#if $app}
 				<ToggleButtonGroup
 					class="h-[30px]"
-					on:selected={(e) => {
-						setTheme(e.detail)
+					on:selected={({ detail }) => {
+						console.log('dbg detail', detail)
+						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
+						console.log('dbg settheme', theme)
+						setTheme(theme)
 					}}
-					bind:selected={$app.darkMode}
+					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
+					let:item
 				>
 					<ToggleButton
 						icon={SunMoon}
-						value={undefined}
+						value={'auto'}
 						tooltip="The app mode between dark/light is automatic"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						icon={Sun}
-						value={false}
+						value={'sun'}
 						tooltip="Force light mode"
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="Force dark mode"
 						icon={Moon}
-						value={true}
+						value={'dark'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint} let:item>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
 						value={'lg'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					<ToggleButton
 						tooltip="Mobile View"
 						icon={Smartphone}
 						value={'sm'}
 						iconProps={{ size: 16 }}
+						{item}
 					/>
 					{#if $breakpoint === 'sm'}
-						<ToggleEnable
-							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
-							label="Enable mobile view for smaller screens"
+						<Toggle
+							size="xs"
+							options={{
+								right: 'Enable mobile view for smaller screens',
+								rightTooltip:
+									'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
+							}}
+							textClass="text-2xs whitespace-nowrap white !w-full"
 							bind:checked={$app.mobileViewOnSmallerScreens}
-							iconProps={{ size: 16 }}
-							iconOnly={false}
+							class="flex flex-row px-2 items-center"
 						/>
 					{/if}
 				</ToggleButtonGroup>
@@ -1660,33 +1701,7 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<ButtonDropdown hasPadding={false}>
-			<svelte:fragment slot="buttonReplacement">
-				<Button nonCaptureEvent size="xs" color="light">
-					<div class="flex flex-row items-center">
-						<MoreVertical size={14} />
-					</div>
-				</Button>
-			</svelte:fragment>
-			<svelte:fragment slot="items">
-				{#each moreItems as item}
-					<MenuItem
-						on:click={item.action}
-						disabled={item.disabled}
-						class={item.disabled ? 'opacity-50' : ''}
-					>
-						<div
-							class={classNames(
-								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-							)}
-						>
-							<svelte:component this={item.icon} size={14} />
-							{item.displayName}
-						</div>
-					</MenuItem>
-				{/each}
-			</svelte:fragment>
-		</ButtonDropdown>
+		<Dropdown items={moreItems} />
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
 		<div class="hidden md:inline relative overflow-visible">

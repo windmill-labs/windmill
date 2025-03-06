@@ -44,7 +44,7 @@ use windmill_common::{
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
-    utils::{hostname, rd_string, Mode, GIT_VERSION},
+    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
@@ -115,6 +115,25 @@ where
 }
 
 pub fn main() -> anyhow::Result<()> {
+    // https://github.com/denoland/deno/blob/main/cli/main.rs#L477
+    #[cfg(feature = "deno_core")]
+    let unrecognized_v8_flags = deno_core::v8_set_flags(vec![
+        "--stack-size=1024".to_string(),
+        // TODO(bartlomieju): I think this can be removed as it's handled by `deno_core`
+        // and its settings.
+        // deno_ast removes TypeScript `assert` keywords, so this flag only affects JavaScript
+        // TODO(petamoriken): Need to check TypeScript `assert` keywords in deno_ast
+        "--no-harmony-import-assertions".to_string(),
+    ])
+    .into_iter()
+    .skip(1)
+    .collect::<Vec<_>>();
+
+    #[cfg(feature = "deno_core")]
+    if !unrecognized_v8_flags.is_empty() {
+        println!("Unrecognized V8 flags: {:?}", unrecognized_v8_flags);
+    }
+
     #[cfg(feature = "deno_core")]
     deno_core::JsRuntime::init_platform(None, false);
     create_and_run_current_thread_inner(windmill_main())
@@ -219,63 +238,12 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let hostname = hostname();
 
-    let mut enable_standalone_indexer: bool = false;
+    let mode_and_addons = MODE_AND_ADDONS.clone();
+    let mode = mode_and_addons.mode;
 
-    let mode = std::env::var("MODE")
-        .map(|x| x.to_lowercase())
-        .map(|x| {
-            if &x == "server" {
-                println!("Binary is in 'server' mode");
-                Mode::Server
-            } else if &x == "worker" {
-                tracing::info!("Binary is in 'worker' mode");
-                #[cfg(windows)]
-                {
-                    println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
-                }
-                Mode::Worker
-            } else if &x == "agent" {
-                println!("Binary is in 'agent' mode");
-                if std::env::var("BASE_INTERNAL_URL").is_err() {
-                    panic!("BASE_INTERNAL_URL is required in agent mode")
-                }
-                if std::env::var("JOB_TOKEN").is_err() {
-                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
-                }
-
-                #[cfg(not(feature = "enterprise"))]
-                {
-                    panic!("Agent mode is only available in the EE, ignoring...");
-                }
-                #[cfg(feature = "enterprise")]
-                Mode::Agent
-            } else if &x == "indexer" {
-                tracing::info!("Binary is in 'indexer' mode");
-                #[cfg(not(feature = "tantivy"))]
-                {
-                    eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
-                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
-                }
-                #[cfg(feature = "tantivy")]
-                Mode::Indexer
-            } else if &x == "standalone+search"{
-                    enable_standalone_indexer = true;
-                    println!("Binary is in 'standalone' mode with search enabled");
-                    Mode::Standalone
-            }
-            else {
-                if &x != "standalone" {
-                    eprintln!("mode not recognized, defaulting to standalone: {x}");
-                } else {
-                    println!("Binary is in 'standalone' mode");
-                }
-                Mode::Standalone
-            }
-        })
-        .unwrap_or_else(|_| {
-            tracing::info!("Mode not specified, defaulting to standalone");
-            Mode::Standalone
-        });
+    if mode == Mode::Standalone {
+        println!("Running in standalone mode");
+    }
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     println!("jemalloc enabled");
@@ -518,8 +486,7 @@ Windmill Community Edition {GIT_VERSION}
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]
-        let should_index_jobs =
-            mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
+        let should_index_jobs = mode == Mode::Indexer || mode_and_addons.indexer;
 
         reload_indexer_config(&db).await;
 
@@ -721,6 +688,11 @@ Windmill Community Edition {GIT_VERSION}
                                                     tracing::debug!("config changed but did not target this server/worker");
                                                 }
                                             }
+                                        },
+                                        "notify_webhook_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Webhook change detected, invalidating webhook cache: {}", workspace_id);
+                                            windmill_api::webhook_util::WEBHOOK_CACHE.remove(workspace_id);
                                         },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
@@ -960,7 +932,11 @@ async fn listen_pg(db: &DB) -> Option<PgListener> {
     };
 
     if let Err(e) = listener
-        .listen_all(vec!["notify_config_change", "notify_global_setting_change"])
+        .listen_all(vec![
+            "notify_config_change",
+            "notify_global_setting_change",
+            "notify_webhook_change",
+        ])
         .await
     {
         tracing::error!(error = %e, "Could not listen to database");
@@ -1119,9 +1095,12 @@ pub async fn run_workers(
 
 async fn send_delayed_killpill(
     tx: &tokio::sync::broadcast::Sender<()>,
-    max_delay_secs: u64,
+    mut max_delay_secs: u64,
     context: &str,
 ) {
+    if max_delay_secs == 0 {
+        max_delay_secs = 1;
+    }
     // Random delay to avoid all servers/workers shutting down simultaneously
     let rd_delay = rand::rng().random_range(0..max_delay_secs);
     tracing::info!("Scheduling {context} shutdown in {rd_delay}s");

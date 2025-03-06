@@ -4,8 +4,8 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { AppService, HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -14,6 +14,7 @@
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
 	export let allowMultiple: boolean = true
+	export let allowDelete = true
 	export let folderOnly = false
 	export let containerText: string = folderOnly
 		? 'Drag and drop a folder here or click to browse'
@@ -32,6 +33,30 @@
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
 	export let disabled = false
+	export let iconSize: number | undefined = undefined
+	export let initialValue:
+		| {
+				s3: string
+				filename: string
+		  }
+		| undefined = undefined
+
+	init()
+	function init() {
+		if (initialValue) {
+			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
+				$fileUploads = [
+					...$fileUploads,
+					{
+						name: initialValue.filename,
+						size: 0,
+						progress: 100,
+						path: initialValue?.s3
+					}
+				]
+			}
+		}
+	}
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
@@ -53,6 +78,7 @@
 		errorMessage?: string
 		path?: string
 		file?: File
+		deleteToken?: string
 	}
 
 	async function handleChange(files: File[] | undefined) {
@@ -129,7 +155,8 @@
 			progress: 1, // We set it to 1 so that the progress bar is visible
 			cancelled: false,
 			path: path,
-			file: fileToUpload
+			file: fileToUpload,
+			deleteToken: undefined
 		}
 
 		$fileUploads = [...$fileUploads, uploadData]
@@ -251,6 +278,9 @@
 			})) as any
 
 			uploadData.path = response.file_key
+			if (appPath && 'delete_token' in response) {
+				uploadData.deleteToken = response.delete_token
+			}
 		} catch (e) {
 			console.error(e)
 			sendUserToast(e, true)
@@ -278,13 +308,25 @@
 		return
 	}
 
-	async function deleteFile(fileKey: string) {
-		await HelpersService.deleteS3File({
-			workspace: workspace ?? $workspaceStore!,
-			fileKey: fileKey
-		})
-		dispatch('deletion', { path: fileKey })
-		sendUserToast('File deleted!')
+	async function deleteFile(fileKey: string, deleteToken?: string) {
+		try {
+			if (deleteToken) {
+				await AppService.deleteS3FileFromApp({
+					workspace: workspace ?? $workspaceStore!,
+					deleteToken: deleteToken
+				})
+			} else {
+				await HelpersService.deleteS3File({
+					workspace: workspace ?? $workspaceStore!,
+					fileKey: fileKey
+				})
+			}
+			dispatch('deletion', { path: fileKey })
+			sendUserToast('File deleted!')
+		} catch (err) {
+			console.error(err)
+			sendUserToast('Could not delete file', true)
+		}
 	}
 
 	function clearRequests() {
@@ -394,7 +436,7 @@
 									</Button>
 								{/if}
 
-								{#if fileUpload.progress === 100 && !fileUpload.cancelled && $userStore}
+								{#if fileUpload.progress === 100 && !fileUpload.cancelled && allowDelete && (!appPath || fileUpload.deleteToken != undefined)}
 									<Button
 										size="xs2"
 										color="red"
@@ -405,7 +447,7 @@
 											)
 
 											if (fileUpload.path) {
-												deleteFile(fileUpload.path)
+												deleteFile(fileUpload.path, fileUpload.deleteToken)
 											}
 											abortUpload(fileUpload.name)
 										}}
@@ -493,6 +535,7 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
+			iconSize={iconSize}
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)

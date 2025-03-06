@@ -161,7 +161,13 @@ exit $exit_status
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let nsjail = !*DISABLE_NSJAIL
+        && job
+            .script_path
+            .as_ref()
+            .map(|x| !x.starts_with("init_script_"))
+            .unwrap_or(true);
+    let child = if nsjail {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -213,7 +219,7 @@ exit $exit_status
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        nsjail,
         worker_name,
         &job.workspace_id,
         "bash run",

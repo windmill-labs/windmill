@@ -52,6 +52,13 @@
 			recomputeIds: []
 		}
 
+		if (typ == 'buttoncomponent') {
+			if (newComponent?.configuration?.size) {
+				// @ts-ignore
+				newComponent.configuration.size = { type: 'static', value: 'xs2' }
+			}
+		}
+
 		items = [
 			...items,
 			{
@@ -70,12 +77,10 @@
 			return
 		}
 		components = components.filter((x) => x.id !== cid)
-
 		delete $errorByComponent[cid]
 
 		$selectedComponent = [id]
 		$app = $app
-
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
 	}
@@ -159,7 +164,10 @@
 								</div>
 							</div>
 							<div class="flex flex-row items-center gap-1">
-								<CloseButton small on:close={() => deleteComponent(component.id, index)} />
+								<CloseButton
+									small
+									on:close={() => deleteComponent(component.id, item.originalIndex)}
+								/>
 							</div>
 						</div>
 						{#if actionsOrder === undefined}

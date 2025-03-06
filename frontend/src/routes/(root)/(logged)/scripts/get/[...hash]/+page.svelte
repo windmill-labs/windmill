@@ -89,6 +89,7 @@
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
+	import MqttTriggersPanel from '$lib/components/triggers/mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
 
 	let script: Script | undefined
@@ -288,7 +289,7 @@
 		}
 
 		buttons.push({
-			label: `View runs`,
+			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${script.path}`,
 				size: 'xs',
@@ -771,6 +772,11 @@
 			<svelte:fragment slot="nats">
 				<div class="p-2">
 					<NatsTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="mqtt">
+				<div class="p-2">
+					<MqttTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="sqs">
