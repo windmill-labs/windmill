@@ -101,7 +101,6 @@ jobs:
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
-            org.opencontainers.image.licenses=AGPLv3
 
   build_ee:
     runs-on: ubicloud
