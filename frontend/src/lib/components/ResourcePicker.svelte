@@ -50,8 +50,12 @@
 
 	let collection = valueSelect ? [valueSelect] : []
 
-	export async function askNewResource() {
-		appConnect?.open?.(resourceType)
+	export async function askNewResource(newDefaultValues?: Record<string, any>) {
+		if (resourceType && newDefaultValues) {
+			resourceEditor?.initNew?.(resourceType, newDefaultValues)
+		} else {
+			appConnect?.open?.(resourceType)
+		}
 	}
 
 	let loading = true
