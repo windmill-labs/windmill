@@ -58,8 +58,8 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/target/main.jar"
-    dst: "/tmp/target/main.jar"
+    src: "{JOB_DIR}/target"
+    dst: "/tmp/target"
     is_bind: true
     mandatory: false
 }
@@ -76,9 +76,10 @@ mount {
     rw: true
     is_bind: true
 }
+
 mount {
-    src: "{CACHE_DIR}/maven-jars"
-    dst: "{CACHE_DIR}/maven-jars"
+    src: "{CACHE_DIR}"
+    dst: "{CACHE_DIR}"
     is_bind: true
     mandatory: false
 }

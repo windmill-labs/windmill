@@ -43,105 +43,6 @@ lazy_static::lazy_static! {
 const NSJAIL_CONFIG_RUN_JAVA_CONTENT: &str = include_str!("../nsjail/run.java.config.proto");
 const POM_XML_TEMPLATE: &str = include_str!("../init-pom.xml");
 
-pub async fn init_java<'a>(
-    // base_internal_url: &'a str,
-    job_id: &Uuid,
-    w_id: &str,
-    worker_name: &'a str,
-    db: &'a sqlx::Pool<sqlx::Postgres>,
-) -> Result<(), Error> {
-    // copy_dir_recursively(
-    //     "/tmp/windmill/maven-persistent-base",
-    //     format!("{JAVA_CACHE_DIR}/maven-jars"),
-    // )?;
-
-    // let mut is_first_run = FIRST_RUN.write().await;
-    // if !*is_first_run {
-    //     return Ok(());
-    // }
-    // append_logs(job_id, w_id, format!("\n\n--- INIT JAVA ---\n"), db.clone()).await;
-
-    // if let Some(mvn_config) = MAVEN_CONFIG.read().await.clone() {
-    //     {
-    //         let dir = format!("{JAVA_CACHE_DIR}/maven-jars");
-    //         create_dir_all(&dir).await?;
-    //         write_file(&dir, "settings.xml", &mvn_config)?;
-    //     }
-    //     {
-    //         let dir = format!("{JAVA_CACHE_DIR}/maven-meta");
-    //         create_dir_all(&dir).await?;
-    //         write_file(&dir, "settings.xml", &mvn_config)?;
-    //     }
-    // }
-    // let pom = POM_XML_TEMPLATE
-    //     .to_owned()
-    //     .replace("<!-- SPREAD_DEPENDENCIES -->", &format!(""))
-    //     .replace("<!-- SPREAD_REPOS -->", &format!(""));
-
-    // let init_dir = format!("{JAVA_CACHE_DIR}/init");
-    // create_dir_all(&init_dir).await?;
-    // File::create(format!("{JAVA_CACHE_DIR}/init/pom.xml"))
-    //     .await?
-    //     .write_all(&pom.into_bytes())
-    //     .await?;
-
-    // let child = {
-    //     let mut cmd = Command::new(if cfg!(windows) {
-    //         "mvn"
-    //     } else {
-    //         MAVEN_PATH.as_str()
-    //     });
-    //     cmd.env_clear()
-    //         .current_dir(init_dir)
-    //         .env(
-    //             "MAVEN_OPTS",
-    //             "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
-    //         )
-    //         .env("PATH", PATH_ENV.as_str())
-    //         // .env("BASE_INTERNAL_URL", base_internal_url)
-    //         // .envs(envs)
-    //         // .envs(reserved_variables)
-    //         .envs(PROXY_ENVS.clone())
-    //         .args(&[
-    //             "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
-    //             "dependency:go-offline",
-    //             "-q",
-    //             // "exec:java",
-    //         ])
-    //         .stdout(Stdio::piped())
-    //         .stderr(Stdio::piped());
-
-    //     #[cfg(windows)]
-    //     {
-    //         cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-    //             .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-    //             .env(
-    //                 "TMP",
-    //                 std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-    //             );
-    //     }
-    //     start_child_process(cmd, "mvn").await?
-    // };
-    // handle_child::handle_child(
-    //     job_id,
-    //     db,
-    //     &mut 0,
-    //     &mut None,
-    //     child,
-    //     !*DISABLE_NSJAIL,
-    //     worker_name,
-    //     // &job.workspace_id,
-    //     w_id,
-    //     "mvn",
-    //     None,
-    //     false,
-    //     &mut None,
-    // )
-    // .await?;
-    // *is_first_run = true;
-    Ok(())
-}
-
 #[derive(Copy, Clone)]
 #[annotations("//")]
 pub struct Annotations {
@@ -218,16 +119,6 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
     )
     .await?;
 
-    // // --- Init Java ---
-    // {
-    //     init_java(
-    //         &args.job.id,
-    //         &args.job.workspace_id,
-    //         &args.worker_name,
-    //         &args.db,
-    //     )
-    //     .await?
-    // }
     // --- Install ---
 
     let classpath = install(&mut args, deps, no_s3).await?;
@@ -476,7 +367,6 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.FileOutputStream;
 import net.script.Main;
-// import Main;
 
 public class App{
 
@@ -1006,6 +896,7 @@ async fn run<'a>(
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", JAVA_CACHE_DIR)
                 .replace("{SHARED_MOUNT}", &shared_mount)
+                // .replace("{CACHED_TARGET}", &shared_mount)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1017,10 +908,10 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(PROXY_ENVS.clone())
-            .env(
-                "MAVEN_OPTS",
-                "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
-            )
+            // .env(
+            //     "MAVEN_OPTS",
+            //     "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+            // )
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -1048,8 +939,7 @@ async fn run<'a>(
         } else {
             JAVA_PATH.as_str()
         });
-        cmd
-            // .env_clear()
+        cmd.env_clear()
             .current_dir(job_dir.to_owned())
             // .env(
             //     "MAVEN_OPTS",
@@ -1078,7 +968,7 @@ async fn run<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        start_child_process(cmd, "mvn").await?
+        start_child_process(cmd, "java").await?
     };
     handle_child::handle_child(
         &job.id,
@@ -1089,158 +979,10 @@ async fn run<'a>(
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
-        "mvn",
+        "java",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
     )
     .await
 }
-
-async fn jar<'a>(
-    JobHandlerInput {
-        occupancy_metrics,
-        mem_peak,
-        canceled_by,
-        worker_name,
-        job,
-        db,
-        job_dir,
-        shared_mount,
-        client,
-        envs,
-        base_internal_url,
-        inner_content,
-        requirements_o,
-        ..
-    }: &mut JobHandlerInput<'a>,
-    // plugins: Vec<&'a str>,
-) -> Result<(), Error> {
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    let hash = compute_hash(inner_content, *requirements_o);
-    let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
-    let remote_path = format!("java_jar/{hash}");
-    let (cache, cache_logs) =
-        windmill_common::worker::load_cache(&bin_path, &remote_path, true).await;
-
-    let cache_logs = if cache {
-        let mut target = format!("{job_dir}/target");
-        create_dir_all(&target).await?;
-        target += "/main.jar";
-
-        #[cfg(unix)]
-        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
-        #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!("\n\nPulled existing jar\n"),
-            db.clone(),
-        )
-        .await;
-
-        symlink.map_err(|e| {
-            Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
-            ))
-        })?;
-    } else {
-        // let plugin_registry = format!("{job_dir}/plugin-registry");
-        let child = {
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                format!("\n\n--- COMPILING JAR ---\n"),
-                db.clone(),
-            )
-            .await;
-
-            let mut cmd = Command::new(if cfg!(windows) {
-                "mvn"
-            } else {
-                MAVEN_PATH.as_str()
-            });
-            cmd.env_clear()
-                .current_dir(job_dir.to_owned())
-                .env("PATH", PATH_ENV.as_str())
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .envs(envs)
-                .envs(reserved_variables)
-                .envs(PROXY_ENVS.clone())
-                .args(&[
-                    "package", // Offline mode. Crucial to make build safe.
-                    "-o",
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-
-            #[cfg(windows)]
-            {
-                cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-                    .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-                    .env(
-                        "TMP",
-                        std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-                    );
-            }
-            start_child_process(cmd, "mvn").await?
-        };
-        handle_child::handle_child(
-            &job.id,
-            db,
-            mem_peak,
-            canceled_by,
-            child,
-            !*DISABLE_NSJAIL,
-            worker_name,
-            &job.workspace_id,
-            "mvn",
-            job.timeout,
-            false,
-            &mut Some(occupancy_metrics),
-        )
-        .await?;
-
-        match save_cache(
-            &bin_path,
-            &format!("java_jar/{hash}"),
-            &format!("{job_dir}/target/main.jar"),
-            None,
-        )
-        .await
-        {
-            Err(e) => {
-                let em = format!(
-                    "could not save {bin_path} to {} to java cache: {e:?}",
-                    format!("{job_dir}/main"),
-                );
-                tracing::error!(em);
-                // Ok(em)
-            }
-            Ok(logs) => {}
-        }
-    };
-
-    Ok(())
-}
-
-// #[cfg(test)]
-// mod test {
-//     use super::parse_plugin_use;
-
-//     #[test]
-//     fn test_nu_plugin_use() {
-//         let content = r#"
-// plugin use foo
-// plugin use bar
-// plugin use baz
-// plugin use meh
-//         "#;
-//         assert_eq!(
-//             vec!["foo", "bar", "baz", "meh"], //
-//             parse_plugin_use(content)
-//         );
-//     }
-// }
