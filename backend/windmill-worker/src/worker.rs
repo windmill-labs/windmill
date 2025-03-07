@@ -14,8 +14,8 @@ use windmill_common::{
     apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms},
     cache::{ScriptData, ScriptMetadata},
-    schema::{should_validate_schema, SchemaValidator},
     jwt,
+    schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
     worker::{
@@ -2447,7 +2447,7 @@ async fn handle_code_execution_job(
                 .as_ref()
                 .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
             if script_path.starts_with("hub/") {
-                let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
+                let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema: _schema } =
                     get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
                 data = ScriptData { code: content, lock: lockfile };
                 metadata = ScriptMetadata {
@@ -2480,13 +2480,15 @@ async fn handle_code_execution_job(
 
     if *validate_schema {
         if let Some(args) = job.args.as_ref() {
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                "\n--- ARGS VALIDATION ---\nScript contains `schema_validation` annotation, running schema validation for the script arguments...\n",
-                db,
-            )
-            .await;
+            if job.job_kind == JobKind::Preview {
+                append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    "\n--- ARGS VALIDATION ---\nScript contains `schema_validation` annotation, running schema validation for the script arguments...\n",
+                    db,
+                )
+                .await;
+            }
             if let Some(sv) = schema_validator {
                 sv.validate(args)?;
             } else {
@@ -2511,7 +2513,7 @@ async fn handle_code_execution_job(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                "Script arguments are valid!\n\n",
+                "Script arguments were validated!\n\n",
                 db,
             )
             .await;
@@ -2989,12 +2991,14 @@ fn parse_sig_of_lang(
                 Some(windmill_parser_ts::parse_deno_signature(
                     code,
                     true,
+                    false,
                     main_override,
                 )?)
             }
             ScriptLang::Python3 => Some(windmill_parser_py::parse_python_signature(
                 code,
                 main_override,
+                false,
             )?),
             ScriptLang::Go => Some(windmill_parser_go::parse_go_sig(code)?),
             ScriptLang::Bash => Some(windmill_parser_bash::parse_bash_sig(code)?),

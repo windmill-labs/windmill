@@ -1,12 +1,6 @@
-use anyhow::anyhow;
-use serde_json::{value::RawValue, Value};
-use sqlx::types::Json;
 use std::{collections::HashMap, str::FromStr};
-use windmill_common::{
-    schema::{SchemaValidationRule, SchemaValidator},
-    scripts::ScriptLang,
-};
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_common::schema::{SchemaValidationRule, SchemaValidator};
+use windmill_parser::{MainArgSignature, Typ};
 
 
 fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
@@ -62,17 +56,18 @@ fn make_rules_for_arg_typ(typ: &Typ) -> Vec<SchemaValidationRule> {
             rules.push(SchemaValidationRule::IsObject(obj_rules))
         }
         Typ::OneOf(variants) => {
-            let mut rules_set = vec![];
+            let mut rules_map = HashMap::new();
+
             for variant in variants {
                 let mut obj_rules = vec![];
 
                 for prop in &variant.properties {
                     obj_rules.push((prop.key.to_string(), make_rules_for_arg_typ(&prop.typ)));
                 }
-                rules_set.push(vec![SchemaValidationRule::IsObject(obj_rules)]);
+                rules_map.insert(variant.label.to_string(), vec![SchemaValidationRule::IsObject(obj_rules)]);
             }
 
-            rules.push(SchemaValidationRule::IsUnionType(rules_set))
+            rules.push(SchemaValidationRule::IsOneOf(rules_map))
         }
         Typ::Resource(_) => (),
         Typ::DynSelect(_) => (),

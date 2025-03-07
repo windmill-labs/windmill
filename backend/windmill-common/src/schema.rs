@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};
 
@@ -30,6 +31,7 @@ pub enum SchemaValidationRule {
     IsObject(Vec<(String, Vec<SchemaValidationRule>)>),
     IsArray(Vec<SchemaValidationRule>),
     IsUnionType(Vec<Vec<SchemaValidationRule>>),
+    IsOneOf(HashMap<String, Vec<SchemaValidationRule>>),
     IsBytes,
 }
 
@@ -81,13 +83,31 @@ impl SchemaValidationRule {
                     let one_of = one_of
                         .as_array()
                         .ok_or(anyhow!("`oneOf` needs to be an array"))?;
-                    let mut rules = vec![];
+                    let mut rules_map: HashMap<String, Vec<SchemaValidationRule>> = HashMap::new();
 
                     for variant in one_of {
-                        rules.push(SchemaValidationRule::from_value(variant)?);
+                        let variant_label = variant
+                            .get("title")
+                            .ok_or(anyhow!(
+                                "oneOf variant definition should have a `title` field"
+                            ))?
+                            .as_str()
+                            .ok_or(anyhow!(
+                                "oneOf variant definition `title` field should be a string"
+                            ))?;
+                        if !rules_map.contains_key(variant_label) {
+                            rules_map.insert(
+                                variant_label.to_string(),
+                                SchemaValidationRule::from_value(variant)?,
+                            );
+                        } else {
+                            return Err(anyhow!(
+                                "oneOf definition has a duplicate variant `{variant_label}`"
+                            ));
+                        }
                     }
 
-                    schema_rules.push(SchemaValidationRule::IsUnionType(rules))
+                    schema_rules.push(SchemaValidationRule::IsOneOf(rules_map))
                 } else {
                     let is_resource = val
                         .get("format")
@@ -173,7 +193,13 @@ impl SchemaValidationRule {
         Ok(schema_rules)
     }
 
-    fn apply_rule(&self, key: &str, val: &Value) -> Result<(), Error> {
+    fn apply_rule(&self, key: &str, val: &Value, required: bool) -> Result<(), Error> {
+        if val.is_null() {
+            if !required {
+                return Ok(());
+            }
+            return Err(Error::ArgumentErr(format!("Argument {key} cannot be null")));
+        }
         match self {
             SchemaValidationRule::IsNull => {
                 if !val.is_null() {
@@ -184,8 +210,10 @@ impl SchemaValidationRule {
             }
             SchemaValidationRule::StrictEnum(vec) => {
                 if !vec.contains(val) {
+                    let options = vec.iter().map(|s| s.to_string()).join(", ");
                     return Err(Error::ArgumentErr(format!(
-                        "Enum type argument `{key}` expected one of `{vec:?}` but received {val:?}"
+                        "Enum type argument `{key}` expected one of `[{options}]` but received {}",
+                        val.to_string()
                     )));
                 }
             }
@@ -225,10 +253,11 @@ impl SchemaValidationRule {
                 }
 
                 for (s, rules) in o {
-                    if let Some(v) = val.get(&s) {
-                        for r in rules {
-                            r.apply_rule(&format!("{key}.{s}"), v)?;
-                        }
+                    let v = val
+                        .get(&s)
+                        .ok_or(Error::ArgumentErr(format!("Missing field {s} in {key}")))?;
+                    for r in rules {
+                        r.apply_rule(&format!("{key}.{s}"), v, true)?;
                     }
                 }
             }
@@ -236,7 +265,7 @@ impl SchemaValidationRule {
                 if let Some(arr) = val.as_array() {
                     for (i, el) in arr.iter().enumerate() {
                         for r in vec {
-                            r.apply_rule(&format!("{key}[{i}]"), el)?;
+                            r.apply_rule(&format!("{key}[{i}]"), el, true)?;
                         }
                     }
                 } else {
@@ -245,19 +274,48 @@ impl SchemaValidationRule {
                     )));
                 }
             }
+            // TODO: For better error messages on OneOf, make a dedicated OneOf type that matches the label instead of trying the whole type.
             SchemaValidationRule::IsUnionType(vec) => {
                 let mut match_count = 0;
 
+                let mut errors = String::new();
                 for typ in vec {
-                    if typ.iter().all(|r| r.apply_rule(key, val).is_ok()) {
+                    if let Some(e) = typ
+                        .iter()
+                        .map(|r| r.apply_rule(key, val, true))
+                        .find_map(Result::err)
+                    {
+                        errors.push_str(&format!("- {e}\n"));
+                    } else {
                         match_count += 1;
                     }
                 }
 
-                if match_count != 1 {
+                if match_count == 0 {
                     return Err(Error::ArgumentErr(format!(
-                        "Argument `{key}` is not of one of the expected types"
+                        "Argument `{key}` is not valid, failed matching to one of the expected types. Here is a list of possible errors:\n{errors}"
                     )));
+                }
+            }
+            SchemaValidationRule::IsOneOf(vec) => {
+                let variant_label = val
+                    .get("label")
+                    .ok_or(Error::ArgumentErr(format!(
+                        "oneOf Variant  for argument `{key}` should have a label field"
+                    )))?
+                    .as_str()
+                    .ok_or(Error::ArgumentErr(format!(
+                        "Argument `{key}` of type oneOf expected the label to be a string"
+                    )))?;
+
+                let variant_rules = vec
+                    .get(variant_label)
+                    .ok_or_else(|| Error::ArgumentErr(format!(
+                        "Argument `{key}` of type oneOf expected one of the following variants {}, but received `{variant_label}`", vec.keys().join(", ")
+                    )))?;
+
+                for r in variant_rules {
+                    r.apply_rule(key, val, true).map_err(|e| Error::ArgumentErr(format!("Argument `{key}`: The schema for the selected oneOf variant `{variant_label}` was not respected: {e}")))?;
                 }
             }
             // TODO: Implement validation on these
@@ -329,7 +387,7 @@ impl SchemaValidator {
                     Error::ArgumentErr(format!("Failed to parse `{key}` argument: {e}"))
                 })?;
                 for rule in rules {
-                    rule.apply_rule(key, &parsed_val)?;
+                    rule.apply_rule(key, &parsed_val, self.required.contains(key))?;
                 }
             }
         }
@@ -417,7 +475,9 @@ mod tests {
 
     use super::*;
 
-    fn value_to_rawvalue_map(value: Value) -> Result<HashMap<String, Box<RawValue>>, anyhow::Error> {
+    fn value_to_rawvalue_map(
+        value: Value,
+    ) -> Result<HashMap<String, Box<RawValue>>, anyhow::Error> {
         match value {
             Value::Object(map) => {
                 let mut result = HashMap::new();
@@ -545,7 +605,10 @@ mod tests {
                     }
         );
 
-        validator.validate(&value_to_rawvalue_map(args).unwrap()).err().expect("Validation should not work for this");
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .err()
+            .expect("Validation should not work for this");
 
         let args = json!(
                     {
@@ -562,7 +625,10 @@ mod tests {
                     }
         );
 
-        validator.validate(&value_to_rawvalue_map(args).unwrap()).err().expect("Validation should not work for this");
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .err()
+            .expect("Validation should not work for this");
 
         let args = json!(
                     {
@@ -579,6 +645,9 @@ mod tests {
                     }
         );
 
-        validator.validate(&value_to_rawvalue_map(args).unwrap()).expect("Validation should work for this");
+        validator
+            .validate(&value_to_rawvalue_map(args).unwrap())
+            .expect("Validation should work for this");
     }
 }
+
