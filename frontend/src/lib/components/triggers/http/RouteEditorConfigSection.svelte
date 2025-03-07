@@ -16,6 +16,7 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { isObject } from '$lib/utils'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -84,6 +85,10 @@
 		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 			captureInfo.isFlow ? 'flow' : 'script'
 		}/${captureInfo.path.replaceAll('/', '.')}/${route_path}`}
+		{@const cleanedRunnableArgs =
+			isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+				? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+				: runnableArgs}
 		<CaptureSection
 			captureType="http"
 			disabled={!isValid}
@@ -105,7 +110,7 @@
 					code={`curl \\
 -X ${(http_method ?? 'post').toUpperCase()} ${captureURL} \\
 -H 'Content-Type: application/json' \\
--d '${JSON.stringify(runnableArgs ?? {}, null, 2)}'`}
+-d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`}
 					language={bash}
 				/>
 			</Label>

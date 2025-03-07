@@ -60,7 +60,7 @@
 	}>()
 
 	interface CaptureWithPayload extends Capture {
-		getFullCapture?: () => Promise<any>
+		getFullCapture?: () => Promise<Capture>
 		payloadData?: any
 	}
 
@@ -68,7 +68,7 @@
 		await infiniteList?.loadData(refresh ? 'refresh' : 'loadMore')
 	}
 
-	function initLoadCaptures(testKind: 'preprocessor' | 'main' = 'main') {
+	function initLoadCaptures(kind: 'preprocessor' | 'main' = testKind) {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const captures = await CaptureService.listCaptures({
 				workspace: $workspaceStore!,
@@ -93,7 +93,7 @@
 				}
 				const trigger_extra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}
 				newCapture.payloadData =
-					testKind === 'preprocessor'
+					kind === 'preprocessor'
 						? capture.payload === 'WINDMILL_TOO_BIG'
 							? {
 									payload: capture.payload,
@@ -122,7 +122,7 @@
 		infiniteList?.setDeleteItemFn(deleteInputFn)
 	}
 
-	async function handleSelect(capture: any) {
+	async function handleSelect(capture: Capture) {
 		if (selected === capture.id) {
 			resetSelected()
 		} else {
@@ -132,8 +132,8 @@
 		}
 	}
 
-	async function getPayload(capture: any) {
-		let payloadData = {}
+	async function getPayload(capture: CaptureWithPayload) {
+		let payloadData: any = {}
 		if (capture.getFullCapture) {
 			const fullCapture = await capture.getFullCapture()
 			payloadData =
