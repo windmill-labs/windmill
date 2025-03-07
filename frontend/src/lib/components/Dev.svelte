@@ -231,6 +231,8 @@
 			loadingCodebaseButton = false
 			sendUserToast(
 				'Error bundling script:' +
+					event.data.errorMessage +
+					' ' +
 					(typeof event.data.error == 'object'
 						? JSON.stringify(event.data.error)
 						: event.data.error),
@@ -297,6 +299,7 @@
 						array.push(file.charCodeAt(i))
 					}
 					let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
+
 					form.append('file', blob)
 				} else {
 					form.append('file', file)

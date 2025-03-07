@@ -4516,10 +4516,10 @@ async fn run_bundle_preview_script(
                 std::fs::create_dir_all(
                     windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
                 )?;
-                windmill_common::worker::write_file(
+                windmill_common::worker::write_file_bytes(
                     &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                     &id,
-                    &String::from_utf8_lossy(&data),
+                    &data,
                 )?;
             } else {
                 #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
