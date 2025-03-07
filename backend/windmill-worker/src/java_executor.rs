@@ -1,14 +1,17 @@
-use std::{collections::HashMap, process::Stdio, sync::Arc, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    process::Stdio,
+    sync::Arc,
+};
 
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{create_dir_all, metadata, read_to_string, File},
     io::AsyncWriteExt,
     process::Command,
-    sync::{RwLock, Semaphore},
+    sync::Semaphore,
 };
 use uuid::Uuid;
 use windmill_common::{
@@ -19,9 +22,8 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{pad_string, save_cache, write_file},
 };
-use windmill_macros::annotations;
 use windmill_parser::Arg;
-use windmill_parser_java::parse_java_signature;
+use windmill_parser_java::parse_java_sig_meta;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -31,29 +33,17 @@ use crate::{
     },
     global_cache::{build_tar_and_push, pull_from_tar},
     handle_child, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
-    MAVEN_CONFIG, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 lazy_static::lazy_static! {
     static ref JAVA_CONCURRENT_DOWNLOADS: usize = std::env::var("JAVA_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref JAVA_PATH: String = std::env::var("JAVA_PATH").unwrap_or_else(|_| "/usr/bin/java".to_string());
     static ref JAVAC_PATH: String = std::env::var("JAVAC_PATH").unwrap_or_else(|_| "/usr/bin/javac".to_string());
-    static ref MAVEN_PATH: String = std::env::var("MAVEN_PATH").unwrap_or_else(|_| "/usr/bin/mvn".to_string());
-    static ref FIRST_RUN: RwLock<bool> = RwLock::new(true);
+    static ref MAVEN_PATH: String = std::env::var("MAVEN_PATH").unwrap_or_else(|_| "/opt/maven/bin/mvn".to_string());
 }
 const NSJAIL_CONFIG_RUN_JAVA_CONTENT: &str = include_str!("../nsjail/run.java.config.proto");
 const POM_XML_TEMPLATE: &str = include_str!("../init-pom.xml");
 
-#[derive(Copy, Clone)]
-#[annotations("//")]
-pub struct Annotations {
-    pub jared: bool,
-    /// Do not (use) cache on S3
-    pub no_s3: bool,
-    /// Do not use cached lock from db
-    pub no_lock_cache: bool,
-}
-
-// TODO: Can be generalized and used for other handlers
 #[allow(dead_code)]
 pub(crate) struct JobHandlerInput<'a> {
     pub base_internal_url: &'a str,
@@ -83,7 +73,6 @@ pub fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
 }
 
 pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
-    let Annotations { jared, no_s3, no_lock_cache } = Annotations::parse(&args.inner_content);
     // --- Prepare ---
     {
         create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
@@ -121,7 +110,7 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
 
     // --- Install ---
 
-    let classpath = install(&mut args, deps, no_s3).await?;
+    let classpath = install(&mut args, deps).await?;
 
     // --- Build to JAR ---
     {
@@ -232,12 +221,11 @@ pub async fn resolve_dependencies<'a>(
         });
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
-            .env(
-                "MAVEN_OPTS",
-                "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-meta",
-            )
+            // .env(
+            //     "MAVEN_OPTS",
+            //     "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-meta",
+            // )
             .env("PATH", PATH_ENV.as_str())
-            // .envs(envs)
             .envs(PROXY_ENVS.clone())
             .args(&["dependency:collect", "-DoutputFile=dependencies.txt", "-q"])
             .stdout(Stdio::piped())
@@ -338,29 +326,31 @@ class Wmill {
 /// that upon execution reads args.json (which are piped and transformed from previous flow step or top level inputs)
 /// Also wrapper takes output of program and serializes to result.json (Which windmill will know how to use later)
 fn wrap(inner_content: &str) -> Result<String, Error> {
-    let sig = parse_java_signature(inner_content)?;
+    let sig = parse_java_sig_meta(inner_content)?;
+    let ret_void = sig.returns_void;
     let spread = sig
+        .main_sig
         .args
         .clone()
         .into_iter()
-        .map(|Arg { name, typ, has_default, .. }| {
+        .map(|Arg { name, .. }| {
             // Apply additional input transformation
             format!(" parsedArgs.{name}")
         })
         .collect_vec()
         .join(",");
     let args = sig
+        .main_sig
         .args
         .clone()
         .into_iter()
-        .map(|Arg { name, typ, has_default, otyp, .. }| {
+        .map(|Arg { name, otyp, .. }| {
             // Apply additional input transformation
             format!("public {} {name};\n", otyp.unwrap())
         })
         .collect_vec()
         .join(" ");
-    Ok(
-        r#"    
+    Ok(r#"    
 package net.script;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.FileInputStream;
@@ -378,7 +368,7 @@ public class App{
       ObjectMapper mapper = new ObjectMapper();
       Args parsedArgs = mapper.readValue(fileInputStream, Args.class);
       fileInputStream.close();
-      Object res = Main.main(SPREAD);
+      {MAIN_HANDLER}
       FileOutputStream fileOutputStream = new FileOutputStream("result.json");
       mapper.writeValue(fileOutputStream, res);
       fileOutputStream.close();
@@ -389,30 +379,26 @@ public class App{
   }
 }
             "#
-        .replace("SPREAD", &spread) // .replace("TRANSFORM", transform)
-        .replace("ARGS", &args), // .replace("TRANSFORM", transform)
-                                 // .replace("INNER_CONTENT", inner_content)
+    .replace(
+        "{MAIN_HANDLER}",
+        if ret_void {
+            "
+            Main.main(SPREAD);
+            Object res = null;
+            "
+        } else {
+            "
+            Object res = Main.main(SPREAD);
+            "
+        },
     )
+    .replace("SPREAD", &spread)
+    .replace("ARGS", &args))
 }
 
 async fn install<'a>(
-    JobHandlerInput {
-        occupancy_metrics,
-        mem_peak,
-        canceled_by,
-        worker_name,
-        job,
-        db,
-        job_dir,
-        shared_mount,
-        client,
-        envs,
-        base_internal_url,
-        inner_content,
-        ..
-    }: &mut JobHandlerInput<'a>,
+    JobHandlerInput { worker_name, job, db, job_dir, .. }: &mut JobHandlerInput<'a>,
     deps: String,
-    no_s3: bool,
 ) -> Result<String, Error> {
     append_logs(
         &job.id,
@@ -424,8 +410,6 @@ async fn install<'a>(
 
     // Total to install
     let mut to_install = vec![];
-    // Only install by maven
-    let mut mvn_install = vec![];
     let total_to_install;
     // let mut not_installed = vec![];
     let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
@@ -543,12 +527,15 @@ async fn install<'a>(
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
 
+    // Only install by maven
+    let mut mvn_install: HashSet<(String, String)> =
+        HashSet::from_iter(to_install.clone().into_iter());
+
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if is_not_pro {
         for (path, name) in to_install {
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                let (path_2, name_2, job_id_2, w_id_2, db_2, counter_arc) = (
-                    path.clone(),
+                let (name_2, job_id_2, w_id_2, db_2, counter_arc) = (
                     name.clone(),
                     job.id.clone(),
                     job.workspace_id.clone(),
@@ -557,15 +544,15 @@ async fn install<'a>(
                 );
                 let start = std::time::Instant::now();
                 tokio::select! {
-                    pull = pull_from_tar(os, path.clone(), "".into(), Some(name.clone())) => {
+                    pull = pull_from_tar(os, path.clone(), "lang".into(), Some(name.clone())) => {
                         if let Err(e) = pull {
                             tracing::info!(
                                 workspace_id = %w_id_2,
                                 "No tarball was found for {} on S3 or different problem occured {job_id_2}:\n{e}",
                                 &name_2
                             );
-                            mvn_install.push((path, name));
                         } else {
+                            mvn_install.remove(&(path, name.clone()));
                             print_success(
                                 true,
                                 false,
@@ -585,20 +572,16 @@ async fn install<'a>(
             }
         }
     }
-
     // Parallelism level (N)
     let parallel_limit = // Semaphore will panic if value less then 1
         JAVA_CONCURRENT_DOWNLOADS.clamp(1, 30);
 
-    // tracing::info!(
-    //     workspace_id = %job.w_id,
-    //     // is_ok = out,
-    //     "Java install parallel limit: {}, job: {}",
-    //     parallel_limit,
-    //     job_id
-    // );
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    tracing::info!(
+        workspace_id = %job.workspace_id,
+        "Java install parallel limit: {}, job: {}",
+        parallel_limit,
+        job.id
+    );
 
     let mut handles = vec![];
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
@@ -709,7 +692,7 @@ async fn install<'a>(
                             os,
                             // push.replace("/", "_").clone(),
                             path_2,
-                            "".into(),
+                            "java".into(),
                             Some(name_2),
                             // None,
                         ));
@@ -736,7 +719,6 @@ async fn compile<'a>(
         job,
         db,
         job_dir,
-        shared_mount,
         client,
         envs,
         base_internal_url,
@@ -752,13 +734,10 @@ async fn compile<'a>(
     let hash = compute_hash(inner_content, *requirements_o);
     let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
-    let (cache, cache_logs) =
-        windmill_common::worker::load_cache(&bin_path, &remote_path, true).await;
+    let (cache, ..) = windmill_common::worker::load_cache(&bin_path, &remote_path, true).await;
 
-    let cache_logs = if cache {
+    if cache {
         let target = format!("{job_dir}/target");
-        // create_dir_all(&target).await?;
-        // target += "/main.jar";
 
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
@@ -767,7 +746,7 @@ async fn compile<'a>(
         append_logs(
             &job.id,
             &job.workspace_id,
-            format!("\n\nPulled existing jar\n"),
+            format!("\n\nPulled existing .class files\n"),
             db.clone(),
         )
         .await;
@@ -783,7 +762,7 @@ async fn compile<'a>(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("\n\n--- COMPILING .CLASS FILES ---\n"),
+                format!("\n\n--- COMPILING .JAVA FILES ---\n"),
                 db.clone(),
             )
             .await;
@@ -852,9 +831,10 @@ async fn compile<'a>(
                     format!("{job_dir}/main"),
                 );
                 tracing::error!(em);
-                // Ok(em)
             }
-            Ok(logs) => {}
+            Ok(logs) => {
+                tracing::trace!(logs);
+            }
         }
     };
 
@@ -908,10 +888,6 @@ async fn run<'a>(
             .envs(envs)
             .envs(reserved_variables)
             .envs(PROXY_ENVS.clone())
-            // .env(
-            //     "MAVEN_OPTS",
-            //     "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
-            // )
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -941,20 +917,11 @@ async fn run<'a>(
         });
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
-            // .env(
-            //     "MAVEN_OPTS",
-            //     "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
-            // )
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
             .envs(PROXY_ENVS.clone())
-            // .args(&[
-            //     "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
-            //     "compile",
-            //     "exec:java",
-            // ])
             .args(&["-classpath", &classpath, "net.script.App"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

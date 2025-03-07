@@ -120,7 +120,11 @@ inventory:
       msg: "Hello, world!"
 `,
   java: `
-hi
+public class Main {
+  public static void main() {
+    System.out.println("Hello World");
+  }
+}
 `,
 // KJQXZ 
 };

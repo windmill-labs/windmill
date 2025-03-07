@@ -83,6 +83,7 @@
             bun
             uv
             nushell
+            maven
             dotnet-sdk_9
             oracle-instantclient
             svelte-language-server
@@ -161,8 +162,8 @@
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
           MAVEN_PATH = "${pkgs.maven}/bin/mvn";
-          JAVA_PATH = "${pkgs.jdk17}/bin/java";
-          JAVAC_PATH = "${pkgs.jdk17}/bin/javac";
+          JAVA_PATH = "${pkgs.jdk21}/bin/java";
+          JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           # KJQXZ 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";

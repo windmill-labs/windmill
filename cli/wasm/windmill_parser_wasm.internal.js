@@ -675,6 +675,29 @@ export function parse_nu(code) {
   }
 }
 
+/**
+ * @param {string} code
+ * @returns {string}
+ */
+export function parse_java(code) {
+  let deferred2_0;
+  let deferred2_1;
+  try {
+    const ptr0 = passStringToWasm0(
+      code,
+      wasm.__wbindgen_malloc,
+      wasm.__wbindgen_realloc,
+    );
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.parse_java(ptr0, len0);
+    deferred2_0 = ret[0];
+    deferred2_1 = ret[1];
+    return getStringFromWasm0(ret[0], ret[1]);
+  } finally {
+    wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+  }
+}
+
 export function __wbg_buffer_609cc3eee51ed158(arg0) {
   const ret = arg0.buffer;
   return ret;
@@ -697,7 +720,7 @@ export function __wbg_entries_3265d4158b33e5dc(arg0) {
   return ret;
 }
 
-export function __wbg_eval_ef6ed1dee2642b17(arg0, arg1) {
+export function __wbg_eval_7068d7ee44b71db0(arg0, arg1) {
   const ret = eval(getStringFromWasm0(arg0, arg1));
   return ret;
 }

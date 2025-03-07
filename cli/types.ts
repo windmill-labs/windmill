@@ -224,6 +224,8 @@ export function getTypeStrFromPath(
     parsed.ext == ".rs" ||
     parsed.ext == ".cs" ||
     parsed.ext == ".nu" ||
+    parsed.ext == ".java" ||
+		// KJQXZ 
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";

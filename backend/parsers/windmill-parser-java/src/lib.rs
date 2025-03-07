@@ -41,13 +41,11 @@ pub fn parse_java_sig_meta(code: &str) -> anyhow::Result<JavaMainSigMeta> {
     if let Some((sig, name)) = main_sig {
         class_name = name;
         for sig_node in sig.children(&mut sig.walk()) {
-            if dbg!(sig_node.kind()) == "modifier"
-                && sig_node.utf8_text(code.as_bytes())? == "public"
-            {
+            if sig_node.kind() == "modifier" && sig_node.utf8_text(code.as_bytes())? == "public" {
                 is_public = true;
             }
         }
-        if let Some(return_type) = sig.child_by_field_name("returns") {
+        if let Some(return_type) = sig.child_by_field_name("type") {
             let return_type = return_type.utf8_text(code.as_bytes())?;
 
             if return_type == "void" {
@@ -56,8 +54,8 @@ pub fn parse_java_sig_meta(code: &str) -> anyhow::Result<JavaMainSigMeta> {
         }
         if let Some(param_list) = sig.child_by_field_name("parameters") {
             for p_list_node in param_list.children(&mut param_list.walk()) {
-                if dbg!(p_list_node.kind()) == "formal_parameter" {
-                    let (otyp, typ, name, default) = parse_java_typ(dbg!(p_list_node), dbg!(code))?;
+                if p_list_node.kind() == "formal_parameter" {
+                    let (otyp, typ, name, default) = parse_java_typ(p_list_node, code)?;
                     args.push(Arg {
                         name,
                         otyp,
@@ -88,7 +86,7 @@ pub fn parse_java_signature(code: &str) -> anyhow::Result<MainArgSignature> {
 
 fn find_typ<'a>(typ_node: Node<'a>, code: &str) -> anyhow::Result<(Typ, Option<Value>)> {
     let null = Some(serde_json::Value::Null);
-    let res = match dbg!(typ_node.kind()) {
+    let res = match typ_node.kind() {
         #[rustfmt::skip]
         "type_identifier" => {
             match typ_node.utf8_text(code.as_bytes()) {
@@ -153,16 +151,14 @@ fn parse_java_typ<'a>(
     param_node: Node<'a>,
     code: &str,
 ) -> anyhow::Result<(Option<String>, Typ, String, Option<Value>)> {
-    let name = dbg!(param_node
+    let name = param_node
         .child_by_field_name("name")
         .and_then(|n| n.utf8_text(code.as_bytes()).ok())
-        .unwrap_or(""));
+        .unwrap_or("");
     let otyp_node = param_node.child_by_field_name("type");
     let otyp = otyp_node
         .and_then(|n| n.utf8_text(code.as_bytes()).ok())
         .map(|s| s.to_string());
-
-    dbg!(&otyp);
 
     let (typ, default) = find_typ(otyp_node.unwrap(), code)?;
 
@@ -173,16 +169,17 @@ fn parse_java_typ<'a>(
 fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> Option<(Node<'a>, Option<String>)> {
     let mut cursor = root_node.walk();
     for x in root_node.children(&mut cursor) {
-        if dbg!(x.kind()) == "class_declaration" {
+        if x.kind() == "class_declaration" {
             let class_name = x
                 .child_by_field_name("name")
                 .and_then(|n| n.utf8_text(code.as_bytes()).ok().map(|s| s.to_string()));
             for c in x.children(&mut x.walk()) {
-                if dbg!(c.kind()) == "class_body" {
+                if c.kind() == "class_body" {
                     for w in c.children(&mut c.walk()) {
-                        if dbg!(w.kind()) == "method_declaration" {
+                        if w.kind() == "method_declaration" {
                             for child in w.children(&mut w.walk()) {
-                                if dbg!(child.utf8_text(code.as_bytes()))
+                                if child
+                                    .utf8_text(code.as_bytes())
                                     .map(|name| name == "main")
                                     .unwrap_or(false)
                                 {
@@ -240,6 +237,29 @@ mod test {
     use serde_json::json;
 
     use super::*;
+    #[test]
+    fn test_parse_java_return_void() {
+        let code = r#"
+class Main {
+    public static void main() {}
+}"#;
+        let sig_meta = parse_java_sig_meta(code).unwrap();
+
+        assert_eq!(sig_meta.class_name, Some("Main".to_string()));
+
+        assert!(sig_meta.returns_void);
+    }
+    #[test]
+    fn test_parse_java_return_object() {
+        let code = r#"
+class Main {
+    public static Object main() {}
+}"#;
+        let sig_meta = parse_java_sig_meta(code).unwrap();
+
+        assert_eq!(sig_meta.class_name, Some("Main".to_string()));
+        assert!(!sig_meta.returns_void);
+    }
     #[test]
     fn test_parse_java_primitive_types() {
         let code = r#"

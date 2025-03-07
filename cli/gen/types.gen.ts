@@ -374,7 +374,7 @@ export type MainArgSignature = {
 
 export type type2 = 'Valid' | 'Invalid';
 
-export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp' | 'nu';
+export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp' | 'nu' | 'java';
 
 export type Preview = {
     content?: string;
@@ -4115,6 +4115,14 @@ export type GetFlowLatestVersionData = {
 
 export type GetFlowLatestVersionResponse = (FlowVersion);
 
+export type ListFlowPathsFromWorkspaceRunnableData = {
+    path: string;
+    runnableKind: 'script' | 'flow';
+    workspace: string;
+};
+
+export type ListFlowPathsFromWorkspaceRunnableResponse = (Array<(string)>);
+
 export type GetFlowVersionData = {
     path: string;
     version: number;
@@ -4552,6 +4560,34 @@ export type ExecuteComponentData = {
 };
 
 export type ExecuteComponentResponse = (string);
+
+export type UploadS3FileFromAppData = {
+    contentDisposition?: string;
+    contentType?: string;
+    fileExtension?: string;
+    fileKey?: string;
+    path: string;
+    /**
+     * File content
+     */
+    requestBody: (Blob | File);
+    resourceType?: string;
+    s3ResourcePath?: string;
+    storage?: string;
+    workspace: string;
+};
+
+export type UploadS3FileFromAppResponse = ({
+    file_key: string;
+    delete_token: string;
+});
+
+export type DeleteS3FileFromAppData = {
+    deleteToken: string;
+    workspace: string;
+};
+
+export type DeleteS3FileFromAppResponse = (string);
 
 export type RunFlowByPathData = {
     /**

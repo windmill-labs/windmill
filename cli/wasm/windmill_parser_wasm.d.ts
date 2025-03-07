@@ -29,3 +29,4 @@ export function parse_rust(code: string): string;
 export function parse_ansible(code: string): string;
 export function parse_csharp(code: string): string;
 export function parse_nu(code: string): string;
+export function parse_java(code: string): string;

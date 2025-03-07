@@ -30,7 +30,8 @@ import {
   parse_snowflake,
   parse_sql,
   parse_oracledb,
-} from "./wasm/windmill_parser_wasm.js";
+  parse_java,
+} from "./wasm/windmill_parser_wasm.internal.js";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
@@ -548,7 +549,7 @@ export function inferSchema(
   } else if (language === "ansible") {
     inferedSchema = JSON.parse(parse_ansible(content));
   } else if (language === "java") {
-    // inferedSchema = JSON.parse(parse_ansible(content));
+    inferedSchema = JSON.parse(parse_java(content));
   	// KJQXZ 
   } else {
     throw new Error("Invalid language: " + language);

@@ -675,6 +675,8 @@ export async function elementsToMap(
         "cs",
         "yml",
         "nu",
+        "java",
+        // KJQXZ 
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )

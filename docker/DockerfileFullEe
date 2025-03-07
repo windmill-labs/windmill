@@ -39,4 +39,8 @@ RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldc
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
 
 # Java
-RUN apt-get install maven default-jdk
+RUN apt-get install -y default-jdk zip
+RUN wget https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip \
+	&& unzip apache-maven-3.9.9-bin.zip \
+	&& rm -rf apache-maven-3.9.9-bin.zip \
+	&& mv apache-maven-3.9.9/ /opt/maven

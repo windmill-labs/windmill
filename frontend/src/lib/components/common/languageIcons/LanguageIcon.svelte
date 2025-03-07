@@ -57,7 +57,9 @@
 		rust: 'Rust',
 		ansible: 'Ansible Playbook',
 		csharp: 'C#',
-		nu: 'Nu'
+		nu: 'Nu',
+		java: 'Java'
+		// KJQXZ 
 	}
 
 	const langToComponent: Record<

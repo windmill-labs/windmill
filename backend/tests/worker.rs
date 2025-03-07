@@ -1993,6 +1993,51 @@ def main [
     assert_eq!(result, serde_json::json!(0));
 }
 
+#[cfg(feature = "java")]
+#[sqlx::test(fixtures("base"))]
+async fn test_java_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+public class Main {
+  public static Object main(
+    // Primitive
+    int a,
+    float b,
+    // Objects
+    Integer age,
+    Float d
+    ){
+    return "hello world";
+  }
+}
+
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Java,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!(3))
+    .arg("b", json!(3.0))
+    .arg("age", json!(30))
+    .arg("d", json!(3.0))
+    .run_until_complete(&db, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("hello world")));
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job(db: Pool<Postgres>) {
     initialize_tracing().await;

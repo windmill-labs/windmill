@@ -20,7 +20,7 @@ pub const TARGET: &str = const_format::concatcp!(std::env::consts::OS, "_", std:
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
-    runtime_version: String,
+    lang: String,
     custom_folder_name: Option<String>,
 ) -> error::Result<()> {
     use object_store::path::Path;
@@ -37,7 +37,7 @@ pub async fn build_tar_and_push(
         folder.split("/").last().unwrap().to_owned()
     };
 
-    let prefix = &format!("{TAR_PYBASE_CACHE_DIR}/{}", runtime_version);
+    let prefix = &format!("{TAR_PYBASE_CACHE_DIR}/{}", lang);
     let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
@@ -58,7 +58,7 @@ pub async fn build_tar_and_push(
     // })?;
     if let Err(e) = s3_client
         .put(
-            &Path::from(format!("/tar/{TARGET}/{runtime_version}/{folder_name}.tar")),
+            &Path::from(format!("/tar/{TARGET}/{lang}/{folder_name}.tar")),
             std::fs::read(&tar_path)?.into(),
         )
         .await
@@ -86,7 +86,7 @@ pub async fn build_tar_and_push(
 pub async fn pull_from_tar(
     client: Arc<dyn ObjectStore>,
     folder: String,
-    runtime_version: String,
+    lang: String,
     custom_folder_name: Option<String>,
 ) -> error::Result<()> {
     use windmill_common::s3_helpers::attempt_fetch_bytes;
@@ -101,7 +101,7 @@ pub async fn pull_from_tar(
 
     let start = Instant::now();
 
-    let tar_path = format!("tar/{TARGET}/{runtime_version}/{folder_name}.tar");
+    let tar_path = format!("tar/{TARGET}/{lang}/{folder_name}.tar");
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
     windmill_common::worker::extract_tar(bytes, &folder)
