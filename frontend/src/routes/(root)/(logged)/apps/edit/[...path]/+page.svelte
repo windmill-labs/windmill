@@ -9,6 +9,7 @@
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
 	let savedApp:
@@ -224,7 +225,20 @@
 				newApp={false}
 				replaceStateFn={(path) => replaceState(path, $page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
-			/>
+			>
+				<svelte:fragment
+					slot="unsavedConfirmationModal"
+					let:diffDrawer
+					let:additionalExitAction
+					let:getInitialAndModifiedValues
+				>
+					<UnsavedConfirmationModal
+						{diffDrawer}
+						{additionalExitAction}
+						{getInitialAndModifiedValues}
+					/>
+				</svelte:fragment>
+			</AppEditor>
 		</div>
 	{/if}
 {/key}

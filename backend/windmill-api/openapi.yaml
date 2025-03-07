@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.472.1
+  version: 1.475.0
   title: Windmill API
 
   contact:
@@ -2616,6 +2616,8 @@ paths:
                     type: boolean
                   postgres_used:
                     type: boolean
+                  mqtt_used:
+                    type: boolean
                   sqs_used:
                     type: boolean
                 required:
@@ -2624,6 +2626,7 @@ paths:
                   - kafka_used
                   - nats_used
                   - postgres_used
+                  - mqtt_used
                   - sqs_used
   /w/{workspace}/users/list:
     get:
@@ -8888,6 +8891,195 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/mqtt_triggers/create:
+    post:
+      summary: create mqtt trigger
+      operationId: createMqttTrigger
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new mqtt trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewMqttTrigger"
+      responses:
+        "201":
+          description: mqtt trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/mqtt_triggers/update/{path}:
+    post:
+      summary: update mqtt trigger
+      operationId: updateMqttTrigger
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditMqttTrigger"
+      responses:
+        "200":
+          description: mqtt trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/mqtt_triggers/delete/{path}:
+    delete:
+      summary: delete mqtt trigger
+      operationId: deleteMqttTrigger
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: mqtt trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/mqtt_triggers/get/{path}:
+    get:
+      summary: get mqtt trigger
+      operationId: getMqttTrigger
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: mqtt trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MqttTrigger"
+
+  /w/{workspace}/mqtt_triggers/list:
+    get:
+      summary: list mqtt triggers
+      operationId: listMqttTriggers
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: mqtt trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MqttTrigger"
+
+  /w/{workspace}/mqtt_triggers/exists/{path}:
+    get:
+      summary: does mqtt trigger exists
+      operationId: existsMqttTrigger
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: mqtt trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/mqtt_triggers/setenabled/{path}:
+    post:
+      summary: set enabled mqtt trigger
+      operationId: setMqttTriggerEnabled
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated mqtt trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: mqtt trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/mqtt_triggers/test:
+    post:
+      summary: test mqtt connection
+      operationId: testMqttConnection
+      tags:
+        - mqtt_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test mqtt connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: object
+              required:
+                - connection
+      responses:
+        "200":
+          description: successfully connected to mqtt
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
@@ -10176,6 +10368,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                mqtt_trigger,
                 sqs_trigger
               ]
       responses:
@@ -10218,6 +10411,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                mqtt_trigger,
                 sqs_trigger
               ]
       requestBody:
@@ -10271,6 +10465,7 @@ paths:
                 kafka_trigger,
                 nats_trigger,
                 postgres_trigger,
+                mqtt_trigger,
                 sqs_trigger
               ]
       requestBody:
@@ -11203,7 +11398,7 @@ paths:
 
   /w/{workspace}/job_helpers/download_s3_file:
     get:
-      summary: Download file to S3 bucket
+      summary: Download file from S3 bucket
       operationId: fileDownload
       tags:
         - helpers
@@ -13680,6 +13875,8 @@ components:
           type: number
         nats_count:
           type: number
+        mqtt_count:
+          type: number
         sqs_count:
           type: number
 
@@ -13829,6 +14026,140 @@ components:
                 - is_flow
           required:
             - runnable_result
+
+    MqttQoS:
+      type: string
+      enum: ['qos0', 'qos1', 'qos2']
+  
+    MqttV3Config:
+      type: object
+      properties:
+        clean_session:
+          type: boolean
+
+    MqttV5Config:
+      type: object
+      properties:
+        clean_start:
+          type: boolean
+        topic_alias:
+          type: number
+        session_expiry_interval:
+          type: number
+
+    MqttSubscribeTopic:
+      type: object
+      properties:
+        qos:
+          $ref: "#/components/schemas/MqttQoS"
+        topic:
+          type: string
+      required:
+        - qos
+        - topic
+
+    MqttClientVersion:
+      type: string
+      enum: ["v3", "v5"]
+
+    MqttTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        mqtt_resource_path:
+          type: string
+        subscribe_topics:
+          type: array
+          items:
+            $ref: "#/components/schemas/MqttSubscribeTopic"
+        v3_config:
+          $ref: "#/components/schemas/MqttV3Config"
+        v5_config:
+          $ref: "#/components/schemas/MqttV5Config"
+        client_id:
+          type: string
+        client_version:
+          $ref: "#/components/schemas/MqttClientVersion"
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+
+      required:
+        - enabled
+        - subscribe_topics
+        - mqtt_resource_path
+
+    NewMqttTrigger:
+      type: object
+      properties:
+        mqtt_resource_path:
+          type: string      
+        subscribe_topics:
+          type: array
+          items:
+            $ref: "#/components/schemas/MqttSubscribeTopic"
+        client_id:
+          type: string
+        v3_config:
+          $ref: "#/components/schemas/MqttV3Config"
+        v5_config:
+          $ref: "#/components/schemas/MqttV5Config"
+        client_version:
+          $ref: "#/components/schemas/MqttClientVersion"
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - path
+        - script_path
+        - is_flow
+        - subscribe_topics
+        - mqtt_resource_path
+
+    EditMqttTrigger:
+      type: object
+      properties:
+        mqtt_resource_path:
+          type: string
+        subscribe_topics:
+          type: array
+          items:
+            $ref: "#/components/schemas/MqttSubscribeTopic"
+        client_id:
+          type: string
+        v3_config:
+          $ref: "#/components/schemas/MqttV3Config"
+        v5_config:
+          $ref: "#/components/schemas/MqttV5Config"
+        client_version:
+          $ref: "#/components/schemas/MqttClientVersion"
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - subscribe_topics  
+        - mqtt_resource_path
     
     SqsTrigger:
       allOf:
@@ -14588,6 +14919,15 @@ components:
           type: array
           items:
             type: object
+        allowed_s3_keys:
+          type: array
+          items:
+            type: object
+            properties:
+              s3_path:
+                type: string
+              resource:
+                type: string
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
@@ -14935,6 +15275,7 @@ components:
               - resource
               - variable
               - secret
+              - trigger
 
     WorkspaceDefaultScripts:
       type: object
@@ -15205,7 +15546,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs]
+      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt]
 
     Capture:
       type: object

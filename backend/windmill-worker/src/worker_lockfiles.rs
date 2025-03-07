@@ -1701,7 +1701,7 @@ async fn python_dep(
 
     let final_version = annotated_pyv_numeric
         .and_then(|pyv| PyVersion::from_numeric(pyv))
-        .unwrap_or(PyVersion::from_instance_version().await);
+        .unwrap_or(PyVersion::from_instance_version(job_id, w_id, db).await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,

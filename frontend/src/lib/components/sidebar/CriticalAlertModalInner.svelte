@@ -8,6 +8,7 @@
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import CriticalAlertTable from './CriticalAlertTable.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	export let updateHasUnacknowledgedCriticalAlerts
 	export let getCriticalAlerts
@@ -52,6 +53,9 @@
 			totalNumberOfAlerts = res.total_rows
 			filteredAlerts = res.alerts
 			updateHasUnacknowledgedCriticalAlerts()
+		} catch (e) {
+			console.error('Error fetching critical alerts', e)
+			sendUserToast('Error fetching critical alerts', true)
 		} finally {
 			setTimeout(() => {
 				isRefreshing = false

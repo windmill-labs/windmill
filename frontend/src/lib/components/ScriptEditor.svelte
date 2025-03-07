@@ -31,6 +31,7 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import AIChat from './copilot/chat/AIChat.svelte'
+	import { setContext } from 'svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -51,7 +52,7 @@
 	export let noHistory = false
 	export let saveToWorkspace = false
 	export let watchChanges = false
-	export let customUi: ScriptEditorWhitelabelCustomUi = {}
+	export let customUi: ScriptEditorWhitelabelCustomUi | undefined = undefined
 	export let args: Record<string, any> = initialArgs
 	export let selectedTab: 'main' | 'preprocessor' = 'main'
 	export let hasPreprocessor = false
@@ -108,11 +109,15 @@
 		}
 	}
 
-	function runTest() {
+	export function setArgs(nargs: Record<string, any>) {
+		args = nargs
+	}
+
+	export async function runTest() {
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 		//@ts-ignore
-		testJobLoader.runPreview(
+		let job = await testJobLoader.runPreview(
 			path,
 			code,
 			lang,
@@ -120,6 +125,7 @@
 			tag
 		)
 		setFocusToLogs()
+		return job
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -259,6 +265,8 @@
 	}
 
 	let setFocusToLogs = () => {}
+
+	setContext('disableTooltips', customUi?.disableTooltips === true)
 </script>
 
 <TestJobLoader
@@ -417,7 +425,7 @@
 							/>
 							Cancel
 						</Button>
-					{:else}
+					{:else if customUi?.previewPanel?.disableTriggerButton !== true}
 						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
 							<Button
 								color="dark"
@@ -440,6 +448,28 @@
 							</Button>
 							<CaptureButton on:openTriggers />
 						</div>
+					{:else}
+						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
+							<Button
+								color="dark"
+								on:click={() => {
+									runTest()
+								}}
+								btnClasses="w-full"
+								size="xs"
+								startIcon={{
+									icon: Play,
+									classes: 'animate-none'
+								}}
+								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+							>
+								{#if testIsLoading}
+									Running
+								{:else}
+									Test
+								{/if}
+							</Button>
+						</div>
 					{/if}
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
@@ -458,6 +488,7 @@
 										{schema}
 										bind:args
 										bind:isValid
+										noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
 										showSchemaExplorer
 									/>
 								{/key}
@@ -475,6 +506,7 @@
 							{diffEditor}
 							{args}
 							showCaptures={true}
+							customUi={customUi?.previewPanel}
 						>
 							{#if scriptProgress}
 								<!-- Put to the slot in logpanel -->
