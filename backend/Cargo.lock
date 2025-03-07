@@ -14261,6 +14261,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "sqlx",
+ "tar",
  "tempfile",
  "thiserror 2.0.12",
  "tikv-jemalloc-ctl",

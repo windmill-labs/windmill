@@ -43,10 +43,11 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        LICENSE_KEY_SETTING, MAVEN_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     indexer::load_indexer_config,
     jobs::QueuedJob,
@@ -70,7 +71,8 @@ use windmill_queue::cancel_job;
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
     SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    MAVEN_CONFIG, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "parquet")]
@@ -201,6 +203,7 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&db).await;
         reload_instance_python_version_setting(&db).await;
         reload_nuget_config_setting(&db).await;
+        reload_maven_config_setting(&db).await;
     }
 }
 
@@ -970,6 +973,10 @@ pub async fn reload_nuget_config_setting(db: &DB) {
         NUGET_CONFIG.clone(),
     )
     .await;
+}
+pub async fn reload_maven_config_setting(db: &DB) {
+    reload_option_setting_with_tracing(db, MAVEN_SETTING, "MAVEN_SETTINGS", MAVEN_CONFIG.clone())
+        .await;
 }
 
 pub async fn reload_retention_period_setting(db: &DB) {

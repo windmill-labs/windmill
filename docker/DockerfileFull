@@ -14,3 +14,6 @@ ENV DOTNET_ROOT="/opt/dotnet-sdk/bin"
 
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
+
+# Java
+RUN apt-get install maven default-jdk

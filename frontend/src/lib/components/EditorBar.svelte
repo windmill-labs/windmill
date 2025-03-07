@@ -380,6 +380,7 @@
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`$env.${name}`)
 		} else if (lang == 'java') {
+			editor.insertAtCursor(`System.getenv("${name}");`)
 			// KJQXZ 
 		}
 		sendUserToast(`${name} inserted at cursor`)
@@ -449,6 +450,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`get_variable ${path}`)
 		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
 			// KJQXZ 
 		}
 		sendUserToast(`${name} inserted at cursor`)
@@ -535,6 +537,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`get_resource ${path}`)
 		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
 			// KJQXZ 
 		}
 

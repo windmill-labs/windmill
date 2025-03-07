@@ -877,8 +877,68 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 `
-const JAVA_INIT_CODE = `
-hi
+const JAVA_INIT_CODE = `// <dependency>
+//     <groupId>com.google.code.gson</groupId>
+//     <artifactId>gson</artifactId>
+//     <version>2.8.9</version>
+// </dependency>
+// <dependency>
+// 	<groupId>com.github.ricksbrown</groupId>
+// 	<artifactId>cowsay</artifactId>
+// 	<version>1.1.0</version>
+// 	<!-- The "lib" classifier is optional, but it gives you a MUCH smaller jar which is all you need as a Java library -->
+// 	<classifier>lib</classifier>
+// </dependency>
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.github.ricksbrown.cowsay.Cowsay;
+import com.github.ricksbrown.cowsay.plugin.CowExecutor;
+
+public class Main {
+  public static class Person {
+    private String name;
+    private int age;
+
+    // Constructor
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+  }
+
+  public static Object main(
+    // Primitive
+    int a,
+    float b,
+    // Objects
+    Integer age,
+    Float d,
+    Object e,
+    String name,
+    // Lists
+    String[] f
+    // No trailing commas!
+    ){
+    Gson gson = new Gson();
+
+    // Get resources
+    var theme = Wmill.getResource("f/app_themes/theme_0");
+    System.out.println("Theme: " + theme);
+    
+    // Create a Person object
+    Person person = new Person( (name == "") ? "Alice" : name, (age == null) ? 30 : age);
+
+    // Serialize the Person object to JSON
+    String json = gson.toJson(person);
+    System.out.println("Serialized JSON: " + json);
+
+    // Use cowsay
+    String[] args = new String[]{"-f", "dragon", json };
+    String result = Cowsay.say(args);
+    return result;
+  }
+}
 `
 // KJQXZ 
 export const INITIAL_CODE = {

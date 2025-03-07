@@ -8,7 +8,7 @@ use tokio::{
     fs::{create_dir_all, metadata, read_to_string, File},
     io::AsyncWriteExt,
     process::Command,
-    sync::Semaphore,
+    sync::{RwLock, Semaphore},
 };
 use uuid::Uuid;
 use windmill_common::{
@@ -29,148 +29,222 @@ use crate::{
         create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
         OccupancyMetrics,
     },
-    get_common_bun_proc_envs,
     global_cache::{build_tar_and_push, pull_from_tar},
     handle_child, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
     MAVEN_CONFIG, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 lazy_static::lazy_static! {
     static ref JAVA_CONCURRENT_DOWNLOADS: usize = std::env::var("JAVA_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+    static ref JAVA_PATH: String = std::env::var("JAVA_PATH").unwrap_or_else(|_| "/usr/bin/java".to_string());
+    static ref JAVAC_PATH: String = std::env::var("JAVAC_PATH").unwrap_or_else(|_| "/usr/bin/javac".to_string());
+    static ref MAVEN_PATH: String = std::env::var("MAVEN_PATH").unwrap_or_else(|_| "/usr/bin/mvn".to_string());
+    static ref FIRST_RUN: RwLock<bool> = RwLock::new(true);
 }
-const NSJAIL_CONFIG_INSTALL_JAVA_CONTENT: &str =
-    include_str!("../nsjail/install.java.config.proto");
 const NSJAIL_CONFIG_RUN_JAVA_CONTENT: &str = include_str!("../nsjail/run.java.config.proto");
-const POM_XML_TEMPLATE: &str = r#"
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             http://maven.apache.org/maven-v4_0_0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-    <groupId>net.script</groupId>
-    <artifactId>windmill-script</artifactId>
-    <packaging>jar</packaging>
-    <version>1.1.0</version>
-    <name>Windmill Script</name>
-    <url>https://repo.maven.apache.org/maven2</url>
-    <build>
-        <finalName>main</finalName> <!-- Set your desired JAR name here -->
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.2.0</version> <!-- Use the latest version -->
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                            <mainClass>net.script.App</mainClass> <!-- Replace with your main class -->
-                        </manifest>
-                    </archive>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
-    <dependencies>
-      <dependency>
-          <groupId>com.fasterxml.jackson.core</groupId>
-          <artifactId>jackson-databind</artifactId>
-          <version>2.9.8</version>
-      </dependency>
-      SPREAD_DEPENDENCIES
-    </dependencies>
-    <repositories>
-      SPREAD_REPOS
-    </repositories>
-</project>
-"#;
-// <repository>
-//     <id>nexus-releases</id>
-//     <url>http://localhost:8081/repository/maven-releases/</url>
-// </repository>
-// <repository>
-//     <id>nexus-snapshots</id>
-//     <url>http://localhost:8081/repository/maven-snapshots/</url>
-// </repository>
+const POM_XML_TEMPLATE: &str = include_str!("../init-pom.xml");
 
 pub async fn init_java<'a>(
     // base_internal_url: &'a str,
+    job_id: &Uuid,
+    w_id: &str,
     worker_name: &'a str,
     db: &'a sqlx::Pool<sqlx::Postgres>,
 ) -> Result<(), Error> {
-    // let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    // copy_dir_recursively(
+    //     "/tmp/windmill/maven-persistent-base",
+    //     format!("{JAVA_CACHE_DIR}/maven-jars"),
+    // )?;
 
-    let pom = POM_XML_TEMPLATE
-        .to_owned()
-        .replace("SPREAD_DEPENDENCIES", &format!(""))
-        .replace("SPREAD_REPOS", &format!(""));
+    // let mut is_first_run = FIRST_RUN.write().await;
+    // if !*is_first_run {
+    //     return Ok(());
+    // }
+    // append_logs(job_id, w_id, format!("\n\n--- INIT JAVA ---\n"), db.clone()).await;
 
-    let init_dir = format!("{JAVA_CACHE_DIR}/init");
-    create_dir_all(&init_dir).await?;
-    File::create(format!("{JAVA_CACHE_DIR}/init/pom.xml"))
-        .await?
-        .write_all(&pom.into_bytes())
-        .await?;
+    // if let Some(mvn_config) = MAVEN_CONFIG.read().await.clone() {
+    //     {
+    //         let dir = format!("{JAVA_CACHE_DIR}/maven-jars");
+    //         create_dir_all(&dir).await?;
+    //         write_file(&dir, "settings.xml", &mvn_config)?;
+    //     }
+    //     {
+    //         let dir = format!("{JAVA_CACHE_DIR}/maven-meta");
+    //         create_dir_all(&dir).await?;
+    //         write_file(&dir, "settings.xml", &mvn_config)?;
+    //     }
+    // }
+    // let pom = POM_XML_TEMPLATE
+    //     .to_owned()
+    //     .replace("<!-- SPREAD_DEPENDENCIES -->", &format!(""))
+    //     .replace("<!-- SPREAD_REPOS -->", &format!(""));
 
-    let child = {
-        // append_logs(
-        //     &job.id,
-        //     &job.workspace_id,
-        //     format!("\n\n--- INIT JAVA ---\n"),
-        //     db.clone(),
-        // )
-        // .await;
+    // let init_dir = format!("{JAVA_CACHE_DIR}/init");
+    // create_dir_all(&init_dir).await?;
+    // File::create(format!("{JAVA_CACHE_DIR}/init/pom.xml"))
+    //     .await?
+    //     .write_all(&pom.into_bytes())
+    //     .await?;
 
-        let mut cmd = Command::new(if cfg!(windows) {
-            "mvn"
-        } else {
-            MAVEN_PATH.as_str()
-        });
-        cmd.env_clear()
-            .current_dir(init_dir)
-            .env(
-                "MAVEN_OPTS",
-                "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+    // let child = {
+    //     let mut cmd = Command::new(if cfg!(windows) {
+    //         "mvn"
+    //     } else {
+    //         MAVEN_PATH.as_str()
+    //     });
+    //     cmd.env_clear()
+    //         .current_dir(init_dir)
+    //         .env(
+    //             "MAVEN_OPTS",
+    //             "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+    //         )
+    //         .env("PATH", PATH_ENV.as_str())
+    //         // .env("BASE_INTERNAL_URL", base_internal_url)
+    //         // .envs(envs)
+    //         // .envs(reserved_variables)
+    //         .envs(PROXY_ENVS.clone())
+    //         .args(&[
+    //             "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
+    //             "dependency:go-offline",
+    //             "-q",
+    //             // "exec:java",
+    //         ])
+    //         .stdout(Stdio::piped())
+    //         .stderr(Stdio::piped());
+
+    //     #[cfg(windows)]
+    //     {
+    //         cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+    //             .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+    //             .env(
+    //                 "TMP",
+    //                 std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+    //             );
+    //     }
+    //     start_child_process(cmd, "mvn").await?
+    // };
+    // handle_child::handle_child(
+    //     job_id,
+    //     db,
+    //     &mut 0,
+    //     &mut None,
+    //     child,
+    //     !*DISABLE_NSJAIL,
+    //     worker_name,
+    //     // &job.workspace_id,
+    //     w_id,
+    //     "mvn",
+    //     None,
+    //     false,
+    //     &mut None,
+    // )
+    // .await?;
+    // *is_first_run = true;
+    Ok(())
+}
+
+#[derive(Copy, Clone)]
+#[annotations("//")]
+pub struct Annotations {
+    pub jared: bool,
+    /// Do not (use) cache on S3
+    pub no_s3: bool,
+    /// Do not use cached lock from db
+    pub no_lock_cache: bool,
+}
+
+// TODO: Can be generalized and used for other handlers
+#[allow(dead_code)]
+pub(crate) struct JobHandlerInput<'a> {
+    pub base_internal_url: &'a str,
+    pub canceled_by: &'a mut Option<CanceledBy>,
+    pub client: &'a AuthedClientBackgroundTask,
+    pub db: &'a sqlx::Pool<sqlx::Postgres>,
+    pub envs: HashMap<String, String>,
+    pub inner_content: &'a str,
+    pub job: &'a QueuedJob,
+    pub job_dir: &'a str,
+    pub mem_peak: &'a mut i32,
+    pub occupancy_metrics: &'a mut OccupancyMetrics,
+    pub requirements_o: Option<&'a String>,
+    pub shared_mount: &'a str,
+    pub worker_name: &'a str,
+}
+
+pub fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
+    calculate_hash(&format!(
+        "{}{}",
+        code,
+        requirements_o
+            .as_ref()
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    ))
+}
+
+pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
+    let Annotations { jared, no_s3, no_lock_cache } = Annotations::parse(&args.inner_content);
+    // --- Prepare ---
+    {
+        create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
+        let app_path = format!("{}/src/main/java/net/script/", args.job_dir);
+        create_dir_all(&app_path).await?;
+        File::create(format!("{app_path}/App.java"))
+            .await?
+            .write_all(&wrap(args.inner_content)?.into_bytes())
+            .await?;
+        File::create(format!("{app_path}/Main.java"))
+            .await?
+            // .write_all(&format!("{}", args.inner_content).into_bytes())
+            .write_all(
+                &format!(
+                    "package net.script;\n{MINI_CLIENT_IMPORTS}\n{}\n{MINI_CLIENT}",
+                    args.inner_content
+                )
+                .into_bytes(),
             )
-            .env("PATH", PATH_ENV.as_str())
-            // .env("BASE_INTERNAL_URL", base_internal_url)
-            // .envs(envs)
-            // .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
-            .args(&[
-                "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
-                "dependency:go-offline",
-                // "exec:java",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        #[cfg(windows)]
-        {
-            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-                .env(
-                    "TMP",
-                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-                );
-        }
-        start_child_process(cmd, "mvn").await?
-    };
-    handle_child::handle_child(
-        &Uuid::nil(),
-        db,
-        &mut 0,
-        &mut None,
-        child,
-        !*DISABLE_NSJAIL,
-        worker_name,
-        // &job.workspace_id,
-        "",
-        "mvn",
-        None,
-        false,
-        &mut None,
+            .await?;
+    }
+    // --- Generate Lockfile ---
+    let deps = resolve_dependencies(
+        &args.job.id,
+        &args.inner_content,
+        args.mem_peak,
+        args.canceled_by,
+        &args.job_dir,
+        &args.db,
+        &args.worker_name,
+        &args.job.workspace_id,
+        args.occupancy_metrics,
     )
-    .await
+    .await?;
+
+    // // --- Init Java ---
+    // {
+    //     init_java(
+    //         &args.job.id,
+    //         &args.job.workspace_id,
+    //         &args.worker_name,
+    //         &args.db,
+    //     )
+    //     .await?
+    // }
+    // --- Install ---
+
+    let classpath = install(&mut args, deps, no_s3).await?;
+
+    // --- Build to JAR ---
+    {
+        compile(&mut args, &classpath).await?;
+    }
+
+    // --- Run ---
+    {
+        run(&mut args, &classpath).await?;
+    }
+    // --- Retrieve results ---
+    {
+        read_result(&args.job_dir).await
+    }
 }
 
 pub async fn resolve_dependencies<'a>(
@@ -224,8 +298,8 @@ pub async fn resolve_dependencies<'a>(
     };
     let pom = POM_XML_TEMPLATE
         .to_owned()
-        .replace("SPREAD_DEPENDENCIES", &format!("{deps}"))
-        .replace("SPREAD_REPOS", &format!("{repos}"));
+        .replace("<!-- SPREAD_DEPENDENCIES -->", &format!("{deps}"))
+        .replace("<!-- SPREAD_REPOS -->", &format!("{repos}"));
 
     let req_hash = format!("java-{}", calculate_hash(&pom));
 
@@ -237,8 +311,6 @@ pub async fn resolve_dependencies<'a>(
     // TODO: Use not pip_resolution_cache?
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
-        // Python version is included in hash,
-        // hash will be the different for every python version
         req_hash
     )
     .fetch_optional(db)
@@ -263,7 +335,7 @@ pub async fn resolve_dependencies<'a>(
         .await;
 
         let mut cmd = Command::new(if cfg!(windows) {
-            "nu"
+            "mvn"
         } else {
             MAVEN_PATH.as_str()
         });
@@ -276,11 +348,7 @@ pub async fn resolve_dependencies<'a>(
             .env("PATH", PATH_ENV.as_str())
             // .envs(envs)
             .envs(PROXY_ENVS.clone())
-            .args(&[
-                "dependency:collect",
-                "-DoutputFile=dependencies.txt",
-                // "-DincludeScope=runtime",
-            ])
+            .args(&["dependency:collect", "-DoutputFile=dependencies.txt", "-q"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -329,119 +397,51 @@ pub async fn resolve_dependencies<'a>(
     Ok(dbg!(lock))
     // .map_err(|e| Error::IoErr { error: e, location: "".into() }))
 }
-lazy_static::lazy_static! {
-    static ref JAVA_PATH: String = std::env::var("JAVA_PATH").unwrap_or_else(|_| "/usr/bin/nu".to_string());
-    static ref MAVEN_PATH: String = std::env::var("MAVEN_PATH").unwrap_or_else(|_| "/usr/bin/nu".to_string());
-}
 
-#[derive(Copy, Clone)]
-#[annotations("//")]
-pub struct Annotations {
-    pub jared: bool,
-    /// Do not (use) cache on S3
-    pub no_s3: bool,
-    /// Do not use cached lock from db
-    pub no_lock_cache: bool,
-}
+const MINI_CLIENT_IMPORTS: &str = r#"
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+"#;
+const MINI_CLIENT: &str = r#"
+class Wmill {
+    public static String getVariable(String path) {
+        var baseUrl = System.getenv("BASE_INTERNAL_URL");
+        var workspace = System.getenv("WM_WORKSPACE");
+        var uri = java.text.MessageFormat.format("{0}/api/w/{1}/variables/get_value/{2}", baseUrl, workspace, path);
 
-// TODO: Can be generalized and used for other handlers
-#[allow(dead_code)]
-pub(crate) struct JobHandlerInput<'a> {
-    pub base_internal_url: &'a str,
-    pub canceled_by: &'a mut Option<CanceledBy>,
-    pub client: &'a AuthedClientBackgroundTask,
-    pub db: &'a sqlx::Pool<sqlx::Postgres>,
-    pub envs: HashMap<String, String>,
-    pub inner_content: &'a str,
-    pub job: &'a QueuedJob,
-    pub job_dir: &'a str,
-    pub mem_peak: &'a mut i32,
-    pub occupancy_metrics: &'a mut OccupancyMetrics,
-    pub requirements_o: Option<&'a String>,
-    pub shared_mount: &'a str,
-    pub worker_name: &'a str,
-}
+        // Create an HttpRequest
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(uri))
+                .header("Authorization", "Bearer " + System.getenv("WM_TOKEN")) // Add the Authorization header
+                .GET() // Set the request method to GET
+                .build();
 
-pub fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
-    calculate_hash(&format!(
-        "{}{}",
-        code,
-        requirements_o
-            .as_ref()
-            .map(|x| x.to_string())
-            .unwrap_or_default()
-    ))
-}
-
-pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
-    let Annotations { jared, no_s3, no_lock_cache } = Annotations::parse(&args.inner_content);
-    {
-        create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
-        let app_path = format!("{}/src/main/java/net/script/", args.job_dir);
-        create_dir_all(&app_path).await?;
-        File::create(format!("{app_path}/App.java"))
-            .await?
-            .write_all(&wrap(args.inner_content)?.into_bytes())
-            .await?;
-        File::create(format!("{app_path}/Main.java"))
-            .await?
-            .write_all(&format!("package net.script;\n {}", args.inner_content).into_bytes())
-            .await?;
+            // Send the request and get the response
+        return HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .join(); // Wait for the completion
     }
-    let deps = resolve_dependencies(
-        &args.job.id,
-        &args.inner_content,
-        args.mem_peak,
-        args.canceled_by,
-        &args.job_dir,
-        &args.db,
-        &args.worker_name,
-        &args.job.workspace_id,
-        args.occupancy_metrics,
-    )
-    .await?;
+    public static String getResource(String path) {
+        var baseUrl = System.getenv("BASE_INTERNAL_URL");
+        var workspace = System.getenv("WM_WORKSPACE");
+        var uri = java.text.MessageFormat.format("{0}/api/w/{1}/resources/get_value_interpolated/{2}", baseUrl, workspace, path);
 
-    if let Some(mvn_config) = MAVEN_CONFIG.read().await.clone() {
-        {
-            let dir = format!("{JAVA_CACHE_DIR}/maven-jars");
-            create_dir_all(&dir).await?;
-            write_file(&dir, "settings.xml", &mvn_config)?;
-        }
-        {
-            let dir = format!("{JAVA_CACHE_DIR}/maven-meta");
-            create_dir_all(&dir).await?;
-            write_file(&dir, "settings.xml", &mvn_config)?;
-        }
-    }
-    // #[cfg(feature = "java")]
-    // {
-    // let (db, worker_name, hostname, worker_dir) = (
-    //     db.clone(),
-    //     worker_name.clone(),
-    //     hostname.to_owned(),
-    //     worker_dir.clone(),
-    // );
-    // tokio::spawn(async move {
-    // init_java(&args.worker_name, &args.db).await?;
-    // if let Err(e) = crate::java_executor::init_java(&args.worker_name, &args.db).await {
-    // tracing::warn!(
-    //     worker = %worker_name,
-    //     hostname = %hostname,
-    //     worker_dir = %worker_dir,
-    //     "Cannot preinstall essential dependencies for java: {e}"//
-    // );
-    // }
-    // });
-    // }
+        // Create an HttpRequest
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(uri))
+                .header("Authorization", "Bearer " + System.getenv("WM_TOKEN")) // Add the Authorization header
+                .GET() // Set the request method to GET
+                .build();
 
-    jar(&mut args).await?;
-    let classpath = install(&mut args, deps, no_s3).await?;
-    run(&mut args, classpath).await?;
-    // --- Retrieve results ---
-    {
-        read_result(&args.job_dir).await
+            // Send the request and get the response
+        return HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .join(); // Wait for the completion
     }
 }
+"#;
 
 /// Wraps content script
 /// that upon execution reads args.json (which are piped and transformed from previous flow step or top level inputs)
@@ -476,6 +476,7 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.FileOutputStream;
 import net.script.Main;
+// import Main;
 
 public class App{
 
@@ -523,6 +524,14 @@ async fn install<'a>(
     deps: String,
     no_s3: bool,
 ) -> Result<String, Error> {
+    append_logs(
+        &job.id,
+        &job.workspace_id,
+        format!("\n\n--- INSTALLATION ---\n"),
+        db.clone(),
+    )
+    .await;
+
     // Total to install
     let mut to_install = vec![];
     // Only install by maven
@@ -580,7 +589,7 @@ async fn install<'a>(
     let deps = deps
         .lines()
         .map(|l| {
-            let l = l.replace(":jar", "");
+            let l = l.replace(":jar", "").replace(":lib", "");
             let mut iterator = l.split(":");
 
             let group_id = iterator.next().unwrap();
@@ -602,7 +611,13 @@ async fn install<'a>(
         .map(|(path, ..)| path + "/*")
         .collect_vec()
         .join(":")
-        + ":target/main.jar";
+        + ":target";
+
+    // TODO: Change to debug
+    tracing::info!(
+        workspace_id = %job.workspace_id,
+        "JAVA classpath: {}", &classpath
+    );
 
     for (dep, name) in &deps {
         if metadata(dep).await.is_ok() {
@@ -654,6 +669,11 @@ async fn install<'a>(
                 tokio::select! {
                     pull = pull_from_tar(os, path.clone(), "".into(), Some(name.clone())) => {
                         if let Err(e) = pull {
+                            tracing::info!(
+                                workspace_id = %w_id_2,
+                                "No tarball was found for {} on S3 or different problem occured {job_id_2}:\n{e}",
+                                &name_2
+                            );
                             mvn_install.push((path, name));
                         } else {
                             print_success(
@@ -690,14 +710,6 @@ async fn install<'a>(
     let client = &client.get_authed().await;
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
 
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        format!("\n\n--- INSTALLATION ---\n"),
-        db.clone(),
-    )
-    .await;
-
     let mut handles = vec![];
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
     // let mut handles = Vec::with_capacity(total_to_install);
@@ -714,66 +726,6 @@ async fn install<'a>(
 
         let permit = permit.unwrap();
 
-        // tracing::info!(
-        //     workspace_id = %w_id,
-        //     "started setup python dependencies"
-        // );
-        // tokio::spawn()
-        // let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
-        //     append_logs(
-        //         &job.id,
-        //         &job.workspace_id,
-        //         format!("\n\n--- ISOLATED INSTALLATION ---\n"),
-        //         db.clone(),
-        //     )
-        //     .await;
-
-        //     create_dir_all(&format!("{}/nsjail-configs", &job_dir)).await?;
-        //     write_file(
-        //         &format!("{}/nsjail-configs", &job_dir),
-        //         &format!("install.{name}.proto",),
-        //         &NSJAIL_CONFIG_INSTALL_JAVA_CONTENT
-        //             .replace("{JOB_DIR}", job_dir)
-        //             .replace("{DEP_PATH}", &path)
-        //             // .replace("{SHARED_MOUNT}", &shared_mount)
-        //             .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        //     )?;
-        //     let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
-        //     nsjail_cmd
-        //         .env_clear()
-        //         .current_dir(job_dir.clone())
-        //         .env("PATH", PATH_ENV.as_str())
-        //         .env("BASE_INTERNAL_URL", base_internal_url.clone())
-        //         .envs(envs.clone())
-        //         .envs(reserved_variables.clone())
-        //         .envs(PROXY_ENVS.clone())
-        //         .env(
-        //             "MAVEN_OPTS",
-        //             "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
-        //         )
-        //         .args(vec![
-        //             "--config",
-        //             &format!("nsjail-configs/install.{name}.proto"),
-        //             "--",
-        //             MAVEN_PATH.as_str(),
-        //             // "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
-        //             // "install",
-        //             // "-DskipTests",
-        //             // "-Dmaven.test.skip=true",
-        //             // "-DskipCompile",
-        //             // "dependency:go-offline",
-        //             "dependency:get",
-        //             &format!("-Dartifact={name}"),
-        //             "-Dtransitive=false",
-        //             "-q",
-        //         ])
-        //         .stdout(Stdio::piped())
-        //         .stderr(Stdio::piped());
-
-        //     start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
-        // } else {
-        //     // append_logs(
-        //     //     &job.id,
         let child = {
             let mut cmd = Command::new(if cfg!(windows) {
                 "mvn"
@@ -787,23 +739,13 @@ async fn install<'a>(
                     "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
                 )
                 .env("PATH", PATH_ENV.as_str())
-                // .env("BASE_INTERNAL_URL", base_internal_url)
-                // .envs(envs)
-                // .envs(reserved_variables)
                 .envs(PROXY_ENVS.clone())
                 .args(&[
-                    // "-Dorg.slf4j.simpleLogger.defaultLogLevel=WARN",
-                    // "install",
-                    // "-DskipTests",
-                    // "-Dmaven.test.skip=true",
-                    // "-DskipCompile",
-                    // "dependency:go-offline",
                     "dependency:get",
                     &format!("-Dartifact={name}"),
                     "-Dtransitive=false",
                     "-q",
                 ])
-                // .args(&["-classpath", &classpath, "net.script.App"])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
@@ -819,22 +761,8 @@ async fn install<'a>(
             start_child_process(cmd, "mvn").await?
         };
 
-        // handle_child::handle_child(
-        //     &job.id,
-        //     db,
-        //     mem_peak,
-        //     canceled_by,
-        //     child,
-        //     !*DISABLE_NSJAIL,
-        //     worker_name,
-        //     &job.workspace_id,
-        //     "mvn",
-        //     job.timeout,
-        //     false,
-        //     &mut Some(occupancy_metrics),
-        // )
-        // .await?;
-        let (path_2, name_2, job_id_2, w_id_2, db_2, counter_arc) = (
+        let (worker_name_2, path_2, name_2, job_id_2, w_id_2, db_2, counter_arc) = (
+            worker_name.to_owned(),
             path.clone(),
             name.clone(),
             job.id.clone(),
@@ -847,44 +775,56 @@ async fn install<'a>(
             let _permit = permit;
             // let job_id = job_id_2.clone();
 
-            if let Ok(output) = child.wait_with_output().await {
-                if output.status.success() {
-                    print_success(
-                        false,
-                        true,
-                        &job_id_2,
-                        &w_id_2,
-                        &name,
-                        name_tl,
-                        counter_arc,
-                        total_to_install,
-                        start,
-                        db_2,
-                    )
-                    .await;
-                    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-                    {
-                        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                            tokio::spawn(build_tar_and_push(
-                                os,
-                                // push.replace("/", "_").clone(),
-                                path_2,
-                                "".into(),
-                                Some(name_2),
-                                // None,
-                            ));
-                        }
-                    }
-                } else {
-                    append_logs(
-                        &job_id_2,
-                        &w_id_2,
-                        String::from_utf8(output.stderr).unwrap(),
-                        db_2.clone(),
-                    )
-                    .await;
-                }
+            if let Err(e) = handle_child::handle_child(
+                &job_id_2,
+                &db_2,
+                &mut 0,
+                &mut None,
+                child,
+                !*DISABLE_NSJAIL,
+                &worker_name_2,
+                &w_id_2,
+                "mvn",
+                None,
+                false,
+                &mut None,
+            )
+            .await
+            {
+                append_logs(
+                    &job_id_2,
+                    &w_id_2,
+                    format!("error while installing {}: {e:?}", &name_2),
+                    db_2.clone(),
+                )
+                .await;
             } else {
+                print_success(
+                    false,
+                    true,
+                    &job_id_2,
+                    &w_id_2,
+                    &name,
+                    name_tl,
+                    counter_arc,
+                    total_to_install,
+                    start,
+                    db_2,
+                )
+                .await;
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                {
+                    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+                        tokio::spawn(build_tar_and_push(
+                            os,
+                            // push.replace("/", "_").clone(),
+                            path_2,
+                            "".into(),
+                            Some(name_2),
+                            // None,
+                        ));
+                    }
+                }
             }
         });
         handles.push(handle);
@@ -897,6 +837,139 @@ async fn install<'a>(
     Ok(classpath)
 }
 
+async fn compile<'a>(
+    JobHandlerInput {
+        occupancy_metrics,
+        mem_peak,
+        canceled_by,
+        worker_name,
+        job,
+        db,
+        job_dir,
+        shared_mount,
+        client,
+        envs,
+        base_internal_url,
+        inner_content,
+        requirements_o,
+        ..
+    }: &mut JobHandlerInput<'a>,
+    classpath: &'a str,
+    // plugins: Vec<&'a str>,
+) -> Result<(), Error> {
+    let client = &client.get_authed().await;
+    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let hash = compute_hash(inner_content, *requirements_o);
+    let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
+    let remote_path = format!("java_jar/{hash}");
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, true).await;
+
+    let cache_logs = if cache {
+        let target = format!("{job_dir}/target");
+        // create_dir_all(&target).await?;
+        // target += "/main.jar";
+
+        #[cfg(unix)]
+        let symlink = std::os::unix::fs::symlink(&bin_path, &target);
+        #[cfg(windows)]
+        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("\n\nPulled existing jar\n"),
+            db.clone(),
+        )
+        .await;
+
+        symlink.map_err(|e| {
+            Error::ExecutionErr(format!(
+                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
+            ))
+        })?;
+    } else {
+        // let plugin_registry = format!("{job_dir}/plugin-registry");
+        let child = {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("\n\n--- COMPILING .CLASS FILES ---\n"),
+                db.clone(),
+            )
+            .await;
+
+            let mut cmd = Command::new(if cfg!(windows) {
+                "javac"
+            } else {
+                JAVAC_PATH.as_str()
+            });
+            cmd.env_clear()
+                .current_dir(job_dir.to_owned())
+                .env("PATH", PATH_ENV.as_str())
+                .env("BASE_INTERNAL_URL", base_internal_url)
+                .envs(envs)
+                .envs(reserved_variables)
+                .envs(PROXY_ENVS.clone())
+                .args(&[
+                    "-classpath",
+                    &classpath,
+                    "src/main/java/net/script/Main.java",
+                    "src/main/java/net/script/App.java",
+                    "-d",
+                    "./target",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            {
+                cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+                    .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                    .env(
+                        "TMP",
+                        std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                    );
+            }
+            start_child_process(cmd, "javac").await?
+        };
+        handle_child::handle_child(
+            &job.id,
+            db,
+            mem_peak,
+            canceled_by,
+            child,
+            !*DISABLE_NSJAIL,
+            worker_name,
+            &job.workspace_id,
+            "javac",
+            job.timeout,
+            false,
+            &mut Some(occupancy_metrics),
+        )
+        .await?;
+
+        match save_cache(
+            &bin_path,
+            &format!("java_jar/{hash}"),
+            &format!("{job_dir}/target"),
+            Some(hash),
+        )
+        .await
+        {
+            Err(e) => {
+                let em = format!(
+                    "could not save {bin_path} to {} to java cache: {e:?}",
+                    format!("{job_dir}/main"),
+                );
+                tracing::error!(em);
+                // Ok(em)
+            }
+            Ok(logs) => {}
+        }
+    };
+
+    Ok(())
+}
 async fn run<'a>(
     JobHandlerInput {
         occupancy_metrics,
@@ -912,7 +985,7 @@ async fn run<'a>(
         base_internal_url,
         ..
     }: &mut JobHandlerInput<'a>,
-    classpath: String,
+    classpath: &'a str,
 ) -> Result<(), Error> {
     let client = &client.get_authed().await;
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
@@ -971,7 +1044,7 @@ async fn run<'a>(
         .await;
 
         let mut cmd = Command::new(if cfg!(windows) {
-            "nu"
+            "java"
         } else {
             JAVA_PATH.as_str()
         });
@@ -1048,7 +1121,8 @@ async fn jar<'a>(
     let hash = compute_hash(inner_content, *requirements_o);
     let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, true).await;
 
     let cache_logs = if cache {
         let mut target = format!("{job_dir}/target");
@@ -1078,30 +1152,27 @@ async fn jar<'a>(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("\n\n--- JARING JAVA ---\n"),
+                format!("\n\n--- COMPILING JAR ---\n"),
                 db.clone(),
             )
             .await;
 
-            // File::create(&plugin_registry).await?;
-            //
             let mut cmd = Command::new(if cfg!(windows) {
-                "nu"
+                "mvn"
             } else {
                 MAVEN_PATH.as_str()
             });
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
-                // .env(
-                //     "MAVEN_OPTS",
-                //     "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
-                // )
                 .env("PATH", PATH_ENV.as_str())
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(PROXY_ENVS.clone())
-                .args(&["package"])
+                .args(&[
+                    "package", // Offline mode. Crucial to make build safe.
+                    "-o",
+                ])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
@@ -1114,7 +1185,7 @@ async fn jar<'a>(
                         std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                     );
             }
-            start_child_process(cmd, "nu").await?
+            start_child_process(cmd, "mvn").await?
         };
         handle_child::handle_child(
             &job.id,
@@ -1125,7 +1196,7 @@ async fn jar<'a>(
             !*DISABLE_NSJAIL,
             worker_name,
             &job.workspace_id,
-            "nu",
+            "mvn",
             job.timeout,
             false,
             &mut Some(occupancy_metrics),
@@ -1136,6 +1207,7 @@ async fn jar<'a>(
             &bin_path,
             &format!("java_jar/{hash}"),
             &format!("{job_dir}/target/main.jar"),
+            None,
         )
         .await
         {
@@ -1153,6 +1225,7 @@ async fn jar<'a>(
 
     Ok(())
 }
+
 // #[cfg(test)]
 // mod test {
 //     use super::parse_plugin_use;

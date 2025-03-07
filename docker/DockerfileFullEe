@@ -37,3 +37,6 @@ RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldc
 
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
+
+# Java
+RUN apt-get install maven default-jdk

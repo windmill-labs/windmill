@@ -75,6 +75,7 @@
             sqlx-cli
             flock
             sccache
+            nsjail
             deno
             python3
             python3Packages.pip
@@ -161,6 +162,7 @@
           NU_PATH = "${pkgs.nushell}/bin/nu";
           MAVEN_PATH = "${pkgs.maven}/bin/mvn";
           JAVA_PATH = "${pkgs.jdk17}/bin/java";
+          JAVAC_PATH = "${pkgs.jdk17}/bin/javac";
           # KJQXZ 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";

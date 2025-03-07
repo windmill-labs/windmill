@@ -302,6 +302,15 @@ export const settings: Record<string, Setting[]> = {
 			codeAreaLang: 'xml',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Maven Settings',
+			description: 'Write a settings.xml file to configure custom servers and credentials',
+			key: 'mvn_settings',
+			fieldType: 'codearea',
+			codeAreaLang: 'xml',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	Alerts: [

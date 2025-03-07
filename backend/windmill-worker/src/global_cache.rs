@@ -104,39 +104,17 @@ pub async fn pull_from_tar(
     let tar_path = format!("tar/{TARGET}/{runtime_version}/{folder_name}.tar");
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
-    extract_tar(bytes, &folder).await.map_err(|e| {
-        tracing::error!("Failed to extract tar {folder_name}. Error: {:?}", e);
-        e
-    })?;
+    windmill_common::worker::extract_tar(bytes, &folder)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to extract tar {folder_name}. Error: {:?}", e);
+            e
+        })?;
 
     tracing::info!(
         "Finished pulling and extracting {folder_name}. Took {:?}ms",
         start.elapsed().as_millis()
     );
 
-    Ok(())
-}
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
-    use bytes::Buf;
-    use tokio::fs::{self};
-
-    let start: Instant = Instant::now();
-    fs::create_dir_all(&folder).await?;
-
-    let mut ar = tar::Archive::new(tar.reader());
-
-    if let Err(e) = ar.unpack(folder) {
-        tracing::info!("Failed to untar to {folder}. Error: {:?}", e);
-        fs::remove_dir_all(&folder).await?;
-        return Err(error::Error::ExecutionErr(format!(
-            "Failed to untar tar {folder}"
-        )));
-    }
-    tracing::info!(
-        "Finished extracting tar to {folder}. Took {}ms",
-        start.elapsed().as_millis(),
-    );
     Ok(())
 }
