@@ -16,11 +16,12 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
-	export let route_path: string | undefined
-	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
+	export let route_path: string = ''
+	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
@@ -28,6 +29,7 @@
 	export let headless: boolean = false
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
+	export let workspaced_route: boolean = false
 	export let isValid = false
 	export let runnableArgs: any = {}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
@@ -58,7 +60,8 @@
 			requestBody: {
 				route_path,
 				http_method: method,
-				trigger_path: initialTriggerPath
+				trigger_path: initialTriggerPath,
+				workspaced_route: workspaced_route
 			}
 		})
 	}
@@ -67,16 +70,22 @@
 
 	$: isValid = routeError === ''
 
-	function getHttpRoute(route_path: string | undefined) {
-		return `${location.origin}${base}/api/r/${isCloudHosted() ? $workspaceStore + '/' : ''}${
-			route_path ?? ''
-		}`
+	function getHttpRoute(route_path: string) {
+
+		function getRoutePath() {
+			let start_path = ''
+			if (isCloudHosted()) {
+				start_path = $workspaceStore!
+			}
+			else if (workspaced_route) {
+				start_path = ''
+			}
+			return workspace + '/' + route_path
+		}
+		return `${location.origin}${base}/api/r/${getRoutePath()}${route_path}`
 	}
 
 	$: fullRoute = getHttpRoute(route_path)
-
-	$: !http_method && (http_method = 'post')
-	$: route_path === undefined && (route_path = '')
 </script>
 
 <div>
@@ -177,10 +186,26 @@
 						}}
 					/>
 				</div>
-
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
+				{#if !isCloudHosted()}
+					<div class="mt-1">
+						<Toggle
+							size="sm"
+							checked={workspaced_route}
+							on:change={() => {
+								workspaced_route = !workspaced_route
+								fullRoute = getHttpRoute(route_path)
+								validateRoute(route_path, http_method)
+}}
+							options={{
+								right: 'Prefix workspace',
+								rightTooltip: ``
+							}}
+						/>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</Section>

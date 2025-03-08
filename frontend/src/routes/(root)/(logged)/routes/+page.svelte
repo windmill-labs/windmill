@@ -28,6 +28,7 @@
 	import RouteEditor from '$lib/components/triggers/http/RouteEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import { isCloudHosted } from '$lib/cloud'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
@@ -229,7 +230,7 @@
 				<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route,path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -250,7 +251,7 @@
 												{@html marked}
 											</span>
 										{:else}
-											{http_method.toUpperCase()} /{route_path}
+											{http_method.toUpperCase()} {isCloudHosted()  ? workspace_id + '/' + route_path : route_path}
 										{/if}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
