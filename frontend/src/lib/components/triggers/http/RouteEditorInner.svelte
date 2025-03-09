@@ -110,13 +110,13 @@
 		})
 		script_path = s.script_path
 		initialScriptPath = s.script_path
-		workspaced_route = s.workspaced_route ?? false
 		is_flow = s.is_flow
 		path = s.path
 		route_path = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
+		workspaced_route = s.workspaced_route ?? false
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config

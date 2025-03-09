@@ -71,18 +71,9 @@
 	$: isValid = routeError === ''
 
 	function getHttpRoute(route_path: string) {
-
-		function getRoutePath() {
-			let start_path = ''
-			if (isCloudHosted()) {
-				start_path = $workspaceStore!
-			}
-			else if (workspaced_route) {
-				start_path = ''
-			}
-			return workspace + '/' + route_path
-		}
-		return `${location.origin}${base}/api/r/${getRoutePath()}${route_path}`
+		return `${location.origin}${base}/api/r/${
+			isCloudHosted() || workspaced_route ? $workspaceStore! + '/' : ''
+		}${route_path}`
 	}
 
 	$: fullRoute = getHttpRoute(route_path)
@@ -194,14 +185,16 @@
 						<Toggle
 							size="sm"
 							checked={workspaced_route}
-							on:change={() => {
+							on:change={async () => {
 								workspaced_route = !workspaced_route
 								fullRoute = getHttpRoute(route_path)
+								dirtyRoutePath = true
 								validateRoute(route_path, http_method)
-}}
+							}}
 							options={{
-								right: 'Prefix workspace',
-								rightTooltip: ``
+								right: 'Prefix with workspace',
+								rightTooltip:
+									'Enable workspace prefix to add the workspace ID to the route path (e.g., `{base_url}/api/r/{workspace_id}/user`). Note: Deploying to a new workspace will update the route with the new workspace ID (e.g., from `{base_url}/api/r/staging_test/user` to `{base_url}/api/r/staging_prod/user`).'
 							}}
 						/>
 					</div>
