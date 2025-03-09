@@ -4,11 +4,11 @@
 	import Chart from './Chart.svelte'
 
   interface Props extends HTMLCanvasAttributes {
-    data: ChartData<"line">;
-    options: ChartOptions<"line">;
+    data: ChartData<"bar">;
+    options: ChartOptions<"bar">;
   }
   const {data, options}: Props = $props()
   
 </script>
 
-<Chart type="line" data={data} options={options} />
+<Chart type="bar" data={data} options={options} />
