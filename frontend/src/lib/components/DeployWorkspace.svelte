@@ -30,7 +30,6 @@
 		type AdditionalInformation,
 		type Kind
 	} from '$lib/utils_deployable'
-	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 
@@ -235,7 +234,6 @@
 				throw new Error(`Unknown kind ${kind}`)
 			}
 		} catch (error) {
-			sendUserToast(error.body ? error.body : error instanceof Error ? error.message : error, true)
 			exists = false
 		}
 		return exists
