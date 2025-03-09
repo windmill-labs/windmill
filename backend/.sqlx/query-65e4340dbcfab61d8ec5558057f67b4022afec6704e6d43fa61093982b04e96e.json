@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \n                http_trigger \n            SET \n                route_path = $1, \n                route_path_key = $2, \n                full_route_path_key = $3, \n                workspaced_route = $4, \n                script_path = $5, \n                path = $6, \n                is_flow = $7, \n                http_method = $8, \n                static_asset_config = $9, \n                edited_by = $10, \n                email = $11, \n                is_async = $12, \n                requires_auth = $13, \n                edited_at = now(), \n                is_static_website = $14\n            WHERE \n                workspace_id = $15 AND \n                path = $16",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65e4340dbcfab61d8ec5558057f67b4022afec6704e6d43fa61093982b04e96e"
+}
