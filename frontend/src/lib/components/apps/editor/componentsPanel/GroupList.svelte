@@ -120,7 +120,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<!-- <tr>Loading...</tr> -->
 					{/if}
 				</tbody>
 			</DataTable>
