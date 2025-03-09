@@ -15,7 +15,7 @@
 	import type { CompletedJob, ExtendedJobs } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
-	import Line from '$lib/components/chartjs-wrappers/Line.svelte'
+	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 
 	export let extendedJobs: ExtendedJobs | undefined = undefined
 	export let maxIsNow: boolean = false
