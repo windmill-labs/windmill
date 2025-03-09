@@ -7,8 +7,8 @@
     data: ChartData<"pie">;
     options: ChartOptions<"pie">;
   }
-  const {data, options}: Props = $props()
+  const props: Props = $props()
   
 </script>
 
-<Chart type="pie" data={data} options={options} />
+<Chart type="pie" {...props} />
