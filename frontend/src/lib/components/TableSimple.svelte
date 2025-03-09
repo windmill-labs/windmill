@@ -27,7 +27,7 @@
 				{/if}
 			</tr>
 		</Head>
-		<tbody class="divide-y">
+		<!-- <tbody class="divide-y">
 			{#if data && keys && data.length > 0}
 				{#each data as row}
 					{@const rowActions = getRowActions?.(row)}
@@ -51,6 +51,6 @@
 			{:else}
 				<tr>Loading...</tr>
 			{/if}
-		</tbody>
+		</tbody> -->
 	</DataTable>
 </div>
