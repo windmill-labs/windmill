@@ -282,9 +282,9 @@
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}
 			<Section label="Tags to listen to">
-				{#if nconfig?.worker_tags != undefined}
+				{#if config?.worker_tags != undefined}
 					<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
-						{#each nconfig.worker_tags as tag}
+						{#each config.worker_tags as tag}
 							<div class="flex gap-0.5 items-center"
 								><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
 								{#if $superadmin}
@@ -816,7 +816,7 @@
 			</div>
 			<AutoscalingConfigEditor
 				on:dirty={() => (dirty = true)}
-				worker_tags={nconfig.worker_tags}
+				worker_tags={config?.worker_tags}
 				bind:config={nconfig.autoscaling}
 			/>
 		</Section>
