@@ -10,7 +10,7 @@
 
 	export let fullMenu: boolean = false
 	export let noTrigger: boolean = false
-	export let expandRight = false
+	export const expandRight: boolean = false
 
 	let open = false
 	let timeout: NodeJS.Timeout | null = null

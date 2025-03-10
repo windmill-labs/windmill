@@ -72,7 +72,7 @@
 		color="blue"
 		spacingSize="xs2"
 		btnClasses="mt-1"
-		on:click={drawer?.openDrawer}
+		on:click={drawer?.openDrawer ?? (() => {})}
 	>
 		Explore schema
 	</Button>

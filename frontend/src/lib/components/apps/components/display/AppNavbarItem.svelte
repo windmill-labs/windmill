@@ -145,11 +145,11 @@
 	<div
 		class={twMerge('py-2 border-b-2')}
 		style={`border-color: ${
-			$selected === resolvedPath ? borderColor ?? 'transparent' : 'transparent'
+			$selected === resolvedPath ? (borderColor ?? 'transparent') : 'transparent'
 		}`}
 	>
 		<Button
-			on:click={buttonProps.onClick}
+			on:click={buttonProps.onClick ?? (() => {})}
 			href={buttonProps.href}
 			target={buttonProps.target ?? '_self'}
 			color="light"

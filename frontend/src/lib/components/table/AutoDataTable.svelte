@@ -189,15 +189,15 @@
 														Object.entries(obj.rowData).filter(([key, _]) =>
 															colSelection.includes(key)
 														)
-												  )
+													)
 										)
 								: colSelection.length == 0
-								? sortObjects(activeSorting, objects, false)
-								: sortObjects(activeSorting, objects, false).map((obj) =>
-										Object.fromEntries(
-											Object.entries(obj).filter(([key, _]) => colSelection.includes(key))
+									? sortObjects(activeSorting, objects, false)
+									: sortObjects(activeSorting, objects, false).map((obj) =>
+											Object.fromEntries(
+												Object.entries(obj).filter(([key, _]) => colSelection.includes(key))
+											)
 										)
-								  )
 						)
 					}}
 					customText={selection.length > 0 || colSelection.length > 0
@@ -392,8 +392,8 @@
 												value == undefined || value == null
 													? ''
 													: typeof value != 'string'
-													? JSON.stringify(value)
-													: value}
+														? JSON.stringify(value)
+														: value}
 											<Popover
 												placement="bottom"
 												notClickable
@@ -422,6 +422,7 @@
 	.three-lines {
 		display: -webkit-box;
 		-webkit-line-clamp: 3;
+		line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 	}

@@ -849,7 +849,7 @@
 									x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)
 								),
 								nprefix
-						  )
+							)
 						: []
 				})
 			)
@@ -1001,8 +1001,8 @@
 								color={flowJobIds?.flowJobsSuccess?.[j] === false
 									? 'red'
 									: forloop_selected === loopJobId
-									? 'dark'
-									: 'light'}
+										? 'dark'
+										: 'light'}
 								btnClasses="w-full flex justify-start"
 								on:click={async () => {
 									let storedJob = storedListJobs[j]
@@ -1076,7 +1076,7 @@
 							<div class="line w-8 h-10"></div>
 							<h3 class="text-tertiary mb-2 w-full">
 								{#if mod.id === 'preprocessor'}
-									<h3>Preprocessor module</h3>
+									Preprocessor module
 								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
 									Step
 									<span class="font-medium text-primary">
@@ -1090,7 +1090,7 @@
 										</span>
 									{/if}
 								{:else}
-									<h3>Failure module</h3>
+									Failure module
 								{/if}
 							</h3>
 							<div class="line w-8 h-10"></div>
@@ -1191,7 +1191,7 @@
 													flowJobsSuccess: mod.flow_jobs_success,
 													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
-											  }
+												}
 											: undefined}
 										on:jobsLoaded={(e) => {
 											let { job, force } = e.detail

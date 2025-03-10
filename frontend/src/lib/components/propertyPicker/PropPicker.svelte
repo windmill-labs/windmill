@@ -48,7 +48,7 @@
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
 
-	let timeout: NodeJS.Timeout
+	let timeout: NodeJS.Timeout | undefined
 	function onSearch(search: string) {
 		filterActive = false
 		clearTimeout(timeout)
@@ -77,7 +77,7 @@
 				await VariableService.listVariable({
 					workspace: $workspaceStore ?? ''
 				})
-			).map((variable) => [variable.path, variable.is_secret ? '***' : variable.value ?? ''])
+			).map((variable) => [variable.path, variable.is_secret ? '***' : (variable.value ?? '')])
 		)
 	}
 
