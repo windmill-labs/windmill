@@ -197,7 +197,7 @@
 							options={{
 								right: 'Prefix with workspace',
 								rightTooltip:
-									'Enable prefix with workspace to include the workspace ID in the route (e.g., {base_url}/api/r/{workspace_id}/user). Note: Deploying to a new workspace updates the route accordingly.'
+									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.'
 							}}
 						/>
 					</div>

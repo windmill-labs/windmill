@@ -255,21 +255,6 @@ async fn get_trigger(
     Ok(Json(trigger))
 }
 
-fn transform_to_full_route_variants(w_id: &str, path_variant: &str) -> String {
-    format!("{}/{}", w_id, path_variant.trim_matches('/'))
-}
-
-fn get_full_route_path_key(
-    workspaced_route: Option<bool>,
-    w_id: &str,
-    route_path_key: &str,
-) -> Option<String> {
-    match workspaced_route {
-        Some(true) => Some(transform_to_full_route_variants(w_id, route_path_key)),
-        _ => None,
-    }
-}
-
 async fn create_trigger(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -566,6 +551,17 @@ struct RouteExists {
     http_method: HttpMethod,
     trigger_path: Option<String>,
     workspaced_route: Option<bool>,
+}
+
+fn get_full_route_path_key(
+    workspaced_route: Option<bool>,
+    w_id: &str,
+    route_path_key: &str,
+) -> Option<String> {
+    match workspaced_route {
+        Some(true) => Some(format!("{}/{}", w_id, route_path_key.trim_matches('/'))),
+        _ => None,
+    }
 }
 
 async fn route_path_key_exists(

@@ -288,7 +288,7 @@
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
 									>
-										Copy url
+										Copy URL
 									</Button>
 									<Button
 										on:click={() => routeEditor?.openEdit(path, is_flow)}
