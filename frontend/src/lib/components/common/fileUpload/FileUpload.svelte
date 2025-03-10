@@ -40,11 +40,14 @@
 				filename: string
 		  }
 		| undefined = undefined
+	let hadInitialValue = false
 
 	init()
+
 	function init() {
-		if (initialValue) {
+		if (initialValue?.s3) {
 			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
+				hadInitialValue = true
 				$fileUploads = [
 					...$fileUploads,
 					{
@@ -57,6 +60,9 @@
 			}
 		}
 	}
+
+	$: !initialValue?.s3 && hadInitialValue && ($fileUploads = [])
+
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
