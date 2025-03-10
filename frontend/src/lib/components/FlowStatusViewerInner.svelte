@@ -107,7 +107,6 @@
 		}
 	}
 
-	$: console.log('localModuleStates', get(localModuleStates), flowJobIds?.moduleId)
 	function updateModuleStates(
 		moduleState: Writable<Record<string, GraphModuleState>>,
 		key: string,
@@ -131,6 +130,7 @@
 			const sameResult = deepEqual(state[key]?.result, newValue.result)
 			const sameJobId = state[key]?.job_id == newValue.job_id
 			if (!sameArgs || !sameResult || !sameJobId) {
+				// console.log('updateModuleStates', key, newValue)
 				moduleState.update((state) => {
 					state[key].args = newValue.args
 					state[key].result = newValue.result
