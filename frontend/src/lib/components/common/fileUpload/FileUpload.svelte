@@ -40,14 +40,12 @@
 				filename: string
 		  }
 		| undefined = undefined
-	let hadInitialValue = false
 
 	init()
 
 	function init() {
 		if (initialValue?.s3) {
 			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
-				hadInitialValue = true
 				$fileUploads = [
 					...$fileUploads,
 					{
@@ -60,8 +58,6 @@
 			}
 		}
 	}
-
-	$: !initialValue?.s3 && hadInitialValue && ($fileUploads = [])
 
 	export let computeForceViewerPolicies:
 		| (() =>
@@ -554,5 +550,12 @@
 		>
 			{containerText}{#if disabled}<br />(Disabled){/if}
 		</FileInput>
+	{/if}
+	{#if initialValue?.s3 && $fileUploads.length == 0}
+		<div class="flex flex-row gap-1 items-center p-1">
+			<span class="text-sm">
+				File currently selected: {initialValue?.s3}
+			</span>
+		</div>
 	{/if}
 </div>
