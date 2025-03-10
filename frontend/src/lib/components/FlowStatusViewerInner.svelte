@@ -126,11 +126,11 @@
 				})
 			}
 
-			const sameArgs = deepEqual(state[key]?.args, newValue.args)
-			const sameResult = deepEqual(state[key]?.result, newValue.result)
-			const sameJobId = state[key]?.job_id == newValue.job_id
-			if (!sameArgs || !sameResult || !sameJobId) {
-				// console.log('updateModuleStates', key, newValue)
+			if (
+				state[key]?.job_id != newValue.job_id ||
+				!deepEqual(state[key]?.args, newValue.args) ||
+				!deepEqual(state[key]?.result, newValue.result)
+			) {
 				moduleState.update((state) => {
 					state[key].args = newValue.args
 					state[key].result = newValue.result
