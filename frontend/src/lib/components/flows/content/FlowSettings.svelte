@@ -448,6 +448,7 @@
 											`$args[name_of_arg]`</Tooltip
 										>
 									</svelte:fragment>
+									<!-- svelte-ignore a11y_autofocus -->
 									<input
 										type="text"
 										autofocus
