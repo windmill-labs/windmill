@@ -133,7 +133,6 @@ pub struct HttpTrigger {
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
     pub workspaced_route: Option<bool>,
-    pub full_route_path_key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -174,7 +173,6 @@ async fn list_triggers(
             "route_path",
             "route_path_key",
             "workspaced_route",
-            "full_route_path_key",
             "script_path",
             "is_flow",
             "http_method",
@@ -228,7 +226,6 @@ async fn get_trigger(
             route_path, 
             route_path_key,
             workspaced_route,
-            full_route_path_key,
             script_path, 
             is_flow, 
             http_method as "http_method: _", 
@@ -305,7 +302,6 @@ async fn create_trigger(
         ));
     }
 
-    let full_route_path_key = get_full_route_path_key(ct.workspaced_route, &w_id, &route_path_key);
     if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
         return Err(error::Error::BadRequest(
             "Static website and static asset are not supported on cloud".to_string(),
@@ -314,13 +310,13 @@ async fn create_trigger(
 
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "INSERT INTO http_trigger (
+        r#"
+        INSERT INTO http_trigger (
             workspace_id, 
             path, 
             route_path, 
             route_path_key,
             workspaced_route,
-            full_route_path_key,
             script_path, 
             is_flow, 
             is_async, 
@@ -328,19 +324,19 @@ async fn create_trigger(
             http_method, 
             static_asset_config, 
             edited_by, 
-            edited_at, 
             email, 
+            edited_at, 
             is_static_website
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15
-        )",
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14
+        )
+        "#,
         w_id,
         ct.path,
         ct.route_path,
         &route_path_key,
         ct.workspaced_route,
-        full_route_path_key,
         ct.script_path,
         ct.is_flow,
         ct.is_async,
@@ -398,9 +394,6 @@ async fn update_trigger(
 
         let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&route_path, ":key");
 
-        let full_route_path_key =
-            get_full_route_path_key(ct.workspaced_route, &w_id, &route_path_key);
-
         let exists = route_path_key_exists(
             &route_path_key,
             &ct.http_method,
@@ -418,30 +411,30 @@ async fn update_trigger(
 
         tx = user_db.begin(&authed).await?;
         sqlx::query!(
-            "UPDATE 
+            r#"
+            UPDATE 
                 http_trigger 
             SET 
                 route_path = $1, 
                 route_path_key = $2, 
-                full_route_path_key = $3, 
-                workspaced_route = $4, 
-                script_path = $5, 
-                path = $6, 
-                is_flow = $7, 
-                http_method = $8, 
-                static_asset_config = $9, 
-                edited_by = $10, 
-                email = $11, 
-                is_async = $12, 
-                requires_auth = $13, 
+                workspaced_route = $3, 
+                script_path = $4, 
+                path = $5, 
+                is_flow = $6, 
+                http_method = $7, 
+                static_asset_config = $8, 
+                edited_by = $9, 
+                email = $10, 
+                is_async = $11, 
+                requires_auth = $12, 
                 edited_at = now(), 
-                is_static_website = $14
+                is_static_website = $13
             WHERE 
-                workspace_id = $15 AND 
-                path = $16",
+                workspace_id = $14 AND 
+                path = $15
+            "#,
             route_path,
             &route_path_key,
-            full_route_path_key,
             ct.workspaced_route,
             ct.script_path,
             ct.path,
@@ -583,23 +576,17 @@ async fn route_path_key_exists(
     workspaced_route: Option<bool>,
     db: &DB,
 ) -> error::Result<bool> {
-    let workspaced_route_key = get_full_route_path_key(workspaced_route, w_id, route_path_key);
-    let route_path_key = match workspaced_route_key.as_deref() {
-        Some(workspaced_route_key) if !workspaced_route_key.is_empty() => {
-            workspaced_route_key
-        }
-        _ => route_path_key,
-    };
-    let exists = if *CLOUD_HOSTED || workspaced_route_key.is_some() {
+    let exists = if *CLOUD_HOSTED {
         sqlx::query_scalar!(
             r#"
             SELECT EXISTS(
                 SELECT 1 
                 FROM http_trigger 
-                WHERE (route_path_key = $1 OR full_route_path_key = $1) 
-                  AND workspace_id = $2 
-                  AND http_method = $3 
-                  AND ($4::TEXT IS NULL OR path != $4)
+                WHERE 
+                    route_path_key = $1
+                    AND workspace_id = $2 
+                    AND http_method = $3 
+                    AND ($4::TEXT IS NULL OR path != $4)
             )
             "#,
             &route_path_key,
@@ -611,6 +598,11 @@ async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     } else {
+        let workspaced_route_key = get_full_route_path_key(workspaced_route, w_id, route_path_key);
+        let route_path_key = match workspaced_route_key.as_deref() {
+            Some(workspaced_route_key) => workspaced_route_key,
+            _ => route_path_key,
+        };
         sqlx::query_scalar!(
             r#"
             SELECT EXISTS(
@@ -618,7 +610,11 @@ async fn route_path_key_exists(
                 FROM 
                     http_trigger 
                 WHERE 
-                    ((route_path_key = $1 AND workspaced_route IS NOT TRUE) OR full_route_path_key = $1) 
+                    CASE WHEN workspaced_route IS TRUE THEN
+                        workspace_id || '/' || route_path_key = $1
+                    ELSE
+                        route_path_key = $1
+                    END 
                     AND http_method = $2 
                     AND ($3::TEXT IS NULL OR path != $3)
             )

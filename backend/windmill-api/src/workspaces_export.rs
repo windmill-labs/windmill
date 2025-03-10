@@ -539,7 +539,6 @@ pub(crate) async fn tarball_workspace(
                 SELECT 
                     workspace_id, 
                     workspaced_route,
-                    full_route_path_key,
                     path, 
                     route_path, 
                     route_path_key, 

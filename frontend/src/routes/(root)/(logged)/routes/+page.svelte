@@ -5,7 +5,13 @@
 		type HttpTrigger,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import {
+		canWrite,
+		copyToClipboard,
+		displayDate,
+		getLocalSetting,
+		storeLocalSetting
+	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -15,7 +21,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
-	import { Route, Code, Eye, Pen, Plus, Share, Trash, FileUp } from 'lucide-svelte'
+	import { Route, Code, Eye, Pen, Plus, Share, Trash, FileUp, ClipboardCopy } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -29,6 +35,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
+	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
@@ -274,6 +281,15 @@
 								</div>
 
 								<div class="flex gap-2 items-center justify-end">
+									<Button
+										on:click={() =>
+											copyToClipboard(getHttpRoute(route_path, workspaced_route ?? false, workspace_id))}
+										color="dark"
+										size="xs"
+										startIcon={{ icon: ClipboardCopy }}
+									>
+										Copy url
+									</Button>
 									<Button
 										on:click={() => routeEditor?.openEdit(path, is_flow)}
 										size="xs"

@@ -18,6 +18,8 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isObject } from '$lib/utils'
+	import { getHttpRoute } from './utils'
+	import { get } from 'svelte/store'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -55,6 +57,8 @@
 		}, 500)
 	}
 
+	const workspace_id = get(workspaceStore) as string
+
 	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>) {
 		return await HttpTriggerService.existsRoute({
 			workspace: $workspaceStore!,
@@ -71,13 +75,7 @@
 
 	$: isValid = routeError === ''
 
-	function getHttpRoute(route_path: string) {
-		return `${location.origin}${base}/api/r/${
-			isCloudHosted() || workspaced_route ? $workspaceStore! + '/' : ''
-		}${route_path}`
-	}
-
-	$: fullRoute = getHttpRoute(route_path)
+	$: fullRoute = getHttpRoute(route_path, workspaced_route, workspace_id)
 </script>
 
 <div>
@@ -192,14 +190,14 @@
 							checked={workspaced_route}
 							on:change={async () => {
 								workspaced_route = !workspaced_route
-								fullRoute = getHttpRoute(route_path)
+								fullRoute = getHttpRoute(route_path, workspaced_route, workspace_id)
 								dirtyRoutePath = true
 								validateRoute(route_path, http_method)
 							}}
 							options={{
 								right: 'Prefix with workspace',
 								rightTooltip:
-									'Enable workspace prefix to add the workspace ID to the route path (e.g., `{base_url}/api/r/{workspace_id}/user`). Note: Deploying to a new workspace will update the route with the new workspace ID (e.g., from `{base_url}/api/r/staging_test/user` to `{base_url}/api/r/staging_prod/user`).'
+									'Enable prefix with workspace to include the workspace ID in the route (e.g., {base_url}/api/r/{workspace_id}/user). Note: Deploying to a new workspace updates the route accordingly.'
 							}}
 						/>
 					</div>
