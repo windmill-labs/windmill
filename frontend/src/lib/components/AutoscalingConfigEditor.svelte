@@ -230,12 +230,6 @@
 											dispatch('dirty')
 										}
 									}}
-									on:clear={() => {
-										if (config) {
-											config.custom_tags = undefined
-										}
-										dispatch('dirty')
-									}}
 									options={worker_tags ?? []}
 									selectedOptionsDraggable={false}
 									ulOptionsClass={'!bg-surface-secondary'}
