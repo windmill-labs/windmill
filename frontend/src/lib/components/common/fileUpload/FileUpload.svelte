@@ -40,11 +40,14 @@
 				filename: string
 		  }
 		| undefined = undefined
+	let hadInitialValue = false
 
 	init()
+
 	function init() {
-		if (initialValue) {
+		if (initialValue?.s3) {
 			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
+				hadInitialValue = true
 				$fileUploads = [
 					...$fileUploads,
 					{
@@ -57,6 +60,9 @@
 			}
 		}
 	}
+
+	$: !initialValue?.s3 && hadInitialValue && ($fileUploads = [])
+
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
@@ -355,10 +361,12 @@
 					<div class="w-full flex flex-col gap-1 p-2">
 						<div class="flex flex-row items-center justify-between">
 							<div class="flex flex-col gap-1">
-								<span class="text-xs font-bold">{fileUpload.name}</span>
-								<span class="text-xs"
-									>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
-								>
+								<span class="text-xs font-bold">{fileUpload.name ?? ''}</span>
+								{#if fileUpload.size}
+									<span class="text-xs"
+										>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
+									>
+								{/if}
 							</div>
 							<div class="flex flex-row gap-1 items-center">
 								{#if fileUpload.errorMessage}
@@ -535,7 +543,7 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
-			iconSize={iconSize}
+			{iconSize}
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)
