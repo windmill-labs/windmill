@@ -298,13 +298,13 @@
 								</label>
 								<select bind:value={newTokenExpiration}>
 									<option value={undefined}>No expiration</option>
-									<option value={15*60}>15m</option>
-									<option value={30*60}>30m</option>
-									<option value={1*60*60}>1h</option>
-									<option value={1*24*60*60}>1d</option>
-									<option value={7*24*60*60}>7d</option>
-									<option value={30*24*60*60}>30d</option>
-									<option value={90*24*60*60}>90d</option>
+									<option value={15 * 60}>15m</option>
+									<option value={30 * 60}>30m</option>
+									<option value={1 * 60 * 60}>1h</option>
+									<option value={1 * 24 * 60 * 60}>1d</option>
+									<option value={7 * 24 * 60 * 60}>7d</option>
+									<option value={30 * 24 * 60 * 60}>30d</option>
+									<option value={90 * 24 * 60 * 60}>90d</option>
 								</select>
 							</div>
 							<div class="flex items-end">
@@ -345,7 +345,7 @@
 									><td class="text-secondary italic text-xs"> There are no tokens yet</td></tr
 								>
 							{:else}
-								<!-- <tr> Loading...</tr> -->
+								<tr><td>Loading...</td></tr>
 							{/if}
 						</tbody>
 					</TableCustom>
