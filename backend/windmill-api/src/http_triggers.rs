@@ -609,8 +609,8 @@ async fn route_path_key_exists(
                 SELECT 1 
                 FROM http_trigger 
                 WHERE 
-                    (workspaced_route IS TRUE AND workspace_id || '/' || route_path_key = $1) 
-                    OR (workspaced_route IS FALSE AND route_path_key = $1)
+                    ((workspaced_route IS TRUE AND workspace_id || '/' || route_path_key = $1) 
+                    OR (workspaced_route IS FALSE AND route_path_key = $1))
                     AND http_method = $2 
                     AND ($3::TEXT IS NULL OR path != $3)
             )
