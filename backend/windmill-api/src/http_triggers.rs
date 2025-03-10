@@ -607,14 +607,10 @@ async fn route_path_key_exists(
             r#"
             SELECT EXISTS(
                 SELECT 1 
-                FROM 
-                    http_trigger 
+                FROM http_trigger 
                 WHERE 
-                    CASE WHEN workspaced_route IS TRUE THEN
-                        workspace_id || '/' || route_path_key = $1
-                    ELSE
-                        route_path_key = $1
-                    END 
+                    (workspaced_route IS TRUE AND workspace_id || '/' || route_path_key = $1) 
+                    OR (workspaced_route IS FALSE AND route_path_key = $1)
                     AND http_method = $2 
                     AND ($3::TEXT IS NULL OR path != $3)
             )
@@ -625,7 +621,7 @@ async fn route_path_key_exists(
         )
         .fetch_one(db)
         .await?
-        .unwrap_or(false)
+        .unwrap_or(false)        
     };
 
     Ok(exists)
