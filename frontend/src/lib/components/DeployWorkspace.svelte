@@ -30,6 +30,7 @@
 		type AdditionalInformation,
 		type Kind
 	} from '$lib/utils_deployable'
+	import type { TriggerKind } from './triggers'
 
 	const dispatch = createEventDispatcher()
 
@@ -174,67 +175,80 @@
 	}
 
 	async function checkAlreadyExists(kind: Kind, path: string): Promise<boolean> {
-		let exists = true
-		try {
-			if (kind == 'flow') {
-				exists = await FlowService.existsFlowByPath({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'script') {
-				exists = await ScriptService.existsScriptByPath({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'app') {
-				exists = await AppService.existsApp({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'raw_app') {
-				exists = await RawAppService.existsRawApp({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'variable') {
-				exists = await VariableService.existsVariable({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'resource') {
-				exists = await ResourceService.existsResource({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'schedule') {
-				exists = await ScheduleService.existsSchedule({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'resource_type') {
-				exists = await ResourceService.existsResourceType({
-					workspace: workspaceToDeployTo!,
-					path: path
-				})
-			} else if (kind == 'folder') {
-				await FolderService.getFolder({
-					workspace: workspaceToDeployTo!,
-					name: path
-				})
-			} else if (kind === 'trigger') {
-				if (additionalInformation?.triggers) {
-					exists = await existsTrigger(
-						{ workspace: workspaceToDeployTo!, path },
-						additionalInformation.triggers.kind
-					)
-				} else {
-					throw new Error('Missing triggers kind')
-				}
+		let exists: boolean
+		if (kind == 'flow') {
+			exists = await FlowService.existsFlowByPath({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'script') {
+			exists = await ScriptService.existsScriptByPath({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'app') {
+			exists = await AppService.existsApp({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'raw_app') {
+			exists = await RawAppService.existsRawApp({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'variable') {
+			exists = await VariableService.existsVariable({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'resource') {
+			exists = await ResourceService.existsResource({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'schedule') {
+			exists = await ScheduleService.existsSchedule({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'resource_type') {
+			exists = await ResourceService.existsResourceType({
+				workspace: workspaceToDeployTo!,
+				path: path
+			})
+		} else if (kind == 'folder') {
+			exists = await FolderService.existsFolder({
+				workspace: workspaceToDeployTo!,
+				name: path
+			})
+		} else if (kind === 'trigger') {
+			const triggersKind: TriggerKind[] = [
+				'kafka',
+				'mqtt',
+				'nats',
+				'postgres',
+				'routes',
+				'schedules',
+				'sqs',
+				'websockets'
+			]
+			if (
+				additionalInformation?.triggers &&
+				triggersKind.includes(additionalInformation.triggers.kind)
+			) {
+				exists = await existsTrigger(
+					{ workspace: workspaceToDeployTo!, path },
+					additionalInformation.triggers.kind
+				)
 			} else {
-				throw new Error(`Unknown kind ${kind}`)
+				throw new Error(
+					`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
+						additionalInformation?.triggers?.kind
+					}`
+				)
 			}
-		} catch (error) {
-			exists = false
+		} else {
+			throw new Error(`Unknown kind ${kind}`)
 		}
 		return exists
 	}
