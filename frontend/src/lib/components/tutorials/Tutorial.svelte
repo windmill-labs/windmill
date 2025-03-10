@@ -70,7 +70,8 @@
 					const activeElement = tutorial?.getActiveElement()
 					tutorial?.getActiveStep()?.popover?.onNextClick?.(activeElement, step, {
 						config,
-						state
+						state,
+						driver: tutorial
 					})
 				} else {
 					tutorial?.moveNext()
@@ -86,7 +87,8 @@
 					const activeElement = tutorial?.getActiveElement()
 					tutorial?.getActiveStep()?.popover?.onPrevClick?.(activeElement, step, {
 						config,
-						state
+						state,
+						driver: tutorial
 					})
 				} else {
 					tutorial?.movePrevious()

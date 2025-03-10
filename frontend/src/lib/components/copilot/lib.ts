@@ -174,7 +174,7 @@ export const workspaceAIClients = new WorkspacedAIClients()
 namespace MistralAI {
 	export const mistralConfig: ChatCompletionRequest = {
 		temperature: 0,
-		model: null,
+		model: '',
 		maxTokens: 32000,
 		messages: []
 	}
@@ -502,7 +502,7 @@ export async function getNonStreamingCompletion(
 				? new Anthropic({
 						apiKey,
 						dangerouslyAllowBrowser: true
-				  })
+					})
 				: workspaceAIClients.getAnthropicClient()
 			const [system, anthropicMessages] = AnthropicAI.getSystemPromptAndArrayMessages(messages)
 			const message = await anthropicClient.messages.create(
@@ -516,11 +516,11 @@ export async function getNonStreamingCompletion(
 									budget_tokens: 1024
 								},
 								model: model.slice(0, -9)
-						  }
+							}
 						: {
 								model,
 								temperature: 0
-						  }),
+							}),
 					messages: anthropicMessages,
 					stream: false
 				},
@@ -533,7 +533,7 @@ export async function getNonStreamingCompletion(
 			const mistralClient = apiKey
 				? new Mistral({
 						apiKey
-				  })
+					})
 				: workspaceAIClients.getMistralClient()
 			const message = await mistralClient.chat.complete(
 				{
@@ -563,7 +563,7 @@ export async function getNonStreamingCompletion(
 						apiKey,
 						baseURL,
 						dangerouslyAllowBrowser: true
-				  })
+					})
 				: workspaceAIClients.getOpenaiClient()
 			const config =
 				aiProvider === 'openai'
@@ -621,11 +621,11 @@ export async function getCompletion(
 									budget_tokens: 1024
 								},
 								model: model.slice(0, -9)
-						  }
+							}
 						: {
 								model,
 								temperature: 0
-						  }),
+							}),
 					system,
 					messages: anthropicMessages,
 					stream: true

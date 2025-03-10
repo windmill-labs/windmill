@@ -59,7 +59,7 @@
 		worldStore,
 		focusedGrid,
 		stateId,
-		state,
+		state: stateStore,
 		errorByComponent,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
@@ -115,9 +115,9 @@
 			? buildExtraLib(
 					$worldStore?.outputsById ?? {},
 					componentSettings?.item?.data?.id,
-					$state,
+					$stateStore,
 					false
-			  )
+				)
 			: undefined
 
 	// 	`
@@ -235,10 +235,10 @@
 					title={componentSettings?.item.data.type == 'steppercomponent'
 						? 'Validations'
 						: componentSettings?.item.data.type == 's3fileinputcomponent'
-						? 'Path template'
-						: hasInteraction
-						? 'Event handler'
-						: 'Data source'}
+							? 'Path template'
+							: hasInteraction
+								? 'Event handler'
+								: 'Data source'}
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">

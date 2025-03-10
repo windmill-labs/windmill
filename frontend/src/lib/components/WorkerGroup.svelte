@@ -77,10 +77,10 @@
 				? config
 				: {
 						worker_tags: []
-				  }
+					}
 			: {
 					worker_tags: []
-			  }
+				}
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = new Map<string, number>()
 		}
@@ -458,12 +458,16 @@
 										on:change={(e) => {
 											if (e.detail.type === 'add') {
 												if (nconfig.priority_tags) {
-													nconfig.priority_tags[e.detail.option] = 100
+													if (e.detail.option && typeof e.detail.option !== 'object') {
+														nconfig.priority_tags[e.detail.option] = 100
+													}
 												}
 												dirty = true
 											} else if (e.detail.type === 'remove') {
 												if (nconfig.priority_tags) {
-													delete nconfig.priority_tags[e.detail.option]
+													if (e.detail.option && typeof e.detail.option !== 'object') {
+														delete nconfig.priority_tags[e.detail.option]
+													}
 												}
 												dirty = true
 											} else if (e.detail.type === 'removeAll') {

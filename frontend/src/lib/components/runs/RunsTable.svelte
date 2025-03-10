@@ -246,11 +246,7 @@
 		</div>
 	</div>
 	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
-		<tr>
-			<td colspan="4" class="text-center p-8">
-				<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
-			</td>
-		</tr>
+		<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
 	{:else}
 		<VirtualList
 			width="100%"

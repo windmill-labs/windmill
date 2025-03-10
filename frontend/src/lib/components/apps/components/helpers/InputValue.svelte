@@ -34,7 +34,8 @@
 	export let onDemandOnly: boolean = false
 	export let exportValueFunction: boolean = false
 
-	const { componentControl, runnableComponents, recomputeAllContext } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, runnableComponents, recomputeAllContext } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -93,7 +94,7 @@
 		}
 	}
 
-	const { worldStore, state, mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, state: stateStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: stateId = $worldStore?.stateId
 
@@ -144,7 +145,7 @@
 		lastInput.type == 'template' &&
 		isCodeInjection(lastInput.eval) &&
 		$stateId &&
-		$state &&
+		$stateStore &&
 		debounce(debounceTemplate)
 
 	let lastExprHash: any = undefined
@@ -170,7 +171,7 @@
 		}
 	}
 
-	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
+	$: lastInput && lastInput.type == 'eval' && $stateId && $stateStore && debounce2(debounceEval)
 
 	$: lastInput?.type == 'evalv2' && lastInput.expr && debounceEval('exprChanged')
 	$: lastInput?.type == 'templatev2' && lastInput.eval && debounceTemplate()
@@ -274,7 +275,7 @@
 			const r = await eval_like(
 				input.expr,
 				context,
-				$state,
+				$stateStore,
 				$mode == 'dnd',
 				$componentControl,
 				$worldStore,
@@ -301,7 +302,7 @@
 				const r = await eval_like(
 					'`' + input.eval.replaceAll('`', '\\`') + '`',
 					computeGlobalContext($worldStore, id, fullContext),
-					$state,
+					$stateStore,
 					$mode == 'dnd',
 					$componentControl,
 					$worldStore,

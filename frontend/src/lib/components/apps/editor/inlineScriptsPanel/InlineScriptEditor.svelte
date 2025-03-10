@@ -33,8 +33,14 @@
 	export let transformer: boolean = false
 	export let componentType: string | undefined = undefined
 
-	const { runnableComponents, stateId, worldStore, state, appPath, app } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		runnableComponents,
+		stateId,
+		worldStore,
+		state: stateStore,
+		appPath,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	export let editor: Editor | undefined = undefined
 	let diffEditor: DiffEditor
@@ -172,7 +178,7 @@
 
 	$: extraLib =
 		inlineScript?.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, true)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, true)
 			: undefined
 
 	// 	`
