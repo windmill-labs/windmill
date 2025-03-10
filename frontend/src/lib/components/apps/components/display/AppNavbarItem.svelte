@@ -159,7 +159,7 @@
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}
-					<div class="min-w-4" bind:this={icon} />
+					<div class="min-w-4" bind:this={icon}></div>
 				{/key}
 			{/if}
 			{resolvedLabel ?? 'No Label'}

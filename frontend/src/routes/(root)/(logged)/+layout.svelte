@@ -388,7 +388,7 @@
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
-						/>
+						></div>
 
 						<div class="fixed inset-0 flex z-40">
 							<div

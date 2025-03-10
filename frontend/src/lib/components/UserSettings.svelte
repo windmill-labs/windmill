@@ -320,7 +320,7 @@
 							<th>label</th>
 							<th>expiration</th>
 							<th>scopes</th>
-							<th />
+							<th></th>
 						</tr>
 						<tbody slot="body">
 							{#if tokens && tokens.length > 0}

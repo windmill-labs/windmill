@@ -254,7 +254,7 @@
 						disabled={completed || alreadyResumed}>Deny</Button
 					>
 				{:else}
-					<div />
+					<div></div>
 				{/if}
 
 				<Button

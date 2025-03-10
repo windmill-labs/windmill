@@ -979,7 +979,7 @@
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{:else}
-				<div class="h-[30px]" />
+				<div class="h-[30px]"></div>
 			{/if}
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
@@ -1073,7 +1073,7 @@
 
 					{#each innerModules as mod, i}
 						{#if render}
-							<div class="line w-8 h-10" />
+							<div class="line w-8 h-10"></div>
 							<h3 class="text-tertiary mb-2 w-full">
 								{#if mod.id === 'preprocessor'}
 									<h3>Preprocessor module</h3>
@@ -1093,7 +1093,7 @@
 									<h3>Failure module</h3>
 								{/if}
 							</h3>
-							<div class="line w-8 h-10" />
+							<div class="line w-8 h-10"></div>
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
 							{#if render && Array.isArray(mod.failed_retries)}

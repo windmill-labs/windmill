@@ -74,7 +74,7 @@
 			<div
 				class="bg-blue-300 h-0.5 rounded-full dark:bg-blue-500 transition-all"
 				style="width: {progress}%"
-			/>
+			></div>
 		</div>
 	{/if}
 </div>

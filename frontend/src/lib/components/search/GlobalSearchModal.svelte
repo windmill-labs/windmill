@@ -666,7 +666,7 @@
 														class="rounded-full w-2 h-2 {r?.document.success[0]
 															? 'bg-green-400'
 															: 'bg-red-400'}"
-													/>
+													></div>
 													<div class="flex flex-col gap-2">
 														<div class="text-xs"> {r?.document.script_path} </div>
 														<div class="flex flex-row gap-2">
@@ -735,7 +735,7 @@
 											Note that new runs might take a while to become searchable (by default ~5min)
 										</div>
 										{#if !$enterpriseLicense}
-											<div class="py-6" />
+											<div class="py-6"></div>
 
 											<Alert title="This is an EE feature" type="warning">
 												Full-text search on jobs is only available on EE.

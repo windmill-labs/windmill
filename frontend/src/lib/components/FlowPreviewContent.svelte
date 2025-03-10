@@ -362,7 +362,7 @@
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
 				>
 					<AlertTriangle size={14} /> Flow changed since last preview
-					<div class="flex" />
+					<div class="flex"></div>
 				</div>
 			</div>
 		{/if}

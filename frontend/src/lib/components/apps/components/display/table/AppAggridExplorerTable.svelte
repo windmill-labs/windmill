@@ -482,7 +482,7 @@
 						}
 					}
 				}}
-			/>
+			></div>
 		</div>
 		{#if resolvedConfig && 'footer' in resolvedConfig && resolvedConfig.footer}
 			<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">

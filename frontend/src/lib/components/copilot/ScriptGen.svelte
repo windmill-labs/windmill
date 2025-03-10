@@ -262,7 +262,7 @@
 <svelte:window on:resize={autoResize} bind:innerWidth />
 
 {#if genLoading}
-	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75" />
+	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75"></div>
 {/if}
 
 {#if $generatedCode.length > 0 && !genLoading}
@@ -459,7 +459,7 @@
 									: 'Describe what the script should do'}
 								rows="1"
 								class="resize-none overflow-hidden"
-							/>
+							></textarea>
 							<Button
 								size="xs"
 								color="light"

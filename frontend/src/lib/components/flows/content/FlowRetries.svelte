@@ -39,8 +39,8 @@
 			(flowModuleRetry?.constant?.attempts ?? 0) > 0
 				? 'constant'
 				: (flowModuleRetry?.exponential?.attempts ?? 0) > 0
-				? 'exponential'
-				: 'disabled'
+					? 'exponential'
+					: 'disabled'
 		loaded = true
 	}
 
@@ -178,7 +178,8 @@
 										<td class="font-semibold pr-1 align-top">{index}:</td>
 										<td class="pb-1 whitespace-nowrap">
 											{delay} second{delay === 1 ? '' : 's'}
-											{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) / 100}
+											{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) /
+													100}
 												seconds){/if}
 											after attempt #{index - 1}
 											{#if i > cArray.length - 2}
