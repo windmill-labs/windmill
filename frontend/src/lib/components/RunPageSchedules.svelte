@@ -201,7 +201,7 @@
 	{/if}
 
 	{#if !newItem}
-		<div class="mt-10" />
+		<div class="mt-10"></div>
 		{#if $primarySchedule}
 			<Button
 				on:click={() => scheduleEditor?.openNew(isFlow, path)}

@@ -237,7 +237,7 @@
 					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
 				>
 			{/if}
-			<div class="w-4/12 text-xs font-semibold" />
+			<div class="w-4/12 text-xs font-semibold"></div>
 			<div class="w-4/12 text-xs font-semibold">Path</div>
 			{#if containsLabel}
 				<div class="w-3/12 text-xs font-semibold">Label</div>

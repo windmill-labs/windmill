@@ -42,7 +42,7 @@
 	{#if hasCloseButton}
 		<slot name="close button" />
 	{:else}
-		<div class="w-[31px]" />
+		<div class="w-[31px]"></div>
 	{/if}
 
 	{#if fullMenu}

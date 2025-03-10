@@ -73,6 +73,6 @@
 			bind:this={iconComponent}
 			class={twMerge(css?.icon?.class, 'wm-icon')}
 			style={css?.icon?.style ?? ''}
-		/>
+		></div>
 	{/if}
 </AlignWrapper>

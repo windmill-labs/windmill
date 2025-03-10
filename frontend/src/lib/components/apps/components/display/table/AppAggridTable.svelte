@@ -592,7 +592,7 @@
 									}
 								}
 							}}
-						/>
+						></div>
 					{:else}
 						<Loader2 class="animate-spin" />
 					{/if}

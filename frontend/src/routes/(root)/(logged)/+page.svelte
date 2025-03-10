@@ -216,7 +216,7 @@
 <div>
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
-			<div class="my-4" />
+			<div class="my-4"></div>
 
 			<Alert title="Admins workspace">
 				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
@@ -254,7 +254,7 @@
 				</Tabs>
 			</div>
 		{/if}
-		<div class="my-2" />
+		<div class="my-2"></div>
 		<div class="flex flex-col gap-y-16">
 			<div class="flex flex-col">
 				{#if tab == 'hub'}
@@ -274,7 +274,7 @@
 							<div class="flex gap-2 items-center my-1"> Apps </div>
 						</Tab>
 					</Tabs>
-					<div class="my-2" />
+					<div class="my-2"></div>
 
 					{#if subtab == 'script'}
 						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>

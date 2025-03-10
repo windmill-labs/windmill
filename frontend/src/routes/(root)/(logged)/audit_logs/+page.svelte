@@ -88,7 +88,7 @@
 				<Alert title="Redacted audit logs" type="warning">
 					You need an enterprise license to see unredacted audit logs.
 				</Alert>
-				<div class="py-2" />
+				<div class="py-2"></div>
 			{/if}
 		</div>
 		<SplitPanesWrapper class="hidden md:block">

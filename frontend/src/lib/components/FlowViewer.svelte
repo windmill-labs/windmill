@@ -62,7 +62,7 @@
 			<FlowViewerInner {flow} />
 		</TabContent>
 		<TabContent value="schema">
-			<div class="my-4" />
+			<div class="my-4"></div>
 			<SchemaViewer schema={flow.schema} />
 		</TabContent>
 	</svelte:fragment>

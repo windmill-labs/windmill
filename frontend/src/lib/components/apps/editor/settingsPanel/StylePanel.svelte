@@ -133,7 +133,7 @@
 					</div>
 				</Button>
 			{:else}
-				<div />
+				<div></div>
 			{/if}
 
 			{#if $enterpriseLicense !== undefined}
