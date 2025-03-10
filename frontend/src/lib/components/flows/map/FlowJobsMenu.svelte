@@ -5,7 +5,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import VirtualList from 'svelte-tiny-virtual-list'
-	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 

@@ -1331,111 +1331,108 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							{#key refreshSelectedSubflow}
-								<div class="pt-2 grow flex flex-col">
-									{#if selectedNode}
-										{@const node = $localModuleStates[selectedNode]}
+							<div class="pt-2 grow flex flex-col">
+								{#if selectedNode}
+									{@const node = $localModuleStates[selectedNode]}
 
-										{#if selectedNode == 'end'}
-											<FlowJobResult
-												workspaceId={job?.workspace_id}
-												jobId={job?.id}
-												filename={job.id}
-												loading={job['running']}
-												tag={job?.tag}
-												noBorder
-												col
-												result={job['result']}
-												logs={job.logs ?? ''}
-												durationStates={localDurationStatuses}
-												downloadLogs={!hideDownloadLogs}
-											/>
-										{:else if selectedNode == 'start'}
-											{#if job.args}
-												<div class="p-2">
-													<JobArgs
-														id={job.id}
-														workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-														args={job.args}
-													/>
-												</div>
-											{:else}
-												<p class="p-2 text-secondary">No arguments</p>
-											{/if}
-										{:else if node}
-											{#if node.flow_jobs_results}
-												<span class="pl-1 text-tertiary"
-													>Result of step as collection of all subflows</span
-												>
-												<div class="overflow-auto max-h-[200px] p-2">
-													<DisplayResult
-														workspaceId={job?.workspace_id}
-														result={node.flow_jobs_results}
-														nodeId={selectedNode}
-														jobId={job?.id}
-													/>
-												</div>
-												<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
-											{/if}
-											<div class="px-2 flex gap-2 min-w-0 w-full">
-												<ModuleStatus
-													type={node.type}
-													scheduled_for={node.scheduled_for}
-													skipped={node.skipped}
+									{#if selectedNode == 'end'}
+										<FlowJobResult
+											workspaceId={job?.workspace_id}
+											jobId={job?.id}
+											filename={job.id}
+											loading={job['running']}
+											tag={job?.tag}
+											noBorder
+											col
+											result={job['result']}
+											logs={job.logs ?? ''}
+											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
+										/>
+									{:else if selectedNode == 'start'}
+										{#if job.args}
+											<div class="p-2">
+												<JobArgs
+													id={job.id}
+													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													args={job.args}
 												/>
-												{#if node.duration_ms}
-													<Badge>
-														<Hourglass class="mr-2" size={10} />
-														{msToSec(node.duration_ms)} s
-													</Badge>
-												{/if}
-												{#if node.job_id}
-													<div class="grow w-full flex flex-row-reverse">
-														<a
-															class="text-right text-xs"
-															rel="noreferrer"
-															target="_blank"
-															href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
-														>
-															{truncateRev(node.job_id ?? '', 10)}
-														</a>
-													</div>
-												{/if}
 											</div>
-											{#if !node.isListJob}
-												<div class="px-1 py-1">
-													<JobArgs
-														id={node.job_id}
-														workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-														args={node.args}
-													/>
+										{:else}
+											<p class="p-2 text-secondary">No arguments</p>
+										{/if}
+									{:else if node}
+										{#if node.flow_jobs_results}
+											<span class="pl-1 text-tertiary"
+												>Result of step as collection of all subflows</span
+											>
+											<div class="overflow-auto max-h-[200px] p-2">
+												<DisplayResult
+													workspaceId={job?.workspace_id}
+													result={node.flow_jobs_results}
+													nodeId={selectedNode}
+													jobId={job?.id}
+												/>
+											</div>
+											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
+										{/if}
+										<div class="px-2 flex gap-2 min-w-0 w-full">
+											<ModuleStatus
+												type={node.type}
+												scheduled_for={node.scheduled_for}
+												skipped={node.skipped}
+											/>
+											{#if node.duration_ms}
+												<Badge>
+													<Hourglass class="mr-2" size={10} />
+													{msToSec(node.duration_ms)} s
+												</Badge>
+											{/if}
+											{#if node.job_id}
+												<div class="grow w-full flex flex-row-reverse">
+													<a
+														class="text-right text-xs"
+														rel="noreferrer"
+														target="_blank"
+														href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+													>
+														{truncateRev(node.job_id ?? '', 10)}
+													</a>
 												</div>
 											{/if}
-											<FlowJobResult
-												workspaceId={job?.workspace_id}
-												jobId={node.job_id}
-												noBorder
-												loading={node.type != 'Success' && node.type != 'Failure'}
-												waitingForExecutor={node.type == 'WaitingForExecutor'}
-												refreshLog={node.type == 'InProgress'}
-												col
-												result={node.result}
-												tag={node.tag}
-												logs={node.logs}
-												durationStates={localDurationStatuses}
-												downloadLogs={!hideDownloadLogs}
-											/>
-										{:else}
-											<p class="p-2 text-tertiary italic"
-												>The execution of this node has no information attached to it. The job
-												likely did not run yet</p
-											>
+										</div>
+										{#if !node.isListJob}
+											<div class="px-1 py-1">
+												<JobArgs
+													id={node.job_id}
+													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													args={node.args}
+												/>
+											</div>
 										{/if}
-									{:else}<p class="p-2 text-tertiary italic"
-											>Select a node to see its details here</p
-										>{/if}
-								</div>
-							{/key}
+										<FlowJobResult
+											workspaceId={job?.workspace_id}
+											jobId={node.job_id}
+											noBorder
+											loading={node.type != 'Success' && node.type != 'Failure'}
+											waitingForExecutor={node.type == 'WaitingForExecutor'}
+											refreshLog={node.type == 'InProgress'}
+											col
+											result={node.result}
+											tag={node.tag}
+											logs={node.logs}
+											durationStates={localDurationStatuses}
+											downloadLogs={!hideDownloadLogs}
+										/>
+									{:else}
+										<p class="p-2 text-tertiary italic"
+											>The execution of this node has no information attached to it. The job likely
+											did not run yet</p
+										>
+									{/if}
+								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
+									>{/if}
+							</div>
 						{:else if rightColumnSelect == 'node_definition'}
 							<FlowGraphViewerStep {stepDetail} />
 						{:else if rightColumnSelect == 'user_states'}

@@ -109,9 +109,7 @@
 
 	export function setCode(ncode: string): void {
 		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
-		}
+		editor?.setValue(ncode)
 	}
 
 	let placeholderVisible = false

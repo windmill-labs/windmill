@@ -166,7 +166,7 @@
 			value = undefined
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
-			value = defaultValue
+			value = structuredClone(defaultValue)
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = nullable ? null : ''
@@ -246,17 +246,47 @@
 		)
 	}
 
+	function isRawStringEditor(inputCat?: string) {
+		return inputCat == 'sql' || inputCat == 'yaml'
+	}
+
 	function evalValueToRaw() {
-		rawValue = isObjectCat(inputCat) ? JSON.stringify(value, null, 2) : undefined
-		rawValue && editor?.getCode() != rawValue && editor?.setCode(rawValue)
+		if (setCodeDisabled) {
+			return
+		}
+		const newRawValue =
+			value == undefined || value == null
+				? ''
+				: isObjectCat(inputCat)
+				? JSON.stringify(value, null, 2)
+				: isRawStringEditor(inputCat)
+				? typeof value == 'string'
+					? value
+					: JSON.stringify(value, null, 2)
+				: undefined
+
+		if (newRawValue != rawValue) {
+			rawValue = newRawValue
+			rawValue != undefined && editor?.getCode() != rawValue && editor?.setCode(rawValue)
+		}
 		// console.log('evalValueToRaw', value, rawValue, inputCat, label)
 	}
 
-	$: inputCat &&
-		isObjectCat(inputCat) &&
-		rawValue == undefined &&
-		value != undefined &&
-		evalValueToRaw()
+	let setCodeDisabled = false
+	$: (inputCat && (isObjectCat(inputCat) || isRawStringEditor(inputCat)) && evalValueToRaw()) ||
+		value
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function setNewValueFromCode(nvalue: any) {
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+			timeout && clearTimeout(timeout)
+			setCodeDisabled = true
+			timeout = setTimeout(() => {
+				setCodeDisabled = false
+			}, 1000)
+		}
+	}
 
 	onMount(() => {
 		computeDefaultValue()
@@ -713,7 +743,9 @@
 								dispatch('blur')
 							}}
 							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
-							bind:value
+							on:changeValue={(e) => {
+								setNewValueFromCode(e.detail)
+							}}
 						/>
 					{/await}
 					<Button
@@ -841,7 +873,9 @@
 											dispatch('blur')
 										}}
 										code={rawValue}
-										bind:value
+										on:changeValue={(e) => {
+											setNewValueFromCode(e.detail)
+										}}
 									/>
 								{/await}
 							{/if}
@@ -861,7 +895,9 @@
 									dispatch('blur')
 								}}
 								code={rawValue}
-								bind:value
+								on:change={(e) => {
+									value = e.detail
+								}}
 							/>
 						{/await}
 					{/if}
@@ -946,7 +982,9 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
-						bind:value
+						on:changeValue={(e) => {
+							setNewValueFromCode(e.detail)
+						}}
 					/>
 				{/await}
 			{/if}
@@ -989,11 +1027,11 @@
 			{:else}
 				<DateTimeInput {disabled} useDropdown {autofocus} bind:value />
 			{/if}
-		{:else if inputCat == 'sql' || inputCat == 'yaml'}
+		{:else if isRawStringEditor(inputCat)}
 			{#if disabled}
 				<textarea disabled />
 			{:else}
-				<div class="border my-1 mb-4 w-full border-secondary">
+				<div class="border my-1 mb-4 w-full">
 					{#await import('$lib/components/SimpleEditor.svelte')}
 						<Loader2 class="animate-spin" />
 					{:then Module}
@@ -1004,9 +1042,12 @@
 							on:blur={(e) => {
 								dispatch('blur')
 							}}
+							on:change={(e) => {
+								setNewValueFromCode(e.detail?.code)
+							}}
 							bind:this={editor}
 							lang={inputCat}
-							bind:code={value}
+							code={typeof rawValue == 'string' ? rawValue : JSON.stringify(rawValue, null, 2)}
 							autoHeight
 						/>
 					{/await}
