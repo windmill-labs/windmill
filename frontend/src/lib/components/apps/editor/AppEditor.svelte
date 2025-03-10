@@ -97,10 +97,6 @@
 		hoveredComponent: undefined
 	})
 
-	summaryStore.subscribe((s) => {
-		$worldStore?.outputsById['ctx'].summary.set(s)
-	})
-
 	const cssEditorOpen = writable<boolean>(false)
 
 	const history = initHistory(app)
@@ -142,6 +138,10 @@
 		runnableInitialized: {}
 	})
 	const panzoomActive = writable(false)
+
+	summaryStore.subscribe((s) => {
+		$worldStore?.outputsById['ctx'].summary.set(s)
+	})
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
