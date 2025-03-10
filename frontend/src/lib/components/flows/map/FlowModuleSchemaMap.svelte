@@ -299,7 +299,7 @@
 		}`}
 	>
 		{#if $copilotCurrentStepStore !== undefined}
-			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"></div>
 		{/if}
 		{#if !disableSettings}
 			<FlowSettingsItem />

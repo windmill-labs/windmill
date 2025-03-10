@@ -363,7 +363,7 @@
 							/>
 						</div>
 					{:else}
-						<div />
+						<div></div>
 					{/if}
 
 					{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}

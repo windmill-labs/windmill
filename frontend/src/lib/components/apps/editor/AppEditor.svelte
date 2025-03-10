@@ -1023,10 +1023,10 @@
 										</div>
 									</div>
 
-									<div id="app-editor-top-level-drawer" />
+									<div id="app-editor-top-level-drawer"></div>
 									<div
 										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
-									/>
+									></div>
 
 									<!-- svelte-ignore a11y-no-static-element-interactions -->
 									<div
@@ -1121,7 +1121,7 @@
 						</Splitpanes>
 					</Pane>
 					{#if rightPanelSize === 0}
-						<div class="relative flex flex-col h-full" />
+						<div class="relative flex flex-col h-full"></div>
 					{:else}
 						<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
 							<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">

@@ -469,7 +469,7 @@
 
 		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
 
-		<div class="grow shrink" />
+		<div class="grow shrink"></div>
 
 		{#if Object.keys(ccomponents[component.type]?.customCss ?? {}).length > 0}
 			<PanelSection title="Styling">

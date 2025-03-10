@@ -110,7 +110,7 @@
 		data-popover
 	>
 		{#if displayArrow}
-			<div use:melt={$arrow} />
+			<div use:melt={$arrow}></div>
 		{/if}
 		<slot name="content" {open} {close} />
 		{#if closeButton}

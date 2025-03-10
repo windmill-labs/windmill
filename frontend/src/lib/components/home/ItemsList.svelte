@@ -428,7 +428,7 @@
 			bottomMargin={false}
 		/>
 		{#if filteredItems?.length == 0}
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
@@ -495,7 +495,7 @@
 	</div>
 	<div>
 		{#if filteredItems == undefined}
-			<div class="mt-4" />
+			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
 				<Skeleton layout={[[4], 0.5]} />

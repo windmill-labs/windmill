@@ -73,7 +73,7 @@
 		{/each}
 	</select>
 	{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}
-		<div class="mb-4" />
+		<div class="mb-4"></div>
 	{/if}
 	<div class="flex flex-col gap-4">
 		{#each Object.keys(inputSpecsConfiguration?.[oneOf.selected] ?? {}) as nestedKey}

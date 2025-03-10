@@ -346,7 +346,7 @@
 										last={index == Object.values(rowData ?? {}).length - 1}
 									>
 										{#if Array.isArray(value) && value.length === 0}
-											<div />
+											<div></div>
 										{:else if Array.isArray(value) && typeof value?.[0] === 'string'}
 											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
 												{#each value as item, index}

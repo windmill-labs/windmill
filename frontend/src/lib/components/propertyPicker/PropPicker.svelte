@@ -223,7 +223,7 @@
 				<span class="font-normal text-sm text-secondary"
 					><span class="font-mono">flow_input</span></span
 				>
-				<div class="flex space-x-2 items-center" />
+				<div class="flex space-x-2 items-center"></div>
 			</div>
 			<div class="overflow-y-auto pb-2">
 				<ObjectViewer

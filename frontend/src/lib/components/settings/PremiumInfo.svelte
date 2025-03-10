@@ -488,7 +488,7 @@
 				{/each}
 			</ul>
 
-			<div class="grow" />
+			<div class="grow"></div>
 			{#if planTitle == 'Team'}
 				{#if plan != 'team'}
 					<div class="mt-4 mx-auto">

@@ -164,7 +164,7 @@
 			<div class="text-2xs text-tertiary mr-2">0 found</div>
 		{/if}
 		{#if !loading}
-			<div class="mx-0.5" />
+			<div class="mx-0.5"></div>
 			{#if value && value != ''}
 				<Button
 					{disabled}
@@ -203,7 +203,7 @@
 						Add a {resourceType} resource
 					{/if}</Button
 				>
-				<div class="mx-0.5" />
+				<div class="mx-0.5"></div>
 			{/if}
 		{/if}
 
