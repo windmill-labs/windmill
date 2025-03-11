@@ -34,6 +34,22 @@
 	let script_path = ''
 	let initialScriptPath = ''
 	let fixedScriptPath = ''
+	let path: string = ''
+	let pathError = ''
+	let isValid = false
+	let dirtyRoutePath = false
+	let is_async = false
+	let requires_auth = false
+	let route_path = ''
+	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
+	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
+		undefined
+	let is_static_website = false
+
+	let s3FilePicker: S3FilePicker
+	let s3FileUploadRawMode = false
+	let s3Editor: SimpleEditor | undefined = undefined
+	let workspaced_route: boolean = false
 
 	let drawerLoading = true
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -78,26 +94,11 @@
 			initialPath = ''
 			dirtyPath = false
 			is_static_website = false
+			workspaced_route = false
 		} finally {
 			drawerLoading = false
 		}
 	}
-
-	let path: string = ''
-	let pathError = ''
-	let isValid = false
-	let dirtyRoutePath = false
-	let is_async = false
-	let requires_auth = false
-	let route_path = ''
-	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
-	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
-		undefined
-	let is_static_website = false
-
-	let s3FilePicker: S3FilePicker
-	let s3FileUploadRawMode = false
-	let s3Editor: SimpleEditor | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -109,13 +110,13 @@
 		})
 		script_path = s.script_path
 		initialScriptPath = s.script_path
-
 		is_flow = s.is_flow
 		path = s.path
 		route_path = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
+		workspaced_route = s.workspaced_route ?? false
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config
@@ -139,7 +140,8 @@
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
 					static_asset_config,
-					is_static_website
+					is_static_website,
+					workspaced_route
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -155,7 +157,8 @@
 					route_path,
 					http_method,
 					static_asset_config,
-					is_static_website
+					is_static_website,
+					workspaced_route
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -357,9 +360,7 @@
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
-									href={itemKind === 'flow'
-										? '/flows/add?hub=62'
-										: '/scripts/add?hub=hub%2F11627'}
+									href={itemKind === 'flow' ? '/flows/add?hub=62' : '/scripts/add?hub=hub%2F11627'}
 									target="_blank">Create from template</Button
 								>
 							{/if}
@@ -373,6 +374,7 @@
 					bind:isValid
 					bind:dirtyRoutePath
 					bind:http_method
+					bind:workspaced_route
 					{can_write}
 					bind:static_asset_config
 				/>

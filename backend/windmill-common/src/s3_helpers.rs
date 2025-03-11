@@ -111,7 +111,7 @@ pub struct S3AwsOidcResource {
     pub audience: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct S3Object {
     pub s3: String,
     #[serde(skip_serializing_if = "Option::is_none")]

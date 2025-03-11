@@ -534,13 +534,32 @@ pub(crate) async fn tarball_workspace(
         #[cfg(feature = "http_trigger")]
         {
             let http_triggers = sqlx::query_as!(
-                 crate::http_triggers::HttpTrigger,
-                 "SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, edited_at, email, extra_perms, is_async, requires_auth, http_method as \"http_method: _\", static_asset_config as \"static_asset_config: _\", is_static_website FROM http_trigger
-                 WHERE workspace_id = $1",
-                 &w_id
-             )
-             .fetch_all(&mut *tx)
-             .await?;
+                crate::http_triggers::HttpTrigger,
+                r#"
+                SELECT 
+                    workspace_id, 
+                    workspaced_route,
+                    path, 
+                    route_path, 
+                    route_path_key, 
+                    script_path, 
+                    is_flow, 
+                    edited_by, 
+                    edited_at, 
+                    email, 
+                    extra_perms, 
+                    is_async, 
+                    requires_auth, 
+                    http_method AS "http_method: _", 
+                    static_asset_config AS "static_asset_config: _", 
+                    is_static_website 
+                FROM http_trigger
+                WHERE workspace_id = $1
+                "#,
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
 
             for trigger in http_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
@@ -608,10 +627,7 @@ pub(crate) async fn tarball_workspace(
             for trigger in sqs_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(
-                        &trigger_str,
-                        &format!("{}.sqs_trigger.json", trigger.path),
-                    )
+                    .write_to_archive(&trigger_str, &format!("{}.sqs_trigger.json", trigger.path))
                     .await?;
             }
         }
