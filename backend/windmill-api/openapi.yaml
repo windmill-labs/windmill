@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.474.0
+  version: 1.475.1
   title: Windmill API
 
   contact:
@@ -10033,6 +10033,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Folder"
+  
+  /w/{workspace}/folders/exists/{name}:
+    get:
+      summary: exists folder
+      operationId: existsFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: folder exists
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/folders/getusage/{name}:
     get:
@@ -11398,7 +11415,7 @@ paths:
 
   /w/{workspace}/job_helpers/download_s3_file:
     get:
-      summary: Download file to S3 bucket
+      summary: Download file from S3 bucket
       operationId: fileDownload
       tags:
         - helpers
@@ -14920,6 +14937,15 @@ components:
           type: array
           items:
             type: object
+        allowed_s3_keys:
+          type: array
+          items:
+            type: object
+            properties:
+              s3_path:
+                type: string
+              resource:
+                type: string
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
@@ -15267,6 +15293,7 @@ components:
               - resource
               - variable
               - secret
+              - trigger
 
     WorkspaceDefaultScripts:
       type: object

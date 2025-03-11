@@ -33,6 +33,7 @@
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
 	export let disabled = false
+	export let iconSize: number | undefined = undefined
 	export let initialValue:
 		| {
 				s3: string
@@ -41,8 +42,9 @@
 		| undefined = undefined
 
 	init()
+
 	function init() {
-		if (initialValue) {
+		if (initialValue?.s3) {
 			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
 				$fileUploads = [
 					...$fileUploads,
@@ -56,6 +58,7 @@
 			}
 		}
 	}
+
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
@@ -354,10 +357,12 @@
 					<div class="w-full flex flex-col gap-1 p-2">
 						<div class="flex flex-row items-center justify-between">
 							<div class="flex flex-col gap-1">
-								<span class="text-xs font-bold">{fileUpload.name}</span>
-								<span class="text-xs"
-									>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
-								>
+								<span class="text-xs font-bold">{fileUpload.name ?? ''}</span>
+								{#if fileUpload.size}
+									<span class="text-xs"
+										>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
+									>
+								{/if}
 							</div>
 							<div class="flex flex-row gap-1 items-center">
 								{#if fileUpload.errorMessage}
@@ -534,6 +539,7 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
+			{iconSize}
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)
@@ -544,5 +550,12 @@
 		>
 			{containerText}{#if disabled}<br />(Disabled){/if}
 		</FileInput>
+	{/if}
+	{#if initialValue?.s3 && $fileUploads.length == 0}
+		<div class="flex flex-row gap-1 items-center p-1">
+			<span class="text-sm">
+				File currently selected: {initialValue?.s3}
+			</span>
+		</div>
 	{/if}
 </div>

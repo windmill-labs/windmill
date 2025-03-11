@@ -4,6 +4,7 @@
 	import { ListFilter, Lock, LockOpen } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import VirtualList from 'svelte-tiny-virtual-list'
 
 	const dispatch = createEventDispatcher()
 
@@ -34,6 +35,25 @@
 
 	let buttonHover = false
 	let menu: Menu | undefined = undefined
+
+	let items: { id: string; success: boolean | undefined; index: number }[] = []
+	function updateItems() {
+		items = (flowJobs ?? [])
+			.map((v, i) => {
+				return {
+					id: v,
+					success: flowJobsSuccess?.[i],
+					index: i
+				}
+			})
+			.filter((v) => {
+				return filter == undefined || (v.index + 1).toString().includes(filter.toString())
+			})
+	}
+
+	let isOpen = false
+
+	$: isOpen && flowJobs && updateItems()
 </script>
 
 {#if selectedManually && flowJobsSuccess?.some((x) => x == undefined || x == null)}
@@ -61,7 +81,20 @@
 {/if}
 
 <Menubar let:createMenu>
-	<Menu {createMenu} let:item placement="bottom" bind:this={menu} usePointerDownOutside>
+	<Menu
+		on:open={() => {
+			isOpen = true
+			updateItems()
+		}}
+		on:close={() => {
+			isOpen = false
+		}}
+		{createMenu}
+		let:item
+		placement="bottom"
+		bind:this={menu}
+		usePointerDownOutside
+	>
 		<svelte:fragment slot="trigger" let:trigger>
 			<MeltButton
 				title="Pick an iteration"
@@ -83,25 +116,38 @@
 		<div class="flex flex-col px-1">
 			<input type="number" bind:value={filter} on:keydown={onKeydown} />
 
-			<div class="overflow-y-auto max-h-[300px]">
-				{#each flowJobs ?? [] as id, idx (id)}
-					{#if filter == undefined || (idx + 1).toString().includes(filter.toString())}
-						<MenuItem
-							class={twMerge(
-								'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
-								flowJobsSuccess?.[idx] == false ? 'text-red-400' : '',
-								'data-[highlighted]:bg-surface-hover'
-							)}
-							on:click={() => {
-								dispatch('selectedIteration', { index: idx, id, manuallySet: true })
-							}}
-							{item}
-						>
-							#{idx + 1}
-						</MenuItem>
-					{/if}
-				{/each}
+			<div class="max-h-[300px]">
+				{#key items}
+					<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
+						<div slot="item" let:index={idx} let:style {style}>
+							<MenuItem
+								class={twMerge(
+									'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
+									items[idx].success == false ? 'text-red-400' : '',
+									'data-[highlighted]:bg-surface-hover'
+								)}
+								on:click={() => {
+									dispatch('selectedIteration', {
+										index: items[idx].index,
+										id: items[idx].id,
+										manuallySet: true
+									})
+									menu?.close()
+								}}
+								{item}
+							>
+								#{items[idx].index + 1}
+							</MenuItem>
+						</div>
+					</VirtualList>
+				{/key}
+
+				<!-- {#each flowJobs ?? [] as id, idx (id)}
+						{#if filter == undefined || (idx + 1).toString().includes(filter.toString())}
+
+						{/if}
+					{/each} -->
 			</div>
-		</div>
-	</Menu>
+		</div></Menu
+	>
 </Menubar>

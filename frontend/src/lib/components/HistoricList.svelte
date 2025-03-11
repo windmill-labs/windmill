@@ -8,9 +8,14 @@
 	export let runnableId: string | undefined
 	export let runnableType: RunnableType | undefined
 	export let selected: string | undefined = undefined
+	export let showAuthor = false
+	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
+	export let limitPayloadSize = false
 
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
+	let viewerOpen = false
+	let openStates: Record<string, boolean> = {} // Track open state for each item
 
 	export function refresh() {
 		if (infiniteList) {
@@ -82,6 +87,11 @@
 		return payloadData
 	}
 
+	function updateViewerOpenState(itemId: string, isOpen: boolean) {
+		openStates[itemId] = isOpen
+		viewerOpen = Object.values(openStates).some((state) => state)
+	}
+
 	$: $workspaceStore && runnableId && runnableType && infiniteList && initLoadInputs()
 </script>
 
@@ -96,9 +106,15 @@
 	<svelte:fragment let:item let:hover>
 		<JobSchemaPicker
 			job={item}
-			selected={selected === item.id}
 			hovering={hover}
 			payloadData={item.payloadData}
+			{showAuthor}
+			{placement}
+			{viewerOpen}
+			on:openChange={({ detail }) => {
+				updateViewerOpenState(item.id, detail)
+			}}
+			{limitPayloadSize}
 		/>
 	</svelte:fragment>
 	<svelte:fragment slot="empty">

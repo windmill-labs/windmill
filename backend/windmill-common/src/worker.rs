@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use bytes::Bytes;
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
@@ -213,6 +214,13 @@ pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     Ok(file)
 }
 
+pub fn write_file_bytes(dir: &str, path: &str, content: &Bytes) -> error::Result<File> {
+    let path = format!("{}/{}", dir, path);
+    let mut file = File::create(&path)?;
+    file.write_all(content)?;
+    file.flush()?;
+    Ok(file)
+}
 /// from : https://github.com/rust-lang/cargo/blob/fede83ccf973457de319ba6fa0e36ead454d2e20/src/cargo/util/paths.rs#L61
 fn normalize_path(path: &Path) -> PathBuf {
     let mut components = path.components().peekable();

@@ -1581,6 +1581,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 WHERE q.id = tu.id AND (tu.counter IS NULL OR tu.counter < $2)
                 RETURNING q.id, q.workspace_id, ping, tu.counter
             ),
+            update_ping AS (
+                UPDATE v2_job_runtime r
+                SET ping = null
+                FROM zombie_jobs zj
+                WHERE r.id = zj.id
+            ),
             increment_counter AS (
                 INSERT INTO zombie_job_counter (job_id, counter)
                 SELECT id, 1 FROM to_update WHERE counter < $2
@@ -1917,16 +1923,27 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
+            let base_url = BASE_URL.read().await;
+            let workspace_id = flow.workspace_id.clone();
             let reason = format!(
                 "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
                 if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
-                    format!("Flow was cancelled because subflow {id}")
+                    format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {
-                    format!("Flow {id} was cancelled because it")
+                    format!("Flow {id} ({base_url}/run/{id}?workspace={workspace_id}) was cancelled because it")
                 }
             );
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, reason).await?;
+            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, 
+                format!(r#"{reason}
+This would happen if a worker was interrupted, killed or crashed while doing a state transition at the end of a job which is always an unexpected behavior that should never happen.
+Please check your worker logs for more details and feel free to report it to the Windmill team on our Discord or support@windmill.dev (response for non EE customers will be best effort) with as much context as possible, ideally:
+- Windmill version
+- Worker logs right after the job referenced has finished running
+- Is the error consistent when running the same flow
+- A minimal flow and its flow.yaml that reproduces the error and that is importable in a fresh workspace
+- Your infra setup (helm, docker-compose, configuration of the workers and their number, memory of the database, etc.)
+"#)).await?;
         }
     }
 

@@ -71,8 +71,10 @@
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
 	import {
-		BUN_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_MODULE_CODE
+		TS_PREPROCESSOR_MODULE_CODE,
+		TS_PREPROCESSOR_SCRIPT_INTRO,
+		PYTHON_PREPROCESSOR_MODULE_CODE,
+		PYTHON_PREPROCESSOR_SCRIPT_INTRO
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
@@ -733,8 +735,8 @@
 		if (code) {
 			const preprocessorCode =
 				script.language === 'python3'
-					? PYTHON_PREPROCESSOR_MODULE_CODE
-					: BUN_PREPROCESSOR_MODULE_CODE
+					? PYTHON_PREPROCESSOR_SCRIPT_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE
+					: TS_PREPROCESSOR_SCRIPT_INTRO + TS_PREPROCESSOR_MODULE_CODE
 			const mainIndex = code.indexOf(
 				script.language === 'python3' ? 'def main' : 'export async function main'
 			)
@@ -1390,7 +1392,7 @@
 									on:exitTriggers={() => {
 										captureTable?.loadCaptures(true)
 									}}
-									{args}
+									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									{initialPath}
 									schema={script.schema}
 									noEditor={true}
