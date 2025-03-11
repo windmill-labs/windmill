@@ -19,7 +19,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { isObject } from '$lib/utils'
 	import { getHttpRoute } from './utils'
-	import { get } from 'svelte/store'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -40,7 +39,8 @@
 	let routeError: string = ''
 	async function validateRoute(
 		routePath: string | undefined,
-		method: typeof http_method
+		method: typeof http_method,
+		workspaced_route: boolean
 	): Promise<void> {
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
@@ -48,7 +48,7 @@
 		validateTimeout = setTimeout(async () => {
 			if (!routePath || !method || !/^:?[-\w]+(\/:?[-\w]+)*$/.test(routePath)) {
 				routeError = 'Endpoint not valid'
-			} else if (await routeExists(routePath, method)) {
+			} else if (await routeExists(routePath, method, workspaced_route)) {
 				routeError = 'Endpoint already taken'
 			} else {
 				routeError = ''
@@ -56,10 +56,7 @@
 			validateTimeout = undefined
 		}, 500)
 	}
-
-	const workspace_id = get(workspaceStore) as string
-
-	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>) {
+	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>, workspaced_route: boolean) {
 		return await HttpTriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
@@ -71,11 +68,11 @@
 		})
 	}
 
-	$: validateRoute(route_path, http_method)
+	$: validateRoute(route_path, http_method, workspaced_route)
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path, workspaced_route, workspace_id)
+	$: fullRoute = getHttpRoute(route_path, workspaced_route, $workspaceStore ?? '')
 </script>
 
 <div>
@@ -190,9 +187,7 @@
 							checked={workspaced_route}
 							on:change={async () => {
 								workspaced_route = !workspaced_route
-								fullRoute = getHttpRoute(route_path, workspaced_route, workspace_id)
 								dirtyRoutePath = true
-								validateRoute(route_path, http_method)
 							}}
 							options={{
 								right: 'Prefix with workspace',
