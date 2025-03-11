@@ -140,7 +140,9 @@
 		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
 		: undefined
 
-	$: componentSettings?.item?.data && ($app = $app)
+	// Fix infinite recursion bug
+	$: componentData = JSON.stringify(componentSettings?.item?.data)
+	$: componentData && ($app = $app)
 
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
