@@ -185,7 +185,7 @@
 						<Toggle
 							size="sm"
 							checked={workspaced_route}
-							on:change={async () => {
+							on:change={() => {
 								workspaced_route = !workspaced_route
 								dirtyRoutePath = true
 							}}

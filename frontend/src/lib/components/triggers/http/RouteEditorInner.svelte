@@ -23,6 +23,7 @@
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -50,7 +51,8 @@
 	let s3FileUploadRawMode = false
 	let s3Editor: SimpleEditor | undefined = undefined
 	let workspaced_route: boolean = false
-
+	let raw_string = false
+	let wrap_body = false
 	let drawerLoading = true
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -108,6 +110,7 @@
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
+
 		script_path = s.script_path
 		initialScriptPath = s.script_path
 		is_flow = s.is_flow
@@ -116,7 +119,10 @@
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
-		workspaced_route = s.workspaced_route ?? false
+		workspaced_route = s.workspaced_route
+		wrap_body = s.wrap_body
+		raw_string = s.raw_string
+
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config
@@ -141,7 +147,9 @@
 					http_method,
 					static_asset_config,
 					is_static_website,
-					workspaced_route
+					workspaced_route,
+					wrap_body,
+					raw_string
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -158,7 +166,9 @@
 					http_method,
 					static_asset_config,
 					is_static_website,
-					workspaced_route
+					workspaced_route,
+					wrap_body,
+					raw_string
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -431,6 +441,32 @@
 											{item}
 										/>
 									</ToggleButtonGroup>
+								</svelte:fragment>
+							</Label>
+							<Label label="Raw string" class="w-full">
+								<svelte:fragment slot="header">
+									<Tooltip>Enables receiving the JSON payload as a raw string for signature verification and other use cases.</Tooltip>
+								</svelte:fragment>
+								<svelte:fragment slot="action">
+									<Toggle
+										checked={raw_string}
+										on:change={() => {
+											raw_string = !raw_string
+										}}>g</Toggle
+									>
+								</svelte:fragment>
+							</Label>
+							<Label label="Wrap body" class="w-full">
+								<svelte:fragment slot="header">
+									<Tooltip>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip>
+								</svelte:fragment>
+								<svelte:fragment slot="action">
+									<Toggle
+										checked={wrap_body}
+										on:change={() => {
+											wrap_body = !wrap_body
+										}}>g</Toggle
+									>
 								</svelte:fragment>
 							</Label>
 						</div>

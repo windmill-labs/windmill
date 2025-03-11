@@ -23,7 +23,7 @@ use crate::db::ApiAuthed;
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::{get_random_file_name, upload_file_internal};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct WebhookArgs {
     pub args: PushArgsOwned,
     pub multipart: Option<Multipart>,
