@@ -10,6 +10,7 @@ export interface SyncOptions {
   json?: boolean;
   skipVariables?: boolean;
   skipResources?: boolean;
+  skipResourceTypes?: boolean;
   skipSecrets?: boolean;
   includeSchedules?: boolean;
   includeTriggers?: boolean;

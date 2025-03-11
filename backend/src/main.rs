@@ -659,17 +659,6 @@ Windmill Community Edition {GIT_VERSION}
                             tracing::info!("received killpill for monitor job");
                             break;
                         },
-                        _ = tokio::time::sleep(Duration::from_secs(30))    => {
-                            monitor_db(
-                                &db,
-                                &base_internal_url,
-                                server_mode,
-                                worker_mode,
-                                false,
-                                tx.clone(),
-                            )
-                            .await;
-                        },
                         notification = listener.recv() => {
                             match notification {
                                 Ok(n) => {
@@ -857,7 +846,20 @@ Windmill Community Edition {GIT_VERSION}
                                     }
                                 }
                             };
-                        }
+                        },
+                        _ = tokio::time::sleep(Duration::from_secs(30))    => {
+                            tracing::info!("monitor task started");
+                            monitor_db(
+                                &db,
+                                &base_internal_url,
+                                server_mode,
+                                worker_mode,
+                                false,
+                                tx.clone(),
+                            )
+                            .await;
+                            tracing::info!("monitor task finished");
+                        },
                     }
                 }
             });

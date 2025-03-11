@@ -9,6 +9,7 @@ export async function downloadZip(
   plainSecrets: boolean | undefined,
   skipVariables?: boolean,
   skipResources?: boolean,
+  skipResourceTypes?: boolean,
   skipSecrets?: boolean,
   includeSchedules?: boolean,
   includeTriggers?: boolean,
@@ -31,19 +32,14 @@ export async function downloadZip(
 
   const zipResponse = await fetch(
     workspace.remote +
-      "api/w/" +
-      workspace.workspaceId +
-      `/workspaces/tarball?archive_type=zip&plain_secret=${
-        plainSecrets ?? false
-      }&skip_variables=${skipVariables ?? false}&skip_resources=${
-        skipResources ?? false
-      }&skip_secrets=${skipSecrets ?? false}&include_schedules=${
-        includeSchedules ?? false
-      }&include_triggers=${includeTriggers ?? false}&include_users=${
-        includeUsers ?? false
-      }&include_groups=${includeGroups ?? false}&include_settings=${
-        includeSettings ?? false
-      }&include_key=${includeKey ?? false}&default_ts=${defaultTs ?? "bun"}`,
+    "api/w/" +
+    workspace.workspaceId +
+    `/workspaces/tarball?archive_type=zip&plain_secret=${plainSecrets ?? false
+    }&skip_variables=${skipVariables ?? false}&skip_resources=${skipResources ?? false
+    }&skip_secrets=${skipSecrets ?? false}&include_schedules=${includeSchedules ?? false
+    }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
+    }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
+    }&include_key=${includeKey ?? false}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}`,
     {
       headers: requestHeaders,
       method: "GET",
