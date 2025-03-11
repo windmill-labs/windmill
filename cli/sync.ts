@@ -664,9 +664,10 @@ export async function elementsToMap(
     if (!skips.includeSettings && path === "settings" + ext) continue;
     if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext)) continue;
+
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
-    if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipResources && isFileResource(path)) continue;
 
     if (
@@ -715,6 +716,7 @@ export async function elementsToMap(
 export interface Skips {
   skipVariables?: boolean | undefined;
   skipResources?: boolean | undefined;
+  skipResourceTypes?: boolean | undefined;
   skipSecrets?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
@@ -982,6 +984,8 @@ export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
   extraIncludes?: string[];
+  skipResourceTypes?: boolean;
+  json?: boolean;
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -1013,6 +1017,10 @@ export async function ignoreF(wmillconf: {
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
 
   return (p: string, isDirectory: boolean) => {
+    const ext = wmillconf.json ? ".json" : ".yaml";
+    if (!isDirectory && p.endsWith(".resource-type" + ext)) {
+      return wmillconf.skipResourceTypes ?? false;
+    }
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
@@ -1104,6 +1112,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.plainSecrets,
       opts.skipVariables,
       opts.skipResources,
+      opts.skipResourceTypes,
       opts.skipSecrets,
       opts.includeSchedules,
       opts.includeTriggers,
@@ -1378,6 +1387,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.plainSecrets,
       opts.skipVariables,
       opts.skipResources,
+      opts.skipResourceTypes,
       opts.skipSecrets,
       opts.includeSchedules,
       opts.includeTriggers,
@@ -1847,6 +1857,7 @@ const command = new Command()
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--skip-resource-types", "Skip syncing  resource types")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -1876,6 +1887,8 @@ const command = new Command()
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--skip-resource-types", "Skip syncing  resource types")
+
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")

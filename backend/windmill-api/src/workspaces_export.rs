@@ -147,6 +147,7 @@ pub(crate) struct ArchiveQueryParams {
     skip_secrets: Option<bool>,
     skip_variables: Option<bool>,
     skip_resources: Option<bool>,
+    skip_resource_types: Option<bool>,
     include_schedules: Option<bool>,
     include_triggers: Option<bool>,
     include_users: Option<bool>,
@@ -280,6 +281,7 @@ pub(crate) async fn tarball_workspace(
         plain_secret,
         plain_secrets,
         skip_resources,
+        skip_resource_types: skip_resources_types,
         skip_secrets,
         skip_variables,
         include_schedules,
@@ -428,7 +430,7 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if !skip_resources.unwrap_or(false) {
+    if !skip_resources_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
             "SELECT * FROM resource_type WHERE workspace_id = $1",
@@ -608,10 +610,7 @@ pub(crate) async fn tarball_workspace(
             for trigger in sqs_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(
-                        &trigger_str,
-                        &format!("{}.sqs_trigger.json", trigger.path),
-                    )
+                    .write_to_archive(&trigger_str, &format!("{}.sqs_trigger.json", trigger.path))
                     .await?;
             }
         }
