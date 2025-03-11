@@ -659,7 +659,6 @@ Windmill Community Edition {GIT_VERSION}
                             tracing::info!("received killpill for monitor job");
                             break;
                         },
-
                         notification = listener.recv() => {
                             match notification {
                                 Ok(n) => {
@@ -860,7 +859,7 @@ Windmill Community Edition {GIT_VERSION}
                             )
                             .await;
                             tracing::info!("monitor task finished");
-                        }
+                        },
                     }
                 }
             });
