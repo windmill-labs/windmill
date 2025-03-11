@@ -8116,6 +8116,8 @@ paths:
                   enum: ["get", "post", "put", "delete", "patch"]
                 trigger_path:
                   type: string
+                workspaced_route:
+                  type: boolean
               required:
                 - route_path
                 - http_method
@@ -13767,6 +13769,8 @@ components:
           type: boolean
         is_static_website:
           type: boolean
+        workspaced_route:
+          type: boolean
 
       required:
         - route_path
@@ -13784,6 +13788,8 @@ components:
           type: string
         route_path:
           type: string
+        workspaced_route:
+          type: boolean
         static_asset_config:
           type: object
           properties:
@@ -13831,6 +13837,8 @@ components:
           type: string
         route_path:
           type: string
+        workspaced_route:
+          type: boolean
         static_asset_config:
           type: object
           properties:
