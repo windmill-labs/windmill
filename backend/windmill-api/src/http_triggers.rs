@@ -34,6 +34,7 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
+use std::borrow::Cow;
 
 lazy_static::lazy_static! {
     static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/?:[-\w]+").unwrap();
@@ -553,17 +554,6 @@ struct RouteExists {
     workspaced_route: Option<bool>,
 }
 
-fn get_full_route_path_key(
-    workspaced_route: Option<bool>,
-    w_id: &str,
-    route_path_key: &str,
-) -> Option<String> {
-    match workspaced_route {
-        Some(true) => Some(format!("{}/{}", w_id, route_path_key.trim_matches('/'))),
-        _ => None,
-    }
-}
-
 async fn route_path_key_exists(
     route_path_key: &str,
     http_method: &HttpMethod,
@@ -594,10 +584,9 @@ async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     } else {
-        let workspaced_route_key = get_full_route_path_key(workspaced_route, w_id, route_path_key);
-        let route_path_key = match workspaced_route_key.as_deref() {
-            Some(workspaced_route_key) => workspaced_route_key,
-            _ => route_path_key,
+        let route_path_key = match workspaced_route {
+            Some(true) => Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/'))),
+            _ => Cow::Borrowed(route_path_key),
         };
         sqlx::query_scalar!(
             r#"
