@@ -334,7 +334,7 @@
 		listMarkers = []
 		fileMetadata = undefined
 		filePreview = undefined
-		if (keepFilter) {
+		if (!keepFilter) {
 			filter = ''
 		}
 		await loadFiles()

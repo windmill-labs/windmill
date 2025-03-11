@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.475.0
+  version: 1.475.1
   title: Windmill API
 
   contact:
@@ -10033,6 +10033,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Folder"
+  
+  /w/{workspace}/folders/exists/{name}:
+    get:
+      summary: exists folder
+      operationId: existsFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: folder exists
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/folders/getusage/{name}:
     get:

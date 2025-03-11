@@ -125,6 +125,19 @@
 					return state
 				})
 			}
+
+			if (
+				state[key]?.job_id != newValue.job_id ||
+				!deepEqual(state[key]?.args, newValue.args) ||
+				!deepEqual(state[key]?.result, newValue.result)
+			) {
+				moduleState.update((state) => {
+					state[key].args = newValue.args
+					state[key].result = newValue.result
+					state[key].job_id = newValue.job_id
+					return state
+				})
+			}
 			return
 		}
 
@@ -147,7 +160,6 @@
 		if (keepType && (state[key]?.type == 'Success' || state[key]?.type == 'Failure')) {
 			newValue.type = state[key].type
 		}
-
 		if (!deepEqual(state[key], newValue)) {
 			moduleState.update((state) => {
 				state[key] = newValue
@@ -521,11 +533,24 @@
 	let forloop_selected = getTopModuleStates()?.[flowJobIds?.moduleId ?? '']?.selectedForloop
 
 	let sub: Unsubscriber | undefined = undefined
-	$: if (flowJobIds?.moduleId) {
-		sub?.()
-		sub = globalModuleStates?.[globalModuleStates?.length - 1].subscribe((x) => {
-			forloop_selected = x[flowJobIds?.moduleId ?? '']?.selectedForloop
-		})
+	let timeoutForloopSelectedSub: NodeJS.Timeout | undefined = undefined
+	let timeoutForloopSelected: NodeJS.Timeout | undefined = undefined
+	$: flowJobIds?.moduleId && onModuleIdChange()
+
+	function onModuleIdChange() {
+		clearTimeout(timeoutForloopSelectedSub)
+		timeoutForloopSelectedSub = setTimeout(() => {
+			sub?.()
+			sub = globalModuleStates?.[globalModuleStates?.length - 1].subscribe((x) => {
+				const newForloopSelected = x[flowJobIds?.moduleId ?? '']?.selectedForloop
+				if (newForloopSelected != forloop_selected) {
+					clearTimeout(timeoutForloopSelected)
+					timeoutForloopSelected = setTimeout(() => {
+						forloop_selected = newForloopSelected
+					}, 200)
+				}
+			})
+		}, 200)
 	}
 
 	onDestroy(() => {
@@ -970,7 +995,7 @@
 								>Load 500 more...</Button
 							>
 						{/if}
-						{#if render && j + subflowsSize + 1 > (flowJobIds?.flowJobs.length ?? 0)}
+						{#if render && (j + subflowsSize + 1 > (flowJobIds?.flowJobs.length ?? 0) || forloop_selected == loopJobId)}
 							<Button
 								variant={forloop_selected === loopJobId ? 'contained' : 'border'}
 								color={flowJobIds?.flowJobsSuccess?.[j] === false
