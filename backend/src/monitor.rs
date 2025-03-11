@@ -1581,6 +1581,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 WHERE q.id = tu.id AND (tu.counter IS NULL OR tu.counter < $2)
                 RETURNING q.id, q.workspace_id, ping, tu.counter
             ),
+            update_ping AS (
+                UPDATE v2_job_runtime r
+                SET ping = null
+                FROM zombie_jobs zj
+                WHERE r.id = zj.id
+            ),
             increment_counter AS (
                 INSERT INTO zombie_job_counter (job_id, counter)
                 SELECT id, 1 FROM to_update WHERE counter < $2

@@ -64,13 +64,12 @@ pub async fn push_scheduled_job<'c>(
     };
 
     let next = sched.find_next(&starting_from);
-
     // println!("next event ({:?}): {}", tz, next);
     // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
 
     // Scheduled events must be stored in the database in UTC
     let next = next.with_timezone(&chrono::Utc);
-
+    // panic!("next: {}", next);
     let already_exists: bool = sqlx::query_scalar!(
         // Query plan:
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
