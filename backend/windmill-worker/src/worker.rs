@@ -10,10 +10,11 @@
 // use opentelemetry::{global,  KeyValue};
 
 use anyhow::anyhow;
+use futures::TryFutureExt;
 use windmill_common::{
     apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms},
-    cache::{ScriptData, ScriptMetadata},
+    cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
     jwt,
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
@@ -2447,8 +2448,14 @@ async fn handle_code_execution_job(
                 .as_ref()
                 .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
             if script_path.starts_with("hub/") {
-                let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema: _schema } =
-                    get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
+                let ContentReqLangEnvs {
+                    content,
+                    lockfile,
+                    language,
+                    envs,
+                    codebase,
+                    schema: _schema,
+                } = get_hub_script_content_and_requirements(Some(script_path), Some(db)).await?;
                 data = ScriptData { code: content, lock: lockfile };
                 metadata = ScriptMetadata {
                     language,
@@ -2492,23 +2499,37 @@ async fn handle_code_execution_job(
             if let Some(sv) = schema_validator {
                 sv.validate(args)?;
             } else {
-                append_logs(
-                    &job.id,
-                    &job.workspace_id,
-                    "No schema validator loaded, parsing script to verify arguments through the main function signature.\n",
-                    db,
-                )
-                .await;
-
-                if let Some(sig) = parse_sig_of_lang(
-                    code,
-                    language.as_ref(),
-                    job.script_entrypoint_override.clone(),
-                )? {
-                    schema_validator_from_main_arg_sig(&sig).validate(args)?;
-                } else {
-                    return Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the code for language `{language:?}`. Try removing schema validation for this job").into());
+                let sv_fut = async move {
+                    if let Some(sig) = parse_sig_of_lang(
+                        code,
+                        language.as_ref(),
+                        job.script_entrypoint_override.clone(),
+                    )? {
+                        Ok(schema_validator_from_main_arg_sig(&sig))
+                    } else {
+                        Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
+                    }
                 }
+                .map_ok(Arc::new);
+
+                let sub_key = match job.job_kind {
+                    JobKind::Script => 0,
+                    JobKind::FlowScript => 1,
+                    JobKind::AppScript => 2,
+                    JobKind::Script_Hub => 3,
+                    _ => 255,
+                };
+
+                let sv = match job.script_hash {
+                    Some(hash) if sub_key != 255 => {
+                        let validators_cache = cache::anon!({ (u8, ScriptHash) => Arc<SchemaValidator> } in "schemavalidators" <= 1000);
+
+                        sv_fut.cached(validators_cache, (sub_key, hash)).await?
+                    }
+                    _ => sv_fut.await?,
+                };
+
+                sv.validate(args)?
             }
             append_logs(
                 &job.id,
@@ -2518,7 +2539,6 @@ async fn handle_code_execution_job(
             )
             .await;
         }
-        tracing::debug!("No Schema Validator but validate_schema=true. Will attempt to construct one using MainArgSig before code execution");
     }
 
     let language = *language;

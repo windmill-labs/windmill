@@ -959,6 +959,7 @@ const _: () = {
         (u64, |x| format!("{:016x}", x)),
         (Uuid, |x| format!("{:032x}", x.as_u128())),
         (ScriptHash, |x| format!("{:016x}", x.0)),
+        ((u8, ScriptHash), |x| format!("{:02x}-{:016x}", x.0, x.1.0)),
         (FlowNodeId, |x| format!("{:016x}", x.0)),
         (AppScriptId, |x| format!("{:016x}", x.0))
     }
