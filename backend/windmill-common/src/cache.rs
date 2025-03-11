@@ -802,6 +802,12 @@ const _: () = {
         }
     }
 
+    impl ScriptMetadata {
+        fn export_metadata(&self, dst: &impl Storage) -> error::Result<()> {
+            Ok(dst.put("info.json", serde_json::to_vec(self)?)?)
+        }
+    }
+
     impl Export for ScriptFull {
         type Untrusted = RawScript;
 
@@ -817,7 +823,7 @@ const _: () = {
 
         fn export(&self, dst: &impl Storage) -> error::Result<()> {
             self.data.export(dst)?;
-            self.meta.export(dst)?;
+            self.meta.export_metadata(dst)?;
             Ok(())
         }
     }
