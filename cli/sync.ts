@@ -94,7 +94,8 @@ export function findCodebase(
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  ignoreCodebaseChanges: boolean
 ): Promise<string> {
   const isScript = path.endsWith(".script.yaml");
   if (!isScript) {
@@ -115,7 +116,11 @@ async function addCodebaseDigestIfRelevant(
     if (c) {
       const parsed: any = yamlParseContent(path, content);
       if (parsed && typeof parsed == "object") {
-        parsed["codebase"] = await c.getDigest();
+        if (ignoreCodebaseChanges) {
+          parsed["codebase"] = undefined
+        } else {
+          parsed["codebase"] = await c.getDigest();
+        }
         parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
       } else {
@@ -164,7 +169,8 @@ export async function FSFSElement(
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
           content,
-          codebases
+          codebases,
+          ignoreCodebaseChanges
         );
         return r;
       },
@@ -346,7 +352,8 @@ function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
-  resourceTypeToFormatExtension: Record<string, string>
+  resourceTypeToFormatExtension: Record<string, string>,
+  ignoreCodebaseChanges: boolean
 ): DynFSElement {
   async function _internal_file(
     p: string,
@@ -457,6 +464,9 @@ function ZipFSElement(
               parsed["lock"] = "";
             } else {
               parsed["lock"] = undefined;
+            }
+            if (ignoreCodebaseChanges && parsed["codebase"]) {
+              parsed["codebase"] = undefined;
             }
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -763,7 +773,9 @@ async function compareDynFSElement(
       return yamlParseContent(k, v);
     }
   }
+
   const codebaseChanges: Record<string, string> = {};
+
   for (let [k, v] of Object.entries(m1)) {
     const isScriptMetadata =
       k.endsWith(".script.yaml") || k.endsWith(".script.json");
@@ -787,16 +799,19 @@ async function compareDynFSElement(
         if (deepEqual(before, after)) {
           continue;
         }
-        if (before.codebase != undefined) {
-          delete before.codebase;
-          m2[k] = yamlStringify(before, yamlOptions);
-        }
-        if (after.codebase != undefined) {
-          if (before.codebase != after.codebase) {
-            codebaseChanges[k] = after.codebase;
+        if (!ignoreCodebaseChanges) {
+
+          if (before.codebase != undefined) {
+            delete before.codebase;
+            m2[k] = yamlStringify(before, yamlOptions);
           }
-          delete after.codebase;
-          v = yamlStringify(after, yamlOptions);
+          if (after.codebase != undefined) {
+            if (before.codebase != after.codebase) {
+              codebaseChanges[k] = after.codebase;
+            }
+            delete after.codebase;
+            v = yamlStringify(after, yamlOptions);
+          }
         }
         if (skipMetadata) {
           continue;
@@ -811,6 +826,7 @@ async function compareDynFSElement(
       });
     }
   }
+
 
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
@@ -852,13 +868,15 @@ async function compareDynFSElement(
     }
   }
 
-  for (const change of changes) {
-    const codebase = codebaseChanges[change.path];
-    if (!codebase) continue;
+  if (!ignoreCodebaseChanges) {
+    for (const change of changes) {
+      const codebase = codebaseChanges[change.path];
+      if (!codebase) continue;
 
-    const tsFile = change.path.replace(".script.yaml", ".ts");
-    if (change.name == "edited" && change.path == tsFile) {
-      change.codebase = codebase;
+      const tsFile = change.path.replace(".script.yaml", ".ts");
+      if (change.name == "edited" && change.path == tsFile) {
+        change.codebase = codebase;
+      }
     }
   }
 
@@ -1093,15 +1111,16 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs
+      opts.defaultTs,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension
+    resourceTypeToFormatExtension,
+    true
   );
   const local = !opts.stateful
-    ? await FSFSElement(Deno.cwd(), codebases)
-    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), []);
+    ? await FSFSElement(Deno.cwd(), codebases, true)
+    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
   const changes = await compareDynFSElement(
     remote,
     local,
@@ -1109,7 +1128,8 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     opts.json ?? false,
     opts,
     false,
-    codebases
+    codebases,
+    true
   );
 
   log.info(
@@ -1365,14 +1385,15 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs
+      opts.defaultTs,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension
+    resourceTypeToFormatExtension,
+    false
   );
 
-  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);
+  const local = await FSFSElement(path.join(Deno.cwd(), "",), codebases, false);
   const changes = await compareDynFSElement(
     local,
     remote,
@@ -1380,12 +1401,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     opts.json ?? false,
     opts,
     true,
-    codebases
+    codebases,
+    false
   );
 
   const globalDeps = await findGlobalDeps();
 
-  console.log("globalDeps", globalDeps);
 
   const tracker: ChangeTracker = await buildTracker(changes);
 

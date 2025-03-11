@@ -9,7 +9,7 @@ export function listSyncCodebases(
   const res: SyncCodebase[] = [];
   const nb_codebase = options?.codebases?.length ?? 0;
   if (nb_codebase > 0) {
-    log.info(`Found ${nb_codebase} codebases:`);
+    log.info(`Found ${nb_codebase} codebases: ${options?.codebases?.map((c) => c.relative_path).join(", ")}`);
   }
   for (const codebase of options?.codebases ?? []) {
     let _digest: string | undefined = undefined;

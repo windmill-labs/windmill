@@ -861,7 +861,7 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
   const composers: { [key: string]: string } = {};
-  const els = await FSFSElement(Deno.cwd(), []);
+  const els = await FSFSElement(Deno.cwd(), [], false);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
     p = SEP + p;
     return (
@@ -924,7 +924,7 @@ async function generateMetadata(
   } else {
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), codebases),
+      await FSFSElement(Deno.cwd(), codebases, false),
       (p, isD) => {
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
