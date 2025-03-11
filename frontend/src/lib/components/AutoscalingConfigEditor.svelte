@@ -264,28 +264,23 @@
 				on:selected={(e) => dispatch('dirty')}
 				bind:selected={config.integration.type}
 				class="mb-4 mt-2"
+				let:item
 			>
 				<ToggleButton
 					value="dryrun"
-					size="sm"
 					label="Dry run"
 					tooltip="See autoscaling events but not actual scaling actions will be performed"
+					{item}
 				/>
 				<ToggleButton
 					value="script"
-					size="sm"
 					label="Custom script"
 					tooltip="Run a custom script to scale your worker group"
+					{item}
 				/>
-				<ToggleButton position="center" disabled value="ecs" size="sm" label="ECS (soon)" />
-				<ToggleButton position="right" disabled value="nomad" size="sm" label="Nomad (soon)" />
-				<ToggleButton
-					position="right"
-					disabled
-					value="kubernetes"
-					size="sm"
-					label="Kubernetes (soon)"
-				/>
+				<ToggleButton disabled value="ecs" label="ECS (soon)" {item} />
+				<ToggleButton disabled value="nomad" label="Nomad (soon)" {item} />
+				<ToggleButton disabled value="kubernetes" label="Kubernetes (soon)" {item} />
 			</ToggleButtonGroup>
 
 			{#if config.integration.type === 'script'}
@@ -347,12 +342,12 @@
 				</div>
 			{/if}
 		{:else}
-			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2">
-				<ToggleButton value="dryrun" size="sm" label="Dry run" />
-				<ToggleButton value="script" size="sm" label="Custom script" />
-				<ToggleButton position="center" value="ecs" size="sm" label="ECS (soon)" />
-				<ToggleButton position="right" value="nomad" size="sm" label="Nomad (soon)" />
-				<ToggleButton position="right" value="kubernetes" size="sm" label="Kubernetes (soon)" />
+			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2" let:item>
+				<ToggleButton value="dryrun" label="Dry run" {item} />
+				<ToggleButton value="script" label="Custom script" {item} />
+				<ToggleButton value="ecs" label="ECS (soon)" {item} />
+				<ToggleButton value="nomad" label="Nomad (soon)" {item} />
+				<ToggleButton value="kubernetes" label="Kubernetes (soon)" {item} />
 			</ToggleButtonGroup>
 
 			<label>

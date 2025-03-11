@@ -459,7 +459,6 @@ async fn get_settings(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
-
     tx.commit().await?;
     Ok(Json(settings))
 }
@@ -796,7 +795,7 @@ async fn get_copilot_info(
 
     let (ai_provider, exists_ai_resource) = if let Some(ai_resource) = record.ai_resource {
         let ai_resource = serde_json::from_value::<AIResource>(ai_resource)?;
-        (Some(ai_resource.provider), true)
+        (Some(ai_resource.provider), ai_resource.path.is_some())
     } else {
         (None, false)
     };
@@ -926,7 +925,7 @@ async fn edit_git_sync_config(
     Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct EditDeployUIConfig {
     #[cfg(feature = "enterprise")]
     deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
@@ -954,7 +953,6 @@ async fn edit_deploy_ui_config(
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
-
     let args_for_audit = format!("{:?}", new_config.deploy_ui_settings);
     audit_log(
         &mut *tx,
@@ -1363,7 +1361,8 @@ struct UsedTriggers {
     pub kafka_used: bool,
     pub nats_used: bool,
     pub postgres_used: bool,
-    pub sqs_used: bool,
+    pub mqtt_used: bool,
+    pub sqs_used: bool
 }
 
 async fn get_used_triggers(
@@ -1378,11 +1377,11 @@ async fn get_used_triggers(
         SELECT 
             
             EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!", 
-           
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
+            EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!"
         "#,
         w_id
@@ -1447,7 +1446,12 @@ async fn user_workspaces(
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
-async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
+pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
+    if w_id == "global" {
+        return Err(windmill_common::error::Error::BadRequest(
+            "'global' is not allowed as a workspace ID".to_string(),
+        ));
+    }
     let exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)", w_id)
         .fetch_one(&mut **tx)
         .await?
@@ -1505,7 +1509,7 @@ async fn create_workspace(
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    check_name_conflict(&mut tx, &nw.id).await?;
+    check_w_id_conflict(&mut tx, &nw.id).await?;
     sqlx::query!(
         "INSERT INTO workspace
             (id, name, owner)

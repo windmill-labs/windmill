@@ -152,11 +152,20 @@
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
 	let selectedManualDate = 0
-	let autoRefresh: boolean = true
+	let autoRefresh: boolean = getAutoRefresh()
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
 	let lookback: number = 1
+
+	function getAutoRefresh() {
+		try {
+			return localStorage.getItem('auto_refresh_in_runs') != 'false'
+		} catch (e) {
+			console.error('Error getting auto refresh', e)
+			return true
+		}
+	}
 
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
@@ -701,13 +710,16 @@
 				<div class="absolute right-0 -mt-6">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup
-							bind:selected={graph}
-							on:selected={() => {
+							selected={graph}
+							on:selected={({ detail }) => {
+								graph = detail
 								graphIsRunsChart = graph === 'RunChart'
 							}}
+							let:item
 						>
-							<ToggleButton value="RunChart" label="Duration" />
+							<ToggleButton value="RunChart" label="Duration" {item} />
 							<ToggleButton
+								{item}
 								value="ConcurrencyChart"
 								label="Concurrency"
 								icon={warnJobLimit ? AlertTriangle : undefined}
@@ -968,6 +980,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>
@@ -1078,13 +1093,15 @@
 			<div class="relative z-10">
 				<div class="absolute right-2">
 					<ToggleButtonGroup
-						bind:selected={graph}
-						on:selected={() => {
+						selected={graph}
+						on:selected={({ detail }) => {
+							graph = detail
 							graphIsRunsChart = graph == 'RunChart'
 						}}
+						let:item
 					>
-						<ToggleButton value="RunChart" label="Duration" />
-						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
+						<ToggleButton value="RunChart" label="Duration" {item} />
+						<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
 					</ToggleButtonGroup>
 					{#if !graphIsRunsChart}
 						<DropdownV2
@@ -1345,6 +1362,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>

@@ -252,10 +252,11 @@
 									static_asset_config = undefined
 								}
 							}}
+							let:item
 						>
-							<ToggleButton label="Runnable" value="runnable" />
-							<ToggleButton label="Static asset" value="static_asset" />
-							<ToggleButton label="Static website" value="static_website" />
+							<ToggleButton label="Runnable" value="runnable" {item} />
+							<ToggleButton label="Static asset" value="static_asset" {item} />
+							<ToggleButton label="Static website" value="static_website" {item} />
 						</ToggleButtonGroup>
 					{/if}
 
@@ -357,8 +358,8 @@
 									color="dark"
 									size="xs"
 									href={itemKind === 'flow'
-										? '/flows/add?hub=55'
-										: '/scripts/add?hub=hub%2F9088%2Fwindmill%2FHTTP%20route%20script%20with%20preprocessor%20template'}
+										? '/flows/add?hub=62'
+										: '/scripts/add?hub=hub%2F11627'}
 									target="_blank">Create from template</Button
 								>
 							{/if}
@@ -385,18 +386,24 @@
 										<svelte:fragment slot="action">
 											<ToggleButtonGroup
 												class="w-auto h-full"
-												bind:selected={is_async}
+												selected={is_async ? 'async' : 'sync'}
+												on:selected={({ detail }) => {
+													is_async = detail === 'async'
+												}}
 												disabled={!can_write || !!static_asset_config}
+												let:item
 											>
 												<ToggleButton
 													label="Async"
-													value={true}
+													value="async"
 													tooltip="The returning value is the uuid of the job assigned to execute the job."
+													{item}
 												/>
 												<ToggleButton
 													label="Sync"
-													value={false}
+													value="sync"
 													tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+													{item}
 												/>
 											</ToggleButtonGroup>
 										</svelte:fragment>
@@ -407,14 +414,19 @@
 								<svelte:fragment slot="action">
 									<ToggleButtonGroup
 										class="w-auto h-full"
-										bind:selected={requires_auth}
+										selected={requires_auth ? 'required' : 'none'}
+										on:selected={({ detail }) => {
+											requires_auth = detail === 'required'
+										}}
 										disabled={!can_write}
+										let:item
 									>
-										<ToggleButton label="None" value={false} />
+										<ToggleButton label="None" value="none" {item} />
 										<ToggleButton
 											label="Required"
-											value={true}
+											value="required"
 											tooltip="Requires authentication with read access on the route"
+											{item}
 										/>
 									</ToggleButtonGroup>
 								</svelte:fragment>

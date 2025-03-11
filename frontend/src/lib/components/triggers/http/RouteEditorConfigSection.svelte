@@ -16,6 +16,7 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import { isObject } from '$lib/utils'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -84,6 +85,10 @@
 		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 			captureInfo.isFlow ? 'flow' : 'script'
 		}/${captureInfo.path.replaceAll('/', '.')}/${route_path}`}
+		{@const cleanedRunnableArgs =
+			isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+				? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+				: runnableArgs}
 		<CaptureSection
 			captureType="http"
 			disabled={!isValid}
@@ -105,7 +110,7 @@
 					code={`curl \\
 -X ${(http_method ?? 'post').toUpperCase()} ${captureURL} \\
 -H 'Content-Type: application/json' \\
--d '${JSON.stringify(runnableArgs ?? {}, null, 2)}'`}
+-d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`}
 					language={bash}
 				/>
 			</Label>
@@ -150,12 +155,13 @@
 				disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
 					!can_write ||
 					!!static_asset_config}
+				let:item
 			>
-				<ToggleButton label="GET" value="get" />
-				<ToggleButton label="POST" value="post" />
-				<ToggleButton label="PUT" value="put" />
-				<ToggleButton label="PATCH" value="patch" />
-				<ToggleButton label="DELETE" value="delete" />
+				<ToggleButton label="GET" value="get" {item} />
+				<ToggleButton label="POST" value="post" {item} />
+				<ToggleButton label="PUT" value="put" {item} />
+				<ToggleButton label="PATCH" value="patch" {item} />
+				<ToggleButton label="DELETE" value="delete" {item} />
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full mt-2">
 				<div class="flex justify-start w-full">

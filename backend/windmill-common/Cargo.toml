@@ -8,6 +8,7 @@ edition.workspace = true
 default = []
 enterprise = []
 jemalloc = ["dep:tikv-jemalloc-ctl"]
+tantivy = []
 prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []
@@ -61,6 +62,8 @@ async-stream.workspace = true
 const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
+jsonwebtoken.workspace = true
+backon.workspace = true
 
 semver.workspace = true
 croner = "2.0.6"

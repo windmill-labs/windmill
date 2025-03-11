@@ -13,7 +13,7 @@
 	import type { FlowCopilotContext } from './flow'
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
-	import { Popup } from '../common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { SchemaProperty, Schema } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
@@ -217,13 +217,12 @@ input_name2: expression2
 			{/if}
 		</Button>
 	{:else}
-		<Popup
+		<Popover
 			floatingConfig={{
 				placement: 'top-end'
 			}}
-			let:close
 		>
-			<svelte:fragment slot="button">
+			<svelte:fragment slot="trigger">
 				<Button
 					size="xs"
 					color="light"
@@ -236,29 +235,33 @@ input_name2: expression2
 					Fill inputs
 				</Button>
 			</svelte:fragment>
-			<p class="text-sm">
-				{#if !$copilotInfo.exists_ai_resource}
-					Enable Windmill AI in the{' '}
-					<a
-						href="{base}/workspace_settings?tab=ai"
-						target="_blank"
-						class="inline-flex flex-row items-center gap-1"
-					>
-						workspace settings <ExternalLink size={16} />
-					</a>
-				{:else}
-					Enable step input completion in the{' '}
-					<a
-						href="#user-settings"
-						class="inline-flex flex-row items-center gap-1"
-						on:click={() => {
-							close(null)
-						}}
-					>
-						user settings
-					</a>
-				{/if}
-			</p>
-		</Popup>
+			<svelte:fragment slot="content" let:close>
+				<div class="p-4">
+					<p class="text-sm">
+						{#if !$copilotInfo.exists_ai_resource}
+							Enable Windmill AI in the{' '}
+							<a
+								href="{base}/workspace_settings?tab=ai"
+								target="_blank"
+								class="inline-flex flex-row items-center gap-1"
+							>
+								workspace settings <ExternalLink size={16} />
+							</a>
+						{:else}
+							Enable step input completion in the{' '}
+							<a
+								href="#user-settings"
+								class="inline-flex flex-row items-center gap-1"
+								on:click={() => {
+									close()
+								}}
+							>
+								user settings
+							</a>
+						{/if}
+					</p>
+				</div>
+			</svelte:fragment>
+		</Popover>
 	{/if}
 </div>

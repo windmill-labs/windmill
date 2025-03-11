@@ -18,6 +18,7 @@
 		KafkaTriggerService,
 		PostgresTriggerService,
 		NatsTriggerService,
+		MqttTriggerService,
 		SqsTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -44,6 +45,7 @@
 		| 'kafka_trigger'
 		| 'postgres_trigger'
 		| 'nats_trigger'
+		| 'mqtt_trigger'
 		| 'sqs_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
@@ -248,6 +250,11 @@
 				workspace: $workspaceStore!,
 				path: path
 			})
+		} else if (kind === 'mqtt_trigger') {
+			return await MqttTriggerService.existsMqttTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
 		} else if (kind == 'sqs_trigger') {
 			return await SqsTriggerService.existsSqsTrigger({
 				workspace: $workspaceStore!,
@@ -374,6 +381,7 @@
 								}
 							}
 						}}
+						let:item
 					>
 						<ToggleButton
 							icon={User}
@@ -383,6 +391,7 @@
 							value="user"
 							position="left"
 							label="User"
+							{item}
 						/>
 						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
 						<ToggleButton
@@ -393,6 +402,7 @@
 							value="folder"
 							position="right"
 							label="Folder"
+							{item}
 						/>
 					</ToggleButtonGroup>
 				</div>

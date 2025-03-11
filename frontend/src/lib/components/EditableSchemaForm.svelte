@@ -18,11 +18,12 @@
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
-	import Popup from './common/popup/Popup.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -53,6 +54,7 @@
 	export let disableDnd: boolean = false
 	export let shouldDispatchChanges: boolean = false
 	export let isValid: boolean = true
+	export let customUi: EditableSchemaFormUi | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -201,7 +203,7 @@
 		}
 	}
 
-	let jsonView: boolean = false
+	let jsonView: boolean = customUi?.jsonOnly == true
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let error: string | undefined = undefined
 	let editor: SimpleEditor | undefined = undefined
@@ -307,6 +309,7 @@
 							}}
 							{shouldDispatchChanges}
 							bind:isValid
+							noVariablePicker={noVariablePicker || customUi?.disableVariablePicker === true}
 						/>
 
 						<slot name="runButton" />
@@ -325,7 +328,7 @@
 					<slot name="extraTab" />
 				{:else}
 					<!-- WIP -->
-					{#if jsonEnabled}
+					{#if jsonEnabled && customUi?.jsonOnly != true}
 						<div class="w-full p-3 flex justify-end">
 							<Toggle
 								bind:checked={jsonView}
@@ -371,12 +374,8 @@
 												{argName}
 												{#if !uiOnly}
 													<div on:click|stopPropagation|preventDefault>
-														<Popup
-															floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-															containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-															let:close
-														>
-															<svelte:fragment slot="button">
+														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
+															<svelte:fragment slot="trigger">
 																<Button
 																	color="light"
 																	size="xs2"
@@ -385,34 +384,36 @@
 																	iconOnly
 																/>
 															</svelte:fragment>
-															<Label label="Name">
-																<div class="flex flex-col gap-2">
-																	<input
-																		type="text"
-																		class="w-full !bg-surface"
-																		value={argName}
-																		id={argName + i}
-																		on:keydown={(event) => {
-																			if (event.key === 'Enter') {
+															<svelte:fragment slot="content" let:close>
+																<Label label="Name" class="p-4">
+																	<div class="flex flex-col gap-2">
+																		<input
+																			type="text"
+																			class="w-full !bg-surface"
+																			value={argName}
+																			id={argName + i}
+																			on:keydown={(event) => {
+																				if (event.key === 'Enter') {
+																					renameProperty(argName, argName + i)
+																					close()
+																				}
+																			}}
+																		/>
+																		<Button
+																			variant="border"
+																			color="light"
+																			size="xs"
+																			on:click={() => {
 																				renameProperty(argName, argName + i)
-																				close(null)
-																			}
-																		}}
-																	/>
-																	<Button
-																		variant="border"
-																		color="light"
-																		size="xs"
-																		on:click={() => {
-																			renameProperty(argName, argName + i)
-																			close(null)
-																		}}
-																	>
-																		Rename
-																	</Button>
-																</div>
-															</Label>
-														</Popup>
+																				close()
+																			}}
+																		>
+																			Rename
+																		</Button>
+																	</div>
+																</Label>
+															</svelte:fragment>
+														</Popover>
 													</div>
 												{/if}
 											</div>
@@ -467,6 +468,7 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
+																			let:item
 																			bind:selected
 																			on:selected={(e) => {
 																				const isS3 = e.detail == 'S3'
@@ -547,7 +549,7 @@
 																			}}
 																		>
 																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
-																				<ToggleButton value={x[1]} label={x[0]} />
+																				<ToggleButton value={x[1]} label={x[0]} {item} />
 																			{/each}
 																		</ToggleButtonGroup>
 																	</Label>

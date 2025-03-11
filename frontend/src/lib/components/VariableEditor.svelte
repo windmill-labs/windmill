@@ -183,10 +183,10 @@
 								>{/if}{/if}
 					</div>
 					<div class="flex flex-col gap-2">
-						<ToggleButtonGroup bind:selected={editorKind}>
-							<ToggleButton value="plain" label="Plain" />
-							<ToggleButton value="json" label="Json" />
-							<ToggleButton value="yaml" label="YAML" />
+						<ToggleButtonGroup bind:selected={editorKind} let:item>
+							<ToggleButton value="plain" label="Plain" {item} />
+							<ToggleButton value="json" label="Json" {item} />
+							<ToggleButton value="yaml" label="YAML" {item} />
 						</ToggleButtonGroup>
 						{#if editorKind == 'plain'}
 							<textarea

@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
+	import { get } from 'svelte/store'
 	import type {
 		AppInput,
 		EvalAppInput,
 		EvalV2AppInput,
 		TemplateV2Input,
-		UploadAppInput
+		UploadAppInput,
+		UploadS3AppInput
 	} from '../../inputType'
 	import type {
 		AppEditorContext,
@@ -32,7 +34,7 @@
 	export let onDemandOnly: boolean = false
 	export let exportValueFunction: boolean = false
 
-	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, runnableComponents, recomputeAllContext } = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -234,6 +236,8 @@
 			}
 		} else if (lastInput?.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
+		} else if (lastInput?.type == 'uploadS3') {
+			value = (lastInput as UploadS3AppInput).value
 		} else {
 			value = undefined
 		}
@@ -264,6 +268,7 @@
 		try {
 			const context = computeGlobalContext(
 				$worldStore,
+				id,
 				deepMergeWithPriority(fullContext, args ?? {})
 			)
 			const r = await eval_like(
@@ -275,7 +280,8 @@
 				$worldStore,
 				$runnableComponents,
 				false,
-				groupContext?.id
+				groupContext?.id,
+				get(recomputeAllContext)?.onRefresh
 			)
 			error = ''
 			return r
@@ -293,15 +299,16 @@
 		if ((input.type === 'template' || input.type == 'templatev2') && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
-					'`' + input.eval + '`',
-					computeGlobalContext($worldStore, fullContext),
+					'`' + input.eval.replaceAll('`', '\\`') + '`',
+					computeGlobalContext($worldStore, id, fullContext),
 					$state,
 					$mode == 'dnd',
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
 					false,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext)?.onRefresh
 				)
 				error = ''
 				return r

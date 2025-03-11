@@ -11,13 +11,14 @@
 
 use windmill_common::{
     apps::AppScriptId,
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms},
     cache::{ScriptData, ScriptMetadata},
+    jwt,
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
-        ROOT_CACHE_DIR, TMP_DIR,
+        ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
     },
 };
 
@@ -205,12 +206,6 @@ pub async fn create_token_for_owner(
         return Ok(token.clone());
     }
 
-    let jwt_secret = JWT_SECRET.read().await;
-
-    if jwt_secret.is_empty() {
-        return Err(Error::internal_err("No JWT secret found".to_string()));
-    }
-
     let job_authed = match sqlx::query_as!(
         JobPerms,
         "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
@@ -248,21 +243,12 @@ pub async fn create_token_for_owner(
         scopes: None,
     };
 
-    let token = jsonwebtoken::encode(
-        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
-        &payload,
-        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|err| {
-        Error::internal_err(format!(
-            "Could not encode JWT token for job {job_id}: {:?}",
-            err
-        ))
-    })?;
+    let token = jwt::encode_with_internal_secret(&payload)
+        .await
+        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
+
     Ok(format!("jwt_{}", token))
 }
-
-pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
 pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
@@ -286,6 +272,7 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
+pub const BUN_CODEBASE_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "script_bundle");
 
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
@@ -785,7 +772,7 @@ pub async fn run_worker(
             worker_dir.clone(),
         );
         tokio::spawn(async move {
-            if let Err(e) = PyVersion::from_instance_version()
+            if let Err(e) = PyVersion::from_instance_version(&Uuid::nil(), "", &db)
                 .await
                 .get_python(&Uuid::nil(), &mut 0, &db, &worker_name, "", &mut None)
                 .await
@@ -2041,10 +2028,16 @@ async fn handle_queued_job(
             | JobKind::FlowPreview
             | JobKind::Flow
             | JobKind::FlowDependencies,
-            None,
-        ) => Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?),
+            x,
+        ) => match x.map(|x| x.0) {
+            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => {
+                Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?)
+            }
+            _ => None,
+        },
         _ => None,
     };
+
     let cached_res_path = if job.cache_ttl.is_some() {
         Some(cached_result_path(db, &client.get_authed().await, &job, preview_data.as_ref()).await)
     } else {
