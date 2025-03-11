@@ -281,7 +281,7 @@ pub(crate) async fn tarball_workspace(
         plain_secret,
         plain_secrets,
         skip_resources,
-        skip_resource_types: skip_resources_types,
+        skip_resource_types,
         skip_secrets,
         skip_variables,
         include_schedules,
@@ -430,7 +430,7 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if !skip_resources_types.unwrap_or(false) {
+    if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
             "SELECT * FROM resource_type WHERE workspace_id = $1",
