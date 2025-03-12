@@ -144,8 +144,10 @@
 			<div
 				class="text-tertiary bg-surface border-t flex flex-row justify-center py-2 items-center gap-2"
 			>
-				<Loader2 class="animate-spin" size={12} />
-				<span class="text-xs">{loadingMore ? 'Loading more...' : 'Refreshing...'}</span>
+				<Loader2 class="animate-spin" size={14} />
+				{#if loadingMore}
+					<span class="text-xs">Loading more...</span>
+				{/if}
 			</div>
 		{/if}
 	</List>
