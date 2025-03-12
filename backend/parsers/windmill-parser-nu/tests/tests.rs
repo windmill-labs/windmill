@@ -93,7 +93,7 @@ mod test {
         );
     }
     #[test]
-    fn test_nu_typed_sig() {
+    fn test_nu_simple_typed_sig() {
         let sig = parse_nu_signature(
             r#"
                 def main [ foo: string, bar: int] {}
@@ -130,6 +130,127 @@ mod test {
         );
     }
     #[test]
+    fn test_nu_complete_typed_sig() {
+        let sig = parse_nu_signature(
+            r#"
+                def main [
+                    a1: any,
+                    a2: bool,
+                    a3: int,
+                    a4: float,
+                    a5: datetime,
+                    a6: string,
+                    a7: record,
+                    a8: list,
+                    a9: table,
+                    a10: nothing,
+                    a11: binary
+                    ] {}
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        name: "a1".into(),
+                        otyp: None,
+                        typ: Typ::Unknown,
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a2".into(),
+                        otyp: None,
+                        typ: Typ::Bool,
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a3".into(),
+                        otyp: None,
+                        typ: Typ::Int,
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a4".into(),
+                        otyp: None,
+                        typ: Typ::Float,
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a5".into(),
+                        otyp: None,
+                        typ: Typ::Datetime,
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a6".into(),
+                        otyp: None,
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a7".into(),
+                        otyp: None,
+                        typ: Typ::Object(vec![]),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a8".into(),
+                        otyp: None,
+                        typ: Typ::List(Box::new(Typ::Unknown)),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a9".into(),
+                        otyp: None,
+                        typ: Typ::List(Box::new(Typ::Object(vec![]))),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a10".into(),
+                        otyp: None,
+                        typ: Typ::Unknown,
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        name: "a11".into(),
+                        otyp: None,
+                        typ: Typ::Bytes,
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: None,
+            },
+            sig
+        );
+    }
+    #[test]
     fn test_nu_default_sig() {
         let sig = parse_nu_signature(
             r#"
@@ -148,7 +269,7 @@ mod test {
                     Arg {
                         name: "foo".into(),
                         otyp: None,
-                        typ: Typ::Str(None),
+                        typ: Typ::Unknown,
                         default: Some(json!("Foo")),
                         has_default: true,
                         oidx: None
@@ -164,7 +285,7 @@ mod test {
                     Arg {
                         name: "bazz".into(),
                         otyp: None,
-                        typ: Typ::Int,
+                        typ: Typ::Unknown,
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None
@@ -181,48 +302,21 @@ mod test {
 
     #[test]
     fn test_nu_flags_sig() {
-        let sig = parse_nu_signature(
+        assert!(parse_nu_signature(
             r#"
                 def main [--flag] {}
             "#,
         )
-        .unwrap();
-        assert_eq!(
-            MainArgSignature {
-                star_args: false,
-                star_kwargs: false,
-                args: vec![],
-                no_main_func: Some(false),
-                has_preprocessor: None
-            },
-            sig
-        );
+        .is_err());
     }
     #[test]
     fn test_nu_rest_sig() {
-        let sig = parse_nu_signature(
+        assert!(parse_nu_signature(
             r#"
                 def main [...foo: string] {}
             "#,
         )
-        .unwrap();
-        assert_eq!(
-            MainArgSignature {
-                star_args: true,
-                star_kwargs: false,
-                args: vec![Arg {
-                    name: "foo".into(),
-                    otyp: None,
-                    typ: Typ::Str(None),
-                    default: None,
-                    has_default: false,
-                    oidx: None
-                }],
-                no_main_func: Some(false),
-                has_preprocessor: None
-            },
-            sig
-        );
+        .is_err())
     }
 
     // #[test]
@@ -448,7 +542,6 @@ mod test {
 
         println!("{}", serde_json::to_string_pretty(&sig).unwrap());
 
-        // TODO: Re-enable for V1
         assert_eq!(
             MainArgSignature {
                 star_args: false,
