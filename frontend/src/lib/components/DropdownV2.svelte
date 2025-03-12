@@ -22,6 +22,7 @@
 	export let placement: Placement = 'bottom-end'
 	export let usePointerDownOutside = false
 	export let closeOnOtherDropdownOpen = true
+	export let fixedHeight = true
 
 	const {
 		elements: { menu, item, trigger },
@@ -73,7 +74,7 @@
 <ResolveOpen {open} on:open on:close />
 
 <button
-	class={twMerge('w-full h-8 flex items-center justify-end', $$props.class)}
+	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
 	use:melt={$trigger}
 	{disabled}
 	on:click={(e) => e.stopPropagation()}
