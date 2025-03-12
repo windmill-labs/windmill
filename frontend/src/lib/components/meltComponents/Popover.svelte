@@ -25,6 +25,7 @@
 	export let contentClasses: string = ''
 	export let portal: string | HTMLElement | null = 'body'
 	export let closeOnOtherPopoverOpen: boolean = false
+	export let disabled: boolean = false
 
 	const {
 		elements: { trigger, content, arrow, close: closeElement },
@@ -78,6 +79,7 @@
 	class={$$props.class}
 	use:melt={$trigger}
 	aria-label="Popup button"
+	disabled={disabled}
 	on:mouseenter={() => (openOnHover ? open() : null)}
 	on:mouseleave={() => (openOnHover ? close() : null)}
 	use:pointerDownOutside={{
