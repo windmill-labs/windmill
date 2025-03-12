@@ -20,6 +20,7 @@ use windmill_common::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
         ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
     },
+    KillpillSender,
 };
 
 #[cfg(feature = "enterprise")]
@@ -746,7 +747,7 @@ pub async fn run_worker(
     _num_workers: u32,
     ip: &str,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
     base_internal_url: &str,
     agent_mode: bool,
 ) {
@@ -1105,7 +1106,7 @@ pub async fn run_worker(
 
     if i_worker == 1 {
         if let Err(e) = queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name).await {
-            killpill_tx.send(()).unwrap_or_default();
+            killpill_tx.send();
             tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
         }
@@ -1231,7 +1232,7 @@ pub async fn run_worker(
                 tracing::error!(
                     worker = %worker_name, hostname = %hostname,
                     "failed to update worker ping, exiting: {}", e);
-                killpill_tx.send(()).unwrap_or_default();
+                killpill_tx.send();
             }
             tracing::info!(
                 worker = %worker_name, hostname = %hostname,
