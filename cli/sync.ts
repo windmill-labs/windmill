@@ -340,6 +340,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "php") ext = "php";
     else if (language == "rust") ext = "rs";
     else if (language == "csharp") ext = "cs";
+    else if (language == "nu") ext = "nu";
     else if (language == "ansible") ext = "playbook.yml";
     else ext = "no_ext";
 
@@ -687,6 +688,7 @@ export async function elementsToMap(
         "rs",
         "cs",
         "yml",
+        "nu",
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )

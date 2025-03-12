@@ -60,6 +60,8 @@
 				return rust
 			case 'csharp':
 				return csharp
+			case 'nu':
+				return python
 			case 'ansible':
 				return yaml;
 			default:

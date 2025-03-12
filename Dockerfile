@@ -41,6 +41,8 @@ COPY /typescript-client/docs/ /frontend/static/tsdocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# Read more about macro in docker/dev.nu
+# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- # 
 RUN npm run build
 
 
