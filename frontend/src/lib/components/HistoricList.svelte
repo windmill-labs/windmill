@@ -4,6 +4,7 @@
 	import { onDestroy } from 'svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import JobSchemaPicker from './schema/JobSchemaPicker.svelte'
+	import { sleep } from '$lib/utils'
 
 	export let runnableId: string | undefined
 	export let runnableType: RunnableType | undefined
@@ -18,22 +19,26 @@
 	let viewerOpen = false
 	let openStates: Record<string, boolean> = {} // Track open state for each item
 
-	export function refresh(clearCurrentRuns: boolean = false) {
+	export async function refresh(clearCurrentRuns: boolean = false) {
 		if (clearCurrentRuns) {
 			infiniteList?.reset()
 		}
 		if (infiniteList) {
-			infiniteList.loadData('refresh')
+			await infiniteList.loadData('refresh')
 		}
 	}
 	let cachedArgs: Record<string, any> = {}
 
-	let interval: NodeJS.Timeout | undefined = undefined
-	function initLoadInputs() {
-		interval && clearInterval(interval)
-		interval = setInterval(() => {
-			refresh()
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function refreshInterval() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(async () => {
+			await refresh()
+			refreshInterval()
 		}, 10000)
+	}
+	function initLoadInputs() {
+		refreshInterval()
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.getInputHistory({
 				workspace: $workspaceStore!,
@@ -74,7 +79,7 @@
 	}
 
 	onDestroy(() => {
-		interval && clearInterval(interval)
+		timeout && clearTimeout(timeout)
 	})
 
 	async function loadArgsFromHistory(
