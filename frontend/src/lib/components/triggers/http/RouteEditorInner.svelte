@@ -23,6 +23,8 @@
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import Subsection from '$lib/components/Subsection.svelte'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -44,12 +46,12 @@
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
-	let is_static_website = false
-
+	let is_static_website: boolean = false
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode = false
 	let s3Editor: SimpleEditor | undefined = undefined
 	let workspaced_route: boolean = false
+	let webhook_resource: string = ''
 
 	let drawerLoading = true
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -95,6 +97,7 @@
 			dirtyPath = false
 			is_static_website = false
 			workspaced_route = false
+			webhook_resource = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -339,31 +342,42 @@
 							</div>
 						</div>
 					{:else}
-						<p class="text-xs mt-0.5 mb-1 text-tertiary">
+						<p class="text-xs mt-3 mb-1 text-tertiary">
 							Pick a script or flow to be triggered<Required required={true} /><br />
 							To handle headers, query or path parameters, add a preprocessor to your runnable.
 						</p>
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
-								initialPath={fixedScriptPath || initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-							/>
+						<div class="flex flex-col gap-2">
+							<div class="flex flex-row mb-2">
+								<ScriptPicker
+									disabled={fixedScriptPath != '' || !can_write}
+									initialPath={fixedScriptPath || initialScriptPath}
+									kinds={['script']}
+									allowFlow={true}
+									bind:itemKind
+									bind:scriptPath={script_path}
+									allowRefresh={can_write}
+									allowEdit={!$userStore?.operator}
+								/>
 
-							{#if script_path === undefined}
-								<Button
-									btnClasses="ml-4 mt-2"
-									color="dark"
-									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=62' : '/scripts/add?hub=hub%2F11627'}
-									target="_blank">Create from template</Button
-								>
-							{/if}
+								{#if script_path === undefined}
+									<Button
+										btnClasses="ml-4 mt-2"
+										color="dark"
+										size="xs"
+										href={itemKind === 'flow'
+											? '/flows/add?hub=62'
+											: '/scripts/add?hub=hub%2F11627'}
+										target="_blank">Create from template</Button
+									>
+								{/if}
+							</div>
+
+							<Subsection
+								label="Webhook"
+								tooltip="Make your http route endpoint act as a webhook endpoint"
+							>
+								<ResourcePicker resourceType="webhook" bind:value={webhook_resource} />
+							</Subsection>
 						</div>
 					{/if}
 				</Section>

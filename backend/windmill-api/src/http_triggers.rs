@@ -1,14 +1,10 @@
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::{
-    args::WebhookArgs,
-    auth::{AuthCache, OptTokened},
-    db::{ApiAuthed, DB},
-    jobs::{
+    args::WebhookArgs, auth::{AuthCache, OptTokened}, db::{ApiAuthed, DB}, jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
-    },
-    users::fetch_api_authed,
+    }, resources::try_get_resource_from_db_as, users::fetch_api_authed, utils::non_empty_str, webhook_util::Webhook
 };
 use axum::{
     extract::{Path, Query},
@@ -22,6 +18,7 @@ use http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
+use std::borrow::Cow;
 use std::{collections::HashMap, sync::Arc};
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
@@ -34,7 +31,6 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use std::borrow::Cow;
 
 lazy_static::lazy_static! {
     static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/?:[-\w]+").unwrap();
@@ -109,8 +105,9 @@ struct NewTrigger {
     is_flow: bool,
     is_async: bool,
     requires_auth: bool,
-    http_method: HttpMethod,
+    webhook_resource_path: Option<String>,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
+    http_method: HttpMethod,
     workspaced_route: Option<bool>,
     is_static_website: bool,
 }
@@ -134,6 +131,8 @@ pub struct HttpTrigger {
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
     pub workspaced_route: Option<bool>,
+    #[serde(deserialize_with = "non_empty_str")]
+    pub webhook_resource_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +143,7 @@ struct EditTrigger {
     is_flow: bool,
     is_async: bool,
     requires_auth: bool,
+    webhook_resource_path: Option<String>,
     http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     workspaced_route: Option<bool>,
@@ -185,6 +185,7 @@ async fn list_triggers(
             "requires_auth",
             "static_asset_config",
             "is_static_website",
+            "webhook_resource_path",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -237,7 +238,8 @@ async fn get_trigger(
             is_async, 
             requires_auth, 
             static_asset_config as "static_asset_config: _", 
-            is_static_website
+            is_static_website,
+            webhook_resource_path
         FROM 
             http_trigger
         WHERE 
@@ -303,6 +305,7 @@ async fn create_trigger(
             route_path, 
             route_path_key,
             workspaced_route,
+            webhook_resource_path,
             script_path, 
             is_flow, 
             is_async, 
@@ -315,7 +318,7 @@ async fn create_trigger(
             is_static_website
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15
         )
         "#,
         w_id,
@@ -323,6 +326,7 @@ async fn create_trigger(
         ct.route_path,
         &route_path_key,
         ct.workspaced_route,
+        ct.webhook_resource_path,
         ct.script_path,
         ct.is_flow,
         ct.is_async,
@@ -403,25 +407,27 @@ async fn update_trigger(
             SET 
                 route_path = $1, 
                 route_path_key = $2, 
-                workspaced_route = $3, 
-                script_path = $4, 
-                path = $5, 
-                is_flow = $6, 
-                http_method = $7, 
-                static_asset_config = $8, 
-                edited_by = $9, 
-                email = $10, 
-                is_async = $11, 
-                requires_auth = $12, 
+                workspaced_route = $3,
+                webhook_resource_path = $4,
+                script_path = $5, 
+                path = $6, 
+                is_flow = $7, 
+                http_method = $8, 
+                static_asset_config = $9, 
+                edited_by = $10, 
+                email = $11, 
+                is_async = $12, 
+                requires_auth = $13, 
                 edited_at = now(), 
-                is_static_website = $13
+                is_static_website = $14
             WHERE 
-                workspace_id = $14 AND 
-                path = $15
+                workspace_id = $15 AND 
+                path = $16
             "#,
             route_path,
             &route_path_key,
             ct.workspaced_route,
+            ct.webhook_resource_path,
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -606,7 +612,7 @@ async fn route_path_key_exists(
         )
         .fetch_one(db)
         .await?
-        .unwrap_or(false)        
+        .unwrap_or(false)
     };
 
     Ok(exists)
@@ -634,6 +640,7 @@ async fn exists_route(
     Ok(Json(exists))
 }
 
+#[derive(Deserialize)]
 struct TriggerRoute {
     path: String,
     script_path: String,
@@ -647,6 +654,8 @@ struct TriggerRoute {
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     workspaced_route: Option<bool>,
     is_static_website: bool,
+    #[serde(deserialize_with = "non_empty_str")]
+    webhook_resource_path: Option<String>,
 }
 
 async fn get_http_route_trigger(
@@ -679,7 +688,8 @@ async fn get_http_route_trigger(
                 email,
                 static_asset_config AS "static_asset_config: _",
                 workspaced_route,
-                is_static_website 
+                is_static_website,
+                webhook_resource_path
             FROM 
                 http_trigger 
             WHERE 
@@ -701,6 +711,7 @@ async fn get_http_route_trigger(
                 script_path, 
                 is_flow, 
                 route_path, 
+                webhook_resource_path,
                 workspace_id, 
                 is_async, 
                 requires_auth, 
@@ -854,9 +865,9 @@ async fn route_job(
     method: http::Method,
     headers: HeaderMap,
     args: WebhookArgs,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, impl IntoResponse> {
     let route_path = route_path.to_path().trim_end_matches("/");
-    let (trigger, called_path, params, authed) = match get_http_route_trigger(
+    let (trigger, called_path, params, authed) = get_http_route_trigger(
         route_path,
         &auth_cache,
         token.as_ref(),
@@ -864,26 +875,28 @@ async fn route_job(
         user_db.clone(),
         &method,
     )
-    .await
-    {
-        Ok(trigger) => trigger,
-        Err(e) => return e.into_response(),
-    };
+    .await?;
 
-    let mut args = match args
+    if let Some(webhook_resource_path) = trigger.webhook_resource_path {
+        let webhook = try_get_resource_from_db_as::<Webhook>(
+            authed.clone(),
+            Some(user_db.clone()),
+            &db,
+            &webhook_resource_path,
+            &trigger.workspace_id,
+        )
+        .await?;
+    }
+
+    let mut args = args
         .to_push_args_owned(&authed, &db, &trigger.workspace_id)
-        .await
-    {
-        Ok(args) => args,
-        Err(e) => return e.into_response(),
-    };
+        .await?;
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
-        return error::Error::internal_err(
+        return Err(error::Error::internal_err(
             "Static asset configuration is not supported in this build".to_string(),
-        )
-        .into_response();
+        ));
     }
 
     #[cfg(feature = "parquet")]
@@ -1005,7 +1018,7 @@ async fn route_job(
 
     let run_query = RunJobQuery::default();
 
-    if trigger.is_flow {
+    let response = if trigger.is_flow {
         if trigger.is_async {
             run_flow_by_path_inner(
                 authed,
@@ -1061,5 +1074,7 @@ async fn route_job(
             .await
             .into_response()
         }
-    }
+    };
+
+    Ok(response)
 }

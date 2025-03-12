@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use quick_cache::sync::Cache;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::{select, sync::mpsc};
 
 #[cfg(feature = "prometheus")]
@@ -148,4 +148,26 @@ impl WebhookShared {
         }
         let _ = self.channel.send(WebhookPayload::InstanceEvent(event));
     }
+}
+
+
+#[derive(Deserialize)]
+pub enum WebhookAuthenticationMethod {
+    SignatureVerification
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WebhookProvider {
+    Stripe,
+    Shopify,
+    Github,
+    Slack,
+    Paypal
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Webhook {
+    pub provider: WebhookProvider,
+    pub secret: String
 }

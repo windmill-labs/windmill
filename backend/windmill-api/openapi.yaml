@@ -13763,6 +13763,8 @@ components:
             - put
             - delete
             - patch
+        webhook_resource_path:
+          type: string 
         is_async:
           type: boolean
         requires_auth:
@@ -13811,6 +13813,8 @@ components:
             - put
             - delete
             - patch
+        webhook_resource_path:
+          type: string 
         is_async:
           type: boolean
         requires_auth:
@@ -13850,6 +13854,8 @@ components:
               type: string
           required:
             - s3
+        webhook_resource_path:
+          type: string 
         is_flow:
           type: boolean
         http_method:
