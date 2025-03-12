@@ -22,7 +22,7 @@ use windmill_common::{
     jobs::{JobKind, QueuedJob},
     utils::WarnAfterExt,
     worker::{to_raw_value, WORKER_GROUP},
-    DB,
+    KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
@@ -59,7 +59,7 @@ pub fn start_background_processor(
     worker_dir: String,
     same_worker_tx: SameWorkerSender,
     worker_name: String,
-    killpill_tx: sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
     is_dedicated_worker: bool,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -150,7 +150,7 @@ pub fn start_background_processor(
 
                     if is_init_script_and_failure {
                         tracing::error!("init script errored, exiting");
-                        killpill_tx.send(()).unwrap_or_default();
+                        killpill_tx.send();
                         break;
                     }
                     if is_dependency_job && is_dedicated_worker {
@@ -162,7 +162,7 @@ pub fn start_background_processor(
                             .execute(&db)
                             .await
                             .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx.send(()).unwrap_or_default();
+                        killpill_tx.send();
                     }
                     add_time!(bench, "job completed processed");
 

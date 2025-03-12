@@ -15,6 +15,7 @@ use tokio::{
 use windmill_common::error::Error;
 use windmill_common::flows::FlowValue;
 use windmill_common::worker::WORKER_CONFIG;
+use windmill_common::KillpillSender;
 use windmill_common::{
     cache, error,
     flows::{FlowModule, FlowModuleValue},
@@ -438,7 +439,7 @@ async fn spawn_dedicated_workers_for_flow(
 }
 
 pub async fn create_dedicated_worker_map(
-    killpill_tx: &tokio::sync::broadcast::Sender<()>,
+    killpill_tx: &KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,

@@ -643,7 +643,6 @@ Windmill Community Edition {GIT_VERSION}
             let base_internal_url = base_internal_url.to_string();
             let h = tokio::spawn(async move {
                 let mut listener = retry_listen_pg(&db).await;
-
                 loop {
                     tokio::select! {
                         biased;
@@ -868,6 +867,7 @@ Windmill Community Edition {GIT_VERSION}
                 tracing::error!("Error waiting for monitor handle: {e:#}")
             }
             tracing::info!("Monitor exited");
+            killpill_tx.send();
             Ok(()) as anyhow::Result<()>
         };
 
@@ -1095,11 +1095,7 @@ pub async fn run_workers(
     Ok(())
 }
 
-async fn send_delayed_killpill(
-    tx: &tokio::sync::broadcast::Sender<()>,
-    mut max_delay_secs: u64,
-    context: &str,
-) {
+async fn send_delayed_killpill(tx: &KillpillSender, mut max_delay_secs: u64, context: &str) {
     if max_delay_secs == 0 {
         max_delay_secs = 1;
     }
@@ -1108,7 +1104,5 @@ async fn send_delayed_killpill(
     tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
 
-    if let Err(e) = tx.send(()) {
-        tracing::error!(error = %e, "Could not send killpill for {context}");
-    }
+    tx.send();
 }

@@ -1425,7 +1425,7 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
 
 pub async fn reload_worker_config(
     db: &DB,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     kill_if_change: bool,
 ) {
     let config = load_worker_config(&db, tx.clone()).await;
@@ -1440,17 +1440,17 @@ pub async fn reload_worker_config(
                     || (*wc).dedicated_worker != config.dedicated_worker
                 {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                 }
 
                 if (*wc).init_bash != config.init_bash {
                     tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                 }
 
                 if (*wc).cache_clear != config.cache_clear {
                     tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                     tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     if let Err(e) = windmill_worker::common::clean_cache().await {
