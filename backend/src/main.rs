@@ -29,6 +29,7 @@ use windmill_api::HTTP_CLIENT;
 use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
 use windmill_common::{
+    get_database_url,
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
@@ -46,7 +47,7 @@ use windmill_common::{
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
-    KillpillSender, DB, METRICS_ENABLED,
+    KillpillSender, METRICS_ENABLED,
 };
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -641,8 +642,10 @@ Windmill Community Edition {GIT_VERSION}
             let tx = killpill_tx.clone();
 
             let base_internal_url = base_internal_url.to_string();
+            let db_url: String = get_database_url().await?;
+
             let h = tokio::spawn(async move {
-                let mut listener = retry_listen_pg(&db).await;
+                let mut listener = retry_listen_pg(&db_url).await;
                 loop {
                     tokio::select! {
                         biased;
@@ -838,7 +841,7 @@ Windmill Community Edition {GIT_VERSION}
                                             tracing::info!("received killpill for monitor job");
                                             break;
                                         },
-                                        new_listener = retry_listen_pg(&db) => {
+                                        new_listener = retry_listen_pg(&db_url) => {
                                             listener = new_listener;
                                             continue;
                                         }
@@ -924,8 +927,8 @@ Windmill Community Edition {GIT_VERSION}
     Ok(())
 }
 
-async fn listen_pg(db: &DB) -> Option<PgListener> {
-    let mut listener = match PgListener::connect_with(&db).await {
+async fn listen_pg(url: &str) -> Option<PgListener> {
+    let mut listener = match PgListener::connect(url).await {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(error = %e, "Could not connect to database");
@@ -948,13 +951,13 @@ async fn listen_pg(db: &DB) -> Option<PgListener> {
     return Some(listener);
 }
 
-async fn retry_listen_pg(db: &DB) -> PgListener {
-    let mut listener = listen_pg(db).await;
+async fn retry_listen_pg(url: &str) -> PgListener {
+    let mut listener = listen_pg(url).await;
     loop {
         if listener.is_none() {
             tracing::info!("Retrying listening to pg listen in 5 seconds");
             tokio::time::sleep(Duration::from_secs(5)).await;
-            listener = listen_pg(db).await;
+            listener = listen_pg(url).await;
         } else {
             tracing::info!("Successfully connected to pg listen");
             return listener.unwrap();

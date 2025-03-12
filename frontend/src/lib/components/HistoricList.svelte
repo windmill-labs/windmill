@@ -4,7 +4,6 @@
 	import { onDestroy } from 'svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import JobSchemaPicker from './schema/JobSchemaPicker.svelte'
-	import { sleep } from '$lib/utils'
 
 	export let runnableId: string | undefined
 	export let runnableType: RunnableType | undefined
