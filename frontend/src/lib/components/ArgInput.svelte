@@ -135,13 +135,17 @@
 			}
 		}
 	}
-	function updateOneOfSelectedValue(oneOfSelected: string | undefined) {
-		if (oneOfSelected) {
-			value = { label: oneOfSelected }
+
+	$: updateOneOfSelected(oneOf)
+
+	$: oneOf && value && onOneOfChange()
+
+	function onOneOfChange() {
+		const label = value?.['label']
+		if (label && oneOf && oneOf.some((o) => o.title == label) && oneOfSelected != label) {
+			oneOfSelected = label
 		}
 	}
-	$: updateOneOfSelected(oneOf)
-	$: updateOneOfSelectedValue(oneOfSelected)
 
 	const dispatch = createEventDispatcher()
 
@@ -791,8 +795,14 @@
 							selected={oneOfSelected}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
-								value = { label: detail }
-								redraw += 1
+								const prevValueKeys = Object.keys(
+									oneOf.find((o) => o.title == detail)?.properties ?? {}
+								)
+								const toKeep = {}
+								for (const key of prevValueKeys) {
+									toKeep[key] = value[key]
+								}
+								value = { ...toKeep, label: detail }
 							}}
 							let:item
 						>

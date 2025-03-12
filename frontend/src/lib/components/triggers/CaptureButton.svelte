@@ -75,7 +75,7 @@
 	]
 </script>
 
-<DropdownV2 {items} placement="bottom-start">
+<DropdownV2 {items} placement="bottom-start" fixedHeight={false}>
 	<svelte:fragment slot="buttonReplacement">
 		{#if small}
 			<Button
