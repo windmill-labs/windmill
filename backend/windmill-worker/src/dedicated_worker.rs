@@ -253,7 +253,7 @@ async fn spawn_dedicated_workers_for_flow(
     modules: &Vec<FlowModule>,
     w_id: &str,
     path: &str,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
@@ -552,7 +552,7 @@ pub enum SpawnWorker {
 async fn spawn_dedicated_worker(
     sw: SpawnWorker,
     w_id: &str,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     db: &DB,
     worker_dir: &str,
@@ -639,7 +639,7 @@ async fn spawn_dedicated_worker(
                     }
                 } else {
                     tracing::error!("Failed to fetch script for dedicated worker");
-                    killpill_tx.send(()).expect("send");
+                    killpill_tx.send();
                     return None;
                 }
             }
@@ -671,7 +671,7 @@ async fn spawn_dedicated_worker(
                 .await
                 {
                     tracing::error!("failed to create token for dedicated worker: {:?}", e);
-                    killpill_tx.clone().send(()).expect("send");
+                    killpill_tx.clone().send();
                 };
                 token
             };
@@ -745,9 +745,7 @@ async fn spawn_dedicated_worker(
             } {
                 tracing::error!("error in dedicated worker for {sw:#?}: {:?}", e);
             };
-            if let Err(e) = killpill_tx.clone().send(()) {
-                tracing::error!("failed to send final killpill to dedicated worker: {:?}", e);
-            }
+            killpill_tx.clone().send();
         });
         return Some((node_id.unwrap_or(path2), dedicated_worker_tx, Some(handle)));
         // (Some(dedi_path), Some(dedicated_worker_tx), Some(handle))
