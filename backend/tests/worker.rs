@@ -1000,7 +1000,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     };
 
     /* ensure the worker quits before we return */
-    quit.send(()).expect("send");
+    quit.send();
 
     let _: () = worker
         .await
@@ -1012,10 +1012,7 @@ async fn in_test_worker<Fut: std::future::Future>(
 fn spawn_test_worker(
     db: &Pool<Postgres>,
     port: u16,
-) -> (
-    tokio::sync::broadcast::Sender<()>,
-    tokio::task::JoinHandle<()>,
-) {
+) -> (KillpillSender, tokio::task::JoinHandle<()>) {
     std::fs::DirBuilder::new()
         .recursive(true)
         .create(windmill_worker::GO_BIN_CACHE_DIR)

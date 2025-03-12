@@ -457,7 +457,9 @@ impl KillpillSender {
         // Check if it's already been sent, and if not, set the flag to true
         if !self.already_sent.swap(true, Ordering::SeqCst) {
             // We're the first to set it to true, so send the signal
-            let _ = self.tx.send(()); // Ignore result since receivers might be gone
+            if let Err(e) = self.tx.send(()) {
+                tracing::error!("failed to send killpill: {:?}", e);
+            }
             true
         } else {
             // Signal was already sent
