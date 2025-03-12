@@ -176,8 +176,11 @@
 	function minJobTime(jobs: CompletedJob[]): Date {
 		let min: Date = new Date(jobs[0].started_at)
 		for (const job of jobs) {
-			if (new Date(job.started_at) < min) {
-				min = new Date(job.started_at)
+			if (job.started_at != undefined) {
+				const date = new Date(job.started_at)
+				if (date < min) {
+					min = date
+				}
 			}
 		}
 		return min
