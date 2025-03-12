@@ -343,7 +343,7 @@
 		selectedManualDate = 0
 		selectedIds = []
 		jobIdsToCancel = []
-		isSelectingJobsToCancel = false
+		isSelectingJobs = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -471,12 +471,12 @@
 	}
 
 	let jobIdsToCancel: string[] = []
-	let isSelectingJobsToCancel = false
+	let isSelectingJobs: false | 'cancel' | 're-run' = false
 	let fetchingFilteredJobs = false
 	let selectedFiltersString: string | undefined = undefined
 
 	async function cancelVisibleJobs() {
-		isSelectingJobsToCancel = true
+		isSelectingJobs = 'cancel'
 		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
 		if (selectedIds.length === 0) {
 			sendUserToast('There are no visible jobs that can be canceled', true)
@@ -625,7 +625,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobsToCancel = false
+		isSelectingJobs = false
 	}}
 	loading={fetchingFilteredJobs}
 	on:canceled={() => {
@@ -649,7 +649,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobsToCancel = false
+		isSelectingJobs = false
 	}}
 	on:canceled={() => {
 		isCancelingVisibleJobs = false
@@ -798,7 +798,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobsToCancel}
+					canSelect={!isSelectingJobs}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -842,7 +842,7 @@
 					}}
 				/>
 				<div class="flex flex-row">
-					{#if isSelectingJobsToCancel}
+					{#if isSelectingJobs}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
 							<Button
 								startIcon={{ icon: X }}
@@ -850,7 +850,7 @@
 								color="gray"
 								variant="contained"
 								on:click={() => {
-									isSelectingJobsToCancel = false
+									isSelectingJobs = false
 									selectedIds = []
 								}}
 							/>
@@ -1028,7 +1028,7 @@
 							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
-							{isSelectingJobsToCancel}
+							{isSelectingJobs}
 							bind:selectedIds
 							bind:selectedWorkspace
 							bind:lastFetchWentToEnd
@@ -1177,7 +1177,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobsToCancel}
+					canSelect={!isSelectingJobs}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -1223,7 +1223,7 @@
 					/>
 				{/if}
 				<div class="flex flex-row">
-					{#if isSelectingJobsToCancel}
+					{#if isSelectingJobs}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
 							<Button
 								startIcon={{ icon: X }}
@@ -1231,7 +1231,7 @@
 								color="gray"
 								variant="contained"
 								on:click={() => {
-									isSelectingJobsToCancel = false
+									isSelectingJobs = false
 									selectedIds = []
 								}}
 							/>
@@ -1409,13 +1409,13 @@
 				externalJobs={externalJobs ?? []}
 				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 				showExternalJobs={!graphIsRunsChart}
-				{isSelectingJobsToCancel}
+				{isSelectingJobs}
 				bind:selectedIds
 				bind:selectedWorkspace
 				bind:lastFetchWentToEnd
 				on:loadExtra={loadExtra}
 				on:select={() => {
-					if (!isSelectingJobsToCancel) runDrawer.openDrawer()
+					if (!isSelectingJobs) runDrawer.openDrawer()
 				}}
 				on:filterByPath={filterByPath}
 				on:filterByUser={filterByUser}
