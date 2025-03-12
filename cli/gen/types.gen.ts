@@ -578,6 +578,7 @@ export type HttpTrigger = TriggerExtraProperty & {
     is_async: boolean;
     requires_auth: boolean;
     is_static_website: boolean;
+    workspaced_route?: boolean;
 };
 
 export type http_method = 'get' | 'post' | 'put' | 'delete' | 'patch';
@@ -586,6 +587,7 @@ export type NewHttpTrigger = {
     path: string;
     script_path: string;
     route_path: string;
+    workspaced_route?: boolean;
     static_asset_config?: {
         s3: string;
         storage?: string;
@@ -602,6 +604,7 @@ export type EditHttpTrigger = {
     path: string;
     script_path: string;
     route_path?: string;
+    workspaced_route?: boolean;
     static_asset_config?: {
         s3: string;
         storage?: string;
@@ -684,31 +687,20 @@ export type WebsocketTriggerInitialMessage = {
     };
 };
 
-export type QoS = 0 | 1 | 2;
+export type MqttQoS = 'qos0' | 'qos1' | 'qos2';
 
-export type CommonMqttConfig = {
-    will?: {
-        topic?: string;
-        message?: Array<(number)>;
-        qos?: QoS;
-        retain?: boolean;
-    };
-};
-
-export type MqttV3Config = CommonMqttConfig & {
+export type MqttV3Config = {
     clean_session?: boolean;
 };
 
-export type MqttV5Config = CommonMqttConfig & {
+export type MqttV5Config = {
     clean_start?: boolean;
-    keep_alive?: number;
-    session_expiration?: number;
-    receive_maximum?: number;
-    maximum_packet_size?: number;
+    topic_alias?: number;
+    session_expiry_interval?: number;
 };
 
-export type SubscribeTopic = {
-    qos: QoS;
+export type MqttSubscribeTopic = {
+    qos: MqttQoS;
     topic: string;
 };
 
@@ -716,7 +708,7 @@ export type MqttClientVersion = 'v3' | 'v5';
 
 export type MqttTrigger = TriggerExtraProperty & {
     mqtt_resource_path: string;
-    subscribe_topics: Array<SubscribeTopic>;
+    subscribe_topics: Array<MqttSubscribeTopic>;
     v3_config?: MqttV3Config;
     v5_config?: MqttV5Config;
     client_id?: string;
@@ -729,7 +721,7 @@ export type MqttTrigger = TriggerExtraProperty & {
 
 export type NewMqttTrigger = {
     mqtt_resource_path: string;
-    subscribe_topics: Array<SubscribeTopic>;
+    subscribe_topics: Array<MqttSubscribeTopic>;
     client_id?: string;
     v3_config?: MqttV3Config;
     v5_config?: MqttV5Config;
@@ -742,7 +734,7 @@ export type NewMqttTrigger = {
 
 export type EditMqttTrigger = {
     mqtt_resource_path: string;
-    subscribe_topics: Array<SubscribeTopic>;
+    subscribe_topics: Array<MqttSubscribeTopic>;
     client_id?: string;
     v3_config?: MqttV3Config;
     v5_config?: MqttV5Config;
@@ -1007,7 +999,9 @@ export type GlobalUserInfo = {
 
 export type login_type = 'password' | 'github';
 
-export type Flow = OpenFlow & FlowMetadata;
+export type Flow = OpenFlow & FlowMetadata & {
+    lock_error_logs?: string;
+};
 
 export type ExtraPerms = {
     [key: string]: (boolean);
@@ -1069,6 +1063,10 @@ export type Policy = {
     };
     s3_inputs?: Array<{
         [key: string]: unknown;
+    }>;
+    allowed_s3_keys?: Array<{
+        s3_path?: string;
+        resource?: string;
     }>;
     execution_mode?: 'viewer' | 'publisher' | 'anonymous';
     on_behalf_of?: string;
@@ -1215,7 +1213,7 @@ export type WorkspaceGitSyncSettings = {
 
 export type WorkspaceDeployUISettings = {
     include_path?: Array<(string)>;
-    include_type?: Array<('script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret')>;
+    include_type?: Array<('script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger')>;
 };
 
 export type WorkspaceDefaultScripts = {
@@ -1923,6 +1921,10 @@ export type ListAuditLogsData = {
      * filter on created after (exclusive) timestamp
      */
     after?: string;
+    /**
+     * get audit logs for all workspaces
+     */
+    allWorkspaces?: boolean;
     /**
      * filter on started before (inclusive) timestamp
      */
@@ -4180,6 +4182,14 @@ export type GetFlowLatestVersionData = {
 
 export type GetFlowLatestVersionResponse = (FlowVersion);
 
+export type ListFlowPathsFromWorkspaceRunnableData = {
+    path: string;
+    runnableKind: 'script' | 'flow';
+    workspace: string;
+};
+
+export type ListFlowPathsFromWorkspaceRunnableResponse = (Array<(string)>);
+
 export type GetFlowVersionData = {
     path: string;
     version: number;
@@ -4209,6 +4219,15 @@ export type GetFlowByPathData = {
 };
 
 export type GetFlowByPathResponse = (Flow);
+
+export type GetFlowDeploymentStatusData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetFlowDeploymentStatusResponse = ({
+    lock_error_logs?: string;
+});
 
 export type GetTriggersCountOfFlowData = {
     path: string;
@@ -4608,6 +4627,34 @@ export type ExecuteComponentData = {
 };
 
 export type ExecuteComponentResponse = (string);
+
+export type UploadS3FileFromAppData = {
+    contentDisposition?: string;
+    contentType?: string;
+    fileExtension?: string;
+    fileKey?: string;
+    path: string;
+    /**
+     * File content
+     */
+    requestBody: (Blob | File);
+    resourceType?: string;
+    s3ResourcePath?: string;
+    storage?: string;
+    workspace: string;
+};
+
+export type UploadS3FileFromAppResponse = ({
+    file_key: string;
+    delete_token: string;
+});
+
+export type DeleteS3FileFromAppData = {
+    deleteToken: string;
+    workspace: string;
+};
+
+export type DeleteS3FileFromAppResponse = (string);
 
 export type RunFlowByPathData = {
     /**
@@ -5749,6 +5796,7 @@ export type ExistsRouteData = {
         route_path: string;
         http_method: 'get' | 'post' | 'put' | 'delete' | 'patch';
         trigger_path?: string;
+        workspaced_route?: boolean;
     };
     workspace: string;
 };
@@ -6621,6 +6669,13 @@ export type GetFolderData = {
 };
 
 export type GetFolderResponse = (Folder);
+
+export type ExistsFolderData = {
+    name: string;
+    workspace: string;
+};
+
+export type ExistsFolderResponse = (boolean);
 
 export type GetFolderUsageData = {
     name: string;

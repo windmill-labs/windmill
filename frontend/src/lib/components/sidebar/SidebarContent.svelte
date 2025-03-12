@@ -275,7 +275,7 @@
 			hasNewChangelogs =
 				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
 		} else {
-			recentChangelogs = changelogs.slice(-3)
+			recentChangelogs = changelogs.slice(0, 3)
 		}
 	})
 
