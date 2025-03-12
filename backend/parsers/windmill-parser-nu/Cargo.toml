@@ -14,5 +14,7 @@ anyhow.workspace = true
 nu-parser.workspace = true
 nu-protocol.workspace = true
 nu-cmd-lang.workspace = true
+# tree-sitter-nu.workspace = true
+# tree-sitter.workspace = true
 wasm-bindgen.workspace = true
 serde_json.workspace = true
