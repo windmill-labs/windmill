@@ -2,6 +2,7 @@ use serde::de::DeserializeOwned;
 use std::future::Future;
 use std::{str::FromStr, sync::Arc};
 use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
+use windmill_common::KillpillSender;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -1020,7 +1021,7 @@ fn spawn_test_worker(
         .create(windmill_worker::GO_BIN_CACHE_DIR)
         .expect("could not create initial worker dir");
 
-    let (tx, rx) = tokio::sync::broadcast::channel(1);
+    let (tx, rx) = KillpillSender::new(1);
     let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
