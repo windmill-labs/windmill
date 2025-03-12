@@ -218,6 +218,9 @@
 		minimizeSubflow: (id: string) => {
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
+		},
+		updateMock: () => {
+			dispatch('updateMock')
 		}
 	}
 

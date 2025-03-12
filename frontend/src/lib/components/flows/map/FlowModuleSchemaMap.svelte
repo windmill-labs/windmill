@@ -478,6 +478,9 @@
 					$moving = undefined
 				}
 			}}
+			on:updateMock={() => {
+				$flowStore = $flowStore
+			}}
 		/>
 	</div>
 	<div

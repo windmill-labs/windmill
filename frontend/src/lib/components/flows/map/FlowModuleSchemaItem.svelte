@@ -40,7 +40,12 @@
 	export let skip: boolean = false
 	export let suspend: boolean = false
 	export let sleep: boolean = false
-	export let mock: boolean = false
+	export let mock:
+		| {
+				enabled?: boolean
+				return_value?: unknown
+		  }
+		| undefined = { enabled: false }
 	export let bold: boolean = false
 	export let id: string | undefined = undefined
 	export let label: string
@@ -79,8 +84,7 @@
 
 	const { viewport } = useSvelteFlow()
 
-	const { flowStateStore } = flowEditorContext
-	console.log('dbg flowStateStore', $flowStateStore)
+	$: flowStateStore = flowEditorContext?.flowStateStore
 
 	let jsonData = {}
 	function updateJsonData(
@@ -254,7 +258,7 @@
 				<svelte:fragment slot="text">Sleep</svelte:fragment>
 			</Popover>
 		{/if}
-		{#if mock}
+		{#if mock?.enabled}
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
@@ -292,9 +296,10 @@
 				{allowCopy}
 				prefix={'results'}
 				{isConnecting}
-				bind:pinned={mock}
+				{mock}
 				on:select={select}
 				moduleId={id}
+				on:updateMock
 			/>
 		</OutputPicker>
 	</div>

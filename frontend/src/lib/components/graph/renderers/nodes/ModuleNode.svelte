@@ -99,6 +99,9 @@
 		on:selectedIteration={(e) => {
 			data.eventHandlers.selectedIteration(e.detail, data.module.id)
 		}}
+		on:updateMock={() => {
+			data.eventHandlers.updateMock()
+		}}
 	/>
 
 	<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

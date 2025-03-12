@@ -3,19 +3,27 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Pin, History } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import ToggleSimple from '$lib/components/meltComponents/ToggleSimple.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
+	import { createEventDispatcher } from 'svelte'
 
 	export let jsonData = {}
 	export let selected: boolean = false
 	export let prefix: string = ''
 	export let allowCopy: boolean = false
 	export let isConnecting: boolean = false
-	export let pinned: boolean = false
+	export let mock:
+		| {
+				enabled?: boolean
+				return_value?: unknown
+		  }
+		| undefined = { enabled: false }
 	export let moduleId: string = ''
+
+	const dispatch = createEventDispatcher()
 
 	let jsonView = false
 	let clientHeight: number = 0
@@ -57,6 +65,14 @@
 									if (detail.result) {
 										savedJsonData = detail.result
 										jsonData = detail.result
+										//TODO: display warning approval here : this will override the mock value
+										if (mock?.enabled) {
+											const newMock = {
+												enabled: true,
+												return_value: detail.result ?? {}
+											}
+											dispatch('updateMock', newMock)
+										}
 									} else {
 										jsonData = savedJsonData
 									}
@@ -65,7 +81,24 @@
 						</div>
 					</svelte:fragment>
 				</Popover>
-				<ToggleSimple bind:pressed={pinned}>
+				<ToggleSimple
+					pressed={mock?.enabled ?? false}
+					on:pressedChange={({ detail }) => {
+						if (mock?.enabled && !detail) {
+							const newMock = {
+								enabled: false,
+								return_value: mock?.return_value
+							}
+							dispatch('updateMock', newMock)
+						} else if (detail && !!mock) {
+							const newMock = {
+								enabled: true,
+								return_value: jsonData ?? { example: 'value' }
+							}
+							dispatch('updateMock', newMock)
+						}
+					}}
+				>
 					<Button
 						color="light"
 						size="xs2"
@@ -95,21 +128,29 @@
 				<p class="text-xs text-secondary">Test this step to see results</p>
 			</div>
 		{:else if jsonView}
-			<SimpleEditor
+			<JsonEditor
 				small
-				fixedOverflowWidgets={false}
-				on:change={() => {
-					jsonData = JSON.parse(JSON.stringify(jsonData))
+				on:changeValue={({ detail }) => {
+					if (mock?.enabled) {
+						const newMock = {
+							enabled: true,
+							return_value: structuredClone(detail)
+						}
+						mock = newMock
+						dispatch('updateMock', newMock)
+					}
+					jsonData = detail
 				}}
-				code={JSON.stringify(jsonData, null, 2)}
-				lang="json"
-				autoHeight
-				automaticLayout
+				code={JSON.stringify(
+					mock?.enabled && mock.return_value ? mock.return_value : jsonData,
+					null,
+					2
+				)}
 				class="h-full"
 			/>
 		{:else}
 			<ObjectViewer
-				json={jsonData}
+				json={mock?.enabled && mock.return_value ? mock.return_value : jsonData}
 				topBrackets={false}
 				pureViewer={false}
 				{prefix}
