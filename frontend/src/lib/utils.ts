@@ -21,6 +21,14 @@ export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
 
+export function isJobSelectable(selectionType: 'cancel' | 're-run') {
+	const f: (j: Job) => boolean = {
+		cancel: isJobCancelable,
+		're-run': () => true
+	}[selectionType]
+	return f
+}
+
 export function validateUsername(username: string): string {
 	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
 		return 'username can only contain letters and numbers and must start with a letter'

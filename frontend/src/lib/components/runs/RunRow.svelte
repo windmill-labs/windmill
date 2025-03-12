@@ -7,9 +7,9 @@
 		msToReadableTime,
 		truncateHash,
 		truncateRev,
-		isJobCancelable,
 		isFlowPreview,
-		isScriptPreview
+		isScriptPreview,
+		isJobSelectable
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
@@ -41,7 +41,7 @@
 	export let containerWidth: number = 0
 	export let containsLabel: boolean = false
 	export let activeLabel: string | null
-	export let isSelectingJobsToCancel: boolean = false
+	export let isSelectingJobs: false | 'cancel' | 're-run' = false
 
 	let scheduleEditor: ScheduleEditor
 
@@ -61,13 +61,13 @@
 	)}
 	style="width: {containerWidth}px"
 	on:click={() => {
-		if (!isSelectingJobsToCancel || isJobCancelable(job)) {
+		if (!isSelectingJobs || isJobSelectable(isSelectingJobs)(job)) {
 			dispatch('select')
 		}
 	}}
 >
 	<div class="w-1/12 flex justify-center">
-		{#if isSelectingJobsToCancel && isJobCancelable(job)}
+		{#if isSelectingJobs && isJobSelectable(isSelectingJobs)(job)}
 			<div class="px-2">
 				<input type="checkbox" checked={selected} />
 			</div>
