@@ -14,6 +14,7 @@
 	export let showAuthor = false
 	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'top-end'
 	export let limitPayloadSize = false
+	export let searchArgs: Record<string, any> | undefined = undefined
 
 	let historicList: HistoricList | undefined = undefined
 	const dispatch = createEventDispatcher()
@@ -93,7 +94,7 @@
 		concurrencyKey={null}
 		tag={null}
 		success="running"
-		argFilter={undefined}
+		argFilter={searchArgs ? JSON.stringify(searchArgs) : undefined}
 		bind:loading
 		syncQueuedRunsCount={false}
 		refreshRate={10000}
@@ -146,6 +147,7 @@
 			{showAuthor}
 			{placement}
 			{limitPayloadSize}
+			{searchArgs}
 		/>
 	</div>
 </div>
