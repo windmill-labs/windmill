@@ -14,7 +14,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents, components } from '../component'
+	import { ccomponents, components, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { deleteGridItem, isTableAction } from '../appUtils'
@@ -45,6 +45,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -141,8 +142,15 @@
 		: undefined
 
 	// Fix infinite recursion bug
-	$: componentData = JSON.stringify(componentSettings?.item?.data)
-	$: componentData && ($app = $app)
+	// Maybe not needed with svelte 5 runes
+	let prevComponentData: undefined | AppComponent
+	function onDataChange() {
+		if (!deepEqual(prevComponentData, componentSettings?.item?.data)) {
+			prevComponentData = structuredClone(componentSettings?.item?.data)
+			$app = $app
+		}
+	}
+	$: componentSettings?.item?.data && onDataChange()
 
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
