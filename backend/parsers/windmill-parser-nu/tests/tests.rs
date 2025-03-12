@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
     use serde_json::json;
-    use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+    use windmill_parser::{Arg, MainArgSignature, Typ};
     use windmill_parser_nu::parse_nu_signature;
 
     #[test]
