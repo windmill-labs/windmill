@@ -4,6 +4,7 @@
 	import { onDestroy } from 'svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import JobSchemaPicker from './schema/JobSchemaPicker.svelte'
+	import { sleep } from '$lib/utils'
 
 	export let runnableId: string | undefined
 	export let runnableType: RunnableType | undefined
@@ -11,25 +12,33 @@
 	export let showAuthor = false
 	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
 	export let limitPayloadSize = false
+	export let searchArgs: Record<string, any> | undefined = undefined
 
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
 	let viewerOpen = false
 	let openStates: Record<string, boolean> = {} // Track open state for each item
 
-	export function refresh() {
+	export async function refresh(clearCurrentRuns: boolean = false) {
+		if (clearCurrentRuns) {
+			infiniteList?.reset()
+		}
 		if (infiniteList) {
-			infiniteList.loadData('refresh')
+			await infiniteList.loadData('refresh')
 		}
 	}
 	let cachedArgs: Record<string, any> = {}
 
-	let interval: NodeJS.Timeout | undefined = undefined
-	function initLoadInputs() {
-		interval && clearInterval(interval)
-		interval = setInterval(() => {
-			refresh()
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function refreshInterval() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(async () => {
+			await refresh()
+			refreshInterval()
 		}, 10000)
+	}
+	function initLoadInputs() {
+		refreshInterval()
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.getInputHistory({
 				workspace: $workspaceStore!,
@@ -37,7 +46,8 @@
 				runnableType,
 				page,
 				perPage,
-				includePreview: true
+				includePreview: true,
+				args: searchArgs ? JSON.stringify(searchArgs) : undefined
 			})
 
 			const inputsWithPayload = await Promise.all(
@@ -69,7 +79,7 @@
 	}
 
 	onDestroy(() => {
-		interval && clearInterval(interval)
+		timeout && clearTimeout(timeout)
 	})
 
 	async function loadArgsFromHistory(

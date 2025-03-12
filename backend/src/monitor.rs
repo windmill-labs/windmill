@@ -34,10 +34,7 @@ use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
-    ee::CriticalErrorChannel,
-    error,
-    flow_status::{FlowStatus, FlowStatusModule},
-    global_settings::{
+    ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
@@ -47,24 +44,11 @@ use windmill_common::{
         NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-    },
-    indexer::load_indexer_config,
-    jobs::QueuedJob,
-    jwt::JWT_SECRET,
-    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
-    server::load_smtp_config,
-    tracing_init::JSON_FMT,
-    users::truncate_token,
-    utils::{now_from_db, rd_string, report_critical_error, Mode},
-    worker::{
+    }, indexer::load_indexer_config, jobs::QueuedJob, jwt::JWT_SECRET, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
         update_min_version, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG,
         SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
-    },
-    BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
-    HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS,
+    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -133,7 +117,7 @@ lazy_static::lazy_static! {
 
 pub async fn initial_load(
     db: &Pool<Postgres>,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     worker_mode: bool,
     server_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
@@ -1265,7 +1249,7 @@ pub async fn monitor_db(
     server_mode: bool,
     _worker_mode: bool,
     initial_load: bool,
-    _killpill_tx: tokio::sync::broadcast::Sender<()>,
+    _killpill_tx: KillpillSender,
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load {
@@ -1441,7 +1425,7 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
 
 pub async fn reload_worker_config(
     db: &DB,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     kill_if_change: bool,
 ) {
     let config = load_worker_config(&db, tx.clone()).await;
@@ -1456,17 +1440,17 @@ pub async fn reload_worker_config(
                     || (*wc).dedicated_worker != config.dedicated_worker
                 {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                 }
 
                 if (*wc).init_bash != config.init_bash {
                     tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                 }
 
                 if (*wc).cache_clear != config.cache_clear {
                     tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                     tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     if let Err(e) = windmill_worker::common::clean_cache().await {
