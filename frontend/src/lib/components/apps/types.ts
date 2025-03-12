@@ -22,7 +22,8 @@ import type {
 	StaticAppInput,
 	TemplateV2AppInput,
 	UploadAppInput,
-	UserAppInput
+	UploadS3AppInput,
+	UserAppInput,
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
@@ -59,6 +60,7 @@ export type Configuration =
 	| EvalAppInput
 	| EvalV2AppInput
 	| UploadAppInput
+	| UploadS3AppInput
 	| ResultAppInput
 	| TemplateV2AppInput
 
@@ -284,7 +286,7 @@ export type AppViewerContext = {
 	policy: Policy
 
 	recomputeAllContext: Writable<{
-		onClick?: () => void
+		onRefresh?: (excludeId?: string) => void
 		componentNumber?: number | undefined
 		interval?: number | undefined
 		refreshing?: string[] | undefined

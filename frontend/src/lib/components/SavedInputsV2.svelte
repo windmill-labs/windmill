@@ -112,6 +112,8 @@
 						if (e.detail) savedInputsPicker?.resetSelected()
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
+					showAuthor
+					placement="top-end"
 				/>
 			</Section>
 		</Pane>

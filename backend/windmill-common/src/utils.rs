@@ -53,6 +53,76 @@ lazy_static::lazy_static! {
             GIT_VERSION
         }
     ).unwrap_or(Version::new(0, 1, 0));
+
+
+    pub static ref MODE_AND_ADDONS: ModeAndAddons = {
+        let mut search_addon = false;
+        let mode = std::env::var("MODE")
+        .map(|x| x.to_lowercase())
+        .map(|x| {
+            if &x == "server" {
+                println!("Binary is in 'server' mode");
+                Mode::Server
+            } else if &x == "worker" {
+                tracing::info!("Binary is in 'worker' mode");
+                #[cfg(windows)]
+                {
+                    println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
+                }
+                Mode::Worker
+            } else if &x == "agent" {
+                println!("Binary is in 'agent' mode");
+                if std::env::var("BASE_INTERNAL_URL").is_err() {
+                    panic!("BASE_INTERNAL_URL is required in agent mode")
+                }
+                if std::env::var("JOB_TOKEN").is_err() {
+                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
+                }
+
+                #[cfg(not(feature = "enterprise"))]
+                {
+                    panic!("Agent mode is only available in the EE, ignoring...");
+                }
+                #[cfg(feature = "enterprise")]
+                Mode::Agent
+            } else if &x == "indexer" {
+                tracing::info!("Binary is in 'indexer' mode");
+                #[cfg(not(feature = "tantivy"))]
+                {
+                    eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
+                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
+                }
+                #[cfg(feature = "tantivy")]
+                Mode::Indexer
+            } else if &x == "standalone+search"{
+                search_addon = true;
+                    println!("Binary is in 'standalone' mode with search enabled");
+                    Mode::Standalone
+            }
+            else {
+                if &x != "standalone" {
+                    eprintln!("mode not recognized, defaulting to standalone: {x}");
+                } else {
+                    println!("Binary is in 'standalone' mode");
+                }
+                Mode::Standalone
+            }
+        })
+        .unwrap_or_else(|_| {
+            tracing::info!("Mode not specified, defaulting to standalone");
+            Mode::Standalone
+        });
+        ModeAndAddons {
+            indexer: search_addon,
+            mode,
+        }
+    };
+}
+
+#[derive(Clone)]
+pub struct ModeAndAddons {
+    pub indexer: bool,
+    pub mode: Mode,
 }
 
 #[derive(Deserialize, Clone)]

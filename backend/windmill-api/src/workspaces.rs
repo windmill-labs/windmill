@@ -459,7 +459,6 @@ async fn get_settings(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
-
     tx.commit().await?;
     Ok(Json(settings))
 }
@@ -926,7 +925,7 @@ async fn edit_git_sync_config(
     Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct EditDeployUIConfig {
     #[cfg(feature = "enterprise")]
     deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
@@ -954,7 +953,6 @@ async fn edit_deploy_ui_config(
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
-
     let args_for_audit = format!("{:?}", new_config.deploy_ui_settings);
     audit_log(
         &mut *tx,
@@ -1363,7 +1361,8 @@ struct UsedTriggers {
     pub kafka_used: bool,
     pub nats_used: bool,
     pub postgres_used: bool,
-    pub sqs_used: bool,
+    pub mqtt_used: bool,
+    pub sqs_used: bool
 }
 
 async fn get_used_triggers(
@@ -1378,11 +1377,11 @@ async fn get_used_triggers(
         SELECT 
             
             EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS "websocket_used!", 
-           
             EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS "http_routes_used!",
             EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as "kafka_used!",
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
+            EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!"
         "#,
         w_id

@@ -51,6 +51,8 @@ lazy_static::lazy_static! {
                     (20241006144414, include_str!(
                         "../../custom_migrations/grant_all_current_schema.sql"
                     ).to_string()),
+                    (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
+                    (20221123151919, "".to_string()),
                     ].into_iter().collect();
 }
 
@@ -753,7 +755,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     });
 
     run_windmill_migration!("v2_improve_v2_queued_jobs_indices", &db, |tx| {
-        sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) WHERE running = false")
+        sqlx::query!("CREATE INDEX CONCURRENTLY IF NOT EXISTS queue_sort_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) WHERE running = false")
             .execute(db)
             .await?;
 
@@ -771,9 +773,11 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     });
 
     run_windmill_migration!("audit_timestamps", db, |tx| {
-        sqlx::query!("CREATE INDEX CONCURRENTLY ix_audit_timestamps ON audit (timestamp DESC)")
-            .execute(db)
-            .await?;
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_audit_timestamps ON audit (timestamp DESC)"
+        )
+        .execute(db)
+        .await?;
     });
     Ok(())
 }

@@ -98,7 +98,7 @@ function findClosestRawReqs(
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(folder: string) {
-  const elems = await FSFSElement(path.join(Deno.cwd(), folder), []);
+  const elems = await FSFSElement(path.join(Deno.cwd(), folder), [], true);
   const hashes: Record<string, string> = {};
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {

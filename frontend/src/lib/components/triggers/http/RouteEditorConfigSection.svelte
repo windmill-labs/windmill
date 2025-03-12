@@ -16,11 +16,14 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { isObject } from '$lib/utils'
+	import { getHttpRoute } from './utils'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
-	export let route_path: string | undefined
-	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
+	export let route_path: string = ''
+	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
@@ -28,6 +31,7 @@
 	export let headless: boolean = false
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
+	export let workspaced_route: boolean = false
 	export let isValid = false
 	export let runnableArgs: any = {}
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
@@ -35,7 +39,8 @@
 	let routeError: string = ''
 	async function validateRoute(
 		routePath: string | undefined,
-		method: typeof http_method
+		method: typeof http_method,
+		workspaced_route: boolean
 	): Promise<void> {
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
@@ -43,7 +48,7 @@
 		validateTimeout = setTimeout(async () => {
 			if (!routePath || !method || !/^:?[-\w]+(\/:?[-\w]+)*$/.test(routePath)) {
 				routeError = 'Endpoint not valid'
-			} else if (await routeExists(routePath, method)) {
+			} else if (await routeExists(routePath, method, workspaced_route)) {
 				routeError = 'Endpoint already taken'
 			} else {
 				routeError = ''
@@ -51,32 +56,23 @@
 			validateTimeout = undefined
 		}, 500)
 	}
-
-	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>) {
+	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>, workspaced_route: boolean) {
 		return await HttpTriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
 				route_path,
 				http_method: method,
-				trigger_path: initialTriggerPath
+				trigger_path: initialTriggerPath,
+				workspaced_route: workspaced_route
 			}
 		})
 	}
 
-	$: validateRoute(route_path, http_method)
+	$: validateRoute(route_path, http_method, workspaced_route)
 
 	$: isValid = routeError === ''
 
-	function getHttpRoute(route_path: string | undefined) {
-		return `${location.origin}${base}/api/r/${isCloudHosted() ? $workspaceStore + '/' : ''}${
-			route_path ?? ''
-		}`
-	}
-
-	$: fullRoute = getHttpRoute(route_path)
-
-	$: !http_method && (http_method = 'post')
-	$: route_path === undefined && (route_path = '')
+	$: fullRoute = getHttpRoute(route_path, workspaced_route, $workspaceStore ?? '')
 </script>
 
 <div>
@@ -84,6 +80,10 @@
 		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 			captureInfo.isFlow ? 'flow' : 'script'
 		}/${captureInfo.path.replaceAll('/', '.')}/${route_path}`}
+		{@const cleanedRunnableArgs =
+			isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+				? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+				: runnableArgs}
 		<CaptureSection
 			captureType="http"
 			disabled={!isValid}
@@ -105,7 +105,7 @@
 					code={`curl \\
 -X ${(http_method ?? 'post').toUpperCase()} ${captureURL} \\
 -H 'Content-Type: application/json' \\
--d '${JSON.stringify(runnableArgs ?? {}, null, 2)}'`}
+-d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`}
 					language={bash}
 				/>
 			</Label>
@@ -177,10 +177,26 @@
 						}}
 					/>
 				</div>
-
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
+				{#if !isCloudHosted()}
+					<div class="mt-1">
+						<Toggle
+							size="sm"
+							checked={workspaced_route}
+							on:change={async () => {
+								workspaced_route = !workspaced_route
+								dirtyRoutePath = true
+							}}
+							options={{
+								right: 'Prefix with workspace',
+								rightTooltip:
+									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.'
+							}}
+						/>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</Section>

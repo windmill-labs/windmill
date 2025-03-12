@@ -242,19 +242,40 @@ pub async fn load_otel(db: &DB) {
         if let Some(v) = v {
             let deser = serde_json::from_value::<OtelSetting>(v);
             if let Ok(o) = deser {
-                let metrics_enabled = o.metrics_enabled.unwrap_or(false);
-                let logs_enabled = o.logs_enabled.unwrap_or(false);
-                let tracing_enabled = o.tracing_enabled.unwrap_or(false);
+                let metrics_enabled = o.metrics_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_METRICS_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
+                let logs_enabled = o.logs_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_LOGS_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
+                let tracing_enabled = o.tracing_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_TRACING_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
 
                 OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
                 OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
-                if let Some(endpoint) = o.otel_exporter_otlp_endpoint.as_ref() {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint);
-                }
-                if let Some(headers) = o.otel_exporter_otlp_headers.as_ref() {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers);
-                }
+
+                let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    Some(endpoint.clone())
+                } else {
+                    std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()
+                };
+
+                let headers = if let Some(headers) = o.otel_exporter_otlp_headers {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    Some(headers.clone())
+                } else {
+                    std::env::var("OTEL_EXPORTER_OTLP_HEADERS").ok()
+                };
+
                 if let Some(protocol) = o.otel_exporter_otlp_protocol {
                     std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
                 }
@@ -262,7 +283,7 @@ pub async fn load_otel(db: &DB) {
                     std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
                 }
                 println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
-                o.otel_exporter_otlp_endpoint, o.otel_exporter_otlp_headers.is_some());
+                endpoint, headers.is_some());
             } else {
                 tracing::error!("Error deserializing otel settings");
             }
@@ -1560,6 +1581,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 WHERE q.id = tu.id AND (tu.counter IS NULL OR tu.counter < $2)
                 RETURNING q.id, q.workspace_id, ping, tu.counter
             ),
+            update_ping AS (
+                UPDATE v2_job_runtime r
+                SET ping = null
+                FROM zombie_jobs zj
+                WHERE r.id = zj.id
+            ),
             increment_counter AS (
                 INSERT INTO zombie_job_counter (job_id, counter)
                 SELECT id, 1 FROM to_update WHERE counter < $2
@@ -1896,16 +1923,27 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
+            let base_url = BASE_URL.read().await;
+            let workspace_id = flow.workspace_id.clone();
             let reason = format!(
                 "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
                 if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
-                    format!("Flow was cancelled because subflow {id}")
+                    format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {
-                    format!("Flow {id} was cancelled because it")
+                    format!("Flow {id} ({base_url}/run/{id}?workspace={workspace_id}) was cancelled because it")
                 }
             );
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, reason).await?;
+            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, 
+                format!(r#"{reason}
+This would happen if a worker was interrupted, killed or crashed while doing a state transition at the end of a job which is always an unexpected behavior that should never happen.
+Please check your worker logs for more details and feel free to report it to the Windmill team on our Discord or support@windmill.dev (response for non EE customers will be best effort) with as much context as possible, ideally:
+- Windmill version
+- Worker logs right after the job referenced has finished running
+- Is the error consistent when running the same flow
+- A minimal flow and its flow.yaml that reproduces the error and that is importable in a fresh workspace
+- Your infra setup (helm, docker-compose, configuration of the workers and their number, memory of the database, etc.)
+"#)).await?;
         }
     }
 

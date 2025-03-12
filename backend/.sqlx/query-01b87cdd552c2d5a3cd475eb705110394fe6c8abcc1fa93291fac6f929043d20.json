@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                requires_auth, \n                edited_by, \n                email, \n                static_asset_config AS \"static_asset_config: _\",\n                workspaced_route,\n                is_static_website\n            FROM \n                http_trigger \n            WHERE \n                http_method = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "route_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_async",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "requires_auth",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "static_asset_config: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "workspaced_route",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_static_website",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "01b87cdd552c2d5a3cd475eb705110394fe6c8abcc1fa93291fac6f929043d20"
+}

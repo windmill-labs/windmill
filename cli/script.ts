@@ -214,7 +214,9 @@ export async function handleFile(
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
         log.info(
-          `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+          `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
+            0
+          )}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
       }
       if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
@@ -236,13 +238,18 @@ export async function handleFile(
           tarball.append(file);
         }
         const endTime = performance.now();
-        log.info(`Finished creating tarball for ${path}: ${(tarball.size / 1024).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`);
+        log.info(
+          `Finished creating tarball for ${path}: ${(
+            tarball.size / 1024
+          ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+        );
         bundleContent = tarball;
       }
     }
-    let typed =
-      opts?.skipScriptsMetadata ? undefined :
-        (await parseMetadataFile(
+    let typed = opts?.skipScriptsMetadata
+      ? undefined
+      : (
+        await parseMetadataFile(
           remotePath,
           opts
             ? {
@@ -255,7 +262,7 @@ export async function handleFile(
           globalDeps,
           codebases
         )
-        )?.payload;
+      )?.payload;
 
     const workspaceId = workspace.workspaceId;
 
@@ -293,7 +300,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = codebase.digest;
+      typed.codebase = await codebase.getDigest();
     }
 
     const requestBodyCommon: NewScript = {
@@ -318,8 +325,7 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
-      //@ts-ignore
-      codebase: codebase?.digest,
+      codebase: await codebase?.getDigest(),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
     };
@@ -366,23 +372,39 @@ export async function handleFile(
         }
       }
 
-
       log.info(`Updating script ${remotePath} ...`);
       const body = {
         ...requestBodyCommon,
         parent_hash: remote.hash,
       };
-      const execTime = await createScript(bundleContent, workspaceId, body, workspace);
-      log.info(colors.yellow.bold(`Updated script ${remotePath} (${execTime.toFixed(0)}ms)`));
+      const execTime = await createScript(
+        bundleContent,
+        workspaceId,
+        body,
+        workspace
+      );
+      log.info(
+        colors.yellow.bold(
+          `Updated script ${remotePath} (${execTime.toFixed(0)}ms)`
+        )
+      );
     } else {
       log.info(`Creating new script ${remotePath} ...`);
       const body = {
         ...requestBodyCommon,
         parent_hash: undefined,
       };
-      const execTime = await createScript(bundleContent, workspaceId, body, workspace);
-      log.info(colors.yellow.bold(`Created new script ${remotePath} (${execTime.toFixed(0)}ms)`));
-
+      const execTime = await createScript(
+        bundleContent,
+        workspaceId,
+        body,
+        workspace
+      );
+      log.info(
+        colors.yellow.bold(
+          `Created new script ${remotePath} (${execTime.toFixed(0)}ms)`
+        )
+      );
     }
     return true;
   }
@@ -839,15 +861,15 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
   const composers: { [key: string]: string } = {};
-  const els = await FSFSElement(Deno.cwd(), []);
+  const els = await FSFSElement(Deno.cwd(), [], false);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
-    p = "/" + p;
+    p = SEP + p;
     return (
       !isDir &&
       !(
-        p.endsWith("/package.json") ||
-        p.endsWith("requirements.txt") ||
-        p.endsWith("composer.json")
+        p.endsWith(SEP + "package.json") ||
+        p.endsWith(SEP + "requirements.txt") ||
+        p.endsWith(SEP + "composer.json")
       )
     );
   }, els)) {
@@ -871,7 +893,9 @@ async function generateMetadata(
   } & SyncOptions,
   scriptPath: string | undefined
 ) {
-  log.info("This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`");
+  log.info(
+    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`"
+  );
   if (scriptPath == "") {
     scriptPath = undefined;
   }
@@ -900,7 +924,7 @@ async function generateMetadata(
   } else {
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), codebases),
+      await FSFSElement(Deno.cwd(), codebases, false),
       (p, isD) => {
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||

@@ -18,7 +18,7 @@ use windmill_common::{
     utils::WarnAfterExt,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file,
-        ROOT_CACHE_DIR, TMP_DIR,
+        ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
     },
 };
 
@@ -250,8 +250,6 @@ pub async fn create_token_for_owner(
     Ok(format!("jwt_{}", token))
 }
 
-pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
-
 pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
 pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
@@ -274,6 +272,7 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
+pub const BUN_CODEBASE_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "script_bundle");
 
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
@@ -2029,10 +2028,16 @@ async fn handle_queued_job(
             | JobKind::FlowPreview
             | JobKind::Flow
             | JobKind::FlowDependencies,
-            None,
-        ) => Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?),
+            x,
+        ) => match x.map(|x| x.0) {
+            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => {
+                Some(cache::job::fetch_preview(db, &job.id, raw_lock, raw_code, raw_flow).await?)
+            }
+            _ => None,
+        },
         _ => None,
     };
+
     let cached_res_path = if job.cache_ttl.is_some() {
         Some(cached_result_path(db, &client.get_authed().await, &job, preview_data.as_ref()).await)
     } else {
