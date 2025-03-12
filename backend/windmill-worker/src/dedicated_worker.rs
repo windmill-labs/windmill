@@ -683,7 +683,7 @@ async fn spawn_dedicated_worker(
                     #[cfg(not(feature = "python"))]
                     {
                         tracing::error!("Python requires the python feature to be enabled");
-                        killpill_tx.send(()).expect("send");
+                        killpill_tx.send();
                         return;
                     }
 

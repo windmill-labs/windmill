@@ -431,6 +431,12 @@ pub struct KillpillSender {
     already_sent: Arc<AtomicBool>,
 }
 
+impl Clone for KillpillSender {
+    fn clone(&self) -> Self {
+        KillpillSender { tx: self.tx.clone(), already_sent: self.already_sent.clone() }
+    }
+}
+
 impl KillpillSender {
     pub fn new(capacity: usize) -> (Self, broadcast::Receiver<()>) {
         let (tx, rx) = broadcast::channel(capacity);
