@@ -181,6 +181,8 @@
 				if (date < min) {
 					min = date
 				}
+			} else {
+				console.log(job)
 			}
 		}
 		return min

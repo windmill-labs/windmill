@@ -134,7 +134,7 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let args_query = if let Some(args) = &g.args {
-        format!("and args @> '{}'", args)
+        sql_builder::bind::Bind::bind(&"args @> ?", &args.replace("'", "''"))
     } else {
         "".to_string()
     };
