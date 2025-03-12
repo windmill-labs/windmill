@@ -138,17 +138,6 @@
 									<div class="flex items-center flex-wrap gap-x-2 justify-between">
 										<div class="text-sm text-secondary">Search by args</div>
 										<div class="flex flex-wrap gap-x-2">
-											<Button
-												on:click={async () => {
-													appliedSearchArgs = structuredClone(searchArgs)
-													await tick()
-													historicInputs?.refresh()
-												}}
-												endIcon={{ icon: Search }}
-												variant="contained"
-												size="xs2"
-												color="dark">Search</Button
-											>
 											{#if !emptySearchArgs}
 												<Button
 													on:click={async () => {
@@ -162,6 +151,17 @@
 													color="light">Reset filters</Button
 												>
 											{/if}
+											<Button
+												on:click={async () => {
+													appliedSearchArgs = structuredClone(searchArgs)
+													await tick()
+													historicInputs?.refresh()
+												}}
+												endIcon={{ icon: Search }}
+												variant="contained"
+												size="xs2"
+												color="dark">Search</Button
+											>
 										</div>
 									</div>
 									<div class="my-2">
