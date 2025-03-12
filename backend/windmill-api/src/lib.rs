@@ -377,7 +377,7 @@ pub async fn run_server(
         Router::new()
     };
 
-    if !*CLOUD_HOSTED {
+    if !*CLOUD_HOSTED && server_mode {
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
