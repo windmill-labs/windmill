@@ -1,61 +1,14 @@
 #![cfg_attr(target_arch = "wasm32", feature(c_variadic))]
 
-#[cfg(target_arch = "wasm32")]
-pub mod wasm_libc;
-
 use anyhow::{anyhow, bail};
-use nu_cmd_lang::Def;
 use nu_parser::lex;
-use nu_protocol::{
-    ast::{Expr, Expression},
-    engine::{Command, EngineState, StateWorkingSet},
-    PositionalArg, Span, SyntaxShape,
-};
-// use serde_json::{json, Map};
-// use windmill_parser::{Arg, MainArgSignature, ObjectProperty};
 
 use serde_json::{json, Value};
-// use tree_sitter::Node;
-use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser::{Arg, MainArgSignature, Typ};
 
-pub fn create_default_context() -> EngineState {
-    let mut engine_state = EngineState::new();
-
-    let delta = {
-        let mut working_set = StateWorkingSet::new(&engine_state);
-
-        macro_rules! bind_command {
-            ( $( $command:expr ),* $(,)? ) => {
-                $( working_set.add_decl(Box::new($command)); )*
-            };
-        }
-
-        // Core
-        bind_command! {
-            Def,
-        };
-
-        working_set.render()
-    };
-
-    if let Err(err) = engine_state.merge_delta(delta) {
-        eprintln!("Error creating default context: {err:?}");
-    }
-
-    engine_state
-}
-// // TODO: Preprocessors?
 pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
-    // let engine_state = nu_cmd_lang::create_default_context();
-    // let engine_state = create_default_context();
-
-    // let mut set = StateWorkingSet::new(&engine_state);
-    // set.add_decl(Box::new(Command::))
-    // let file_id = set.add_file("source".to_owned(), code.as_bytes());
-    let (tokens, err) = lex(code.as_bytes(), 0, &[], &[], true);
-
+    let (tokens, ..) = lex(code.as_bytes(), 0, &[], &[], true);
     let src = code.to_owned();
-
     #[derive(Debug)]
     enum LastToken {
         None,
@@ -63,7 +16,6 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
         Main,
         Args(String),
     }
-
     let mut last_token = LastToken::None;
     for token in tokens {
         let s = token.span;
@@ -86,22 +38,23 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
     let mut sig = MainArgSignature::default();
     sig.no_main_func = Some(false);
 
-    let batches = dbg!(args
+    let batches = args
         .lines()
-        .filter_map(|el| if el.trim_start().starts_with('#') {
-            None
-        } else {
-            Some(
-                el.split(',')
-                    .map(|el| el.trim())
-                    .filter(|el| el != &"")
-                    .collect::<Vec<&str>>(),
-            )
+        .filter_map(|el| {
+            if el.trim_start().starts_with('#') {
+                None
+            } else {
+                Some(
+                    el.split(',')
+                        .map(|el| el.trim())
+                        .filter(|el| el != &"")
+                        .collect::<Vec<&str>>(),
+                )
+            }
         })
         .flatten()
-        .collect::<Vec<&str>>());
+        .collect::<Vec<&str>>();
 
-    dbg!(&batches);
     let mut compensate_lookahead = 0;
     for (i, batch) in batches.iter().enumerate() {
         // parse_default can lookahead and if it does we need to compensate
@@ -242,7 +195,6 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
         skip: &mut usize,
     ) -> anyhow::Result<Value> {
         let mut c = content.replace("=", "").trim().to_owned();
-        dbg!(&c);
 
         fn parse_object_literal(
             (open, close): (char, char),
@@ -268,9 +220,7 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
                 .iter()
                 .skip(i + 1)
                 .map_while(|el| {
-                    // TODO: Check for nesting
                     let el = el.trim();
-                    dbg!(&el);
 
                     if closed {
                         None
@@ -285,8 +235,6 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
                 .collect::<Vec<&str>>()
                 .join(",");
 
-            dbg!(&remainder);
-
             if remainder.contains(&['{', '[']) {
                 bail!("Nesting is not supported")
             }
@@ -298,16 +246,16 @@ pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
         // It is list
         if c.contains("[") {
             if c.chars().last() != Some(']') {
-                c = dbg!(parse_object_literal(('[', ']'), c.clone(), ctx, i, skip)?);
+                c = parse_object_literal(('[', ']'), c.clone(), ctx, i, skip)?;
             }
         }
         // It is record
         if c.contains("{") {
             if c.chars().last() != Some('}') {
-                c = dbg!(parse_object_literal(('{', '}'), c.clone(), ctx, i, skip)?);
+                c = parse_object_literal(('{', '}'), c.clone(), ctx, i, skip)?;
             }
         }
-        Ok(dbg!(serde_json::from_str(&c))?)
+        Ok(serde_json::from_str(&c)?)
     }
     Ok(sig)
 }

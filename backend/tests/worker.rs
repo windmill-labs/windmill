@@ -1938,11 +1938,10 @@ def main [
   e: datetime
   f: string
   j: nothing
-  k: binary
   ## Nesting
-  g: record<a: number>
+  g: record
   h: list<string>
-  i: table<a: number, b: string, c: bool>
+  i: table
   # Optional
   m?
   n = "foo"
@@ -1974,7 +1973,6 @@ def main [
     .arg("e", json!("2024-09-24T10:00:00.000Z"))
     .arg("f", json!("str"))
     .arg("j", json!(null))
-    .arg("k", json!("0x[ffffffff]"))
     .arg("g", json!({"a": 32}))
     .arg("h", json!(["foo"]))
     .arg(

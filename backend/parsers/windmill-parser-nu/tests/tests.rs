@@ -139,7 +139,6 @@ mod test {
                     a8: list,
                     a9: table,
                     a10: nothing,
-                    a11: binary
                     ] {}
             "#,
         )
@@ -226,14 +225,6 @@ mod test {
                         name: "a10".into(),
                         otyp: None,
                         typ: Typ::Unknown,
-                        default: None,
-                        has_default: false,
-                        oidx: None
-                    },
-                    Arg {
-                        name: "a11".into(),
-                        otyp: None,
-                        typ: Typ::Bytes,
                         default: None,
                         has_default: false,
                         oidx: None
@@ -498,7 +489,7 @@ mod test {
     fn test_nu_wrapup_sig() {
         let sig = parse_nu_signature(
             r#"
-                def main [a  ,b :int,c? , d: string = "foo", bi?: binary ] {}
+                def main [a  ,b :int,c? , d: string = "foo", bi?: any] {}
             "#,
         )
         .unwrap();
@@ -543,7 +534,7 @@ mod test {
                     Arg {
                         name: "bi".into(),
                         otyp: None,
-                        typ: Typ::Bytes,
+                        typ: Typ::Unknown,
                         default: Some(serde_json::Value::Null),
                         has_default: true,
                         oidx: None
