@@ -11,6 +11,7 @@
 	export let showAuthor = false
 	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
 	export let limitPayloadSize = false
+	export let searchArgs: Record<string, any> | undefined = undefined
 
 	let infiniteList: InfiniteList | undefined = undefined
 	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
@@ -37,7 +38,8 @@
 				runnableType,
 				page,
 				perPage,
-				includePreview: true
+				includePreview: true,
+				args: searchArgs ? JSON.stringify(searchArgs) : undefined
 			})
 
 			const inputsWithPayload = await Promise.all(

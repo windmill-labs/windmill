@@ -566,6 +566,7 @@
 		<svelte:fragment slot="save_inputs">
 			<SavedInputsV2
 				bind:this={savedInputsV2}
+				schema={flow?.schema}
 				{jsonView}
 				flowPath={flow?.path}
 				{isValid}
