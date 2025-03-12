@@ -1,7 +1,7 @@
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::{
-    args::WebhookArgs,
+    args::try_from_request_body,
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::{
@@ -11,18 +11,17 @@ use crate::{
     users::fetch_api_authed,
 };
 use axum::{
-    extract::{Path, Query},
+    extract::{Path, Query, Request},
     response::IntoResponse,
     routing::{delete, get, post},
     Extension, Json, Router,
 };
 #[cfg(feature = "parquet")]
 use http::header::IF_NONE_MATCH;
-use http::{header::CONTENT_TYPE, HeaderMap, StatusCode};
+use http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::{prelude::FromRow, types::JsonRawValue};
+use sqlx::prelude::FromRow;
 use std::borrow::Cow;
 use std::{collections::HashMap, sync::Arc};
 use tower_http::cors::CorsLayer;
@@ -878,7 +877,7 @@ async fn route_job(
     Query(query): Query<HashMap<String, String>>,
     method: http::Method,
     headers: HeaderMap,
-    args: WebhookArgs,
+    request: Request,
 ) -> impl IntoResponse {
     let route_path = route_path.to_path().trim_end_matches("/");
     let (trigger, called_path, params, authed) = match get_http_route_trigger(
@@ -895,15 +894,24 @@ async fn route_job(
         Err(e) => return e.into_response(),
     };
 
-    let mut args = match args
-        .to_push_args_owned(&authed, &db, &trigger.workspace_id)
-        .await
-    {
-        Ok(args) => args,
+    let result = try_from_request_body(
+        request,
+        &db,
+        Some(trigger.raw_string),
+        Some(trigger.wrap_body),
+    )
+    .await;
+
+    let mut args = match result {
+        Ok(args) => match args
+            .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+            .await
+        {
+            Ok(args) => args,
+            Err(e) => return e.into_response(),
+        },
         Err(e) => return e.into_response(),
     };
-
-    println!("{:#?}", &args);
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
@@ -1013,40 +1021,6 @@ async fn route_job(
                 return (status, headers, body_stream).into_response()
             }
             Err(e) => return e.into_response(),
-        }
-    }
-
-    if trigger.raw_string {
-        let is_raw_string_key = args
-            .extra
-            .as_ref()
-            .and_then(|extra| extra.get("raw_string"))
-            .is_some();
-        if !is_raw_string_key {
-            let value = if args.args.is_empty() {
-                to_raw_value(&Value::Null)
-            } else {
-                to_raw_value(&args.args)
-            };
-            args.extra
-                .as_mut()
-                .map(|extra| extra.insert("raw_string".to_string(), value));
-        }
-    }
-
-    if trigger.wrap_body {
-        let content_type = headers
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok());
-        match content_type {
-            Some(content)
-                if content.starts_with("application/json")
-                    || content.starts_with("application/cloudevents+json")
-                    || content.starts_with("application/cloudevents-batch+json") =>
-            {
-                args.args = HashMap::from([("body".to_string(), to_raw_value(&args.args))]);
-            }
-            _ => {}
         }
     }
 

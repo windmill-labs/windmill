@@ -445,28 +445,34 @@
 							</Label>
 							<Label label="Raw string" class="w-full">
 								<svelte:fragment slot="header">
-									<Tooltip>Enables receiving the JSON payload as a raw string for signature verification and other use cases.</Tooltip>
+									<Tooltip
+										>Provides the raw JSON payload as a string under the 'raw_string' key, useful for
+										signature verification and other use cases.</Tooltip
+									>
 								</svelte:fragment>
 								<svelte:fragment slot="action">
 									<Toggle
 										checked={raw_string}
 										on:change={() => {
 											raw_string = !raw_string
-										}}>g</Toggle
-									>
+										}}
+									/>
 								</svelte:fragment>
 							</Label>
 							<Label label="Wrap body" class="w-full">
 								<svelte:fragment slot="header">
-									<Tooltip>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip>
+									<Tooltip
+										>Wraps the payload in an object under the 'body' key, useful for handling
+										unknown payloads.</Tooltip
+									>
 								</svelte:fragment>
 								<svelte:fragment slot="action">
 									<Toggle
 										checked={wrap_body}
 										on:change={() => {
 											wrap_body = !wrap_body
-										}}>g</Toggle
-									>
+										}}
+									/>
 								</svelte:fragment>
 							</Label>
 						</div>
