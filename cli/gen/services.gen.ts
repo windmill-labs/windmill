@@ -7801,6 +7801,7 @@ export const unstar = (data: UnstarData): CancelablePromise<UnstarResponse> => {
  * @param data.runnableType
  * @param data.page which page to return (start at 1, default 1)
  * @param data.perPage number of items to return for a given page (default 30, max 100)
+ * @param data.args filter on jobs containing those args as a json subset (@> in postgres)
  * @param data.includePreview
  * @returns Input Input history for completed jobs
  * @throws ApiError
@@ -7816,6 +7817,7 @@ export const getInputHistory = (data: GetInputHistoryData): CancelablePromise<Ge
         runnable_type: data.runnableType,
         page: data.page,
         per_page: data.perPage,
+        args: data.args,
         include_preview: data.includePreview
     }
 }); };
