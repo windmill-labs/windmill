@@ -245,7 +245,7 @@ async function generateLocks(
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
       await elementsToMap(
-        await FSFSElement(Deno.cwd(), []),
+        await FSFSElement(Deno.cwd(), [], true),
         (p, isD) => {
           return (
             ignore(p, isD) ||
