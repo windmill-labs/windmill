@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::collections::HashMap;
 use windmill_common::schema::{SchemaValidationRule, SchemaValidator};
 use windmill_parser::{MainArgSignature, Typ};
 

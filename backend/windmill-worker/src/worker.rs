@@ -3015,11 +3015,14 @@ fn parse_sig_of_lang(
                     main_override,
                 )?)
             }
+            #[cfg(feature = "python")]
             ScriptLang::Python3 => Some(windmill_parser_py::parse_python_signature(
                 code,
                 main_override,
                 false,
             )?),
+            #[cfg(not(feature = "python"))]
+            ScriptLang::Python3 => None,
             ScriptLang::Go => Some(windmill_parser_go::parse_go_sig(code)?),
             ScriptLang::Bash => Some(windmill_parser_bash::parse_bash_sig(code)?),
             ScriptLang::Powershell => Some(windmill_parser_bash::parse_powershell_sig(code)?),
@@ -3030,13 +3033,22 @@ fn parse_sig_of_lang(
             ScriptLang::Graphql => None,
             ScriptLang::Mssql => Some(windmill_parser_sql::parse_mssql_sig(code)?),
             ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code)?),
+            #[cfg(feature = "php")]
             ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(
                 code,
                 main_override,
             )?),
+            #[cfg(not(feature = "php"))]
+            ScriptLang::Php => None,
+            #[cfg(feature = "rust")]
             ScriptLang::Rust => Some(windmill_parser_rust::parse_rust_signature(code)?),
+            #[cfg(not(feature = "rust"))]
+            ScriptLang::Rust => None,
             ScriptLang::Ansible => Some(windmill_parser_yaml::parse_ansible_sig(code)?),
+            #[cfg(feature = "csharp")]
             ScriptLang::CSharp => Some(windmill_parser_csharp::parse_csharp_signature(code)?),
+            #[cfg(not(feature = "csharp"))]
+            ScriptLang::CSharp => None,
         }
     } else {
         None
