@@ -46,7 +46,7 @@ use windmill_common::{
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
-    DB, METRICS_ENABLED,
+    KillpillSender, DB, METRICS_ENABLED,
 };
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -361,7 +361,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
 
-    let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
     let server_killpill_rx = killpill_phase2_tx.subscribe();
@@ -619,7 +619,7 @@ Windmill Community Edition {GIT_VERSION}
                     )
                     .await?;
                     tracing::info!("All workers exited.");
-                    killpill_tx.send(())?;
+                    killpill_tx.send();
                 } else {
                     rx.recv().await?;
                 }
@@ -643,7 +643,6 @@ Windmill Community Edition {GIT_VERSION}
             let base_internal_url = base_internal_url.to_string();
             let h = tokio::spawn(async move {
                 let mut listener = retry_listen_pg(&db).await;
-
                 loop {
                     tokio::select! {
                         biased;
@@ -868,6 +867,7 @@ Windmill Community Edition {GIT_VERSION}
                 tracing::error!("Error waiting for monitor handle: {e:#}")
             }
             tracing::info!("Monitor exited");
+            killpill_tx.send();
             Ok(()) as anyhow::Result<()>
         };
 
@@ -982,7 +982,7 @@ fn display_config(envs: &[&str]) {
 pub async fn run_workers(
     db: Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     num_workers: i32,
     base_internal_url: String,
     agent_mode: bool,
@@ -1095,11 +1095,7 @@ pub async fn run_workers(
     Ok(())
 }
 
-async fn send_delayed_killpill(
-    tx: &tokio::sync::broadcast::Sender<()>,
-    mut max_delay_secs: u64,
-    context: &str,
-) {
+async fn send_delayed_killpill(tx: &KillpillSender, mut max_delay_secs: u64, context: &str) {
     if max_delay_secs == 0 {
         max_delay_secs = 1;
     }
@@ -1108,7 +1104,5 @@ async fn send_delayed_killpill(
     tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
 
-    if let Err(e) = tx.send(()) {
-        tracing::error!(error = %e, "Could not send killpill for {context}");
-    }
+    tx.send();
 }
