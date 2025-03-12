@@ -144,7 +144,7 @@
 														searchArgs = {}
 														appliedSearchArgs = {}
 														await tick()
-														historicInputs?.refresh()
+														historicInputs?.refresh(true)
 													}}
 													variant="contained"
 													size="xs2"
@@ -155,7 +155,7 @@
 												on:click={async () => {
 													appliedSearchArgs = structuredClone(searchArgs)
 													await tick()
-													historicInputs?.refresh()
+													historicInputs?.refresh(true)
 												}}
 												endIcon={{ icon: Search }}
 												variant="contained"

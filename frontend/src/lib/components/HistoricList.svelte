@@ -18,7 +18,10 @@
 	let viewerOpen = false
 	let openStates: Record<string, boolean> = {} // Track open state for each item
 
-	export function refresh() {
+	export function refresh(clearCurrentRuns: boolean = false) {
+		if (clearCurrentRuns) {
+			infiniteList?.reset()
+		}
 		if (infiniteList) {
 			infiniteList.loadData('refresh')
 		}
