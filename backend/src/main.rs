@@ -46,7 +46,7 @@ use windmill_common::{
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
-    DB, METRICS_ENABLED,
+    KillpillSender, DB, METRICS_ENABLED,
 };
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -361,7 +361,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
 
-    let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
     let server_killpill_rx = killpill_phase2_tx.subscribe();
@@ -619,7 +619,7 @@ Windmill Community Edition {GIT_VERSION}
                     )
                     .await?;
                     tracing::info!("All workers exited.");
-                    killpill_tx.send(())?;
+                    killpill_tx.send();
                 } else {
                     rx.recv().await?;
                 }
@@ -982,7 +982,7 @@ fn display_config(envs: &[&str]) {
 pub async fn run_workers(
     db: Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     num_workers: i32,
     base_internal_url: String,
     agent_mode: bool,
