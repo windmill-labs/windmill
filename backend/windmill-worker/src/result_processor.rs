@@ -33,10 +33,7 @@ use windmill_queue::{append_logs, get_queued_job, CanceledBy, WrappedError};
 use serde_json::{json, value::RawValue};
 
 use tokio::{
-    sync::{
-        self,
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{Receiver, Sender},
     task::JoinHandle,
 };
 
