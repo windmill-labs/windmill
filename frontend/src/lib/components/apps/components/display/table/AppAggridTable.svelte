@@ -383,6 +383,11 @@
 									} else {
 										e.api.getRowNode(index.toString())?.setSelected(true)
 									}
+								},
+								setValue(nvalue) {
+									if (Array.isArray(nvalue)) {
+										value = nvalue
+									}
 								}
 							}
 							api = e.api

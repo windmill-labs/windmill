@@ -250,6 +250,12 @@
 			if (filteredResult) {
 				toggleRow({ original: filteredResult[index] }, true)
 			}
+		},
+		setValue(nvalue) {
+			if (Array.isArray(nvalue)) {
+				result = nvalue
+				outputs?.result.set(nvalue)
+			}
 		}
 	}
 
