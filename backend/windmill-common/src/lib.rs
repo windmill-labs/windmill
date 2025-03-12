@@ -459,14 +459,14 @@ impl KillpillSender {
         }
     }
 
-    // Force send a signal regardless of previous sends
-    fn force_send(&self) -> Result<usize, broadcast::error::SendError<()>> {
-        self.already_sent.store(true, Ordering::SeqCst);
-        self.tx.send(())
-    }
+    // // Force send a signal regardless of previous sends
+    // fn force_send(&self) -> Result<usize, broadcast::error::SendError<()>> {
+    //     self.already_sent.store(true, Ordering::SeqCst);
+    //     self.tx.send(())
+    // }
 
-    // Check if the killpill has been sent
-    fn is_sent(&self) -> bool {
-        self.already_sent.load(Ordering::SeqCst)
-    }
+    // // Check if the killpill has been sent
+    // fn is_sent(&self) -> bool {
+    //     self.already_sent.load(Ordering::SeqCst)
+    // }
 }
