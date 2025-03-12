@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT content AS \"content!: String\",\n                    lock AS \"lock: String\", language AS \"language: Option<ScriptLang>\", envs AS \"envs: Vec<String>\", codebase LIKE '%.tar' as use_tar FROM script WHERE hash = $1 LIMIT 1",
+  "query": "SELECT content AS \"content!: String\",\n                    lock AS \"lock: String\", language AS \"language: Option<ScriptLang>\", envs AS \"envs: Vec<String>\", schema AS \"schema: String\", schema_validation AS \"schema_validation: bool\", codebase LIKE '%.tar' as use_tar FROM script WHERE hash = $1 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,16 @@
       },
       {
         "ordinal": 4,
+        "name": "schema: String",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 5,
+        "name": "schema_validation: bool",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
         "name": "use_tar",
         "type_info": "Bool"
       }
@@ -66,8 +76,10 @@
       true,
       false,
       true,
+      true,
+      false,
       null
     ]
   },
-  "hash": "d55eabd42559893bdf91c5fdab1ae58006013be26fcb9367b3c6830f38749799"
+  "hash": "03ae5b1c912b13a8a7aadf50cb4984a2ea952e782fd52eb3088454690bd13dd1"
 }
