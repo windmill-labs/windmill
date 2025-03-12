@@ -12,19 +12,35 @@
 	export let isEmpty: boolean = true
 	export let length: number = 0
 
+	const perPage = 20
+
 	let hasMore = false
 	let page = 1
-	let perPage = 10
 	let hasAlreadyFailed = false
 	let hovered: any | undefined = undefined
 	let initLoad = false
 	let loadInputs: ((page: number, perPage: number) => Promise<any[]>) | undefined = undefined
 	let deleteItemFn: ((id: any) => Promise<any>) | undefined = undefined
 
+	export function reset() {
+		items = undefined
+		loading = false
+		initLoad = false
+		length = 0
+		hasMore = false
+		page = 1
+	}
+
+	let loadingMore = false
+
 	export async function loadData(loadOption: 'refresh' | 'forceRefresh' | 'loadMore' = 'loadMore') {
 		// console.log('loadData', loadOption, length, items?.length)
 
 		if (!loadInputs) return
+		if (loadOption == 'loadMore') {
+			if (loadingMore || loading) return
+			loadingMore = true
+		}
 		loading = true
 		hasMore = length === perPage * page
 
@@ -76,6 +92,7 @@
 			dispatch('error', { type: 'load', error: err })
 		} finally {
 			loading = false
+			loadingMore = false
 		}
 	}
 
@@ -119,6 +136,7 @@
 				loadData()
 			}}
 			{loading}
+			{loadingMore}
 		>
 			<slot name="columns" />
 

@@ -57,8 +57,8 @@
 
 	let jobHovered: string | undefined = undefined
 
-	export function refresh() {
-		historicList?.refresh()
+	export function refresh(clearCurrentRuns: boolean = false) {
+		historicList?.refresh(clearCurrentRuns)
 	}
 
 	export function resetSelected(dispatchEvent?: boolean) {
