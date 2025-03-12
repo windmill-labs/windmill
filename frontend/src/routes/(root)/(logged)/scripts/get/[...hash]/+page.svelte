@@ -724,6 +724,7 @@
 			<svelte:fragment slot="save_inputs">
 				{#if args}
 					<SavedInputsV2
+						schema={script?.schema}
 						bind:this={savedInputsV2}
 						scriptPath={script?.path}
 						scriptHash={topHash}
