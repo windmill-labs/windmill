@@ -25,7 +25,7 @@
 	let schemaFormDrawer: Drawer | undefined = undefined
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
-	$: items = ((schema?.order ?? Object.keys(schema.properties ?? {}))?.map((item, index) => {
+	$: items = ((schema?.order ?? Object.keys(schema?.properties ?? {}))?.map((item, index) => {
 		return { value: item, id: item }
 	}) ?? []) as Array<{
 		value: string
