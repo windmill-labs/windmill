@@ -167,6 +167,7 @@
 			}
 		}
 		componentInput = componentInput
+		items = getItems(componentInput)
 	}
 
 	function deleteElementByType(index: number) {
