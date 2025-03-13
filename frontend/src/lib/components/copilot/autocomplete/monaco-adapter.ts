@@ -4,7 +4,7 @@ import { autocompleteRequest } from './request'
 import type { AIProvider } from '$lib/gen'
 import { sleep } from '$lib/utils'
 
-function applyMonacoStyles(targetEl: HTMLElement) {
+function applyMonacoStyles(targetEl: HTMLElement, greenHighlight?: boolean) {
 	const computedStyles = window.getComputedStyle(
 		document.querySelector('.monaco-editor .view-lines')!
 	)
@@ -12,6 +12,9 @@ function applyMonacoStyles(targetEl: HTMLElement) {
 	targetEl.style.fontSize = computedStyles.fontSize
 	targetEl.style.lineHeight = computedStyles.lineHeight
 	targetEl.style.color = 'gray'
+	if (greenHighlight) {
+		targetEl.style.backgroundColor = 'var(--vscode-diffEditor-insertedTextBackground)'
+	}
 	targetEl.style.whiteSpace = 'pre' // Preserve spacing like Monaco
 }
 
@@ -54,15 +57,103 @@ white-space: pre;
 	return { decoration, css }
 }
 
+export function applyChange(editor: meditor.IStandaloneCodeEditor, change: VisualChange) {
+	if (change.type === 'added_block') {
+		editor.executeEdits('chat', [
+			{
+				range: {
+					startLineNumber: change.position.afterLineNumber + 1,
+					startColumn: 0,
+					endLineNumber: change.position.afterLineNumber + 1,
+					endColumn: 1
+				},
+				text: change.value + '\n'
+			}
+		])
+	} else if (change.type === 'deleted') {
+		editor.executeEdits('chat', [
+			{
+				range: {
+					startLineNumber: change.range.startLine,
+					startColumn: change.range.startColumn,
+					endLineNumber: change.range.endLine + 1,
+					endColumn: 0
+				},
+				text: ''
+			}
+		])
+	}
+}
+
+function getReviewButtons(
+	editor: meditor.IStandaloneCodeEditor,
+	acceptFn: () => void,
+	rejectFn: () => void
+) {
+	const { contentWidth, verticalScrollbarWidth } = editor.getLayoutInfo()
+	const scrollLeft = editor.getScrollLeft()
+	const reviewButtons = document.createElement('div')
+	reviewButtons.classList.add('absolute', 'flex', 'flex-row', 'z-10', 'rounded')
+	reviewButtons.style.fontFamily = 'Inter'
+	reviewButtons.style.transform = 'translate(-100%, 100%)'
+	reviewButtons.style.left = `${contentWidth - verticalScrollbarWidth + scrollLeft}px`
+	reviewButtons.style.bottom = '0'
+	editor.onDidLayoutChange((e) => {
+		const scrollLeft = editor.getScrollLeft()
+		reviewButtons.style.left = `${e.contentWidth - e.verticalScrollbarWidth + scrollLeft}px`
+	})
+	editor.onDidScrollChange((e) => {
+		const { contentWidth, verticalScrollbarWidth } = editor.getLayoutInfo()
+		reviewButtons.style.left = `${contentWidth - verticalScrollbarWidth + e.scrollLeft}px`
+	})
+
+	const acceptButton = document.createElement('button')
+	acceptButton.innerHTML = 'Accept'
+	acceptButton.style.color = 'black'
+	acceptButton.style.padding = '0.1rem 0.2rem'
+	acceptButton.style.backgroundColor = 'rgb(100, 255, 100)'
+	acceptButton.classList.add('text-xs', 'font-normal', 'rounded-bl')
+	acceptButton.addEventListener('click', () => {
+		acceptFn()
+	})
+	const layout = editor.getLayoutInfo()
+	layout.width
+	const rejectButton = document.createElement('button')
+	rejectButton.innerHTML = 'Reject'
+	rejectButton.style.color = 'black'
+	rejectButton.style.padding = '0.1rem 0.2rem'
+	rejectButton.style.backgroundColor = 'rgb(255, 100, 100)'
+	rejectButton.classList.add('text-xs', 'font-normal', 'rounded-br')
+	rejectButton.addEventListener('click', () => {
+		rejectFn()
+	})
+	reviewButtons.append(acceptButton)
+	reviewButtons.append(rejectButton)
+	return reviewButtons
+}
+
 async function addMultilineGhostText(
 	editor: meditor.IStandaloneCodeEditor,
 	text: string,
 	afterLineNumber: number,
-	heightInLines: number
+	heightInLines: number,
+	options?: {
+		greenHighlight?: boolean
+		review?: {
+			acceptFn: () => void
+			rejectFn: () => void
+		}
+		extraChanges?: VisualChange[]
+	}
 ) {
 	const el = document.createElement('div')
 	el.innerHTML = text
-	applyMonacoStyles(el)
+
+	if (options?.review) {
+		const reviewButtons = getReviewButtons(editor, options.review.acceptFn, options.review.rejectFn)
+		el.append(reviewButtons)
+	}
+	applyMonacoStyles(el, options?.greenHighlight)
 	const addZonePromise = new Promise<string>((resolve, reject) => {
 		editor?.changeViewZones((acc) => {
 			const id = acc.addZone({
@@ -78,7 +169,7 @@ async function addMultilineGhostText(
 	return addZonePromise
 }
 
-type VisualChange =
+export type VisualChange =
 	| {
 			type: 'added_inline'
 			position: {
@@ -94,6 +185,14 @@ type VisualChange =
 				afterLineNumber: number
 			}
 			value: string
+			options?: {
+				greenHighlight?: boolean
+				review?: {
+					acceptFn: () => void
+					rejectFn: () => void
+				}
+				extraChanges?: VisualChange[]
+			}
 	  }
 	| {
 			type: 'deleted'
@@ -102,6 +201,13 @@ type VisualChange =
 				startColumn: number
 				endLine: number
 				endColumn: number
+			}
+			options?: {
+				isWholeLine?: boolean
+				review?: {
+					acceptFn: () => void
+					rejectFn: () => void
+				}
 			}
 	  }
 
@@ -223,9 +329,9 @@ function lineChangesToVisualChanges(changes: Change[], startLineNumber: number) 
 	return { visualChanges }
 }
 
-export let VISUAL_CHANGES_CSS = `.editor-ghost-text-replaced { background-color: rgba(50, 255, 50, 0.3) !important; }\n.editor-ghost-text-removed { background-color: rgba(255, 50, 50, 0.3); }\n\n.editor-ghost-text { display: inline-block; background-color: var(--vscode-editor-background); color: gray;}`
+export let VISUAL_CHANGES_CSS = `.editor-ghost-text-replaced { background-color: var(--vscode-diffEditor-insertedTextBackground) !important; }\n.editor-ghost-text-removed { background-color: var(--vscode-diffEditor-removedTextBackground); }\n\n.editor-ghost-text { display: inline-block; background-color: var(--vscode-editor-background); color: gray;}`
 
-async function displayVisualChanges(
+export async function displayVisualChanges(
 	editor: meditor.IStandaloneCodeEditor,
 	visualChanges: VisualChange[]
 ) {
@@ -243,7 +349,7 @@ async function displayVisualChanges(
 			decorations.push(decoration)
 			css += newCss
 		} else if (change.type === 'deleted') {
-			const decoration = {
+			const decoration: meditor.IModelDeltaDecoration = {
 				range: {
 					startLineNumber: change.range.startLine,
 					startColumn: change.range.startColumn,
@@ -251,8 +357,33 @@ async function displayVisualChanges(
 					endColumn: change.range.endColumn
 				},
 				options: {
-					className: 'editor-ghost-text-removed'
+					className: 'editor-ghost-text-removed',
+					isWholeLine: change.options?.isWholeLine
 				}
+			}
+			if (change.options?.review) {
+				const id = await new Promise<string>((resolve, reject) => {
+					editor.changeViewZones((acc) => {
+						if (change.options?.review) {
+							const el = document.createElement('div')
+							const reviewButtons = getReviewButtons(
+								editor,
+								change.options.review.acceptFn,
+								change.options.review.rejectFn
+							)
+							el.append(reviewButtons)
+							resolve(
+								acc.addZone({
+									afterLineNumber: change.range.endLine,
+									afterColumn: 0,
+									heightInLines: 0,
+									domNode: el
+								})
+							)
+						}
+					})
+				})
+				ids.push(id)
 			}
 			decorations.push(decoration)
 		} else if (change.type === 'added_block') {
@@ -260,17 +391,19 @@ async function displayVisualChanges(
 				editor,
 				change.value,
 				change.position.afterLineNumber,
-				change.value.split('\n').length // we know it won't end by \n
+				change.value.split('\n').length, // we know it won't end by \n
+				change.options
 			)
 			ids.push(id)
 		}
 	}
 	const collection = editor.createDecorationsCollection(decorations)
+
 	setAutocompleteGlobalCSS(VISUAL_CHANGES_CSS + css)
 	return { collection, ids }
 }
 
-function getLines(code: string) {
+export function getLines(code: string) {
 	const lines = code.split('\n')
 	if (code.endsWith('\n')) {
 		lines.pop()

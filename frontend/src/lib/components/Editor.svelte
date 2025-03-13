@@ -171,7 +171,7 @@
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
-
+	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -599,6 +599,15 @@
 		}
 	}
 
+	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+	export function reviewAndApplyCode(code: string) {
+		aiChatEditorHandler?.showDiffs(code)
+	}
+
+	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
+		aiChatEditorHandler = new AIChatEditorHandler(editor)
+	}
+
 	let completorDisposable: Disposable | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
 		console.log('adding super completor')
@@ -618,10 +627,13 @@
 			}, 150)
 		})
 
-		completorDisposable = editor.onDidChangeCursorPosition((e) => {
+		completorDisposable = editor.onDidChangeModelContent((e) => {
 			autocompletor.reject()
 
-			const position = e.position
+			const position = editor.getPosition()
+			if (!position) {
+				return
+			}
 			const upToText = editor.getModel()?.getValueInRange({
 				startLineNumber: 1,
 				startColumn: 1,
@@ -656,6 +668,8 @@
 		initialized &&
 		editor &&
 		addSuperCompletor(editor)
+
+	$: initialized && editor && addChatHandler(editor)
 
 	$: !$codeCompletionSessionEnabled && completorDisposable && completorDisposable.dispose()
 
@@ -1164,6 +1178,14 @@
 			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
 				// CMD + slash (toggle comment) on some EU keyboards
 				editor?.trigger('keyboard', 'editor.action.commentLine', {})
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
+				dispatch('toggleAiPanel')
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
+				dispatch('toggleTestPanel')
 			})
 
 			if (

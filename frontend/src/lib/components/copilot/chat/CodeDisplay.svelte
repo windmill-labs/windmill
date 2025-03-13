@@ -4,8 +4,8 @@
 	import { editor as meditor } from 'monaco-editor'
 	import { getContext } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import type { Writable } from 'svelte/store'
 	import { initializeVscode } from '$lib/components/vscode'
+	import type { AIChatContext } from './core'
 
 	const astNode = getAstNode()
 
@@ -14,26 +14,20 @@
 		loading: loadingContext,
 		currentReply,
 		applyCode
-	} = getContext<{
-		originalCode: Writable<string>
-		loading: Writable<boolean>
-		currentReply: Writable<string>
-		applyCode: (code: string) => void
-	}>('AIChatContext')
+	} = getContext<AIChatContext>('AIChatContext')
 
 	$: code = $astNode.children?.[0]?.children?.[0]?.value
 
-	let loading = true
-	$: console.log('loading', $currentReply.length, $astNode?.position?.end.offset ?? 0)
+	$: language =
+		($astNode.children?.[0]?.properties?.class as string | undefined)?.split('-')[1] ?? 'typescript'
 
+	let loading = true
 	function shouldStopLoading(astNode: HastNode, replying: boolean) {
 		if (!replying || $currentReply.length > (astNode.position?.end.offset ?? 0)) {
 			loading = false
 		}
 	}
 	$: shouldStopLoading($astNode, $loadingContext)
-
-	$: console.log($astNode)
 
 	let diffEl: HTMLDivElement | undefined
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
@@ -62,8 +56,8 @@
 		})
 
 		diffEditor.setModel({
-			original: meditor.createModel($originalCode, 'typescript'),
-			modified: meditor.createModel(code ?? '', 'typescript')
+			original: meditor.createModel($originalCode, language),
+			modified: meditor.createModel(code ?? '', language)
 		})
 
 		const originalEditor = diffEditor.getOriginalEditor()

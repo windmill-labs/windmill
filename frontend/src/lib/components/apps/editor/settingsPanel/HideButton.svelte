@@ -3,7 +3,16 @@
 	import { ButtonType } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getModifierKey } from '$lib/utils'
-	import { PanelBottomClose, PanelLeftClose, PanelRightClose } from 'lucide-svelte'
+	import {
+		type Icon,
+		PanelBottomClose,
+		PanelBottomOpen,
+		PanelLeftClose,
+		PanelLeftOpen,
+		PanelRightClose,
+		PanelRightOpen
+	} from 'lucide-svelte'
+	import type { ComponentType } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let btnClasses: string | undefined = undefined
@@ -11,8 +20,16 @@
 
 	export let direction: 'left' | 'right' | 'bottom' = 'right'
 	export let hidden: boolean = false
+	export let shortcut: string | undefined = undefined
+	export let panelName: string | undefined = undefined
+	export let customHiddenIcon: ComponentType<Icon> | undefined = undefined
 
-	const IconMap = {
+	const OpenIconMap = {
+		left: PanelLeftOpen,
+		right: PanelRightOpen,
+		bottom: PanelBottomOpen
+	}
+	const CloseIconMap = {
 		left: PanelLeftClose,
 		right: PanelRightClose,
 		bottom: PanelBottomClose
@@ -28,17 +45,17 @@
 <Popover>
 	<svelte:fragment slot="text">
 		<div class="flex flex-row gap-1">
-			{hidden ? 'Show' : 'Hide '} the {direction} panel.
+			{hidden ? 'Show' : 'Hide '} the {panelName ?? direction} panel.
 
 			<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
-				{getModifierKey()}{shortcuts[direction]}
+				{getModifierKey()}{shortcut ?? shortcuts[direction]}
 			</div>
 		</div>
 	</svelte:fragment>
 	<Button
 		iconOnly
 		startIcon={{
-			icon: IconMap[direction]
+			icon: hidden ? customHiddenIcon ?? OpenIconMap[direction] : CloseIconMap[direction]
 		}}
 		{size}
 		btnClasses={twMerge(
