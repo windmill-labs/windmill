@@ -51,7 +51,7 @@
 	let s3FileUploadRawMode = false
 	let s3Editor: SimpleEditor | undefined = undefined
 	let workspaced_route: boolean = false
-	let webhook_resource: string = ''
+	let webhook_resource_path: string = ''
 
 	let drawerLoading = true
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -97,7 +97,7 @@
 			dirtyPath = false
 			is_static_website = false
 			workspaced_route = false
-			webhook_resource = ''
+			webhook_resource_path = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -120,6 +120,7 @@
 		is_async = s.is_async
 		requires_auth = s.requires_auth
 		workspaced_route = s.workspaced_route ?? false
+		webhook_resource_path = s.webhook_resource_path ?? ''
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config
@@ -144,7 +145,8 @@
 					http_method,
 					static_asset_config,
 					is_static_website,
-					workspaced_route
+					workspaced_route,
+					webhook_resource_path
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -161,7 +163,8 @@
 					http_method,
 					static_asset_config,
 					is_static_website,
-					workspaced_route
+					workspaced_route,
+					webhook_resource_path
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -372,12 +375,14 @@
 								{/if}
 							</div>
 
-							<Subsection
+
+							 <Subsection
 								label="Webhook"
 								tooltip="Make your http route endpoint act as a webhook endpoint"
 							>
-								<ResourcePicker resourceType="webhook" bind:value={webhook_resource} />
+								<ResourcePicker resourceType="webhook" bind:value={webhook_resource_path} />
 							</Subsection>
+
 						</div>
 					{/if}
 				</Section>

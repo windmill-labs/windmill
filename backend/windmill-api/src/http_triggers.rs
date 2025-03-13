@@ -1,10 +1,17 @@
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::{
-    args::WebhookArgs, auth::{AuthCache, OptTokened}, db::{ApiAuthed, DB}, jobs::{
+    args::WebhookArgs,
+    auth::{AuthCache, OptTokened},
+    db::{ApiAuthed, DB},
+    jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
-    }, resources::try_get_resource_from_db_as, users::fetch_api_authed, utils::non_empty_str, webhook_util::Webhook
+    },
+    resources::try_get_resource_from_db_as,
+    users::fetch_api_authed,
+    utils::non_empty_str,
+    webhook::Webhook,
 };
 use axum::{
     extract::{Path, Query},
@@ -640,7 +647,7 @@ async fn exists_route(
     Ok(Json(exists))
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct TriggerRoute {
     path: String,
     script_path: String,
@@ -886,6 +893,15 @@ async fn route_job(
             &trigger.workspace_id,
         )
         .await?;
+        let raw_string = args.args.extra.as_ref().map_or("".to_string(), |extra| {
+            extra
+                .get("raw_string")
+                .map(|raw| raw.to_string())
+                .unwrap_or("".to_string())
+        });
+        let verified = webhook.verify_signatures(&headers, &raw_string);
+
+        println!("Verified: {:#?}", &verified);
     }
 
     let mut args = args
