@@ -197,7 +197,7 @@
 				}
 			}
 		} else if (lastInput?.type === 'static' || lastInput?.type == 'template') {
-			value = await getValue(lastInput)
+			await debounceTemplate()
 		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
 		} else if (lastInput?.type == 'evalv2') {
