@@ -122,14 +122,9 @@
 
 			const id = insertNewGridItem(
 				value,
-				appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
-					customCss: {
-						container: {
-							class: '!p-0' as any,
-							style: ''
-						}
-					}
-				}) as (id: string) => AppComponent,
+				appComponentFromType(preset.targetComponent, preset.configuration, undefined) as (
+					id: string
+				) => AppComponent,
 				undefined,
 				undefined,
 				'topbar',

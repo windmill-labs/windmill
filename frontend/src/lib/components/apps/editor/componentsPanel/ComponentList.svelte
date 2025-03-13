@@ -139,7 +139,6 @@
 		const preset = presetsRecord[appComponentType]
 
 		push(history, $app)
-
 		const id = insertNewGridItem(
 			$app,
 			appComponentFromType(preset.targetComponent, preset.configuration, undefined) as (
