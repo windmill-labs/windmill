@@ -9,7 +9,9 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 
 	export let items: any[]
-	export let value: string[] | undefined = [] as string[]
+	let propValue: string[] | undefined = []
+	export { propValue as value }
+	$: value = structuredClone(propValue)
 	export let placeholder: string | undefined = undefined
 	export let target: string | HTMLElement | undefined = undefined
 	export let topPlacement = false
@@ -60,6 +62,9 @@
 				--sms-selected-bg={darkMode ? '#c7d2fe' : '#e0e7ff'}
 				--sms-selected-text-color={darkMode ? '#312e81' : '#3730a3'}
 				bind:selected={value}
+				on:change={() => {
+					propValue = value
+				}}
 				{placeholder}
 				options={items}
 				on:close={() => {
