@@ -74,12 +74,6 @@ const emptyApp = {
 			data: {
 				type: 'containercomponent',
 				configuration: {},
-				customCss: {
-					container: {
-						class: '!p-0',
-						style: ''
-					}
-				},
 				actions: [],
 				numberOfSubgrids: 1,
 				id: 'a'
