@@ -169,7 +169,7 @@
 											topPlacement
 											target="#multi-select-search"
 											placeholder="arg fields to filter on"
-											items={Object.keys(schema.properties)}
+											items={Object.keys(schema?.properties ?? {})}
 											bind:value={searchArgsFields}
 										/>
 									</div>
