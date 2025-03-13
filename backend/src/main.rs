@@ -665,9 +665,14 @@ Windmill Community Edition {GIT_VERSION}
                             tracing::info!("received killpill for monitor job");
                             break;
                         },
-                        notification = listener.recv() => {
+                        notification = listener.try_recv() => {
                             match notification {
                                 Ok(n) => {
+                                    if n.is_none() {
+                                        tracing::error!("Could not receive notification, attempting to reconnect to pg listener");
+                                        continue;
+                                    }
+                                    let n = n.unwrap();
                                     tracing::info!("Received new pg notification: {n:?}");
                                     match n.channel() {
                                         "notify_config_change" => {
