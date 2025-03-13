@@ -796,7 +796,7 @@
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const prevValueKeys = Object.keys(
-									oneOf.find((o) => o.title == detail)?.properties ?? {}
+									oneOf?.find((o) => o.title == detail)?.properties ?? {}
 								)
 								const toKeep = {}
 								for (const key of prevValueKeys) {

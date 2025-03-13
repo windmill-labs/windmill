@@ -22,8 +22,8 @@
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
-	export let route_path: string = ''
-	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
+	export let route_path: string | undefined
+	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
@@ -56,7 +56,11 @@
 			validateTimeout = undefined
 		}, 500)
 	}
-	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>, workspaced_route: boolean) {
+	async function routeExists(
+		route_path: string,
+		method: Exclude<typeof http_method, undefined>,
+		workspaced_route: boolean
+	) {
 		return await HttpTriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
@@ -73,6 +77,9 @@
 	$: isValid = routeError === ''
 
 	$: fullRoute = getHttpRoute(route_path, workspaced_route, $workspaceStore ?? '')
+
+	$: !http_method && (http_method = 'post')
+	$: route_path === undefined && (route_path = '')
 </script>
 
 <div>
@@ -185,7 +192,7 @@
 						<Toggle
 							size="sm"
 							checked={workspaced_route}
-							on:change={async () => {
+							on:change={() => {
 								workspaced_route = !workspaced_route
 								dirtyRoutePath = true
 							}}

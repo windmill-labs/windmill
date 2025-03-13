@@ -13772,6 +13772,10 @@ components:
           type: boolean
         workspaced_route:
           type: boolean
+        wrap_body:
+          type: boolean
+        raw_string:
+          type: boolean
 
       required:
         - route_path
@@ -13779,6 +13783,9 @@ components:
         - requires_auth
         - http_method
         - is_static_website
+        - workspaced_route
+        - wrap_body
+        - raw_string
 
     NewHttpTrigger:
       type: object
@@ -13818,6 +13825,10 @@ components:
           type: boolean
         is_static_website:
           type: boolean
+        wrap_body:
+          type: boolean
+        raw_string:
+          type: boolean 
 
       required:
         - path
@@ -13866,6 +13877,10 @@ components:
         requires_auth:
           type: boolean
         is_static_website:
+          type: boolean
+        wrap_body:
+          type: boolean
+        raw_string:
           type: boolean
       required:
         - path

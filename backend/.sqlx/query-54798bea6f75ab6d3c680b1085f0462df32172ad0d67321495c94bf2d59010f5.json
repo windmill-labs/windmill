@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                requires_auth, \n                edited_by, \n                email, \n                static_asset_config AS \"static_asset_config: _\",\n                workspaced_route,\n                is_static_website\n            FROM \n                http_trigger \n            WHERE \n                http_method = $1\n            ",
+  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                requires_auth, \n                edited_by, \n                email, \n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website\n            FROM \n                http_trigger \n            WHERE \n                http_method = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -55,11 +55,21 @@
       },
       {
         "ordinal": 10,
-        "name": "workspaced_route",
+        "name": "wrap_body",
         "type_info": "Bool"
       },
       {
         "ordinal": 11,
+        "name": "raw_string",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "workspaced_route",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
         "name": "is_static_website",
         "type_info": "Bool"
       }
@@ -94,8 +104,10 @@
       false,
       true,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "01b87cdd552c2d5a3cd475eb705110394fe6c8abcc1fa93291fac6f929043d20"
+  "hash": "54798bea6f75ab6d3c680b1085f0462df32172ad0d67321495c94bf2d59010f5"
 }

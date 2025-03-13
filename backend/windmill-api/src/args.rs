@@ -23,7 +23,7 @@ use crate::db::ApiAuthed;
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::{get_random_file_name, upload_file_internal};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct WebhookArgs {
     pub args: PushArgsOwned,
     pub multipart: Option<Multipart>,
@@ -163,6 +163,130 @@ async fn req_to_string<S: Send + Sync>(
         .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())
 }
 
+pub async fn try_from_request_body<S>(
+    request: Request,
+    _state: &S,
+    use_raw: Option<bool>,
+    wrap_body: Option<bool>,
+) -> Result<WebhookArgs, Response>
+where
+    S: Send + Sync,
+{
+    let (content_type, mut extra, use_raw, wrap_body) = {
+        let headers_map = request.headers();
+        let content_type_header = headers_map.get(CONTENT_TYPE);
+        let content_type = content_type_header.and_then(|value| value.to_str().ok());
+        let uri = request.uri();
+        let query = Query::<RequestQuery>::try_from_uri(uri).unwrap().0;
+        let mut extra = build_extra(&headers_map, query.include_header);
+        let query_decode = DecodeQueries::from_uri(uri);
+        if let Some(DecodeQueries(queries)) = query_decode {
+            extra.extend(queries);
+        }
+        let raw = query.raw.unwrap_or(use_raw.unwrap_or(false));
+        let wrap_body = query.wrap_body.unwrap_or(wrap_body.unwrap_or(false));
+        (content_type, extra, raw, wrap_body)
+    };
+
+    let no_content_type = content_type.is_none();
+    if no_content_type || content_type.unwrap().starts_with("application/json") {
+        let bytes = Bytes::from_request(request, _state)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        if no_content_type && bytes.is_empty() {
+            if use_raw {
+                extra.insert("raw_string".to_string(), to_raw_value(&"".to_string()));
+            }
+            let mut args = HashMap::new();
+            if wrap_body {
+                args.insert("body".to_string(), to_raw_value(&serde_json::json!({})));
+            }
+            return Ok(WebhookArgs {
+                args: PushArgsOwned { extra: Some(extra), args: args },
+                ..Default::default()
+            });
+        }
+        let str = String::from_utf8(bytes.to_vec())
+            .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
+
+        PushArgsOwned::from_json(extra, use_raw, wrap_body, str)
+            .await
+            .map(|args| WebhookArgs { args, ..Default::default() })
+    } else if content_type
+        .unwrap()
+        .starts_with("application/cloudevents+json")
+    {
+        let str = req_to_string(request, _state).await?;
+
+        PushArgsOwned::from_ce_json(extra, use_raw, str)
+            .await
+            .map(|args| WebhookArgs { args, ..Default::default() })
+    } else if content_type
+        .unwrap()
+        .starts_with("application/cloudevents-batch+json")
+    {
+        Err(
+            Error::BadRequest(format!("Cloud events batching is not supported yet"))
+                .into_response(),
+        )
+    } else if content_type.unwrap().starts_with("text/plain") {
+        let str = req_to_string(request, _state).await?;
+        extra.insert("raw_string".to_string(), to_raw_value(&str));
+        Ok(WebhookArgs {
+            args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
+            ..Default::default()
+        })
+    } else if content_type
+        .unwrap()
+        .starts_with("application/x-www-form-urlencoded")
+    {
+        let bytes = Bytes::from_request(request, _state)
+            .await
+            .map_err(IntoResponse::into_response)?;
+
+        if use_raw {
+            let raw_string = String::from_utf8(bytes.to_vec())
+                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
+            extra.insert("raw_string".to_string(), to_raw_value(&raw_string));
+        }
+
+        let payload: HashMap<String, Option<String>> = serde_urlencoded::from_bytes(&bytes)
+            .map_err(|e| {
+                Error::BadRequest(format!("invalid urlencoded data: {}", e)).into_response()
+            })?;
+        let payload = payload
+            .into_iter()
+            .map(|(k, v)| (k, to_raw_value(&v)))
+            .collect::<HashMap<_, _>>();
+
+        return Ok(WebhookArgs {
+            args: PushArgsOwned { extra: Some(extra), args: payload },
+            ..Default::default()
+        });
+    } else if content_type.unwrap().starts_with("application/xml")
+        || content_type.unwrap().starts_with("text/xml")
+    {
+        let str = req_to_string(request, _state).await?;
+        extra.insert("raw_string".to_string(), to_raw_value(&str));
+        Ok(WebhookArgs {
+            args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
+            ..Default::default()
+        })
+    } else if content_type.unwrap().starts_with("multipart/form-data") {
+        let multipart = Multipart::from_request(request, _state)
+            .await
+            .map_err(IntoResponse::into_response)?;
+
+        Ok(WebhookArgs {
+            args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
+            multipart: Some(multipart),
+            wrap_body: Some(wrap_body),
+        })
+    } else {
+        Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
+    }
+}
+
 #[axum::async_trait]
 impl<S> FromRequest<S, axum::body::Body> for WebhookArgs
 where
@@ -170,124 +294,10 @@ where
 {
     type Rejection = Response;
 
-    async fn from_request(
-        req: Request<axum::body::Body>,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let (content_type, mut extra, use_raw, wrap_body) = {
-            let headers_map = req.headers();
-            let content_type_header = headers_map.get(CONTENT_TYPE);
-            let content_type = content_type_header.and_then(|value| value.to_str().ok());
-            let uri = req.uri();
-            let query = Query::<RequestQuery>::try_from_uri(uri).unwrap().0;
-            let mut extra = build_extra(&headers_map, query.include_header);
-            let query_decode = DecodeQueries::from_uri(uri);
-            if let Some(DecodeQueries(queries)) = query_decode {
-                extra.extend(queries);
-            }
-            let raw = query.raw.as_ref().is_some_and(|x| *x);
-            let wrap_body = query.wrap_body.as_ref().is_some_and(|x| *x);
-            (content_type, extra, raw, wrap_body)
-        };
+    async fn from_request(request: Request, _state: &S) -> Result<Self, Self::Rejection> {
+        let args = try_from_request_body(request, _state, None, None).await?;
 
-        let no_content_type = content_type.is_none();
-        if no_content_type || content_type.unwrap().starts_with("application/json") {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            if no_content_type && bytes.is_empty() {
-                if use_raw {
-                    extra.insert("raw_string".to_string(), to_raw_value(&"".to_string()));
-                }
-                let mut args = HashMap::new();
-                if wrap_body {
-                    args.insert("body".to_string(), to_raw_value(&serde_json::json!({})));
-                }
-                return Ok(Self {
-                    args: PushArgsOwned { extra: Some(extra), args: args },
-                    ..Default::default()
-                });
-            }
-            let str = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-
-            PushArgsOwned::from_json(extra, use_raw, wrap_body, str)
-                .await
-                .map(|args| Self { args, ..Default::default() })
-        } else if content_type
-            .unwrap()
-            .starts_with("application/cloudevents+json")
-        {
-            let str = req_to_string(req, _state).await?;
-
-            PushArgsOwned::from_ce_json(extra, use_raw, str)
-                .await
-                .map(|args| Self { args, ..Default::default() })
-        } else if content_type
-            .unwrap()
-            .starts_with("application/cloudevents-batch+json")
-        {
-            Err(
-                Error::BadRequest(format!("Cloud events batching is not supported yet"))
-                    .into_response(),
-            )
-        } else if content_type.unwrap().starts_with("text/plain") {
-            let str = req_to_string(req, _state).await?;
-            extra.insert("raw_string".to_string(), to_raw_value(&str));
-            Ok(Self {
-                args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-                ..Default::default()
-            })
-        } else if content_type
-            .unwrap()
-            .starts_with("application/x-www-form-urlencoded")
-        {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-
-            if use_raw {
-                let raw_string = String::from_utf8(bytes.to_vec()).map_err(|e| {
-                    Error::BadRequest(format!("invalid utf8: {}", e)).into_response()
-                })?;
-                extra.insert("raw_string".to_string(), to_raw_value(&raw_string));
-            }
-
-            let payload: HashMap<String, Option<String>> = serde_urlencoded::from_bytes(&bytes)
-                .map_err(|e| {
-                    Error::BadRequest(format!("invalid urlencoded data: {}", e)).into_response()
-                })?;
-            let payload = payload
-                .into_iter()
-                .map(|(k, v)| (k, to_raw_value(&v)))
-                .collect::<HashMap<_, _>>();
-
-            return Ok(Self {
-                args: PushArgsOwned { extra: Some(extra), args: payload },
-                ..Default::default()
-            });
-        } else if content_type.unwrap().starts_with("application/xml")
-            || content_type.unwrap().starts_with("text/xml")
-        {
-            let str = req_to_string(req, _state).await?;
-            extra.insert("raw_string".to_string(), to_raw_value(&str));
-            Ok(Self {
-                args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-                ..Default::default()
-            })
-        } else if content_type.unwrap().starts_with("multipart/form-data") {
-            let multipart = Multipart::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-
-            Ok(Self {
-                args: PushArgsOwned { extra: Some(extra), args: HashMap::new() },
-                multipart: Some(multipart),
-                wrap_body: Some(wrap_body),
-            })
-        } else {
-            Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
-        }
+        Ok(args)
     }
 }
 

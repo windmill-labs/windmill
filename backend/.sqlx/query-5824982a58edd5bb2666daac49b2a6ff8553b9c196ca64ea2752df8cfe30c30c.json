@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT \n                    workspace_id, \n                    workspaced_route,\n                    path, \n                    route_path, \n                    route_path_key, \n                    script_path, \n                    is_flow, \n                    edited_by, \n                    edited_at, \n                    email, \n                    extra_perms, \n                    is_async, \n                    requires_auth, \n                    http_method AS \"http_method: _\", \n                    static_asset_config AS \"static_asset_config: _\", \n                    is_static_website \n                FROM http_trigger\n                WHERE workspace_id = $1\n                ",
+  "query": "\n                SELECT \n                    workspace_id, \n                    workspaced_route,\n                    path, \n                    route_path, \n                    route_path_key, \n                    script_path, \n                    is_flow, \n                    edited_by, \n                    edited_at, \n                    email, \n                    extra_perms, \n                    is_async, \n                    requires_auth, \n                    http_method AS \"http_method: _\", \n                    static_asset_config AS \"static_asset_config: _\", \n                    is_static_website,\n                    wrap_body,\n                    raw_string\n                FROM http_trigger\n                WHERE workspace_id = $1\n                ",
   "describe": {
     "columns": [
       {
@@ -95,6 +95,16 @@
         "ordinal": 15,
         "name": "is_static_website",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "wrap_body",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "raw_string",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -118,8 +128,10 @@
       false,
       false,
       true,
+      false,
+      false,
       false
     ]
   },
-  "hash": "e44ea5870a8eba1fe3d22d4dfe7734669464a56e470935ce2924723003f3f92b"
+  "hash": "5824982a58edd5bb2666daac49b2a6ff8553b9c196ca64ea2752df8cfe30c30c"
 }
