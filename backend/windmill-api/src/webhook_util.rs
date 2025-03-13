@@ -150,10 +150,46 @@ impl WebhookShared {
     }
 }
 
+#[derive(Deserialize)]
+pub enum HmacAlgorithm {
+    Sha1,
+    Sha256,
+    Sha512,
+    Md5,
+}
 
 #[derive(Deserialize)]
-pub enum WebhookAuthenticationMethod {
-    SignatureVerification
+pub enum Encoding {
+    Base64,
+    Base64Uri,
+    Hex,
+}
+
+#[derive(Deserialize)]
+pub struct HmacAuthentication {
+    pub algorithm: HmacAlgorithm,
+    pub encoding: Encoding,
+    pub signature_header_key: String,
+    pub webhook_signing_secret: String,
+}
+
+#[derive(Deserialize)]
+pub struct BasicAuthAuthentication {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct ApiKeyAuthentication {
+    api_key_header: String,
+    api_key: String,
+}
+
+#[derive(Deserialize)]
+pub enum AuthenticationMethod {
+    HMAC(HmacAuthentication),
+    BasicAuth(BasicAuthAuthentication),
+    ApiKey(ApiKeyAuthentication),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -163,11 +199,12 @@ pub enum WebhookProvider {
     Shopify,
     Github,
     Slack,
-    Paypal
+    Paypal,
+    Custom
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Webhook {
     pub provider: WebhookProvider,
-    pub secret: String
+    pub secret: String,
 }
