@@ -6,7 +6,7 @@
 	import { getContext } from 'svelte'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 	import ScriptTransformer from './shared/ScriptTransformer.svelte'
-	import { deepEqual } from 'fast-equals'
+	import { createOnObjChange } from '$lib/components/apps/components/helpers/onObjChange'
 
 	export let runnable: HiddenRunnable
 	export let id: string
@@ -23,16 +23,8 @@
 		}
 	}
 
-	// Fix infinite recursion bug
-	// Maybe not needed with svelte 5 runes
-	let prevRunnable: undefined | HiddenRunnable
-	function onDataChange() {
-		if (!deepEqual(prevRunnable, runnable)) {
-			prevRunnable = structuredClone(runnable)
-			$app = $app
-		}
-	}
-	$: runnable && onDataChange()
+	const onDataChange = createOnObjChange<HiddenRunnable>()
+	$: onDataChange(runnable, () => ($app = $app))
 </script>
 
 <div class={'border-y divide-y '}>
