@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.477.1](https://github.com/windmill-labs/windmill/compare/v1.477.0...v1.477.1) (2025-03-13)
+
+
+### Bug Fixes
+
+* fix rusttls panic ([6a6b760](https://github.com/windmill-labs/windmill/commit/6a6b760e321fae949a02c1b0e0c32b0beaa8693b))
+
 ## [1.477.0](https://github.com/windmill-labs/windmill/compare/v1.476.0...v1.477.0) (2025-03-12)
 
 
