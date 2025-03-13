@@ -183,14 +183,8 @@ where
         if let Some(DecodeQueries(queries)) = query_decode {
             extra.extend(queries);
         }
-        let raw = query
-            .raw
-            .as_ref()
-            .map_or(use_raw.unwrap_or(false), |raw| *raw);
-        let wrap_body = query
-            .wrap_body
-            .as_ref()
-            .map_or(wrap_body.unwrap_or(false), |wrap_body| *wrap_body);
+        let raw = query.raw.unwrap_or(use_raw.unwrap_or(false));
+        let wrap_body = query.wrap_body.unwrap_or(wrap_body.unwrap_or(false));
         (content_type, extra, raw, wrap_body)
     };
 
