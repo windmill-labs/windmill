@@ -45,7 +45,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
-	import { deepEqual } from 'fast-equals'
+	import { createOnObjChange } from '../../components/helpers/onObjChange'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -141,16 +141,8 @@
 		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
 		: undefined
 
-	// Fix infinite recursion bug
-	// Maybe not needed with svelte 5 runes
-	let prevComponentData: undefined | AppComponent
-	function onDataChange() {
-		if (!deepEqual(prevComponentData, componentSettings?.item?.data)) {
-			prevComponentData = structuredClone(componentSettings?.item?.data)
-			$app = $app
-		}
-	}
-	$: componentSettings?.item?.data && onDataChange()
+	const onDataChange = createOnObjChange<AppComponent>()
+	$: onDataChange(componentSettings?.item?.data, () => ($app = $app))
 
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
