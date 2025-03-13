@@ -898,7 +898,7 @@ async fn route_job(
     request: Request,
 ) -> impl IntoResponse {
     let route_path = route_path.to_path().trim_end_matches("/");
-    let (trigger, called_path, params, authed) = get_http_route_trigger(
+    let result = get_http_route_trigger(
         route_path,
         &auth_cache,
         token.as_ref(),
@@ -906,9 +906,14 @@ async fn route_job(
         user_db.clone(),
         &method,
     )
-    .await?;
+    .await;
 
-    let result = try_from_request_body(
+    let (trigger, called_path, params, authed) = match result {
+        Ok(result) => result,
+        Err(e) => return e.into_response(),
+    };
+
+    let args = try_from_request_body(
         request,
         &db,
         Some(trigger.raw_string),
@@ -916,22 +921,25 @@ async fn route_job(
     )
     .await;
 
-    let mut args = match result {
-        Ok(args) => match args
-            .to_push_args_owned(&authed, &db, &trigger.workspace_id)
-            .await
-        {
-            Ok(args) => args,
-            Err(e) => return e.into_response(),
-        },
+    let mut args = match args {
+        Ok(args) => {
+            match args
+                .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+                .await
+            {
+                Ok(args) => args,
+                Err(e) => return e.into_response(),
+            }
+        }
         Err(e) => return e.into_response(),
     };
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
-        return Err(error::Error::internal_err(
+        return error::Error::internal_err(
             "Static asset configuration is not supported in this build".to_string(),
-        ));
+        )
+        .into_response();
     }
 
     #[cfg(feature = "parquet")]
@@ -1112,5 +1120,5 @@ async fn route_job(
         }
     };
 
-    Ok(response)
+    response
 }
