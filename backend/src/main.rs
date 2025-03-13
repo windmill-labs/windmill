@@ -237,8 +237,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", "info")
     }
 
-    if let Err(e) = rustls::crypto::ring::default_provider().install_default() {
-        tracing::error!("Failed to install rustls crypto provider: {e:#}");
+    if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
+        tracing::error!("Failed to install rustls crypto provider");
     }
 
     let hostname = hostname();
