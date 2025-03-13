@@ -200,7 +200,8 @@
 		return (Array.isArray(componentInput.value) ? componentInput.value : [])
 			.filter((x) => x != undefined)
 			.map((item) => {
-				return { value: item, id: generateRandomString() }
+				const id: string = items.find((x) => x === item)?.id ?? generateRandomString()
+				return { value: item, id }
 			})
 	}
 
