@@ -64,7 +64,7 @@
 
 	$: filteredSchema = {
 		properties: Object.fromEntries(
-			Object.entries(schema.properties).filter(([key]) => searchArgsFields.includes(key))
+			Object.entries(schema?.properties ?? {}).filter(([key]) => searchArgsFields.includes(key))
 		)
 	}
 </script>
@@ -169,7 +169,7 @@
 											topPlacement
 											target="#multi-select-search"
 											placeholder="arg fields to filter on"
-											items={Object.keys(schema.properties)}
+											items={Object.keys(schema?.properties ?? {})}
 											bind:value={searchArgsFields}
 										/>
 									</div>

@@ -1,7 +1,7 @@
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::{
-    args::WebhookArgs,
+    args::try_from_request_body,
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::{
@@ -14,7 +14,7 @@ use crate::{
     webhook::Webhook,
 };
 use axum::{
-    extract::{Path, Query},
+    extract::{Path, Query, Request},
     response::IntoResponse,
     routing::{delete, get, post},
     Extension, Json, Router,
@@ -117,6 +117,8 @@ struct NewTrigger {
     http_method: HttpMethod,
     workspaced_route: Option<bool>,
     is_static_website: bool,
+    wrap_body: Option<bool>,
+    raw_string: Option<bool>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -137,9 +139,11 @@ pub struct HttpTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
-    pub workspaced_route: Option<bool>,
     #[serde(deserialize_with = "non_empty_str")]
     pub webhook_resource_path: Option<String>,
+    pub workspaced_route: bool,
+    pub wrap_body: bool,
+    pub raw_string: bool,
 }
 
 #[derive(Deserialize)]
@@ -155,6 +159,8 @@ struct EditTrigger {
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     workspaced_route: Option<bool>,
     is_static_website: bool,
+    wrap_body: Option<bool>,
+    raw_string: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +187,8 @@ async fn list_triggers(
             "route_path",
             "route_path_key",
             "workspaced_route",
+            "wrap_body",
+            "raw_string",
             "script_path",
             "is_flow",
             "http_method",
@@ -246,7 +254,9 @@ async fn get_trigger(
             requires_auth, 
             static_asset_config as "static_asset_config: _", 
             is_static_website,
-            webhook_resource_path
+            webhook_resource_path,
+            wrap_body,
+            raw_string
         FROM 
             http_trigger
         WHERE 
@@ -313,6 +323,8 @@ async fn create_trigger(
             route_path_key,
             workspaced_route,
             webhook_resource_path,
+            wrap_body,
+            raw_string,
             script_path, 
             is_flow, 
             is_async, 
@@ -325,7 +337,7 @@ async fn create_trigger(
             is_static_website
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), $17
         )
         "#,
         w_id,
@@ -334,6 +346,8 @@ async fn create_trigger(
         &route_path_key,
         ct.workspaced_route,
         ct.webhook_resource_path,
+        ct.wrap_body.unwrap_or(false),
+        ct.raw_string.unwrap_or(false),
         ct.script_path,
         ct.is_flow,
         ct.is_async,
@@ -415,25 +429,29 @@ async fn update_trigger(
                 route_path = $1, 
                 route_path_key = $2, 
                 workspaced_route = $3,
-                webhook_resource_path = $4,
-                script_path = $5, 
-                path = $6, 
-                is_flow = $7, 
-                http_method = $8, 
-                static_asset_config = $9, 
-                edited_by = $10, 
-                email = $11, 
-                is_async = $12, 
-                requires_auth = $13, 
+                wrap_body = $4,
+                raw_string = $5,
+                webhook_resource_path = $6,
+                script_path = $7, 
+                path = $8, 
+                is_flow = $9, 
+                http_method = $10, 
+                static_asset_config = $11, 
+                edited_by = $12, 
+                email = $13, 
+                is_async = $14, 
+                requires_auth = $15, 
                 edited_at = now(), 
-                is_static_website = $14
+                is_static_website = $16
             WHERE 
-                workspace_id = $15 AND 
-                path = $16
+                workspace_id = $17 AND 
+                path = $18
             "#,
             route_path,
             &route_path_key,
             ct.workspaced_route,
+            ct.wrap_body,
+            ct.raw_string,
             ct.webhook_resource_path,
             ct.script_path,
             ct.path,
@@ -659,10 +677,12 @@ struct TriggerRoute {
     edited_by: String,
     email: String,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
-    workspaced_route: Option<bool>,
     is_static_website: bool,
     #[serde(deserialize_with = "non_empty_str")]
     webhook_resource_path: Option<String>,
+    workspaced_route: bool,
+    wrap_body: bool,
+    raw_string: bool,
 }
 
 async fn get_http_route_trigger(
@@ -694,6 +714,8 @@ async fn get_http_route_trigger(
                 edited_by, 
                 email,
                 static_asset_config AS "static_asset_config: _",
+                wrap_body,
+                raw_string,
                 workspaced_route,
                 is_static_website,
                 webhook_resource_path
@@ -725,6 +747,8 @@ async fn get_http_route_trigger(
                 edited_by, 
                 email, 
                 static_asset_config AS "static_asset_config: _",
+                wrap_body,
+                raw_string,
                 workspaced_route,
                 is_static_website
             FROM 
@@ -743,7 +767,7 @@ async fn get_http_route_trigger(
 
     for (idx, trigger) in triggers.iter().enumerate() {
         let route_path = match trigger.workspaced_route {
-            Some(true) => format!("{}/{}", &trigger.workspace_id, &trigger.route_path),
+            true => format!("{}/{}", &trigger.workspace_id, &trigger.route_path),
             _ => trigger.route_path.clone(),
         };
         if trigger.is_static_website {
@@ -871,8 +895,8 @@ async fn route_job(
     Query(query): Query<HashMap<String, String>>,
     method: http::Method,
     headers: HeaderMap,
-    args: WebhookArgs,
-) -> Result<impl IntoResponse, impl IntoResponse> {
+    request: Request,
+) -> impl IntoResponse {
     let route_path = route_path.to_path().trim_end_matches("/");
     let (trigger, called_path, params, authed) = get_http_route_trigger(
         route_path,
@@ -884,29 +908,24 @@ async fn route_job(
     )
     .await?;
 
-    if let Some(webhook_resource_path) = trigger.webhook_resource_path {
-        let webhook = try_get_resource_from_db_as::<Webhook>(
-            authed.clone(),
-            Some(user_db.clone()),
-            &db,
-            &webhook_resource_path,
-            &trigger.workspace_id,
-        )
-        .await?;
-        let raw_string = args.args.extra.as_ref().map_or("".to_string(), |extra| {
-            extra
-                .get("raw_string")
-                .map(|raw| raw.to_string())
-                .unwrap_or("".to_string())
-        });
-        let verified = webhook.verify_signatures(&headers, &raw_string);
+    let result = try_from_request_body(
+        request,
+        &db,
+        Some(trigger.raw_string),
+        Some(trigger.wrap_body),
+    )
+    .await;
 
-        println!("Verified: {:#?}", &verified);
-    }
-
-    let mut args = args
-        .to_push_args_owned(&authed, &db, &trigger.workspace_id)
-        .await?;
+    let mut args = match result {
+        Ok(args) => match args
+            .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+            .await
+        {
+            Ok(args) => args,
+            Err(e) => return e.into_response(),
+        },
+        Err(e) => return e.into_response(),
+    };
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
@@ -1019,6 +1038,7 @@ async fn route_job(
     }
 
     let extra = args.extra.get_or_insert_with(HashMap::new);
+
     extra.insert(
         "wm_trigger".to_string(),
         build_http_trigger_extra(

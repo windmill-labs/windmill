@@ -58,7 +58,7 @@ use windmill_common::error::AppError;
 
 mod ai;
 mod apps;
-mod args;
+pub mod args;
 mod audit;
 mod auth;
 mod capture;
