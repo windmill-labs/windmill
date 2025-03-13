@@ -64,7 +64,7 @@
 
 	$: filteredSchema = {
 		properties: Object.fromEntries(
-			Object.entries(schema.properties).filter(([key]) => searchArgsFields.includes(key))
+			Object.entries(schema?.properties ?? {}).filter(([key]) => searchArgsFields.includes(key))
 		)
 	}
 </script>
