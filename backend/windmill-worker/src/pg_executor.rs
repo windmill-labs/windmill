@@ -432,10 +432,7 @@ pub async fn do_postgresql(
 
 async fn is_most_used_conn(database_string: &str) -> bool {
     let counter_map = CONNECTION_COUNTER.read().await;
-    let current_count = counter_map
-        .get(&database_string.to_string())
-        .copied()
-        .unwrap_or(0);
+    let current_count = counter_map.get(database_string).copied().unwrap_or(0);
     let max_count = counter_map.values().copied().max().unwrap_or(0);
     current_count >= max_count
 }
