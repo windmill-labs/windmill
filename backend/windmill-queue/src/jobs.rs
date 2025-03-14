@@ -247,7 +247,7 @@ pub async fn cancel_job<'c>(
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
-            "SELECT id AS \"id!\" FROM v2_job WHERE parent_job = $1 AND workspace_id = $2",
+            "SELECT id AS \"id!\" FROM v2_job_queue INNER JOIN v2_job USING (id) WHERE parent_job = $1 AND v2_job.workspace_id = $2",
             p_job,
             w_id
         )

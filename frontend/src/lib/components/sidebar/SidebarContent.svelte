@@ -50,6 +50,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
 	import AwsIcon from '../icons/AwsIcon.svelte'
 	import {
 		Menubar,
@@ -134,7 +135,14 @@
 			icon: AwsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'sqs'
-		}
+		},
+		{
+			label: 'MQTT',
+			href: '/mqtt_triggers',
+			icon: MqttIcon,
+			disabled: $userStore?.operator,
+			kind: 'mqtt'
+		},
 	]
 
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
@@ -165,7 +173,7 @@
 								icon: FolderCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...($superadmin
 					? [
@@ -175,7 +183,7 @@
 								icon: ServerCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...(!$superadmin && !$userStore?.is_admin
 					? [
@@ -188,7 +196,7 @@
 								icon: LogOut,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: [])
 			],
 			disabled: $userStore?.operator
@@ -232,7 +240,7 @@
 										href: `${base}/service_logs`,
 										icon: Logs
 									}
-							  ]
+								]
 							: []),
 						...($enterpriseLicense
 							? [
@@ -244,16 +252,16 @@
 										icon: AlertCircle,
 										notificationCount: numUnacknowledgedCriticalAlerts
 									}
-							  ]
+								]
 							: [])
 					]
-			  }
+				}
 			: {
 					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator
-			  }
+				}
 	]
 
 	let hasNewChangelogs = false
@@ -267,7 +275,7 @@
 			hasNewChangelogs =
 				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
 		} else {
-			recentChangelogs = changelogs.slice(-3)
+			recentChangelogs = changelogs.slice(0, 3)
 		}
 	})
 
@@ -441,7 +449,12 @@
 							>
 								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
 								{#if menuLink.label === 'Help' && hasNewChangelogs}
-									<span class="absolute top-1 right-1 flex h-2 w-2">
+									<span
+										class={twMerge(
+											'flex h-2 w-2 absolute',
+											isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
+										)}
+									>
 										<span
 											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
 										/>

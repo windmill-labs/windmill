@@ -46,6 +46,8 @@
 		open: false
 	})
 
+	let containerHeight: number = 0
+
 	let appDrawer: Drawer
 
 	$componentControl[id] = {
@@ -146,6 +148,7 @@
 				<div
 					class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
 					style={css?.drawer?.style}
+					bind:clientHeight={containerHeight}
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
@@ -161,6 +164,7 @@
 						<SubGridEditor
 							visible={open && render}
 							{id}
+							{containerHeight}
 							subGridId={`${id}-0`}
 							on:focus={() => {
 								if (!$connectingInput.opened) {

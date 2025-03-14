@@ -34,11 +34,7 @@ use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
-    auth::JWT_SECRET,
-    ee::CriticalErrorChannel,
-    error,
-    flow_status::{FlowStatus, FlowStatusModule},
-    global_settings::{
+    ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
@@ -48,23 +44,11 @@ use windmill_common::{
         NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-    },
-    indexer::load_indexer_config,
-    jobs::QueuedJob,
-    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
-    server::load_smtp_config,
-    tracing_init::JSON_FMT,
-    users::truncate_token,
-    utils::{now_from_db, rd_string, report_critical_error, Mode},
-    worker::{
+    }, indexer::load_indexer_config, jobs::QueuedJob, jwt::JWT_SECRET, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
         update_min_version, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG,
         SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
-    },
-    BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
-    HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS,
+    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -133,7 +117,7 @@ lazy_static::lazy_static! {
 
 pub async fn initial_load(
     db: &Pool<Postgres>,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     worker_mode: bool,
     server_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
@@ -242,19 +226,40 @@ pub async fn load_otel(db: &DB) {
         if let Some(v) = v {
             let deser = serde_json::from_value::<OtelSetting>(v);
             if let Ok(o) = deser {
-                let metrics_enabled = o.metrics_enabled.unwrap_or(false);
-                let logs_enabled = o.logs_enabled.unwrap_or(false);
-                let tracing_enabled = o.tracing_enabled.unwrap_or(false);
+                let metrics_enabled = o.metrics_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_METRICS_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
+                let logs_enabled = o.logs_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_LOGS_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
+                let tracing_enabled = o.tracing_enabled.unwrap_or_else(|| {
+                    std::env::var("OTEL_TRACING_ENABLED")
+                        .map(|x| x.parse::<bool>().unwrap_or(false))
+                        .unwrap_or(false)
+                });
 
                 OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
                 OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
-                if let Some(endpoint) = o.otel_exporter_otlp_endpoint.as_ref() {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint);
-                }
-                if let Some(headers) = o.otel_exporter_otlp_headers.as_ref() {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers);
-                }
+
+                let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    Some(endpoint.clone())
+                } else {
+                    std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()
+                };
+
+                let headers = if let Some(headers) = o.otel_exporter_otlp_headers {
+                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    Some(headers.clone())
+                } else {
+                    std::env::var("OTEL_EXPORTER_OTLP_HEADERS").ok()
+                };
+
                 if let Some(protocol) = o.otel_exporter_otlp_protocol {
                     std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
                 }
@@ -262,7 +267,7 @@ pub async fn load_otel(db: &DB) {
                     std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
                 }
                 println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
-                o.otel_exporter_otlp_endpoint, o.otel_exporter_otlp_headers.is_some());
+                endpoint, headers.is_some());
             } else {
                 tracing::error!("Error deserializing otel settings");
             }
@@ -1244,7 +1249,7 @@ pub async fn monitor_db(
     server_mode: bool,
     _worker_mode: bool,
     initial_load: bool,
-    _killpill_tx: tokio::sync::broadcast::Sender<()>,
+    _killpill_tx: KillpillSender,
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load {
@@ -1420,7 +1425,7 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
 
 pub async fn reload_worker_config(
     db: &DB,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     kill_if_change: bool,
 ) {
     let config = load_worker_config(&db, tx.clone()).await;
@@ -1435,17 +1440,17 @@ pub async fn reload_worker_config(
                     || (*wc).dedicated_worker != config.dedicated_worker
                 {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                 }
 
                 if (*wc).init_bash != config.init_bash {
                     tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                 }
 
                 if (*wc).cache_clear != config.cache_clear {
                     tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send(());
+                    let _ = tx.send();
                     tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     if let Err(e) = windmill_worker::common::clean_cache().await {
@@ -1559,6 +1564,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 FROM to_update tu
                 WHERE q.id = tu.id AND (tu.counter IS NULL OR tu.counter < $2)
                 RETURNING q.id, q.workspace_id, ping, tu.counter
+            ),
+            update_ping AS (
+                UPDATE v2_job_runtime r
+                SET ping = null
+                FROM zombie_jobs zj
+                WHERE r.id = zj.id
             ),
             increment_counter AS (
                 INSERT INTO zombie_job_counter (job_id, counter)
@@ -1896,16 +1907,27 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
+            let base_url = BASE_URL.read().await;
+            let workspace_id = flow.workspace_id.clone();
             let reason = format!(
                 "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
                 if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
-                    format!("Flow was cancelled because subflow {id}")
+                    format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {
-                    format!("Flow {id} was cancelled because it")
+                    format!("Flow {id} ({base_url}/run/{id}?workspace={workspace_id}) was cancelled because it")
                 }
             );
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, reason).await?;
+            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, 
+                format!(r#"{reason}
+This would happen if a worker was interrupted, killed or crashed while doing a state transition at the end of a job which is always an unexpected behavior that should never happen.
+Please check your worker logs for more details and feel free to report it to the Windmill team on our Discord or support@windmill.dev (response for non EE customers will be best effort) with as much context as possible, ideally:
+- Windmill version
+- Worker logs right after the job referenced has finished running
+- Is the error consistent when running the same flow
+- A minimal flow and its flow.yaml that reproduces the error and that is importable in a fresh workspace
+- Your infra setup (helm, docker-compose, configuration of the workers and their number, memory of the database, etc.)
+"#)).await?;
         }
     }
 

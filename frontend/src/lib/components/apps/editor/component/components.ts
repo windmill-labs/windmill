@@ -485,6 +485,7 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
 		'svg encoded as base64'
@@ -3073,6 +3074,10 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'image/*',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'image/*',
+						convertTo: 'base64'
 					}
 				},
 				sourceKind: {
@@ -3687,6 +3692,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								value: false,
 								fieldType: 'boolean',
 								tooltip: 'If allowed, the user will be able to select more than one file'
+							},
+							allowDelete: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to delete files'
 							},
 							text: {
 								type: 'static',

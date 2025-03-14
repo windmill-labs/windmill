@@ -30,6 +30,7 @@
 		| 'scheduledPoll'
 		| 'kafka'
 		| 'nats'
+		| 'mqtt'
 		| 'sqs'
 	>('webhooks')
 
@@ -68,6 +69,7 @@
 							<slot slot="postgres" name="postgres" />
 							<slot slot="kafka" name="kafka" />
 							<slot slot="nats" name="nats" />
+							<slot slot="mqtt" name="mqtt" />
 							<slot slot="sqs" name="sqs" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
@@ -85,7 +87,7 @@
 			<slot name="header" />
 			<Tabs bind:selected={mobileTab}>
 				<Tab value="form">Run form</Tab>
-				<Tab value="saved_inputs">Saved Inputs</Tab>
+				<Tab value="saved_inputs">Inputs</Tab>
 				{#if !isOperator}
 					<Tab value="triggers">Triggers</Tab>
 				{/if}
@@ -116,6 +118,7 @@
 								<slot slot="postgres" name="postgres" />
 								<slot slot="kafka" name="kafka" />
 								<slot slot="nats" name="nats" />
+								<slot slot="mqtt" name="mqtt" />
 								<slot slot="sqs" name="sqs" />
 								<slot slot="emails" name="emails" />
 								<slot slot="schedules" name="schedules" />

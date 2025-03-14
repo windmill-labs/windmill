@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use bytes::Bytes;
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
@@ -18,7 +19,8 @@ use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
 use crate::{
-    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, DB,
+    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp,
+    KillpillSender, DB,
 };
 
 lazy_static::lazy_static! {
@@ -102,7 +104,11 @@ lazy_static::lazy_static! {
 
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
+
+    pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle/", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
 }
+
+pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
@@ -208,6 +214,13 @@ pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     Ok(file)
 }
 
+pub fn write_file_bytes(dir: &str, path: &str, content: &Bytes) -> error::Result<File> {
+    let path = format!("{}/{}", dir, path);
+    let mut file = File::create(&path)?;
+    file.write_all(content)?;
+    file.flush()?;
+    Ok(file)
+}
 /// from : https://github.com/rust-lang/cargo/blob/fede83ccf973457de319ba6fa0e36ead454d2e20/src/cargo/util/paths.rs#L61
 fn normalize_path(path: &Path) -> PathBuf {
     let mut components = path.components().peekable();
@@ -704,7 +717,7 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
 
 pub async fn load_worker_config(
     db: &DB,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
 ) -> error::Result<WorkerConfig> {
     tracing::info!("Loading config from WORKER_GROUP: {}", *WORKER_GROUP);
     let mut config: WorkerConfigOpt = sqlx::query_scalar!(
@@ -738,7 +751,7 @@ pub async fn load_worker_config(
         .map(|x| {
             let splitted = x.split(':').to_owned().collect_vec();
             if splitted.len() != 2 {
-                killpill_tx.send(()).expect("send");
+                killpill_tx.send();
                 return Err(anyhow::anyhow!(
                     "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
                 ));

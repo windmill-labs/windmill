@@ -65,6 +65,7 @@
 	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import MqttTriggersPanel from '$lib/components/triggers/mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
 	import { onDestroy } from 'svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
@@ -565,6 +566,7 @@
 		<svelte:fragment slot="save_inputs">
 			<SavedInputsV2
 				bind:this={savedInputsV2}
+				schema={flow?.schema}
 				{jsonView}
 				flowPath={flow?.path}
 				{isValid}
@@ -624,6 +626,11 @@
 		<svelte:fragment slot="nats">
 			<div class="p-2">
 				<NatsTriggersPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+		<svelte:fragment slot="mqtt">
+			<div class="p-2">
+				<MqttTriggersPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
 

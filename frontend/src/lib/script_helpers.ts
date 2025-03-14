@@ -577,97 +577,111 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const BUN_PREPROCESSOR_MODULE_CODE = `
-export async function preprocessor(
- wm_trigger: {
-   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
-   http?: {
-     route: string // The route path, e.g. "/users/:id"
-     path: string  // The actual path called, e.g. "/users/123"
-     method: string
-     params: Record<string, string> // path parameters
-     query: Record<string, string>  // query parameters
-     headers: Record<string, string>
-   },
-   websocket?: {
-     url: string // The websocket url
-   },
-   kafka?: {
-     brokers: string[]
-     topic: string
-     group_id: string
-   },
-   nats?: {
-     servers: string[]
-     subject: string
-     headers?: Record<string, string[]>
-     status?: number
-     description?: string
-     length: number
-   },
-   sqs?: {
-     queue_url: string,
-     message_id?: string,
-     receipt_handle?: string,
-     attributes: Record<string, string>,
-     message_attributes?: Record<string, {
-       string_value?: string,
-       data_type: string
-     }>
-   }
- },
- /* your other args */
-) {
- return {
-   // return the args to be passed to the runnable
- }
-}
-`
+export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
+ * Trigger preprocessor
+ *
+ * ⚠️ This function runs BEFORE the main function.
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
+ *
+ * The preprocessor receives the same data \`main\` would if no preprocessor was used,
+ * plus trigger metadata in the \`wm_trigger\` object:
+ * - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
+ * - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
+ * - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
+ * - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+ *
+ * The returned object defines the parameter values passed to \`main()\`.
+ * e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: number, b: number)\`.
+ * Ensure that the parameter names in \`main\` match the keys in the returned object.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */\n\n`
 
-const DENO_PREPROCESSOR_MODULE_CODE = `
-export async function preprocessor(
- wm_trigger: {
-   kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs',
-   http?: {
-     route: string // The route path, e.g. "/users/:id"
-     path: string  // The actual path called, e.g. "/users/123"
-     method: string
-     params: Record<string, string> // path parameters
-     query: Record<string, string>  // query parameters
-     headers: Record<string, string>
-   },
-   websocket?: {
-     url: string // The websocket url
-   },
-   kafka?: {
-     brokers: string[]
-     topic: string
-     group_id: string
-   },
-   nats?: {
-     servers: string[]
-     subject: string
-     headers?: Record<string, string[]>
-     status?: number
-     description?: string
-     length: number
-   },
-   sqs?: {
-     queue_url: string,
-     message_id?: string,
-     receipt_handle?: string,
-     attributes: Record<string, string>,
-     message_attributes?: Record<string, {
-       string_value?: string,
-       data_type: string
-     }>
-   }
- },
- /* your other args */
+export const TS_PREPROCESSOR_FLOW_INTRO = `/**
+ * Trigger preprocessor
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+ *
+ * The preprocessor receives the same data the flow would if no preprocessor was used,
+ * plus trigger metadata in the \`wm_trigger\` object:
+ * - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
+ * - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
+ * - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
+ * - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+ * 
+ * The returned object determines the parameter values passed to the flow.
+ * e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+ * Ensure that the input names of the flow match the keys in the returned object.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */\n\n`
+
+export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(  
+  /*  
+  * Replace this comment with the parameters received from the trigger.  
+  * Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.  
+  */
+
+  // The trigger metadata
+  wm_trigger: {
+    kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs' | 'mqtt',
+    http?: {
+      route: string // The route path, e.g. "/users/:id"
+      path: string  // The actual path called, e.g. "/users/123"
+      method: string
+      params: Record<string, string> // path parameters
+      query: Record<string, string>  // query parameters
+      headers: Record<string, string>
+    },
+    websocket?: {
+      url: string // The websocket url
+    },
+    kafka?: {
+      brokers: string[]
+      topic: string
+      group_id: string
+    },
+    nats?: {
+      servers: string[]
+      subject: string
+      headers?: Record<string, string[]>
+      status?: number
+      description?: string
+      length: number
+    },
+    sqs?: {
+      queue_url: string,
+      message_id?: string,
+      receipt_handle?: string,
+      attributes: Record<string, string>,
+      message_attributes?: Record<string, {
+        string_value?: string,
+        data_type: string
+      }>
+    },
+    mqtt?: {
+      topic: string,
+      retain: boolean,
+      pkid: number,
+      qos: number,
+      v5?: {
+        payload_format_indicator?: number,
+        topic_alias?: number,
+        response_topic?: string,
+        correlation_data?: Array<number>,
+        user_properties?:  Array<[string, string]>,
+        subscription_identifiers?: Array<number>,
+        content_type?: string
+      }
+    }
+  }
 ) {
- return {
-   // return the args to be passed to the runnable
- }
+  return {
+    // return the args to be passed to the runnable
+  }
 }
 `
 
@@ -698,57 +712,115 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
+export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
+#
+# ⚠️ This function runs BEFORE the main function.
+#
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
+#
+# The preprocessor receives the same data \`main\` would if no preprocessor was used,
+# plus trigger metadata in the \`wm_trigger\` object:
+# - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
+# - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
+# - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
+# - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+#
+# The returned object defines the parameter values passed to \`main()\`.
+# e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: int, b: int)\`.
+# Ensure that the parameter names in \`main\` match the keys in the returned object.
+#
+# Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors\n\n`
+
+export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
+#
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+#
+# The preprocessor receives the same data the flow would if no preprocessor was used,
+# plus trigger metadata in the \`wm_trigger\` object:
+# - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
+# - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
+# - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
+# - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+# 
+# The returned object determines the parameter values passed to the flow.
+# e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+# Ensure that the input names of the flow match the keys in the returned object.
+#
+# Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors\n\n`
+
 export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 class Http(TypedDict):
-   route: str # The route path, e.g. "/users/:id"
-   path: str  # The actual path called, e.g. "/users/123"
-   method: str
-   params: dict[str, str]
-   query: dict[str, str]
-   headers: dict[str, str]
+    route: str # The route path, e.g. "/users/:id"
+    path: str  # The actual path called, e.g. "/users/123"
+    method: str
+    params: dict[str, str]
+    query: dict[str, str]
+    headers: dict[str, str]
 
 class Websocket(TypedDict):
-   url: str # The websocket url
+    url: str # The websocket url
 
 class Kafka(TypedDict):
-   topic: str
-   brokers: list[str]
-   group_id: str
+    topic: str
+    brokers: list[str]
+    group_id: str
 
 class Nats(TypedDict):
-   servers: list[str]
-   subject: str
-   headers: dict[str, list[str]] | None
-   status: int | None
-   description: str | None
-   length: int
+    servers: list[str]
+    subject: str
+    headers: dict[str, list[str]] | None
+    status: int | None
+    description: str | None
+    length: int
 
 class MessageAttribute(TypedDict):
-   string_value: str | None
-   data_type: str
+    string_value: str | None
+    data_type: str
 
 class Sqs(TypedDict):
-   queue_url: str
-   message_id: str | None
-   receipt_handle: str | None
-   attributes: dict[str, str]
-   message_attributes: dict[str, MessageAttribute] | None
+    queue_url: str
+    message_id: str | None
+    receipt_handle: str | None
+    attributes: dict[str, str]
+    message_attributes: dict[str, MessageAttribute] | None
+
+class MqttV5Properties:
+    payload_format_indicator: int | None
+    topic_alias: int | None
+    response_topic: str | None
+    correlation_data: list[int] | None
+    user_properties: list[tuple[str, str]] | None
+    subscription_identifiers: list[int] | None
+    content_type: str | None
+
+class Mqtt(TypedDict):
+    topic: str
+    retain: bool
+    pkid: int
+    qos: int
+    v5: MqttV5Properties | None
 
 class WmTrigger(TypedDict):
-   kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs"]
-   http: Http | None
-   websocket: Websocket | None
-   kafka: Kafka | None
-   nats: Nats | None
-   sqs: Sqs | None
+    kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs", "mqtt"]
+    http: Http | None
+    websocket: Websocket | None
+    kafka: Kafka | None
+    nats: Nats | None
+    sqs: Sqs | None
+    mqtt: Mqtt | None
 
 def preprocessor(
-   wm_trigger: WmTrigger,
-   # your other args
+    # Replace this comment with the parameters received from the trigger.  
+    # Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.  
+
+    # Trigger metadata
+    wm_trigger: WmTrigger,
 ):
-   return {
-       # return the args to be passed to the runnable
-   }
+    return {
+        # return the args to be passed to the runnable
+    }
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
@@ -834,7 +906,7 @@ export const INITIAL_CODE = {
 		trigger: BUN_INIT_CODE_TRIGGER,
 		approval: BUN_INIT_CODE_APPROVAL,
 		failure: BUN_FAILURE_MODULE_CODE,
-		preprocessor: BUN_PREPROCESSOR_MODULE_CODE,
+		preprocessor: TS_PREPROCESSOR_FLOW_INTRO + TS_PREPROCESSOR_MODULE_CODE,
 		clear: BUN_INIT_CODE_CLEAR
 	},
 	python3: {
@@ -842,7 +914,7 @@ export const INITIAL_CODE = {
 		trigger: PYTHON_INIT_CODE_TRIGGER,
 		approval: PYTHON_INIT_CODE_APPROVAL,
 		failure: PYTHON_FAILURE_MODULE_CODE,
-		preprocessor: PYTHON_PREPROCESSOR_MODULE_CODE,
+		preprocessor: PYTHON_PREPROCESSOR_FLOW_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE,
 		clear: PYTHON_INIT_CODE_CLEAR
 	},
 	deno: {
@@ -851,7 +923,7 @@ export const INITIAL_CODE = {
 		trigger: DENO_INIT_CODE_TRIGGER,
 		approval: DENO_INIT_CODE_APPROVAL,
 		failure: DENO_FAILURE_MODULE_CODE,
-		preprocessor: DENO_PREPROCESSOR_MODULE_CODE,
+		preprocessor: TS_PREPROCESSOR_FLOW_INTRO + TS_PREPROCESSOR_MODULE_CODE,
 		fetch: FETCH_INIT_CODE,
 		clear: DENO_INIT_CODE_CLEAR
 	},

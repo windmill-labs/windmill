@@ -96,19 +96,23 @@ pub enum PyVersion {
 }
 
 impl PyVersion {
-    pub async fn from_instance_version() -> Self {
-        match INSTANCE_PYTHON_VERSION.read().await.clone() {
+    pub async fn from_instance_version(job_id: &Uuid, w_id: &str, db: &Pool<Postgres>) -> Self {
+        let mut err = None;
+        let pyv = match INSTANCE_PYTHON_VERSION.read().await.clone() {
             Some(v) => PyVersion::from_string_with_dots(&v).unwrap_or_else(|| {
                 let v = PyVersion::default();
-                tracing::error!(
-                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})",
-                *INSTANCE_PYTHON_VERSION
-            );
+                err = Some(format!("\nCannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})", *INSTANCE_PYTHON_VERSION));
                 v
             }),
             // Use latest stable
             None => PyVersion::default(),
+        };
+
+        if let Some(msg) = err {
+            append_logs(job_id, w_id, &msg, db).await;
+            tracing::error!(msg);
         }
+        pyv
     }
     /// e.g.: `/tmp/windmill/cache/python_3xy`
     pub fn to_cache_dir(&self) -> String {
@@ -223,9 +227,18 @@ impl PyVersion {
 
         if let Err(ref e) = res {
             tracing::error!(
-                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n 
+                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n
                 Error while getting python from uv, falling back to system python: {e:?}"
             );
+            append_logs(
+                job_id,
+                w_id,
+                format!(
+                    "\nError while getting python from uv, falling back to system python: {e:?}"
+                ),
+                db,
+            )
+            .await;
         }
         res
     }
@@ -351,6 +364,8 @@ impl PyVersion {
 
         let mut child_cmd = Command::new(uv_cmd);
 
+        child_cmd.env_clear();
+
         #[cfg(windows)]
         {
             child_cmd
@@ -369,7 +384,6 @@ impl PyVersion {
 
         let output = child_cmd
             // .current_dir(job_dir)
-            .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .args([
@@ -1430,7 +1444,7 @@ async fn handle_python_deps(
     let mut annotated_pyv = None;
     let mut annotated_pyv_numeric = None;
     let is_deployed = requirements_o.is_some();
-    let instance_pyv = PyVersion::from_instance_version().await;
+    let instance_pyv = PyVersion::from_instance_version(job_id, w_id, db).await;
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let requirements = match requirements_o {
         Some(r) => r,

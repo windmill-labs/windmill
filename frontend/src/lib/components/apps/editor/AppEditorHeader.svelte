@@ -62,7 +62,6 @@
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
@@ -86,7 +85,11 @@
 	import Summary from '$lib/components/Summary.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
-	import { computeS3FileInputPolicy, computeWorkspaceS3FileInputPolicy } from './appUtilsS3'
+	import {
+		computeS3FileInputPolicy,
+		computeWorkspaceS3FileInputPolicy,
+		computeS3ImageViewerPolicy
+	} from './appUtilsS3'
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
@@ -343,6 +346,17 @@
 		}
 
 		policy.s3_inputs = s3_inputs
+
+		const s3FileKeys = items
+			.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
+			.map((x) => {
+				const c = x.data as AppComponent
+				const config = c.configuration as any
+				return computeS3ImageViewerPolicy(config, $app)
+			})
+			.filter(Boolean) as { s3_path?: string | undefined; resource?: string | undefined }[]
+
+		policy.allowed_s3_keys = s3FileKeys
 	}
 
 	async function processRunnable(
@@ -947,23 +961,26 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-<UnsavedConfirmationModal
-	{diffDrawer}
-	getInitialAndModifiedValues={() => ({
-		savedValue: savedApp,
-		modifiedValue: {
-			summary: $summary,
-			value: $app,
-			path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-			policy,
-			custom_path: customPath
-		}
-	})}
-	additionalExitAction={() => {
-		setTheme(priorDarkMode)
-	}}
-/>
 
+{#if $$slots.unsavedConfirmationModal}
+	<slot
+		name="unsavedConfirmationModal"
+		{diffDrawer}
+		additionalExitAction={() => {
+			setTheme(priorDarkMode)
+		}}
+		getInitialAndModifiedValues={() => ({
+			savedValue: savedApp,
+			modifiedValue: {
+				summary: $summary,
+				value: $app,
+				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+				policy,
+				custom_path: customPath
+			}
+		})}
+	/>
+{/if}
 <DeployOverrideConfirmationModal
 	bind:deployedBy
 	bind:confirmCallback
@@ -1211,6 +1228,9 @@
 					<Toggle
 						on:change={({ detail }) => {
 							customPath = detail ? '' : undefined
+							if (customPath === undefined) {
+								customPathError = ''
+							}
 						}}
 						checked={customPath !== undefined}
 						options={{

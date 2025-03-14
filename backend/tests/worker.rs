@@ -2,6 +2,7 @@ use serde::de::DeserializeOwned;
 use std::future::Future;
 use std::{str::FromStr, sync::Arc};
 use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
+use windmill_common::KillpillSender;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -22,12 +23,12 @@ use windmill_api_client::types::{CreateFlowBody, RawScript};
 use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
 use serde::Serialize;
-use windmill_common::auth::JWT_SECRET;
 use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
     jobs::{JobKind, JobPayload, RawCode},
+    jwt::JWT_SECRET,
     scripts::{ScriptHash, ScriptLang},
     worker::{
         MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
@@ -999,7 +1000,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     };
 
     /* ensure the worker quits before we return */
-    quit.send(()).expect("send");
+    quit.send();
 
     let _: () = worker
         .await
@@ -1011,16 +1012,13 @@ async fn in_test_worker<Fut: std::future::Future>(
 fn spawn_test_worker(
     db: &Pool<Postgres>,
     port: u16,
-) -> (
-    tokio::sync::broadcast::Sender<()>,
-    tokio::task::JoinHandle<()>,
-) {
+) -> (KillpillSender, tokio::task::JoinHandle<()>) {
     std::fs::DirBuilder::new()
         .recursive(true)
         .create(windmill_worker::GO_BIN_CACHE_DIR)
         .expect("could not create initial worker dir");
 
-    let (tx, rx) = tokio::sync::broadcast::channel(1);
+    let (tx, rx) = KillpillSender::new(1);
     let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();

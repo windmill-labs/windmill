@@ -32,6 +32,30 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
         .await?)
 }
 
+lazy_static::lazy_static! {
+    pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20221207103910, include_str!(
+                        "../../custom_migrations/create_workspace_without_md5.sql"
+                    ).to_string()),
+                    (20240216100535, include_str!(
+                        "../../migrations/20240216100535_improve_policies.up.sql"
+                    ).replace("public.", "")),
+                    (20240403083110, include_str!(
+                        "../../migrations/20240403083110_remove_team_id_constraint.up.sql"
+                    ).replace("public.", "")),
+                    (20240613150524, include_str!(
+                        "../../migrations/20240613150524_add_job_perms.up.sql"
+                    ).replace("public.", "")),
+                    (20250102145420, include_str!(
+                        "../../migrations/20250102145420_more_captures.up.sql"
+                    ).replace("public.", "")),
+                    (20241006144414, include_str!(
+                        "../../custom_migrations/grant_all_current_schema.sql"
+                    ).to_string()),
+                    (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
+                    (20221123151919, "".to_string()),
+                    ].into_iter().collect();
+}
+
 struct CustomMigrator {
     inner: PoolConnection<Postgres>,
 }
@@ -132,12 +156,13 @@ impl Migrate for CustomMigrator {
                 migration.version,
                 migration.description
             );
-            if migration.version == 20221207103910 {
-                tracing::info!("Skipping migration 20221207103910 to avoid using md5");
+
+
+            if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
+                tracing::info!("Using custom migration for version {}", migration.version);
+
                 self.inner
-                    .execute(include_str!(
-                        "../../custom_migrations/create_workspace_without_md5.sql"
-                    ))
+                    .execute(&**migration_sql)
                     .await?;
                 let _ = sqlx::query(
                     r#"
@@ -528,6 +553,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
         )
         .await?;
     });
+
     Ok(())
 }
 
@@ -729,7 +755,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     });
 
     run_windmill_migration!("v2_improve_v2_queued_jobs_indices", &db, |tx| {
-        sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) WHERE running = false")
+        sqlx::query!("CREATE INDEX CONCURRENTLY IF NOT EXISTS queue_sort_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) WHERE running = false")
             .execute(db)
             .await?;
 
@@ -744,6 +770,14 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort_2")
             .execute(db)
             .await?;
+    });
+
+    run_windmill_migration!("audit_timestamps", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_audit_timestamps ON audit (timestamp DESC)"
+        )
+        .execute(db)
+        .await?;
     });
     Ok(())
 }

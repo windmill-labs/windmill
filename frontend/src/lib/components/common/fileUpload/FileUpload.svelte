@@ -4,8 +4,8 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { AppService, HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -14,6 +14,7 @@
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
 	export let allowMultiple: boolean = true
+	export let allowDelete = true
 	export let folderOnly = false
 	export let containerText: string = folderOnly
 		? 'Drag and drop a folder here or click to browse'
@@ -32,6 +33,7 @@
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
 	export let disabled = false
+	export let iconSize: number | undefined = undefined
 	export let initialValue:
 		| {
 				s3: string
@@ -40,8 +42,9 @@
 		| undefined = undefined
 
 	init()
+
 	function init() {
-		if (initialValue) {
+		if (initialValue?.s3) {
 			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
 				$fileUploads = [
 					...$fileUploads,
@@ -55,6 +58,7 @@
 			}
 		}
 	}
+
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
@@ -76,6 +80,7 @@
 		errorMessage?: string
 		path?: string
 		file?: File
+		deleteToken?: string
 	}
 
 	async function handleChange(files: File[] | undefined) {
@@ -152,7 +157,8 @@
 			progress: 1, // We set it to 1 so that the progress bar is visible
 			cancelled: false,
 			path: path,
-			file: fileToUpload
+			file: fileToUpload,
+			deleteToken: undefined
 		}
 
 		$fileUploads = [...$fileUploads, uploadData]
@@ -274,6 +280,9 @@
 			})) as any
 
 			uploadData.path = response.file_key
+			if (appPath && 'delete_token' in response) {
+				uploadData.deleteToken = response.delete_token
+			}
 		} catch (e) {
 			console.error(e)
 			sendUserToast(e, true)
@@ -301,13 +310,25 @@
 		return
 	}
 
-	async function deleteFile(fileKey: string) {
-		await HelpersService.deleteS3File({
-			workspace: workspace ?? $workspaceStore!,
-			fileKey: fileKey
-		})
-		dispatch('deletion', { path: fileKey })
-		sendUserToast('File deleted!')
+	async function deleteFile(fileKey: string, deleteToken?: string) {
+		try {
+			if (deleteToken) {
+				await AppService.deleteS3FileFromApp({
+					workspace: workspace ?? $workspaceStore!,
+					deleteToken: deleteToken
+				})
+			} else {
+				await HelpersService.deleteS3File({
+					workspace: workspace ?? $workspaceStore!,
+					fileKey: fileKey
+				})
+			}
+			dispatch('deletion', { path: fileKey })
+			sendUserToast('File deleted!')
+		} catch (err) {
+			console.error(err)
+			sendUserToast('Could not delete file', true)
+		}
 	}
 
 	function clearRequests() {
@@ -336,10 +357,12 @@
 					<div class="w-full flex flex-col gap-1 p-2">
 						<div class="flex flex-row items-center justify-between">
 							<div class="flex flex-col gap-1">
-								<span class="text-xs font-bold">{fileUpload.name}</span>
-								<span class="text-xs"
-									>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
-								>
+								<span class="text-xs font-bold">{fileUpload.name ?? ''}</span>
+								{#if fileUpload.size}
+									<span class="text-xs"
+										>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
+									>
+								{/if}
 							</div>
 							<div class="flex flex-row gap-1 items-center">
 								{#if fileUpload.errorMessage}
@@ -417,7 +440,7 @@
 									</Button>
 								{/if}
 
-								{#if fileUpload.progress === 100 && !fileUpload.cancelled && $userStore}
+								{#if fileUpload.progress === 100 && !fileUpload.cancelled && allowDelete && (!appPath || fileUpload.deleteToken != undefined)}
 									<Button
 										size="xs2"
 										color="red"
@@ -428,7 +451,7 @@
 											)
 
 											if (fileUpload.path) {
-												deleteFile(fileUpload.path)
+												deleteFile(fileUpload.path, fileUpload.deleteToken)
 											}
 											abortUpload(fileUpload.name)
 										}}
@@ -516,6 +539,7 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
+			{iconSize}
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)
@@ -526,5 +550,12 @@
 		>
 			{containerText}{#if disabled}<br />(Disabled){/if}
 		</FileInput>
+	{/if}
+	{#if initialValue?.s3 && $fileUploads.length == 0}
+		<div class="flex flex-row gap-1 items-center p-1">
+			<span class="text-sm">
+				File currently selected: {initialValue?.s3}
+			</span>
+		</div>
 	{/if}
 </div>

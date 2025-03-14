@@ -69,7 +69,7 @@
 		}
 	})
 
-	function onClick(stopAfterClear: boolean, source: string) {
+	function onRefresh(stopAfterClear: boolean, source: string, excludeId?: string) {
 		if (timeout) {
 			clearInterval(timeout)
 			timeout = undefined
@@ -81,7 +81,7 @@
 			if (stopAfterClear) return
 		}
 		if (firstLoad) {
-			refresh('onClick ' + source)
+			refresh('onClick ' + source, excludeId)
 		}
 
 		if ($recomputeAllContext.interval) {
@@ -109,11 +109,11 @@
 
 	function setInter(inter: number | undefined, source: string) {
 		$recomputeAllContext.interval = inter
-		onClick(!inter, 'setInter ' + source)
+		onRefresh(!inter, 'setInter ' + source)
 	}
 
 	let refreshing: string[] = []
-	function refresh(reason: string) {
+	function refresh(reason: string, excludeId: string | undefined = undefined) {
 		let isFirstLoad = false
 		if (!firstLoad && reason == 'all initialized') {
 			console.log('refresh all first load', reason)
@@ -129,8 +129,9 @@
 		const promises = Object.keys($runnableComponents)
 			.flatMap((id) => {
 				if (
-					!$runnableComponents?.[id]?.autoRefresh &&
-					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
+					excludeId === id ||
+					(!$runnableComponents?.[id]?.autoRefresh &&
+						(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart))
 				) {
 					return
 				}
@@ -170,21 +171,21 @@
 				if (progressTimer) clearInterval(progressTimer)
 			}
 		} else if (shouldRefresh) {
-			timeout = setInterval(() => refresh('onClick interval'), $recomputeAllContext.interval)
+			timeout = setInterval(() => refresh('onRefresh interval'), $recomputeAllContext.interval)
 			startProgress()
 		}
 	}
 
 	onMount(() => {
 		$recomputeAllContext = {
-			onClick: () => onClick(false, 'allContext'),
+			onRefresh: (excludeIds) => onRefresh(false, 'allContext', excludeIds),
 			setInter: (n) => setInter(n, 'all context')
 		}
 	})
 </script>
 
 <RecomputeAllButton
-	on:click={() => onClick(false, 'button')}
+	on:click={() => onRefresh(false, 'button')}
 	interval={$recomputeAllContext.interval}
 	{refreshing}
 	componentNumber={$recomputeAllContext.componentNumber ?? 0}
@@ -192,6 +193,6 @@
 	progress={$recomputeAllContext.progress}
 	on:setInter={(e) => {
 		setInter(e.detail, 'button setInter')
-		onClick(false, 'button setInter')
+		onRefresh(false, 'button setInter')
 	}}
 />

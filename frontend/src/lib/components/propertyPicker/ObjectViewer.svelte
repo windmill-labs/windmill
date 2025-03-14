@@ -134,6 +134,7 @@
 
 						{#if getTypeAsString(json[key]) === 'object'}
 							<svelte:self
+								{connecting}
 								json={json[key]}
 								level={level + 1}
 								currentPath={computeFullKey(key, rawKey)}
@@ -200,9 +201,9 @@
 					{#if getTypeAsString(json) === 's3object'}
 						<a
 							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
-							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}${
-								json?.storage ? `&storage=${json.storage}` : ''
-							}`}
+							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+								json?.s3 ?? ''
+							)}${json?.storage ? `&storage=${json.storage}` : ''}`}
 							download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
 						>
 							<span class="flex items-center gap-1"><Download size={12} />download</span>

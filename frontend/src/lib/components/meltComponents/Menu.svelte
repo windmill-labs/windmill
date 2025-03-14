@@ -19,7 +19,9 @@
 	// Use the passed createMenu function
 	const menu = createMenu({
 		positioning: {
-			placement
+			placement,
+			fitViewport: true,
+			strategy: 'fixed'
 		},
 		loop: true
 	})
@@ -68,15 +70,17 @@
 
 	<!--svelte-ignore a11y-no-static-element-interactions-->
 	{#if open}
-		<div use:melt={$menuElement} data-menu class="z-[6000]" on:click|stopPropagation>
-			<div
-				class={twMerge(
-					'border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1',
-					lightMode ? 'bg-surface-inverse' : 'bg-surface',
-					invisible ? 'opacity-0' : ''
-				)}
-				style="max-height: {maxHeight}px; "
-			>
+		<div
+			use:melt={$menuElement}
+			data-menu
+			class={twMerge(
+				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
+				lightMode ? 'bg-surface-inverse' : 'bg-surface',
+				invisible ? 'opacity-0' : ''
+			)}
+			on:click
+		>
+			<div class="py-1" style="max-height: {maxHeight}px; ">
 				<slot {item} />
 			</div>
 		</div>

@@ -1,7 +1,7 @@
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::{
-    args::WebhookArgs,
+    args::try_from_request_body,
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::{
@@ -11,7 +11,7 @@ use crate::{
     users::fetch_api_authed,
 };
 use axum::{
-    extract::{Path, Query},
+    extract::{Path, Query, Request},
     response::IntoResponse,
     routing::{delete, get, post},
     Extension, Json, Router,
@@ -22,6 +22,7 @@ use http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::prelude::FromRow;
+use std::borrow::Cow;
 use std::{collections::HashMap, sync::Arc};
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
@@ -100,7 +101,7 @@ impl TryFrom<&http::Method> for HttpMethod {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct NewTrigger {
     path: String,
     route_path: String,
@@ -110,7 +111,10 @@ struct NewTrigger {
     requires_auth: bool,
     http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
+    workspaced_route: Option<bool>,
     is_static_website: bool,
+    wrap_body: Option<bool>,
+    raw_string: Option<bool>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -131,6 +135,9 @@ pub struct HttpTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
+    pub workspaced_route: bool,
+    pub wrap_body: bool,
+    pub raw_string: bool,
 }
 
 #[derive(Deserialize)]
@@ -143,7 +150,10 @@ struct EditTrigger {
     requires_auth: bool,
     http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
+    workspaced_route: Option<bool>,
     is_static_website: bool,
+    wrap_body: Option<bool>,
+    raw_string: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -164,7 +174,26 @@ async fn list_triggers(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lst.per_page, page: lst.page });
     let mut sqlb = SqlBuilder::select_from("http_trigger")
-        .field("*")
+        .fields(&[
+            "workspace_id",
+            "path",
+            "route_path",
+            "route_path_key",
+            "workspaced_route",
+            "wrap_body",
+            "raw_string",
+            "script_path",
+            "is_flow",
+            "http_method",
+            "edited_by",
+            "email",
+            "edited_at",
+            "extra_perms",
+            "is_async",
+            "requires_auth",
+            "static_asset_config",
+            "is_static_website",
+        ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)
@@ -199,9 +228,32 @@ async fn get_trigger(
     let path = path.to_path();
     let trigger = sqlx::query_as!(
         HttpTrigger,
-        r#"SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, http_method as "http_method: _", edited_by, email, edited_at, extra_perms, is_async, requires_auth, static_asset_config as "static_asset_config: _", is_static_website
-            FROM http_trigger
-            WHERE workspace_id = $1 AND path = $2"#,
+        r#"
+        SELECT 
+            workspace_id, 
+            path, 
+            route_path, 
+            route_path_key,
+            workspaced_route,
+            script_path, 
+            is_flow, 
+            http_method as "http_method: _", 
+            edited_by, 
+            email, 
+            edited_at, 
+            extra_perms, 
+            is_async, 
+            requires_auth, 
+            static_asset_config as "static_asset_config: _", 
+            is_static_website,
+            wrap_body,
+            raw_string
+        FROM 
+            http_trigger
+        WHERE 
+            workspace_id = $1 AND 
+            path = $2
+        "#,
         w_id,
         path,
     )
@@ -230,9 +282,16 @@ async fn create_trigger(
     // route path key is extracted from the route path to check for uniqueness
     // it replaces /?:{key} with :key
     // it will also remove the leading / if present, not an issue as we only allow : after slashes
-    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(ct.route_path.as_str(), ":key");
-
-    let exists = route_path_key_exists(&route_path_key, &ct.http_method, &w_id, None, &db).await?;
+    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&ct.route_path, ":key");
+    let exists = route_path_key_exists(
+        &route_path_key,
+        &ct.http_method,
+        &w_id,
+        None,
+        ct.workspaced_route,
+        &db,
+    )
+    .await?;
     if exists {
         return Err(error::Error::BadRequest(
             "A route already exists with this path".to_string(),
@@ -247,11 +306,37 @@ async fn create_trigger(
 
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, is_async, requires_auth, http_method, static_asset_config, edited_by, email, edited_at, is_static_website) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13)",
+        r#"
+        INSERT INTO http_trigger (
+            workspace_id, 
+            path, 
+            route_path, 
+            route_path_key,
+            workspaced_route,
+            wrap_body,
+            raw_string,
+            script_path, 
+            is_flow, 
+            is_async, 
+            requires_auth, 
+            http_method, 
+            static_asset_config, 
+            edited_by, 
+            email, 
+            edited_at, 
+            is_static_website
+        ) 
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), $16
+        )
+        "#,
         w_id,
         ct.path,
         ct.route_path,
         &route_path_key,
+        ct.workspaced_route.unwrap_or(false),
+        ct.wrap_body.unwrap_or(false),
+        ct.raw_string.unwrap_or(false),
         ct.script_path,
         ct.is_flow,
         ct.is_async,
@@ -260,9 +345,10 @@ async fn create_trigger(
         ct.static_asset_config as _,
         &authed.username,
         &authed.email,
-        ct.is_static_website,
+        ct.is_static_website
     )
-    .execute(&mut *tx).await?;
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -288,7 +374,6 @@ async fn update_trigger(
     Json(ct): Json<EditTrigger>,
 ) -> error::Result<String> {
     let path = path.to_path();
-
     if *CLOUD_HOSTED && (ct.is_static_website || ct.static_asset_config.is_some()) {
         return Err(error::Error::BadRequest(
             "Static website and static asset are not supported on cloud".to_string(),
@@ -309,9 +394,15 @@ async fn update_trigger(
 
         let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&route_path, ":key");
 
-        let exists =
-            route_path_key_exists(&route_path_key, &ct.http_method, &w_id, Some(&path), &db)
-                .await?;
+        let exists = route_path_key_exists(
+            &route_path_key,
+            &ct.http_method,
+            &w_id,
+            Some(&path),
+            ct.workspaced_route,
+            &db,
+        )
+        .await?;
         if exists {
             return Err(error::Error::BadRequest(
                 "A route already exists with this path".to_string(),
@@ -319,13 +410,36 @@ async fn update_trigger(
         }
 
         tx = user_db.begin(&authed).await?;
-
         sqlx::query!(
-            "UPDATE http_trigger 
-                SET route_path = $1, route_path_key = $2, script_path = $3, path = $4, is_flow = $5, http_method = $6, static_asset_config = $7, edited_by = $8, email = $9, is_async = $10, requires_auth = $11, edited_at = now(), is_static_website = $12
-                WHERE workspace_id = $13 AND path = $14",
+            r#"
+            UPDATE 
+                http_trigger 
+            SET 
+                route_path = $1, 
+                route_path_key = $2, 
+                workspaced_route = $3, 
+                wrap_body = $4,
+                raw_string = $5,
+                script_path = $6, 
+                path = $7, 
+                is_flow = $8, 
+                http_method = $9, 
+                static_asset_config = $10, 
+                edited_by = $11, 
+                email = $12, 
+                is_async = $13, 
+                requires_auth = $14, 
+                edited_at = now(), 
+                is_static_website = $15
+            WHERE 
+                workspace_id = $16 AND 
+                path = $17
+            "#,
             route_path,
             &route_path_key,
+            ct.workspaced_route,
+            ct.wrap_body,
+            ct.raw_string,
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -339,12 +453,30 @@ async fn update_trigger(
             w_id,
             path,
         )
-        .execute(&mut *tx).await?;
+        .execute(&mut *tx)
+        .await?;
     } else {
         tx = user_db.begin(&authed).await?;
         sqlx::query!(
-            "UPDATE http_trigger SET script_path = $1, path = $2, is_flow = $3, http_method = $4, static_asset_config = $5, edited_by = $6, email = $7, is_async = $8, requires_auth = $9, edited_at = now(), is_static_website = $10
-                WHERE workspace_id = $11 AND path = $12",
+            r#"
+            UPDATE 
+                http_trigger 
+            SET 
+                script_path = $1, 
+                path = $2, 
+                is_flow = $3, 
+                http_method = $4,
+                static_asset_config = $5, 
+                edited_by = $6, 
+                email = $7, 
+                is_async = $8, 
+                requires_auth = $9, 
+                edited_at = now(), 
+                is_static_website = $10
+            WHERE 
+                workspace_id = $11 AND 
+                path = $12
+            "#,
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -358,7 +490,8 @@ async fn update_trigger(
             w_id,
             path,
         )
-        .execute(&mut *tx).await?;
+        .execute(&mut *tx)
+        .await?;
     }
 
     audit_log(
@@ -386,9 +519,11 @@ async fn delete_trigger(
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "DELETE FROM http_trigger WHERE workspace_id = $1 AND path = $2",
+        "DELETE FROM http_trigger 
+        WHERE workspace_id = $1 
+          AND path = $2",
         w_id,
-        path,
+        path
     )
     .execute(&mut *tx)
     .await?;
@@ -415,13 +550,17 @@ async fn exists_trigger(
 ) -> JsonResult<bool> {
     let path = path.to_path();
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM http_trigger WHERE path = $1 AND workspace_id = $2)",
+        "SELECT EXISTS(
+            SELECT 1 FROM http_trigger 
+            WHERE path = $1 AND workspace_id = $2
+        )",
         path,
-        w_id,
+        w_id
     )
     .fetch_one(&db)
     .await?
     .unwrap_or(false);
+
     Ok(Json(exists))
 }
 
@@ -430,6 +569,7 @@ struct RouteExists {
     route_path: String,
     http_method: HttpMethod,
     trigger_path: Option<String>,
+    workspaced_route: Option<bool>,
 }
 
 async fn route_path_key_exists(
@@ -437,22 +577,47 @@ async fn route_path_key_exists(
     http_method: &HttpMethod,
     w_id: &str,
     trigger_path: Option<&str>,
+    workspaced_route: Option<bool>,
     db: &DB,
 ) -> error::Result<bool> {
     let exists = if *CLOUD_HOSTED {
         sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM http_trigger WHERE route_path_key = $1 AND workspace_id = $2 AND http_method = $3 AND ($4::TEXT IS NULL OR path != $4))",
-                    &route_path_key,
-                    w_id,
-                    http_method as &HttpMethod,
-                    trigger_path
-                )
-                .fetch_one(db)
-                .await?
-                .unwrap_or(false)
+            r#"
+            SELECT EXISTS(
+                SELECT 1 
+                FROM http_trigger 
+                WHERE 
+                    route_path_key = $1
+                    AND workspace_id = $2 
+                    AND http_method = $3 
+                    AND ($4::TEXT IS NULL OR path != $4)
+            )
+            "#,
+            &route_path_key,
+            w_id,
+            http_method as &HttpMethod,
+            trigger_path
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)
     } else {
+        let route_path_key = match workspaced_route {
+            Some(true) => Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/'))),
+            _ => Cow::Borrowed(route_path_key),
+        };
         sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM http_trigger WHERE route_path_key = $1 AND http_method = $2 AND ($3::TEXT IS NULL OR path != $3))",
+            r#"
+            SELECT EXISTS(
+                SELECT 1 
+                FROM http_trigger 
+                WHERE 
+                    ((workspaced_route IS TRUE AND workspace_id || '/' || route_path_key = $1) 
+                    OR (workspaced_route IS FALSE AND route_path_key = $1))
+                    AND http_method = $2 
+                    AND ($3::TEXT IS NULL OR path != $3)
+            )
+            "#,
             &route_path_key,
             http_method as &HttpMethod,
             trigger_path
@@ -461,13 +626,16 @@ async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     };
+
     Ok(exists)
 }
 
 async fn exists_route(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(RouteExists { route_path, http_method, trigger_path }): Json<RouteExists>,
+    Json(RouteExists { route_path, http_method, trigger_path, workspaced_route }): Json<
+        RouteExists,
+    >,
 ) -> JsonResult<bool> {
     let route_path_key = ROUTE_PATH_KEY_RE.replace_all(route_path.as_str(), ":key");
 
@@ -476,6 +644,7 @@ async fn exists_route(
         &http_method,
         &w_id,
         trigger_path.as_deref(),
+        workspaced_route,
         &db,
     )
     .await?;
@@ -495,6 +664,9 @@ struct TriggerRoute {
     email: String,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     is_static_website: bool,
+    workspaced_route: bool,
+    wrap_body: bool,
+    raw_string: bool,
 }
 
 async fn get_http_route_trigger(
@@ -514,7 +686,28 @@ async fn get_http_route_trigger(
         let route_path = StripPath(splitted.collect::<Vec<_>>().join("/"));
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, static_asset_config as "static_asset_config: _", is_static_website FROM http_trigger WHERE workspace_id = $1 AND http_method = $2"#,
+            r#"
+            SELECT 
+                path, 
+                script_path, 
+                is_flow, 
+                route_path, 
+                workspace_id, 
+                is_async, 
+                requires_auth, 
+                edited_by, 
+                email,
+                static_asset_config AS "static_asset_config: _",
+                wrap_body,
+                raw_string,
+                workspaced_route,
+                is_static_website 
+            FROM 
+                http_trigger 
+            WHERE 
+                workspace_id = $1 AND 
+                http_method = $2
+            "#,
             w_id,
             http_method as HttpMethod
         )
@@ -524,7 +717,27 @@ async fn get_http_route_trigger(
     } else {
         let triggers = sqlx::query_as!(
             TriggerRoute,
-            r#"SELECT path, script_path, is_flow, route_path, workspace_id, is_async, requires_auth, edited_by, email, static_asset_config as "static_asset_config: _", is_static_website FROM http_trigger WHERE http_method = $1"#,
+            r#"
+            SELECT 
+                path, 
+                script_path, 
+                is_flow, 
+                route_path, 
+                workspace_id, 
+                is_async, 
+                requires_auth, 
+                edited_by, 
+                email, 
+                static_asset_config AS "static_asset_config: _",
+                wrap_body,
+                raw_string,
+                workspaced_route,
+                is_static_website
+            FROM 
+                http_trigger 
+            WHERE 
+                http_method = $1
+            "#,
             http_method as HttpMethod
         )
         .fetch_all(db)
@@ -535,7 +748,10 @@ async fn get_http_route_trigger(
     let mut router = matchit::Router::new();
 
     for (idx, trigger) in triggers.iter().enumerate() {
-        let route_path = trigger.route_path.clone();
+        let route_path = match trigger.workspaced_route {
+            true => format!("{}/{}", &trigger.workspace_id, &trigger.route_path),
+            _ => trigger.route_path.clone(),
+        };
         if trigger.is_static_website {
             router
                 .insert(format!("/{}/*wm_subpath", route_path), idx)
@@ -583,7 +799,16 @@ async fn get_http_route_trigger(
             // check that the user has access to the trigger
             let mut tx = user_db.begin(&authed).await?;
             let exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1 AND path = $2)",
+                r#"
+                SELECT EXISTS(
+                    SELECT 1 
+                    FROM 
+                        http_trigger 
+                    WHERE 
+                        workspace_id = $1 AND 
+                        path = $2
+                )
+                "#,
                 trigger.workspace_id,
                 trigger.path
             )
@@ -652,7 +877,7 @@ async fn route_job(
     Query(query): Query<HashMap<String, String>>,
     method: http::Method,
     headers: HeaderMap,
-    args: WebhookArgs,
+    request: Request,
 ) -> impl IntoResponse {
     let route_path = route_path.to_path().trim_end_matches("/");
     let (trigger, called_path, params, authed) = match get_http_route_trigger(
@@ -669,11 +894,22 @@ async fn route_job(
         Err(e) => return e.into_response(),
     };
 
-    let mut args = match args
-        .to_push_args_owned(&authed, &db, &trigger.workspace_id)
-        .await
-    {
-        Ok(args) => args,
+    let result = try_from_request_body(
+        request,
+        &db,
+        Some(trigger.raw_string),
+        Some(trigger.wrap_body),
+    )
+    .await;
+
+    let mut args = match result {
+        Ok(args) => match args
+            .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+            .await
+        {
+            Ok(args) => args,
+            Err(e) => return e.into_response(),
+        },
         Err(e) => return e.into_response(),
     };
 
@@ -789,6 +1025,7 @@ async fn route_job(
     }
 
     let extra = args.extra.get_or_insert_with(HashMap::new);
+
     extra.insert(
         "wm_trigger".to_string(),
         build_http_trigger_extra(

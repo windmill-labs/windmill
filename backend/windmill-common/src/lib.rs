@@ -9,8 +9,13 @@
 use std::{
     net::SocketAddr,
     str::FromStr,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
+
+use tokio::sync::broadcast;
 
 use ee::CriticalErrorChannel;
 use error::Error;
@@ -33,6 +38,7 @@ pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
 pub mod jobs;
+pub mod jwt;
 pub mod more_serde;
 pub mod oauth2;
 pub mod otel_ee;
@@ -114,7 +120,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn shutdown_signal(
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     use std::io;
@@ -150,7 +156,7 @@ pub async fn shutdown_signal(
     }
 
     tracing::info!("signal received, starting graceful shutdown");
-    let _ = tx.send(());
+    let _ = tx.send();
     Ok(())
 }
 
@@ -418,4 +424,57 @@ pub async fn get_latest_hash_for_path<'c>(
         script.on_behalf_of_email,
         script.created_by,
     ))
+}
+
+pub struct KillpillSender {
+    tx: broadcast::Sender<()>,
+    already_sent: Arc<AtomicBool>,
+}
+
+impl Clone for KillpillSender {
+    fn clone(&self) -> Self {
+        KillpillSender { tx: self.tx.clone(), already_sent: self.already_sent.clone() }
+    }
+}
+
+impl KillpillSender {
+    pub fn new(capacity: usize) -> (Self, broadcast::Receiver<()>) {
+        let (tx, rx) = broadcast::channel(capacity);
+        let sender = KillpillSender { tx, already_sent: Arc::new(AtomicBool::new(false)) };
+        (sender, rx)
+    }
+
+    pub fn clone(&self) -> Self {
+        KillpillSender { tx: self.tx.clone(), already_sent: self.already_sent.clone() }
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<()> {
+        self.tx.subscribe()
+    }
+
+    // Try to send the killpill if it hasn't been sent already
+    pub fn send(&self) -> bool {
+        // Check if it's already been sent, and if not, set the flag to true
+        if !self.already_sent.swap(true, Ordering::SeqCst) {
+            // We're the first to set it to true, so send the signal
+            if let Err(e) = self.tx.send(()) {
+                tracing::error!("failed to send killpill: {:?}", e);
+            }
+            true
+        } else {
+            // Signal was already sent
+            false
+        }
+    }
+
+    // // Force send a signal regardless of previous sends
+    // fn force_send(&self) -> Result<usize, broadcast::error::SendError<()>> {
+    //     self.already_sent.store(true, Ordering::SeqCst);
+    //     self.tx.send(())
+    // }
+
+    // // Check if the killpill has been sent
+    // fn is_sent(&self) -> bool {
+    //     self.already_sent.load(Ordering::SeqCst)
+    // }
 }
