@@ -228,6 +228,7 @@ pub async fn do_postgresql(
         .as_ref()
         .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
 
+    // tracing::error!("HAS CACHED CON: {}", has_cached_con);
     let (new_client, mtex) = if has_cached_con {
         tracing::info!("Using cached connection");
         (None, mtex)
@@ -361,55 +362,63 @@ pub async fn do_postgresql(
     )
     .await?;
 
+    // drop the mtex to avoid holding the lock for too long, result has been returned
+    drop(mtex);
+
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
     if let Some(handle) = handle {
+        // tracing::error!("Found handle");
         if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
-            let abort_handler = handle.abort_handle();
+            if mtex.as_ref().is_none_or(|x| x.0 != database_string) {
+                // tracing::error!("Locked conn cached");
+                let abort_handler = handle.abort_handle();
 
-            let mut most_used_conn = false;
-            if let Some(new_client) = new_client {
-                most_used_conn = is_most_used_conn(&database_string).await;
-                if most_used_conn {
-                    *mtex = Some((database_string, new_client.0));
+                let mut most_used_conn = false;
+                if let Some(new_client) = new_client {
+                    most_used_conn = is_most_used_conn(&database_string).await;
+                    if most_used_conn {
+                        *mtex = Some((database_string, new_client.0));
+                    }
                 }
-            }
 
-            LAST_QUERY.store(
-                chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            drop(mtex);
-            if most_used_conn {
-                tokio::spawn(async move {
-                    loop {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
-                        let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
+                LAST_QUERY.store(
+                    chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                if most_used_conn {
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
+                            let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
 
-                        //we cache connection for 5 minutes at most
-                        if last_query + 60 * 5 < now {
-                            // tracing::error!("Closing cache connection due to inactivity");
-                            tracing::info!("Closing cache connection due to inactivity");
-                            break;
-                        }
-                        let mtex = CONNECTION_CACHE.lock().await;
-                        if mtex.is_none() {
-                            // connection is not in the mutex anymore
-                            break;
-                        } else if let Some(mtex) = mtex.as_ref() {
-                            if mtex.0.as_str() != &database_string_clone {
-                                // connection is not the latest one
+                            //we cache connection for 5 minutes at most
+                            if last_query + 60 * 1 < now {
+                                // tracing::error!("Closing cache connection due to inactivity");
+                                tracing::info!("Closing cache connection due to inactivity");
                                 break;
                             }
-                        }
+                            let mtex = CONNECTION_CACHE.lock().await;
+                            if mtex.is_none() {
+                                // connection is not in the mutex anymore
+                                break;
+                            } else if let Some(mtex) = mtex.as_ref() {
+                                if mtex.0.as_str() != &database_string_clone {
+                                    // connection is not the latest one
+                                    break;
+                                }
+                            }
 
-                        tracing::debug!("Keeping cached connection alive due to activity")
-                    }
-                    let mut mtex = CONNECTION_CACHE.lock().await;
-                    *mtex = None;
-                    abort_handler.abort();
-                });
+                            tracing::debug!("Keeping cached connection alive due to activity")
+                        }
+                        let mut mtex = CONNECTION_CACHE.lock().await;
+                        *mtex = None;
+                        abort_handler.abort();
+                    });
+                }
+            } else {
+                handle.abort();
             }
         } else {
             handle.abort();
