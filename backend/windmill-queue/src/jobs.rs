@@ -2497,7 +2497,7 @@ async fn get_result_by_id_from_original_flow_inner(
         "SELECT jc.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\", j.created_at
         FROM v2_job_completed jc
         JOIN v2_job j ON j.id = jc.id
-        WHERE jc.id = $1 AND jc.workspace_id = $2",
+        WHERE jc.id = $1 AND jc.workspace_id = $2 AND jc.flow_status IS NOT NULL",
         completed_flow_id,
         w_id
     )
