@@ -228,10 +228,9 @@ pub async fn do_postgresql(
         .as_ref()
         .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
 
-    // tracing::error!("LOOKING FOR CACHED CONN");
-    let new_client = if has_cached_con {
+    let (new_client, mtex) = if has_cached_con {
         tracing::info!("Using cached connection");
-        None
+        (None, mtex)
     } else if sslmode == "require" {
         tracing::info!("Creating new connection");
         let mut connector = TlsConnector::builder();
@@ -269,7 +268,7 @@ pub async fn do_postgresql(
                 tracing::error!("connection error: {}", e);
             }
         });
-        Some((client, handle))
+        (Some((client, handle)), None)
     } else {
         tracing::info!("Creating new connection");
         let (client, connection) = tokio::time::timeout(
@@ -287,7 +286,7 @@ pub async fn do_postgresql(
                 tracing::error!("connection error: {}", e);
             }
         });
-        Some((client, handle))
+        (Some((client, handle)), None)
     };
 
     let queries = parse_sql_blocks(query);
@@ -365,7 +364,7 @@ pub async fn do_postgresql(
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
     if let Some(handle) = handle {
-        if let Some(mut mtex) = mtex {
+        if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
             let abort_handler = handle.abort_handle();
 
             let mut most_used_conn = false;
@@ -390,6 +389,7 @@ pub async fn do_postgresql(
 
                         //we cache connection for 5 minutes at most
                         if last_query + 60 * 5 < now {
+                            // tracing::error!("Closing cache connection due to inactivity");
                             tracing::info!("Closing cache connection due to inactivity");
                             break;
                         }
