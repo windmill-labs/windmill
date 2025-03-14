@@ -212,10 +212,6 @@ pub async fn do_postgresql(
     );
     let database_string_clone = database_string.clone();
 
-    LAST_QUERY.store(
-        chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-        std::sync::atomic::Ordering::Relaxed,
-    );
     let mtex;
     if !*CLOUD_HOSTED {
         mtex = CONNECTION_CACHE.try_lock().ok();
@@ -231,6 +227,10 @@ pub async fn do_postgresql(
     // tracing::error!("HAS CACHED CON: {}", has_cached_con);
     let (new_client, mtex) = if has_cached_con {
         tracing::info!("Using cached connection");
+        LAST_QUERY.store(
+            chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         (None, mtex)
     } else if sslmode == "require" {
         tracing::info!("Creating new connection");
