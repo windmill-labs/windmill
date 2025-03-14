@@ -164,7 +164,7 @@
 										'border-r  border-primary border-l bg-surface text-primary',
 										css?.selectedTab?.class,
 										'wm-tabs-selectedTab'
-								  )
+									)
 								: ''
 						)}
 						style={selected == res
@@ -192,7 +192,7 @@
 											'bg-surface text-primary ',
 											css?.selectedTab?.class,
 											'wm-tabs-selectedTab'
-									  )
+										)
 									: 'text-secondary'
 							)}
 						>
@@ -200,7 +200,7 @@
 							{res}
 						</button>
 						{#if selected == res}
-							<div class="p-2 border-t">
+							<div class="border-t">
 								<SubGridEditor
 									{id}
 									visible={render && index === selectedIndex}
