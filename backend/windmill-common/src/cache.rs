@@ -7,9 +7,13 @@
 //!   This shall only be used for testing, e.g. [`sqlx::test`] spawn a database per test,
 //!   and there is only one test per thread, so using thread-local cache avoid unexpected results.
 
+use anyhow::anyhow;
 use crate::{
-    apps::AppScriptId, error, flows::FlowNodeId, flows::FlowValue, scripts::ScriptHash,
-    scripts::ScriptLang,
+    apps::AppScriptId,
+    error,
+    flows::{FlowNodeId, FlowValue},
+    schema::SchemaValidator,
+    scripts::{ScriptHash, ScriptLang},
 };
 
 #[cfg(feature = "scoped_cache")]
@@ -307,6 +311,8 @@ pub struct ScriptMetadata {
     pub language: Option<ScriptLang>,
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
+    pub validate_schema: bool,
+    pub schema_validator: Option<SchemaValidator>,
 }
 
 #[derive(Debug)]
@@ -529,6 +535,8 @@ pub mod script {
                     lock AS \"lock: String\", \
                     language AS \"language: Option<ScriptLang>\", \
                     envs AS \"envs: Vec<String>\", \
+                    schema AS \"schema: String\", \
+                    schema_validation AS \"schema_validation: bool\", \
                     codebase LIKE '%.tar' as use_tar \
                 FROM script WHERE hash = $1 LIMIT 1",
                 hash.0
@@ -537,23 +545,35 @@ pub mod script {
             .await
             .map_err(Into::into)
             .and_then(unwrap_or_error(&loc, "Script", hash))
-            .map(|r| RawScript {
-                content: r.content,
-                lock: r.lock,
-                meta: Some(ScriptMetadata {
-                    language: r.language,
-                    envs: r.envs,
-                    codebase: if let Some(use_tar) = r.use_tar {
-                        let sh = hash.to_string();
-                        if use_tar {
-                            Some(format!("{sh}.tar"))
+            .and_then(|r| {
+                Ok(RawScript {
+                    content: r.content,
+                    lock: r.lock,
+                    meta: Some(ScriptMetadata {
+                        language: r.language,
+                        envs: r.envs,
+                        codebase: if let Some(use_tar) = r.use_tar {
+                            let sh = hash.to_string();
+                            if use_tar {
+                                Some(format!("{sh}.tar"))
+                            } else {
+                                Some(sh)
+                            }
                         } else {
-                            Some(sh)
-                        }
-                    } else {
-                        None
-                    },
-                }),
+                            None
+                        },
+                        validate_schema: r.schema_validation,
+                        schema_validator: if r.schema_validation {
+                            r.schema
+                                .map(|schema_str| {
+                                    SchemaValidator::from_schema(&schema_str).map_err(|e| anyhow!("Couldn't create schema validator for script requiring schema validation: {e}"))
+                                })
+                                .transpose()?
+                        } else {
+                            None
+                        },
+                    }),
+                })
             })
         });
         fut.map_ok(|ScriptFull { data, meta }| (data, meta))
@@ -939,6 +959,7 @@ const _: () = {
         (u64, |x| format!("{:016x}", x)),
         (Uuid, |x| format!("{:032x}", x.as_u128())),
         (ScriptHash, |x| format!("{:016x}", x.0)),
+        ((u8, ScriptHash), |x| format!("{:02x}-{:016x}", x.0, x.1.0)),
         (FlowNodeId, |x| format!("{:016x}", x.0)),
         (AppScriptId, |x| format!("{:016x}", x.0))
     }

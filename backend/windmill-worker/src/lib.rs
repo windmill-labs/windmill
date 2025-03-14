@@ -41,6 +41,7 @@ mod worker;
 mod worker_flow;
 mod worker_lockfiles;
 mod santized_sql_params;
+mod schema;
 
 pub use worker::*;
 
