@@ -219,6 +219,7 @@ pub async fn do_postgresql(
     let mtex;
     if !*CLOUD_HOSTED {
         mtex = CONNECTION_CACHE.try_lock().ok();
+        increment_connection_counter(&database_string).await;
     } else {
         mtex = None;
     }
@@ -226,7 +227,6 @@ pub async fn do_postgresql(
     let has_cached_con = mtex
         .as_ref()
         .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
-    increment_connection_counter(&database_string).await;
 
     // tracing::error!("LOOKING FOR CACHED CONN");
     let new_client = if has_cached_con {
@@ -370,12 +370,7 @@ pub async fn do_postgresql(
 
             let mut most_used_conn = false;
             if let Some(new_client) = new_client {
-                most_used_conn = {
-                    let counter_map = CONNECTION_COUNTER.read().await;
-                    let current_count = counter_map.get(&database_string).copied().unwrap_or(0);
-                    let max_count = counter_map.values().copied().max().unwrap_or(0);
-                    current_count >= max_count
-                };
+                most_used_conn = is_most_used_conn(&database_string).await;
                 if most_used_conn {
                     *mtex = Some((database_string, new_client.0));
                 }
@@ -424,6 +419,16 @@ pub async fn do_postgresql(
     *mem_peak = (raw_result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
     return Ok(raw_result);
+}
+
+async fn is_most_used_conn(database_string: &str) -> bool {
+    let counter_map = CONNECTION_COUNTER.read().await;
+    let current_count = counter_map
+        .get(&database_string.to_string())
+        .copied()
+        .unwrap_or(0);
+    let max_count = counter_map.values().copied().max().unwrap_or(0);
+    current_count >= max_count
 }
 
 async fn increment_connection_counter(database_string: &str) {
