@@ -851,7 +851,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -1274,9 +1274,9 @@ dependencies = [
 
 [[package]]
 name = "base64ct"
-version = "1.7.1"
+version = "1.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb97d56060ee67d285efb8001fec9d2a4c710c32efd2e14b5cbb5ba71930fc2d"
+checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
 
 [[package]]
 name = "better_scoped_tls"
@@ -1322,7 +1322,7 @@ dependencies = [
  "lazy_static",
  "lazycell",
  "log",
- "prettyplease 0.2.30",
+ "prettyplease 0.2.31",
  "proc-macro2",
  "quote",
  "regex",
@@ -1343,7 +1343,7 @@ dependencies = [
  "clang-sys",
  "itertools 0.13.0",
  "log",
- "prettyplease 0.2.30",
+ "prettyplease 0.2.31",
  "proc-macro2",
  "quote",
  "regex",
@@ -1737,7 +1737,7 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "rand 0.8.5",
- "rand_distr",
+ "rand_distr 0.4.3",
  "rayon",
  "safetensors",
  "thiserror 1.0.69",
@@ -2628,7 +2628,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "xz2",
  "zstd",
 ]
@@ -2728,7 +2728,7 @@ dependencies = [
  "regex",
  "sha2 0.10.8",
  "unicode-segmentation",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -2895,7 +2895,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
  "serde",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -2951,7 +2951,7 @@ dependencies = [
  "deno_error",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -3146,7 +3146,7 @@ dependencies = [
  "spki",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "x25519-dalek",
 ]
 
@@ -3321,7 +3321,7 @@ dependencies = [
  "pin-project",
  "rand 0.8.5",
  "tokio",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "winapi",
  "windows-sys 0.59.0",
 ]
@@ -3768,7 +3768,7 @@ dependencies = [
  "tokio",
  "tokio-metrics",
  "twox-hash 1.6.3",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "which 6.0.3",
  "winapi",
  "windows-sys 0.59.0",
@@ -3820,9 +3820,9 @@ dependencies = [
 
 [[package]]
 name = "deno_terminal"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daef12499e89ee99e51ad6000a91f600d3937fb028ad4918af76810c5bc9e0d5"
+checksum = "23f71c27009e0141dedd315f1dfa3ebb0a6ca4acce7c080fac576ea415a465f6"
 dependencies = [
  "once_cell",
  "termcolor",
@@ -3888,7 +3888,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -3977,7 +3977,7 @@ dependencies = [
  "num-bigint",
  "prost",
  "serde",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -4003,7 +4003,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -4027,7 +4027,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "v8_valueserializer",
 ]
 
@@ -5189,7 +5189,7 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows",
+ "windows 0.58.0",
 ]
 
 [[package]]
@@ -5481,16 +5481,16 @@ dependencies = [
 
 [[package]]
 name = "half"
-version = "2.4.1"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dd08c532ae367adf81c312a4580bc67f1d0fe8bc9c460520283f4c0ff277888"
+checksum = "7db2ff139bba50379da6aa0766b52fdcb62cb5b263009b09ed58ba604e14bbd1"
 dependencies = [
  "bytemuck",
  "cfg-if",
  "crunchy",
  "num-traits",
- "rand 0.8.5",
- "rand_distr",
+ "rand 0.9.0",
+ "rand_distr 0.5.1",
 ]
 
 [[package]]
@@ -5720,13 +5720,13 @@ dependencies = [
 
 [[package]]
 name = "hostname"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c731c3e10504cc8ed35cfe2f1db4c9274c3d35fa486e3b31df46f068ef3e867"
+checksum = "f9c7c7c8ac16c798734b8a24560c1362120597c40d5e1459f09498f8f6c8f2ba"
 dependencies = [
+ "cfg-if",
  "libc",
- "match_cfg",
- "winapi",
+ "windows 0.52.0",
 ]
 
 [[package]]
@@ -6798,9 +6798,9 @@ checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.9.2"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6db9c683daf087dc577b7506e9695b3d556a9f3849903fa28186283afd6809e9"
+checksum = "fe7db12097d22ec582439daf8618b8fdd1a7bef6270e9af3b1ebcd30893cf413"
 
 [[package]]
 name = "litemap"
@@ -7026,12 +7026,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "204651f31b0a6a7b2128d2b92c372cd94607b210c3a6b6e542c57a8cfd4db996"
 
 [[package]]
-name = "match_cfg"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffbee8634e0d45d258acb448e7eaab3fce7a0a467395d4d9f228e3c1f01fb2e4"
-
-[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7237,7 +7231,7 @@ dependencies = [
  "smallvec",
  "tagptr",
  "thiserror 1.0.69",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -7374,7 +7368,7 @@ dependencies = [
  "sha2 0.10.8",
  "subprocess",
  "thiserror 1.0.69",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "zstd",
 ]
 
@@ -7808,9 +7802,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.21.0"
+version = "1.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cde51589ab56b20a6f686b2c68f7a0bd6add753d697abf720d63f8db3ab7b1ad"
+checksum = "d75b0bedcc4fe52caa0e03d9f1151a323e4aa5e2d78ba3580400cd3c9e2bc4bc"
 
 [[package]]
 name = "oneshot"
@@ -8600,7 +8594,7 @@ dependencies = [
  "postgres-protocol 0.6.8",
  "serde",
  "serde_json",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -8636,9 +8630,9 @@ dependencies = [
 
 [[package]]
 name = "prettyplease"
-version = "0.2.30"
+version = "0.2.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1ccf34da56fc294e7d4ccf69a85992b7dfb826b7cf57bac6a70bba3494cc08a"
+checksum = "5316f57387668042f561aae71480de936257848f9c43ce528e311d89a07cadeb"
 dependencies = [
  "proc-macro2",
  "syn 2.0.100",
@@ -8860,7 +8854,7 @@ dependencies = [
  "multimap",
  "once_cell",
  "petgraph 0.7.1",
- "prettyplease 0.2.30",
+ "prettyplease 0.2.31",
  "prost",
  "prost-types",
  "regex",
@@ -8942,12 +8936,6 @@ dependencies = [
  "num-complex",
  "reborrow",
 ]
-
-[[package]]
-name = "quick-error"
-version = "1.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quick-xml"
@@ -9158,6 +9146,16 @@ checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
  "rand 0.8.5",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
+dependencies = [
+ "num-traits",
+ "rand 0.9.0",
 ]
 
 [[package]]
@@ -9480,12 +9478,11 @@ dependencies = [
 
 [[package]]
 name = "resolv-conf"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52e44394d2086d010551b14b53b1f24e31647570cd1deb0379e2c21b329aba00"
+checksum = "48375394603e3dd4b2d64371f7148fd8c7baa2680e28741f2cb8d23b59e3d4c4"
 dependencies = [
  "hostname",
- "quick-error",
 ]
 
 [[package]]
@@ -9557,7 +9554,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -9779,7 +9776,7 @@ dependencies = [
  "bitflags 2.9.0",
  "errno",
  "libc",
- "linux-raw-sys 0.9.2",
+ "linux-raw-sys 0.9.3",
  "windows-sys 0.59.0",
 ]
 
@@ -10073,7 +10070,7 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "url",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -10111,7 +10108,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -10953,7 +10950,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "webpki-roots",
 ]
 
@@ -11037,7 +11034,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.12",
  "tracing",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "whoami",
 ]
 
@@ -11078,7 +11075,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.12",
  "tracing",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "whoami",
 ]
 
@@ -11104,7 +11101,7 @@ dependencies = [
  "sqlx-core",
  "tracing",
  "url",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -11779,7 +11776,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "time",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "winapi",
 ]
 
@@ -11860,7 +11857,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c56d6ff5591fc332739b3ce7035b57995a3ce29a93ffd6012660e0949c956ea8"
 dependencies = [
  "murmurhash32",
- "rand_distr",
+ "rand_distr 0.4.3",
  "tantivy-common",
 ]
 
@@ -11892,11 +11889,10 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.18.0"
+version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c317e0a526ee6120d8dabad239c8dadca62b24b6f168914bbbc8e2fb1f0e567"
+checksum = "488960f40a3fd53d72c2a29a58722561dee8afdd175bd88e3db4677d7b2ba600"
 dependencies = [
- "cfg-if",
  "fastrand 2.3.0",
  "getrandom 0.3.1",
  "once_cell",
@@ -12009,7 +12005,7 @@ dependencies = [
  "tokio-rustls 0.24.1",
  "tokio-util",
  "tracing",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -12365,9 +12361,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.13"
+version = "0.7.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
+checksum = "6b9590b93e6fcc1739458317cccd391ad3955e2bde8913edf6f95f9e65a8f034"
 dependencies = [
  "bytes",
  "futures-core",
@@ -12882,7 +12878,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab82fc73182c29b02e2926a6df32f2241dbadb5cfc111fd595515b3598f46bb3"
 dependencies = [
  "rand 0.9.0",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "web-time",
 ]
 
@@ -13174,9 +13170,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.15.1"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0f540e3240398cce6128b64ba83fdbdd86129c16a3aa1a3a252efd66eb3d587"
+checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
 dependencies = [
  "getrandom 0.3.1",
  "serde",
@@ -13624,7 +13620,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -13654,7 +13650,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "v8",
  "windmill-api",
  "windmill-api-client",
@@ -13668,7 +13664,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -13752,7 +13748,7 @@ dependencies = [
  "ulid",
  "url",
  "urlencoding",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
@@ -13765,7 +13761,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -13778,12 +13774,12 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 1.0.109",
- "uuid 1.15.1",
+ "uuid 1.16.0",
 ]
 
 [[package]]
 name = "windmill-audit"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "chrono",
  "serde",
@@ -13796,21 +13792,21 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "serde",
  "serde_json",
  "sqlx",
  "tracing",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "windmill-common",
  "windmill-queue",
 ]
 
 [[package]]
 name = "windmill-common"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -13865,27 +13861,27 @@ dependencies = [
  "tracing-loki",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "windmill-macros",
 ]
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "regex",
  "serde",
  "serde_json",
  "sqlx",
  "tracing",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "windmill-common",
  "windmill-queue",
 ]
 
 [[package]]
 name = "windmill-indexer"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -13902,13 +13898,13 @@ dependencies = [
  "tokio",
  "tokio-tar",
  "tracing",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "windmill-common",
 ]
 
 [[package]]
 name = "windmill-macros"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -13920,7 +13916,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -13929,7 +13925,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -13941,7 +13937,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -13953,7 +13949,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -13965,7 +13961,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -13977,7 +13973,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -13988,7 +13984,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -13999,7 +13995,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14019,7 +14015,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -14036,7 +14032,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14048,7 +14044,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14066,7 +14062,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -14088,7 +14084,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14098,7 +14094,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14124,14 +14120,14 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "windmill-audit",
  "windmill-common",
 ]
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -14141,7 +14137,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.477.1"
+version = "1.478.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14202,7 +14198,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "urlencoding",
- "uuid 1.15.1",
+ "uuid 1.16.0",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
@@ -14220,6 +14216,16 @@ dependencies = [
  "windmill-parser-yaml",
  "windmill-queue",
  "yaml-rust",
+]
+
+[[package]]
+name = "windows"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48a53791691ab099e5e2ad123536d0fff50652600abaf43bbf952894110d0be"
+dependencies = [
+ "windows-core 0.52.0",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
