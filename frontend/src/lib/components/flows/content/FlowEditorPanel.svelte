@@ -25,7 +25,8 @@
 		flowStateStore,
 		flowInputsStore,
 		pathStore,
-		initialPath,
+		initialPathStore,
+		fakeInitialPath,
 		previewArgs,
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
@@ -114,7 +115,8 @@
 		on:testWithArgs
 		args={$previewArgs}
 		currentPath={$pathStore}
-		{initialPath}
+		initialPath={$initialPathStore}
+		{fakeInitialPath}
 		schema={$flowStore.schema}
 		{noEditor}
 		newItem={newFlow}

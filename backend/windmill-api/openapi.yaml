@@ -4668,6 +4668,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: keep_captures
+          description: keep captures
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script path
@@ -5613,6 +5618,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: keep_captures
+          description: keep captures
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow delete
@@ -10602,6 +10612,35 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Capture"
+  
+
+  /w/{workspace}/capture/move/{runnable_kind}/{path}:
+    post:
+      summary: move captures and configs for a script or flow
+      operationId: moveCapturesAndConfigs
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: move captures and configs to a new path
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_path:
+                  type: string
+      responses:
+        "200":
+          description: captures and configs moved
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/capture/{id}:
     get:

@@ -10,7 +10,8 @@
 		type OpenFlow,
 		type RawScript,
 		type InputTransform,
-		type TriggersCount
+		type TriggersCount,
+		CaptureService
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -24,6 +25,7 @@
 		cleanValueProperties,
 		encodeState,
 		formatCron,
+		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
 		sleep,
@@ -104,6 +106,18 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
+
+	let initialPathStore = writable(initialPath)
+	$: initialPathStore.set(initialPath)
+
+	// used for new flows for captures
+	let fakeInitialPath =
+		'u/' +
+		($userStore?.username?.includes('@')
+			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: $userStore!.username!) +
+		'/' +
+		generateRandomString(12)
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = undefined // Value to diff against
@@ -216,7 +230,18 @@
 				if (savedFlow?.draft_only) {
 					await FlowService.deleteFlowByPath({
 						workspace: $workspaceStore!,
-						path: initialPath
+						path: initialPath,
+						keepCaptures: true
+					})
+				}
+				if (!initialPath || $pathStore != initialPath) {
+					await CaptureService.moveCapturesAndConfigs({
+						workspace: $workspaceStore!,
+						path: initialPath || fakeInitialPath,
+						requestBody: {
+							new_path: $pathStore
+						},
+						runnableKind: 'flow'
 					})
 				}
 				await FlowService.createFlow({
@@ -544,7 +569,8 @@
 		pathStore,
 		testStepStore,
 		saveDraft,
-		initialPath,
+		initialPathStore,
+		fakeInitialPath,
 		flowInputsStore: writable<FlowInput>({}),
 		customUi,
 		insertButtonOpen,
