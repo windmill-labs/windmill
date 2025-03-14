@@ -2462,10 +2462,10 @@ async fn get_completed_flow_node_result_rec(
             };
         } else {
             let subflows = sqlx::query!(
-                "SELECT jc.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\"
-                FROM v2_job_completed jc
-                JOIN v2_job j ON j.id = jc.id
-                WHERE j.parent_job = $1 AND jc.workspace_id = $2 AND jc.flow_status IS NOT NULL AND j.created_at >= $3",
+                "SELECT j.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\"
+                FROM v2_job j
+                JOIN v2_job_completed jc ON j.id = jc.id
+                WHERE j.parent_job = $1 AND j.workspace_id = $2 AND j.created_at >= $3 AND jc.flow_status IS NOT NULL",
                 id,
                 w_id,
                 created_at

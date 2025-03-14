@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT jc.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\"\n                FROM v2_job_completed jc\n                JOIN v2_job j ON j.id = jc.id\n                WHERE j.parent_job = $1 AND jc.workspace_id = $2 AND jc.flow_status IS NOT NULL AND j.created_at >= $3",
+  "query": "SELECT j.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\"\n                FROM v2_job j\n                JOIN v2_job_completed jc ON j.id = jc.id\n                WHERE j.parent_job = $1 AND j.workspace_id = $2 AND j.created_at >= $3 AND jc.flow_status IS NOT NULL",
   "describe": {
     "columns": [
       {
@@ -26,5 +26,5 @@
       true
     ]
   },
-  "hash": "e6ae5f63e4be3c65d129090af7fdc06ddaeb3c3023dfb6b6eae9c3add11cd27d"
+  "hash": "433da02be85347333323480f7f279e9bd7e1b8348e91b33030df7181a55798a6"
 }
