@@ -368,62 +368,67 @@ pub async fn do_postgresql(
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
     if let Some(handle) = handle {
-        // tracing::error!("Found handle");
-        if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
-            if mtex.as_ref().is_none_or(|x| x.0 != database_string) {
-                // tracing::error!("Locked conn cached");
-                let abort_handler = handle.abort_handle();
+        if !*CLOUD_HOSTED {
+            // tracing::error!("Found handle");
+            if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
+                if mtex.as_ref().is_none_or(|x| x.0 != database_string) {
+                    // tracing::error!("Locked conn cached");
+                    let abort_handler = handle.abort_handle();
 
-                let mut most_used_conn = false;
-                if let Some(new_client) = new_client {
-                    most_used_conn = is_most_used_conn(&database_string).await;
-                    if most_used_conn {
-                        *mtex = Some((database_string, new_client.0));
+                    let mut cache_new_con = false;
+                    if let Some(new_client) = new_client {
+                        cache_new_con = is_most_used_conn(&database_string).await;
+                        if cache_new_con {
+                            *mtex = Some((database_string, new_client.0));
+                        } else {
+                            new_client.1.abort();
+                        }
                     } else {
-                        new_client.1.abort();
+                        handle.abort();
+                    }
+
+                    LAST_QUERY.store(
+                        chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    if cache_new_con {
+                        tokio::spawn(async move {
+                            loop {
+                                tokio::time::sleep(Duration::from_secs(5)).await;
+                                let last_query =
+                                    LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
+                                let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
+
+                                //we cache connection for 5 minutes at most
+                                if last_query + 60 * 1 < now {
+                                    // tracing::error!("Closing cache connection due to inactivity");
+                                    tracing::info!(
+                                        "Closing cache pg executor connection due to inactivity"
+                                    );
+                                    break;
+                                }
+                                let mtex = CONNECTION_CACHE.lock().await;
+                                if mtex.is_none() {
+                                    // connection is not in the mutex anymore
+                                    break;
+                                } else if let Some(mtex) = mtex.as_ref() {
+                                    if mtex.0.as_str() != &database_string_clone {
+                                        // connection is not the latest one
+                                        break;
+                                    }
+                                }
+
+                                tracing::debug!(
+                                    "Keeping cached pg executor connection alive due to activity"
+                                )
+                            }
+                            let mut mtex = CONNECTION_CACHE.lock().await;
+                            *mtex = None;
+                            abort_handler.abort();
+                        });
                     }
                 } else {
                     handle.abort();
-                }
-
-                LAST_QUERY.store(
-                    chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-                    std::sync::atomic::Ordering::Relaxed,
-                );
-                if most_used_conn {
-                    tokio::spawn(async move {
-                        loop {
-                            tokio::time::sleep(Duration::from_secs(5)).await;
-                            let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
-                            let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
-
-                            //we cache connection for 5 minutes at most
-                            if last_query + 60 * 1 < now {
-                                // tracing::error!("Closing cache connection due to inactivity");
-                                tracing::info!(
-                                    "Closing cache pg executor connection due to inactivity"
-                                );
-                                break;
-                            }
-                            let mtex = CONNECTION_CACHE.lock().await;
-                            if mtex.is_none() {
-                                // connection is not in the mutex anymore
-                                break;
-                            } else if let Some(mtex) = mtex.as_ref() {
-                                if mtex.0.as_str() != &database_string_clone {
-                                    // connection is not the latest one
-                                    break;
-                                }
-                            }
-
-                            tracing::debug!(
-                                "Keeping cached pg executor connection alive due to activity"
-                            )
-                        }
-                        let mut mtex = CONNECTION_CACHE.lock().await;
-                        *mtex = None;
-                        abort_handler.abort();
-                    });
                 }
             } else {
                 handle.abort();
