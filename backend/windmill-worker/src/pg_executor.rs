@@ -387,11 +387,11 @@ pub async fn do_postgresql(
                         handle.abort();
                     }
 
-                    LAST_QUERY.store(
-                        chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-                        std::sync::atomic::Ordering::Relaxed,
-                    );
                     if cache_new_con {
+                        LAST_QUERY.store(
+                            chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
                         tokio::spawn(async move {
                             loop {
                                 tokio::time::sleep(Duration::from_secs(5)).await;
@@ -437,10 +437,9 @@ pub async fn do_postgresql(
             handle.abort();
         }
     }
-    let raw_result = to_raw_value(&result);
-    *mem_peak = (raw_result.get().len() / 1000) as i32;
+    *mem_peak = (result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
-    return Ok(raw_result);
+    return Ok(result);
 }
 
 async fn is_most_used_conn(database_string: &str) -> bool {
