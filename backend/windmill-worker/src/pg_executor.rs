@@ -396,7 +396,9 @@ pub async fn do_postgresql(
                             //we cache connection for 5 minutes at most
                             if last_query + 60 * 1 < now {
                                 // tracing::error!("Closing cache connection due to inactivity");
-                                tracing::info!("Closing cache connection due to inactivity");
+                                tracing::info!(
+                                    "Closing cache pg executor connection due to inactivity"
+                                );
                                 break;
                             }
                             let mtex = CONNECTION_CACHE.lock().await;
@@ -410,7 +412,9 @@ pub async fn do_postgresql(
                                 }
                             }
 
-                            tracing::debug!("Keeping cached connection alive due to activity")
+                            tracing::debug!(
+                                "Keeping cached pg executorconnection alive due to activity"
+                            )
                         }
                         let mut mtex = CONNECTION_CACHE.lock().await;
                         *mtex = None;
