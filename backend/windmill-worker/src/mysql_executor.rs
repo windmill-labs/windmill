@@ -22,9 +22,7 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, OccupancyMetrics},
-    handle_child::run_future_with_polling_update_job_poller,
-    AuthedClientBackgroundTask,
+    common::{build_args_map, OccupancyMetrics}, handle_child::run_future_with_polling_update_job_poller, santized_sql_params::sanitize_and_interpolate_unsafe_sql_args, AuthedClientBackgroundTask
 };
 
 #[derive(Deserialize)]
@@ -171,6 +169,8 @@ pub async fn do_mysql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, job_args)?;
+
     let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
 
     let mut statement_values: Params = match using_named_params {
@@ -178,6 +178,9 @@ pub async fn do_mysql(
         false => Params::Positional(vec![]),
     };
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
         let mysql_v = match job_args

@@ -20,9 +20,7 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, check_executor_binary_exists, OccupancyMetrics},
-    handle_child::run_future_with_polling_update_job_poller,
-    AuthedClientBackgroundTask,
+    common::{build_args_map, check_executor_binary_exists, OccupancyMetrics}, handle_child::run_future_with_polling_update_job_poller, santized_sql_params::sanitize_and_interpolate_unsafe_sql_args, AuthedClientBackgroundTask
 };
 
 #[derive(Deserialize)]
@@ -349,6 +347,8 @@ pub async fn do_oracledb(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, _) = sanitize_and_interpolate_unsafe_sql_args(query, &sig, job_args)?;
+
     let (statement_values, errors) = get_statement_values(sig.clone(), job_args);
 
     if !errors.is_empty() {
@@ -371,7 +371,7 @@ pub async fn do_oracledb(
 
     let conn_a = Arc::new(std::sync::Mutex::new(conn));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(&query);
 
     let result_f = if queries.len() > 1 {
         let f = async {
@@ -398,7 +398,7 @@ pub async fn do_oracledb(
 
         f.boxed()
     } else {
-        do_oracledb_inner(query, statement_values, conn_a, Some(column_order), false)?
+        do_oracledb_inner(&query, statement_values, conn_a, Some(column_order), false)?
     };
 
     let result = run_future_with_polling_update_job_poller(
