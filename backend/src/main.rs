@@ -19,7 +19,7 @@ use std::{
     collections::HashMap,
     fs::{create_dir_all, DirBuilder},
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
@@ -113,6 +113,12 @@ where
     let future = Box::pin(future);
 
     rt.block_on(future)
+}
+
+lazy_static::lazy_static! {
+    static ref PG_LISTENER_REFRESH_PERIOD_SECS: Option<u64> = std::env::var("PG_LISTENER_REFRESH_PERIOD_SECS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok());
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -650,6 +656,7 @@ Windmill Community Edition {GIT_VERSION}
 
             let h = tokio::spawn(async move {
                 let mut listener = retry_listen_pg(&db_url).await;
+                let mut last_listener_refresh = Instant::now();
                 loop {
                     tokio::select! {
                         biased;
@@ -859,6 +866,23 @@ Windmill Community Edition {GIT_VERSION}
                             };
                         },
                         _ = tokio::time::sleep(Duration::from_secs(30))    => {
+                            if PG_LISTENER_REFRESH_PERIOD_SECS.is_some_and(|x| last_listener_refresh.elapsed() > Duration::from_secs(x)) {
+                                tracing::info!("Refreshing pg listener");
+                                if let Err(e) = listener.unlisten_all().await {
+                                    tracing::error!(error = %e, "Could not unlisten to database");
+                                }
+                                monitor_db(
+                                    &db,
+                                    &base_internal_url,
+                                    server_mode,
+                                    worker_mode,
+                                    true,
+                                    tx.clone(),
+                                ).await;
+                                listener = retry_listen_pg(&db_url).await;
+                                last_listener_refresh = Instant::now();
+                            }
+
                             tracing::info!("monitor task started");
                             monitor_db(
                                 &db,
