@@ -379,7 +379,11 @@ pub async fn do_postgresql(
                     most_used_conn = is_most_used_conn(&database_string).await;
                     if most_used_conn {
                         *mtex = Some((database_string, new_client.0));
+                    } else {
+                        new_client.1.abort();
                     }
+                } else {
+                    handle.abort();
                 }
 
                 LAST_QUERY.store(
