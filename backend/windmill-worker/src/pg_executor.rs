@@ -417,7 +417,7 @@ pub async fn do_postgresql(
                             }
 
                             tracing::debug!(
-                                "Keeping cached pg executorconnection alive due to activity"
+                                "Keeping cached pg executor connection alive due to activity"
                             )
                         }
                         let mut mtex = CONNECTION_CACHE.lock().await;
