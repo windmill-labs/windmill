@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT jc.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\", j.created_at\n        FROM v2_job_completed jc\n        JOIN v2_job j ON j.id = jc.id\n        WHERE jc.id = $1 AND jc.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "flow_status!: Json<FlowStatus>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "3dbc17f1190a918bbe7cf6d4a241059002455e2d48008ef9ec2367d2fdc6146b"
+}

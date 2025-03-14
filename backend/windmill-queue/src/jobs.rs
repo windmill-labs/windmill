@@ -2441,7 +2441,7 @@ pub async fn get_result_by_id_from_running_flow_inner(
 async fn get_completed_flow_node_result_rec(
     db: &Pool<Postgres>,
     w_id: &str,
-    started_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
     subflows: Vec<(Uuid, FlowStatus)>,
     node_id: &str,
 ) -> error::Result<Option<JobResult>> {
@@ -2465,16 +2465,16 @@ async fn get_completed_flow_node_result_rec(
                 "SELECT jc.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\"
                 FROM v2_job_completed jc
                 JOIN v2_job j ON j.id = jc.id
-                WHERE j.parent_job = $1 AND jc.workspace_id = $2 AND jc.flow_status IS NOT NULL AND jc.started_at >= $3",
+                WHERE j.parent_job = $1 AND jc.workspace_id = $2 AND jc.flow_status IS NOT NULL AND j.created_at >= $3",
                 id,
                 w_id,
-                started_at
+                created_at
             )
             .map(|record| (record.id, record.flow_status.0))
             .fetch_all(db)
             .await?;
             match Box::pin(get_completed_flow_node_result_rec(
-                db, w_id, started_at, subflows, node_id,
+                db, w_id, created_at, subflows, node_id,
             ))
             .await?
             {
@@ -2494,22 +2494,24 @@ async fn get_result_by_id_from_original_flow_inner(
     node_id: &str,
 ) -> error::Result<JobResult> {
     let flow_job = sqlx::query!(
-        "SELECT id, flow_status AS \"flow_status!: Json<FlowStatus>\", started_at as \"started_at!: DateTime<Utc>\"
-        FROM v2_job_completed WHERE id = $1 AND workspace_id = $2 AND started_at IS NOT NULL",
+        "SELECT jc.id, jc.flow_status AS \"flow_status!: Json<FlowStatus>\", j.created_at
+        FROM v2_job_completed jc
+        JOIN v2_job j ON j.id = jc.id
+        WHERE jc.id = $1 AND jc.workspace_id = $2",
         completed_flow_id,
         w_id
     )
-    .map(|record| (record.id, record.flow_status.0, record.started_at))
+    .map(|record| (record.id, record.flow_status.0, record.created_at))
     .fetch_optional(db)
     .await?;
 
-    let (id, flow_status, started_at) = not_found_if_none(
+    let (id, flow_status, created_at) = not_found_if_none(
         flow_job,
         "Root completed job",
         format!("root: {}, id: {}", completed_flow_id, node_id),
     )?;
 
-    match get_completed_flow_node_result_rec(db, w_id, started_at, vec![(id, flow_status)], node_id)
+    match get_completed_flow_node_result_rec(db, w_id, created_at, vec![(id, flow_status)], node_id)
         .await?
     {
         Some(res) => Ok(res),
