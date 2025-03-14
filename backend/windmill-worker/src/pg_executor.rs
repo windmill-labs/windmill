@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_postgres::Client;
 use tokio_postgres::{types::ToSql, NoTls, Row};
 use tokio_postgres::{
@@ -55,8 +55,9 @@ struct PgDatabase {
 lazy_static! {
     pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
         Arc::new(Mutex::new(None));
+    pub static ref CONNECTION_COUNTER: Arc<RwLock<HashMap<String, u64>>> =
+        Arc::new(RwLock::new(HashMap::new()));
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
-    pub static ref RUNNING: AtomicBool = AtomicBool::new(false);
 }
 
 fn do_postgresql_inner<'a>(
@@ -211,14 +212,13 @@ pub async fn do_postgresql(
     );
     let database_string_clone = database_string.clone();
 
-    RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
     LAST_QUERY.store(
         chrono::Utc::now().timestamp().try_into().unwrap_or(0),
         std::sync::atomic::Ordering::Relaxed,
     );
     let mtex;
     if !*CLOUD_HOSTED {
-        mtex = Some(CONNECTION_CACHE.lock().await);
+        mtex = CONNECTION_CACHE.try_lock().ok();
     } else {
         mtex = None;
     }
@@ -226,6 +226,9 @@ pub async fn do_postgresql(
     let has_cached_con = mtex
         .as_ref()
         .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
+    increment_connection_counter(&database_string).await;
+
+    // tracing::error!("LOOKING FOR CACHED CONN");
     let new_client = if has_cached_con {
         tracing::info!("Using cached connection");
         None
@@ -361,51 +364,58 @@ pub async fn do_postgresql(
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
-    RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
-
     if let Some(handle) = handle {
         if let Some(mut mtex) = mtex {
             let abort_handler = handle.abort_handle();
 
+            let mut most_used_conn = false;
             if let Some(new_client) = new_client {
-                *mtex = Some((database_string, new_client.0));
+                most_used_conn = {
+                    let counter_map = CONNECTION_COUNTER.read().await;
+                    let current_count = counter_map.get(&database_string).copied().unwrap_or(0);
+                    let max_count = counter_map.values().copied().max().unwrap_or(0);
+                    current_count >= max_count
+                };
+                if most_used_conn {
+                    *mtex = Some((database_string, new_client.0));
+                }
             }
-            drop(mtex);
+
             LAST_QUERY.store(
                 chrono::Utc::now().timestamp().try_into().unwrap_or(0),
                 std::sync::atomic::Ordering::Relaxed,
             );
+            drop(mtex);
+            if most_used_conn {
+                tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
+                        let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
 
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
-                    let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
-
-                    //we cache connection for 5 minutes at most
-                    if last_query + 60 * 5 < now
-                        && !RUNNING.load(std::sync::atomic::Ordering::Relaxed)
-                    {
-                        tracing::info!("Closing cache connection due to inactivity");
-                        break;
-                    }
-                    let mtex = CONNECTION_CACHE.lock().await;
-                    if mtex.is_none() {
-                        // connection is not in the mutex anymore
-                        break;
-                    } else if let Some(mtex) = mtex.as_ref() {
-                        if mtex.0.as_str() != &database_string_clone {
-                            // connection is not the latest one
+                        //we cache connection for 5 minutes at most
+                        if last_query + 60 * 5 < now {
+                            tracing::info!("Closing cache connection due to inactivity");
                             break;
                         }
-                    }
+                        let mtex = CONNECTION_CACHE.lock().await;
+                        if mtex.is_none() {
+                            // connection is not in the mutex anymore
+                            break;
+                        } else if let Some(mtex) = mtex.as_ref() {
+                            if mtex.0.as_str() != &database_string_clone {
+                                // connection is not the latest one
+                                break;
+                            }
+                        }
 
-                    tracing::debug!("Keeping cached connection alive due to activity")
-                }
-                let mut mtex = CONNECTION_CACHE.lock().await;
-                *mtex = None;
-                abort_handler.abort();
-            });
+                        tracing::debug!("Keeping cached connection alive due to activity")
+                    }
+                    let mut mtex = CONNECTION_CACHE.lock().await;
+                    *mtex = None;
+                    abort_handler.abort();
+                });
+            }
         } else {
             handle.abort();
         }
@@ -414,6 +424,11 @@ pub async fn do_postgresql(
     *mem_peak = (raw_result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
     return Ok(raw_result);
+}
+
+async fn increment_connection_counter(database_string: &str) {
+    let mut counter_map = CONNECTION_COUNTER.write().await;
+    *counter_map.entry(database_string.to_string()).or_insert(0) += 1;
 }
 
 fn map_as_single_type<T>(
@@ -766,6 +781,7 @@ pub fn pg_cell_to_json_value(
         Type::BYTEA_ARRAY => get_array(row, column, column_i, |a: Vec<u8>| {
             Ok(JSONValue::String(format!("\\x{}", hex::encode(a))))
         })?,
+        Type::VOID => JSONValue::Null,
         _ => get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?,
     })
 }
