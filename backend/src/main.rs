@@ -871,14 +871,6 @@ Windmill Community Edition {GIT_VERSION}
                                 if let Err(e) = listener.unlisten_all().await {
                                     tracing::error!(error = %e, "Could not unlisten to database");
                                 }
-                                monitor_db(
-                                    &db,
-                                    &base_internal_url,
-                                    server_mode,
-                                    worker_mode,
-                                    true,
-                                    tx.clone(),
-                                ).await;
                                 listener = retry_listen_pg(&db_url).await;
                                 last_listener_refresh = Instant::now();
                             }
