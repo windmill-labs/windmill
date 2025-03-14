@@ -7,7 +7,8 @@
 		ScheduleService,
 		type Script,
 		type TriggersCount,
-		PostgresTriggerService
+		PostgresTriggerService,
+		CaptureService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -18,6 +19,7 @@
 		emptyString,
 		encodeState,
 		formatCron,
+		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
 		type Value
@@ -105,6 +107,15 @@
 			modifiedValue: script
 		}
 	}
+
+	// used for new scripts for captures
+	let fakeInitialPath =
+		'u/' +
+		($userStore?.username?.includes('@')
+			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: $userStore!.username!) +
+		'/' +
+		generateRandomString(12)
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -565,9 +576,20 @@
 				if (savedScript?.draft_only) {
 					await ScriptService.deleteScriptByPath({
 						workspace: $workspaceStore!,
-						path: initialPath
+						path: initialPath,
+						keepCaptures: true
 					})
 					script.parent_hash = undefined
+				}
+				if (!initialPath || script.path != initialPath) {
+					await CaptureService.moveCapturesAndConfigs({
+						workspace: $workspaceStore!,
+						path: initialPath || fakeInitialPath,
+						requestBody: {
+							new_path: script.path
+						},
+						runnableKind: 'script'
+					})
 				}
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
@@ -1394,6 +1416,7 @@
 									}}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									{initialPath}
+									{fakeInitialPath}
 									schema={script.schema}
 									noEditor={true}
 									isFlow={false}
