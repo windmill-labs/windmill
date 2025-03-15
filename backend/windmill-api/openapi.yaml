@@ -1286,6 +1286,99 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
 
+  /w/{workspace}/git_sync/github_app_installation_url:
+    get:
+      summary: get github app installation url
+      operationId: getGithubAppInstallationUrl
+      tags:
+        - git_sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: github app installation url
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  installation_url:
+                    type: string
+                required:
+                  - installation_url
+
+  /w/{workspace}/git_sync/get_github_app_token:
+    post:
+      summary: get github app token
+      operationId: getGithubAppToken
+      tags:
+        - git_sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: jwt job token
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_token:
+                  type: string
+              required:
+                - job_token
+      responses:
+        "200":
+          description: github app token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                required:
+                  - token
+
+  /w/{workspace}/git_sync/connected_repositories:
+    get:
+      summary: get connected repositories
+      operationId: getConnectedRepositories
+      tags:
+        - git_sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: connected repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    installation_id:
+                      type: string
+                    account_id:
+                      type: string
+                    repositories:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          url:
+                            type: string
+                        required:
+                          - name
+                          - url
+                  required:
+                    - installation_id
+                    - account_id
+                    - repositories
+
   /users/accept_invite:
     post:
       summary: accept invite to workspace

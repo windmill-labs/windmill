@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { OauthService, type ResourceType } from '$lib/gen'
+	import {
+		OauthService,
+		GitSyncService,
+		type ResourceType,
+		type GetConnectedRepositoriesResponse
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { emptySchema, emptyString } from '$lib/utils'
@@ -8,9 +13,10 @@
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import SupabaseIcon from './icons/SupabaseIcon.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, Github, RotateCw } from 'lucide-svelte'
 
 	export let resourceType: string
 	export let resourceTypeInfo: ResourceType | undefined
@@ -23,6 +29,31 @@
 	let notFound = false
 
 	let supabaseWizard = false
+
+	let loadingGithubInstallations = false
+	let githubInstallations: GetConnectedRepositoriesResponse = []
+	let selectedGHAppAccountId: string | undefined = undefined
+	let selectedGHAppRepository: string | undefined = undefined
+
+	async function loadGithubInstallations() {
+		try {
+			loadingGithubInstallations = true
+			const installations = await GitSyncService.getConnectedRepositories({
+				workspace: $workspaceStore!
+			})
+			githubInstallations = installations
+		} catch (err) {
+			console.error(err)
+			sendUserToast('Failed to load GitHub installations', true)
+			githubInstallations = []
+		} finally {
+			loadingGithubInstallations = false
+		}
+	}
+
+	function getRepositories(accountId: string) {
+		return githubInstallations.find((_) => _.account_id === accountId)?.repositories || []
+	}
 
 	async function isSupabaseAvailable() {
 		try {
@@ -79,6 +110,7 @@
 	}
 
 	$: resourceType == 'postgresql' && isSupabaseAvailable()
+	$: resourceType == 'git_repository' && loadGithubInstallations()
 
 	let connectionString = ''
 	let validConnectionString = true
@@ -107,6 +139,21 @@
 		} else {
 			validConnectionString = false
 		}
+	}
+
+	function applyRepositoryURL(close: (_: any) => void) {
+		if (!selectedGHAppRepository) return
+		// TODO: set resource from app boolean!
+		rawCode = JSON.stringify(
+			{
+				...args,
+				url: selectedGHAppRepository
+			},
+			null,
+			2
+		)
+		rawCodeEditor?.setCode(rawCode)
+		close(null)
 	}
 
 	let rawCodeEditor: SimpleEditor | undefined = undefined
@@ -184,6 +231,100 @@
 				<SupabaseIcon height="16px" width="16px" />
 				<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
 			</a>
+		{/if}
+		{#if resourceType == 'git_repository' && $workspaceStore}
+			{#if !loadingGithubInstallations}
+				<Button
+					color="light"
+					variant="contained"
+					size="xs"
+					on:click={loadGithubInstallations}
+					startIcon={{ icon: RotateCw }}
+				/>
+			{:else}
+				<Loader2 class="animate-spin w-10 h-4" />
+			{/if}
+			<Popover
+				floatingConfig={{
+					placement: 'bottom'
+				}}
+				disabled={githubInstallations.length == 0}
+			>
+				<svelte:fragment slot="trigger">
+					<Button
+						spacingSize="sm"
+						size="xs"
+						btnClasses="h-8"
+						color="light"
+						variant="border"
+						nonCaptureEvent
+					>
+						From connected repository
+					</Button>
+				</svelte:fragment>
+				<svelte:fragment slot="content" let:close>
+					<div class="block text-primary p-4">
+						<div class="w-[750px] flex flex-col items-start gap-1">
+							<div class="flex flex-row gap-2 w-full">
+								<div class="flex flex-col gap-1 flex-1">
+									<p class="text-sm font-semibold text-secondary">Github Account ID</p>
+									<select bind:value={selectedGHAppAccountId}>
+										<option value="" disabled>Select GitHub Account ID</option>
+										{#each githubInstallations as installation}
+											<option value={installation.account_id}>{installation.account_id}</option>
+										{/each}
+									</select>
+								</div>
+								{#if selectedGHAppAccountId}
+									<div class="flex flex-col gap-1 flex-1">
+										<p class="text-sm font-semibold text-secondary">Repository</p>
+										<div class="flex flex-row gap-2">
+											<select bind:value={selectedGHAppRepository}>
+												<option value="" disabled selected>Select Repository</option>
+												{#each getRepositories(selectedGHAppAccountId) as repository}
+													<option value={repository.url}>{repository.name}</option>
+												{/each}
+											</select>
+										</div>
+									</div>
+								{/if}
+								<div class="pt-[26px]">
+									<Button
+										size="xs"
+										color="blue"
+										buttonType="button"
+										disabled={!selectedGHAppRepository}
+										on:click={() => {
+											applyRepositoryURL(close)
+										}}
+									>
+										Apply
+									</Button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</svelte:fragment>
+			</Popover>
+
+			<Button
+				color="none"
+				variant="border"
+				size="xs"
+				on:click={async () => {
+					const url = await GitSyncService.getGithubAppInstallationUrl({
+						workspace: $workspaceStore
+					})
+					if (url) {
+						window.open(url.installation_url, '_blank')
+					} else {
+						sendUserToast('Failed to get GitHub app installation URL', true)
+					}
+				}}
+				startIcon={{ icon: Github }}
+			>
+				Install GitHub app to workspace
+			</Button>
 		{/if}
 	</div>
 {:else}
