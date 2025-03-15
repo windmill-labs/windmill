@@ -10,7 +10,7 @@
 
 	export let fullMenu: boolean = false
 	export let noTrigger: boolean = false
-	export let expandRight = false
+	export const expandRight: boolean = false
 
 	let open = false
 	let timeout: NodeJS.Timeout | null = null
@@ -42,7 +42,7 @@
 	{#if hasCloseButton}
 		<slot name="close button" />
 	{:else}
-		<div class="w-[31px]" />
+		<div class="w-[31px]"></div>
 	{/if}
 
 	{#if fullMenu}

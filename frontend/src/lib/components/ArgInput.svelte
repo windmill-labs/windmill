@@ -869,7 +869,7 @@
 									</div>
 								{/key}
 							{:else if disabled}
-								<textarea disabled />
+								<textarea disabled></textarea>
 							{:else}
 								{#await import('$lib/components/JsonEditor.svelte')}
 									<Loader2 class="animate-spin" />
@@ -891,7 +891,7 @@
 							{/if}
 						{/if}
 					{:else if disabled}
-						<textarea disabled />
+						<textarea disabled></textarea>
 					{:else}
 						{#await import('$lib/components/JsonEditor.svelte')}
 							<Loader2 class="animate-spin" />
@@ -978,7 +978,7 @@
 					{/if}
 				</div>
 			{:else if disabled}
-				<textarea disabled />
+				<textarea disabled></textarea>
 			{:else}
 				{#await import('$lib/components/JsonEditor.svelte')}
 					<Loader2 class="animate-spin" />
@@ -1039,7 +1039,7 @@
 			{/if}
 		{:else if isRawStringEditor(inputCat)}
 			{#if disabled}
-				<textarea disabled />
+				<textarea disabled></textarea>
 			{:else}
 				<div class="border my-1 mb-4 w-full">
 					{#await import('$lib/components/SimpleEditor.svelte')}
@@ -1143,7 +1143,7 @@
 								)}
 								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
-							/>
+							></textarea>
 						{/key}
 						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1185,7 +1185,7 @@
 			{/if}
 		</div>
 	{:else if !noMargin}
-		<div class="mb-2" />
+		<div class="mb-2"></div>
 	{/if}
 </div>
 

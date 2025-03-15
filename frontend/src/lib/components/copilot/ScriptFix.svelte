@@ -187,8 +187,8 @@
 					on:click={genLoading
 						? () => abortController?.abort()
 						: $generatedCode.length > 0
-						? undefined
-						: () => onFix()}
+							? () => {}
+							: () => onFix()}
 					btnClasses={genLoading
 						? ''
 						: 'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 min-w-[84px]'}

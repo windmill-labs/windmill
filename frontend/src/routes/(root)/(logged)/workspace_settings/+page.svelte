@@ -815,12 +815,12 @@
 					/>
 				{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
-						<div class="pt-4" />
+						<div class="pt-4"></div>
 						<Alert type="info" title="Workspace Teams commands is an EE feature">
 							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack
 							/ Teams connection to run a custom script and send notifications.
 						</Alert>
-						<div class="pb-2" />
+						<div class="pb-2"></div>
 					{/if}
 					<ConnectionSection
 						platform="teams"
@@ -870,7 +870,7 @@
 				</Button>
 			</div>
 
-			<div class="mt-20" />
+			<div class="mt-20"></div>
 			<PageHeader title="Delete workspace" primary={false} />
 			{#if !$superadmin}
 				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
@@ -943,12 +943,12 @@
 			</div>
 		{:else if tab == 'error_handler'}
 			{#if !$enterpriseLicense}
-				<div class="pt-4" />
+				<div class="pt-4"></div>
 				<Alert type="info" title="Workspace error handler is an EE feature">
 					Workspace error handler is a Windmill EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
-				<div class="pb-2" />
+				<div class="pb-2"></div>
 			{/if}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -1236,7 +1236,7 @@
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
-							<div class="pt-2" />
+							<div class="pt-2"></div>
 
 							<Alert type="warning" title="S3 bucket content and resource details are shared">
 								S3 resource public access is ON, which means that the entire content of the S3
@@ -1259,7 +1259,7 @@
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
-							<div class="pt-2" />
+							<div class="pt-2"></div>
 							<Alert type="warning" title="object content">
 								object public access is ON, which means that the entire content of the object store
 								will be accessible to all the users of this workspace regardless of whether they
@@ -1359,12 +1359,12 @@
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
-				<div class="mb-2" />
+				<div class="mb-2"></div>
 
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
-				<div class="mb-2" />
+				<div class="mb-2"></div>
 			{/if}
 			{#if gitSyncSettings != undefined}
 				<div class="flex mt-5 mb-5 gap-8">
@@ -1433,7 +1433,7 @@
 								Add filter
 							</Button>
 						</div>
-						<div class="pt-2" />
+						<div class="pt-2"></div>
 						<Alert type="info" title="Only new updates trigger git sync">
 							Only new changes matching the filters will trigger a git sync. You still need to
 							initalize the repo to the desired state first.

@@ -54,7 +54,7 @@
 		if (!$componentControl[$selectedComponent?.[0] ?? '']?.left?.()) {
 			const sortedGridItems = getGridItems()
 			const currentIndex = sortedGridItems.findIndex(
-				(item) => item.id === $selectedComponent?.[0] ?? ''
+				(item) => item.id === ($selectedComponent?.[0] ?? '')
 			)
 
 			if (currentIndex !== -1 && currentIndex > 0) {
@@ -90,7 +90,7 @@
 		if (!r) {
 			const sortedGridItems = getGridItems()
 			const currentIndex = sortedGridItems.findIndex(
-				(item) => item.id === $selectedComponent?.[0] ?? ''
+				(item) => item.id === ($selectedComponent?.[0] ?? '')
 			)
 
 			if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
