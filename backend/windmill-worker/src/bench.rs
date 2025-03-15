@@ -78,13 +78,17 @@ impl BenchmarkIter {
     }
 }
 
-pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
+pub async fn benchmark_init(benchmark_jobs: usize, db: &DB) {
+    use serde_json::json;
+    use std::iter;
+
     use windmill_common::{jobs::JobKind, scripts::ScriptLang};
+    use windmill_queue::RawJob;
 
     let benchmark_kind = std::env::var("BENCHMARK_KIND").unwrap_or("noop".to_string());
+    let uuids = Vec::from_iter(iter::repeat_with(|| ulid::Ulid::new().into()).take(benchmark_jobs));
 
-    if benchmark_jobs > 0 {
-        let mut tx = db.begin().await.unwrap();
+    if !uuids.is_empty() {
         match benchmark_kind.as_str() {
             "dedicated" => {
                 // you need to create the script first, check https://github.com/windmill-labs/windmill/blob/b76a92cfe454c686f005c65f534e29e039f3c706/benchmarks/lib.ts#L47
@@ -93,160 +97,130 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                     "f/benchmarks/dedicated",
                     "admins"
                 )
-                .fetch_one(&mut *tx)
+                .fetch_one(db)
                 .await
                 .unwrap_or_else(|_e| panic!("failed to insert dedicated jobs"));
-                let uuids = sqlx::query_scalar!("INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM generate_series(1, $10)) RETURNING id",
-                    hash,
-                    "f/benchmarks/dedicated",
-                    JobKind::Script as JobKind,
-                    ScriptLang::Bun as ScriptLang,
-                    "admins:f/benchmarks/dedicated",
-                    "admin",
-                    "u/admin",
-                    "admin@windmill.dev",
-                    "admins",
-                    benchmark_jobs
-                )
-                .fetch_all(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert dedicated jobs (1)"));
-                sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &uuids, "admins", "admins:f/benchmarks/dedicated")
-                .execute(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert dedicated jobs (2)"));
-                sqlx::query!(
-                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
-                    &uuids
-                )
-                .execute(&mut *tx)
+                RawJob {
+                    runnable_id: Some(hash),
+                    runnable_path: Some("f/benchmarks/dedicated"),
+                    kind: JobKind::Script,
+                    script_lang: Some(ScriptLang::Bun),
+                    tag: "admins:f/benchmarks/dedicated",
+                    created_by: "admin",
+                    permissioned_as: "u/admin",
+                    permissioned_as_email: "admin@windmill.dev",
+                    ..RawJob::default()
+                }
+                .push_many::<()>(db.begin().await.unwrap(), "admins", &uuids, &[])
                 .await
-                .unwrap_or_else(|_e| panic!("failed to insert dedicated jobs (3)"));
+                .unwrap_or_else(|_e| panic!("failed to insert dedicated jobs"))
+                .commit()
+                .await
+                .unwrap_or_else(|_e| panic!("failed to commit insert of dedicated jobs"));
             }
             "parallelflow" => {
-                //create dedicated script
-                sqlx::query!("INSERT INTO script (summary, description, dedicated_worker, content, workspace_id, path, hash, language, tag, created_by, lock) VALUES ('', '', true, $1, $2, $3, $4, $5, $6, $7, '') ON CONFLICT (workspace_id, hash) DO NOTHING",
-                "export async function main() {
-                    console.log('hello world');
-                }",
-                "admins",
-                "u/admin/parallelflow",
-                1234567890,
-                ScriptLang::Deno as ScriptLang,
-                "flow",
-                "admin",
-                )
-                .execute(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs {_e:#}"));
-                let uuids = sqlx::query_scalar!("INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id, raw_flow) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 FROM generate_series(1, 1)) RETURNING id",
-                    None::<i64>,
-                    None::<String>,
-                    JobKind::FlowPreview as JobKind,
+                // create dedicated script
+                sqlx::query!(
+                    "INSERT INTO script (
+                        summary, description, dedicated_worker, content, workspace_id, path, hash,
+                        language, tag, created_by, lock
+                    ) VALUES ('', '', true, $1, $2, $3, $4, $5, $6, $7, '')
+                    ON CONFLICT (workspace_id, hash) DO NOTHING",
+                    "export async function main() {
+                        console.log('hello world');
+                    }",
+                    "admins",
+                    "u/admin/parallelflow",
+                    1234567890,
                     ScriptLang::Deno as ScriptLang,
                     "flow",
                     "admin",
-                    "u/admin",
-                    "admin@windmill.dev",
-                    "admins",
-                    serde_json::from_str::<serde_json::Value>(r#"
-{
-  "modules": [
-    {
-      "id": "a",
-      "value": {
-        "type": "forloopflow",
-        "modules": [
-          {
-            "id": "b",
-            "value": {
-              "path": "u/admin/parallelflow",
-              "type": "script",
-              "tag_override": "",
-              "input_transforms": {}
-            },
-            "summary": "calctest"
-          }
-        ],
-        "iterator": {
-          "expr": "[...new Array(300)]",
-          "type": "javascript"
-        },
-        "parallel": true,
-        "parallelism": 10,
-        "skip_failures": true
-      }
-    }
-  ],
-  "preprocessor_module": null
-}
-                    "#).unwrap(),
                 )
-                .fetch_all(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (1)"));
-                sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &uuids, "admins", "flow")
-                .execute(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (2)"));
-                sqlx::query!(
-                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
-                    &uuids
-                )
-                .execute(&mut *tx)
+                .execute(db)
                 .await
-                .unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (3)"));
-                sqlx::query!(
-                    "INSERT INTO v2_job_status (id, flow_status) SELECT unnest($1::uuid[]), $2",
-                    &uuids,
-                    serde_json::from_str::<serde_json::Value>(
-                        r#"
-{
-		"step": 0,
-		"modules": [
-			{
-				"id": "a",
-				"type": "WaitingForPriorSteps"
-			}
-		],
-		"cleanup_module": {},
-		"failure_module": {
-			"id": "failure",
-			"type": "WaitingForPriorSteps"
-		},
-		"preprocessor_module": null
-	}
-
-                "#
-                    )
-                    .unwrap()
-                )
-                .execute(&mut *tx)
+                .unwrap_or_else(|e| panic!("failed to insert parallelflow script {e:#}"));
+                RawJob {
+                    kind: JobKind::FlowPreview,
+                    tag: "flow",
+                    created_by: "admin",
+                    permissioned_as: "u/admin",
+                    permissioned_as_email: "admin@windmill.dev",
+                    raw_flow: Some(
+                        &serde_json::from_value(json!({
+                            "modules": [
+                                {
+                                    "id": "a",
+                                    "value": {
+                                        "type": "forloopflow",
+                                        "modules": [
+                                            {
+                                                "id": "b",
+                                                "value": {
+                                                    "path": "u/admin/parallelflow",
+                                                    "type": "script",
+                                                    "tag_override": "",
+                                                    "input_transforms": {}
+                                                },
+                                                "summary": "calctest"
+                                            }
+                                        ],
+                                        "iterator": {
+                                            "expr": "[...new Array(300)]",
+                                            "type": "javascript"
+                                        },
+                                        "parallel": true,
+                                        "parallelism": 10,
+                                        "skip_failures": true
+                                    }
+                                }
+                            ],
+                            "preprocessor_module": null
+                        }))
+                        .unwrap(),
+                    ),
+                    flow_status: Some(
+                        &serde_json::from_value(json!({
+                            "step": 0,
+                            "modules": [
+                                {
+                                    "id": "a",
+                                    "type": "WaitingForPriorSteps"
+                                }
+                            ],
+                            "cleanup_module": {},
+                            "failure_module": {
+                                "id": "failure",
+                                "type": "WaitingForPriorSteps"
+                            },
+                            "preprocessor_module": null
+                        }))
+                        .unwrap(),
+                    ),
+                    ..RawJob::default()
+                }
+                .push_many::<()>(db.begin().await.unwrap(), "admins", &uuids, &[])
                 .await
-                .unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs (4)"));
+                .unwrap_or_else(|_e| panic!("failed to insert parallelflow jobs"))
+                .commit()
+                .await
+                .unwrap_or_else(|_e| panic!("failed to commit insert of parallelflow jobs"));
             }
             _ => {
-                let uuids = sqlx::query_scalar!("INSERT INTO v2_job (id, runnable_id, runnable_path, kind, script_lang, tag, created_by, permissioned_as, permissioned_as_email, workspace_id) (SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM generate_series(1, $10)) RETURNING id",
-                    None::<i64>,
-                    None::<String>,
-                    JobKind::Noop as JobKind,
-                    ScriptLang::Deno as ScriptLang,
-                    "deno",
-                    "admin",
-                    "u/admin",
-                    "admin@windmill.dev",
-                    "admins",
-                    benchmark_jobs
-                )
-                .fetch_all(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert noop jobs (1)"));
-                sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &uuids, "admins", "deno")
-                .execute(&mut *tx)
-                .await.unwrap_or_else(|_e| panic!("failed to insert noop jobs (2)"));
-                sqlx::query!(
-                    "INSERT INTO v2_job_runtime (id) SELECT unnest($1::uuid[])",
-                    &uuids
-                )
-                .execute(&mut *tx)
+                RawJob {
+                    kind: JobKind::Noop,
+                    tag: "deno",
+                    created_by: "admin",
+                    permissioned_as: "u/admin",
+                    permissioned_as_email: "admin@windmill.dev",
+                    ..RawJob::default()
+                }
+                .push_many::<()>(db.begin().await.unwrap(), "admins", &uuids, &[])
                 .await
-                .unwrap_or_else(|_e| panic!("failed to insert noop jobs (3)"));
+                .unwrap_or_else(|_e| panic!("failed to insert noop jobs"))
+                .commit()
+                .await
+                .unwrap_or_else(|_e| panic!("failed to commit insert of noop jobs"));
             }
         }
-        tx.commit().await.unwrap();
     }
 }
