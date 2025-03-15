@@ -139,11 +139,17 @@
 		const preset = presetsRecord[appComponentType]
 
 		push(history, $app)
+
 		const id = insertNewGridItem(
 			$app,
-			appComponentFromType(preset.targetComponent, preset.configuration, undefined) as (
-				id: string
-			) => AppComponent,
+			appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
+				customCss: {
+					container: {
+						class: '!p-0' as any,
+						style: ''
+					}
+				}
+			}) as (id: string) => AppComponent,
 			$focusedGrid,
 			undefined,
 			undefined,
