@@ -88,6 +88,7 @@
 									bind:value={selectedNode.label}
 									on:input={() => {
 										debounce(() => {
+											nodes = nodes
 											renderCount++
 										}, 300)()
 									}}
