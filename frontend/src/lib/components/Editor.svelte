@@ -145,8 +145,6 @@
 	import { initializeVscode } from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import { sleep } from '$lib/utils'
-	import { editorCodeCompletion } from '$lib/components/copilot/completion'
 	import {
 		editor as meditor,
 		languages,
@@ -172,7 +170,8 @@
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
-
+	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
+	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -600,79 +599,79 @@
 		}
 	}
 
-	let copilotCompletor: Disposable | undefined = undefined
-	let copilotTs = Date.now()
-	let abortController: AbortController | undefined = undefined
+	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+	export function reviewAndApplyCode(code: string) {
+		aiChatEditorHandler?.showDiffs(code)
+	}
 
-	function addCopilotSuggestions() {
-		if (copilotCompletor) {
-			copilotCompletor.dispose()
+	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
+		aiChatEditorHandler = new AIChatEditorHandler(editor)
+	}
+
+	let completorDisposable: Disposable | undefined = undefined
+	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
+		console.log('adding super completor')
+		if (completorDisposable) {
+			completorDisposable.dispose()
 		}
-		copilotCompletor = vscode.languages.registerInlineCompletionItemProvider(
-			{ pattern: '**' },
-			{
-				async provideInlineCompletionItems(model, position, context, token) {
-					abortController?.abort()
-					const textUntilPosition = model.getText(
-						new vscode.Range(0, 0, position.line, position.character)
-					)
-					let items: vscode.InlineCompletionItem[] = []
+		const autocompletor = new Autocompletor(editor, $copilotInfo.ai_provider, lang)
 
-					const lastChar = textUntilPosition[textUntilPosition.length - 1]
-					if (textUntilPosition.trim().length > 5 && lastChar.match(/[\(\{\s:=]/)) {
-						const textAfterPosition = model.getText(
-							new vscode.Range(position.line, position.character, model.lineCount + 1, 1)
-						)
-
-						const thisTs = Date.now()
-						copilotTs = thisTs
-						await sleep(200)
-						if (copilotTs === thisTs) {
-							abortController?.abort()
-							abortController = new AbortController()
-							token.onCancellationRequested(() => {
-								abortController?.abort()
-							})
-							const aiProvider = $copilotInfo.ai_provider
-							const insertText = await editorCodeCompletion(
-								textUntilPosition,
-								textAfterPosition,
-								lang,
-								abortController,
-								aiProvider
-							)
-							if (insertText) {
-								items = [
-									{
-										insertText,
-										range: new vscode.Range(
-											position.line,
-											position.character,
-											position.line,
-											position.character
-										)
-									}
-								]
-							}
-						}
-					}
-
-					return {
-						items,
-						commands: []
-					}
+		let lastTs = Date.now()
+		editor.onDidChangeModelContent((e) => {
+			const thisTs = Date.now()
+			lastTs = thisTs
+			setTimeout(() => {
+				if (thisTs === lastTs) {
+					autocompletor.savePatch()
 				}
+			}, 150)
+		})
+
+		completorDisposable = editor.onDidChangeModelContent((e) => {
+			autocompletor.reject()
+
+			const position = editor.getPosition()
+			if (!position) {
+				return
 			}
-		)
+			const upToText = editor.getModel()?.getValueInRange({
+				startLineNumber: 1,
+				startColumn: 1,
+				endLineNumber: position.lineNumber,
+				endColumn: position.column
+			})
+
+			const lastChar = upToText ? upToText[upToText.length - 1] : ''
+			if (!lastChar || lastChar.match(/[\(\{\s:="',]/)) {
+				autocompletor.autocomplete()
+			}
+		})
+		editor.addCommand(KeyCode.Tab, () => {
+			if (autocompletor.hasChanges()) {
+				autocompletor.accept()
+				// autocompletor.autocomplete()
+			} else {
+				editor.trigger('keyboard', 'tab', {})
+			}
+		})
+
+		editor.onKeyDown((e) => {
+			if (e.keyCode === KeyCode.Escape) {
+				autocompletor.reject()
+			}
+		})
 	}
 
 	$: $copilotInfo.exists_ai_resource &&
 		$copilotInfo.code_completion_model &&
 		$codeCompletionSessionEnabled &&
 		initialized &&
-		addCopilotSuggestions()
+		editor &&
+		addSuperCompletor(editor)
 
-	$: !$codeCompletionSessionEnabled && copilotCompletor && copilotCompletor.dispose()
+	$: initialized && editor && addChatHandler(editor)
+
+	$: !$codeCompletionSessionEnabled && completorDisposable && completorDisposable.dispose()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -1181,6 +1180,14 @@
 				editor?.trigger('keyboard', 'editor.action.commentLine', {})
 			})
 
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
+				dispatch('toggleAiPanel')
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
+				dispatch('toggleTestPanel')
+			})
+
 			if (
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
@@ -1313,7 +1320,7 @@
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-		copilotCompletor && copilotCompletor.dispose()
+		completorDisposable && completorDisposable.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 	})
