@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use quick_cache::sync::Cache;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::{select, sync::mpsc};
 
 #[cfg(feature = "prometheus")]

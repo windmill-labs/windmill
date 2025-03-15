@@ -544,6 +544,7 @@ pub(crate) async fn tarball_workspace(
                     path, 
                     route_path, 
                     route_path_key, 
+                    webhook_resource_path,
                     script_path, 
                     is_flow, 
                     edited_by, 
