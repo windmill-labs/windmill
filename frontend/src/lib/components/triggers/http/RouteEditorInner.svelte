@@ -391,7 +391,7 @@
 								label="Webhook"
 								tooltip="Make your http route endpoint act as a webhook endpoint"
 							>
-								<ResourcePicker resourceType="webhook" bind:value={webhook_resource_path} />
+								<ResourcePicker resourceType="webhook_s" bind:value={webhook_resource_path} />
 							</Subsection>
 
 						</div>

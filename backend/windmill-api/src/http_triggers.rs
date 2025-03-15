@@ -916,7 +916,7 @@ async fn route_job(
     let args = try_from_request_body(
         request,
         &db,
-        Some(trigger.raw_string),
+        Some(trigger.webhook_resource_path.is_some() || trigger.raw_string),
         Some(trigger.wrap_body),
     )
     .await;
@@ -933,6 +933,48 @@ async fn route_job(
         }
         Err(e) => return e.into_response(),
     };
+
+    if let Some(webhook_resource_path) = &trigger.webhook_resource_path {
+        let webhook = try_get_resource_from_db_as::<Webhook>(
+            authed.clone(),
+            Some(user_db.clone()),
+            &db,
+            &webhook_resource_path,
+            &trigger.workspace_id,
+        )
+        .await;
+
+        let webhook = match webhook {
+            Ok(webhook) => webhook,
+            Err(e) => return e.into_response(),
+        };
+
+        let raw_payload = serde_json::from_str::<String>(
+            &args
+                .extra
+                .as_ref()
+                .unwrap()
+                .get("raw_string")
+                .unwrap()
+                .to_string(),
+        );
+
+        let raw_payload = match raw_payload {
+            Ok(raw_payload) => raw_payload,
+            Err(e) => {
+                return windmill_common::error::Error::SerdeJson {
+                    location: e.to_string(),
+                    error: e,
+                }
+                .into_response();
+            }
+        };
+
+        match webhook.verify_signatures(&headers, &raw_payload) {
+            Ok(_) => {}
+            Err(e) => return e.to_string().into_response(),
+        }
+    }
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
