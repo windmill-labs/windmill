@@ -51,7 +51,7 @@
 		flowStateStore,
 		flowStore,
 		pathStore,
-		initialPath,
+		initialPathStore,
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
@@ -182,7 +182,8 @@
 			}
 			const previousJobId = await JobService.listJobs({
 				workspace: $workspaceStore!,
-				scriptPathExact: (initialPath == '' ? $pathStore : initialPath) + '/' + module.id,
+				scriptPathExact:
+					($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 				page: 1,
 				perPage: 1
@@ -372,7 +373,7 @@
 		<div class="border-b">
 			<SchemaFormWithArgPicker
 				bind:this={schemaFormWithArgPicker}
-				runnableId={initialPath == '' ? $pathStore : initialPath}
+				runnableId={$initialPathStore == '' ? $pathStore : $initialPathStore}
 				runnableType={'FlowPath'}
 				previewArgs={$previewArgs}
 				on:openTriggers
@@ -455,7 +456,7 @@
 						jobId = currentJobId
 						currentJobId = undefined
 					}}
-					path={initialPath == '' ? $pathStore : initialPath}
+					path={$initialPathStore == '' ? $pathStore : $initialPathStore}
 				/>
 			</div>
 			{#if jobId}
