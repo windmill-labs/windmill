@@ -1919,22 +1919,13 @@ pub async fn pull(
             format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
         )
         .expect("Unable to serialize job_uuids column to proper JSON");
-        let running_job = sqlx::query_scalar!(
-            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) VALUES ($1, $2)
-        ON CONFLICT (concurrency_id) 
-        DO UPDATE SET job_uuids = jsonb_set(concurrency_counter.job_uuids, array[$3], '{}')
-        RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
-            job_concurrency_key,
+        let (mut tx, running_job) = update_concurrency_counter(
+            tx,
+            job_concurrency_key.clone(),
             jobs_uuids_init_json_value,
             pulled_job.id.hyphenated().to_string(),
         )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Error getting concurrency count for script path {job_script_path}: {e:#}"
-            ))
-        })?;
+        .await?;
         tracing::debug!("running_job: {}", running_job.unwrap_or(0));
 
         let completed_count = sqlx::query!(
@@ -2067,6 +2058,39 @@ pub async fn pull(
 
         tx.commit().await?
     }
+}
+
+async fn update_concurrency_counter<'c>(
+    mut tx: Transaction<'c, sqlx::Postgres>,
+    job_concurrency_key: String,
+    jobs_uuids_init_json_value: serde_json::Value,
+    pulled_job_id: String,
+) -> anyhow::Result<(Transaction<'c, sqlx::Postgres>, Option<i64>)> {
+    // 1. Try to lock the row first
+    let _ = sqlx::query!(
+        "SELECT job_uuids FROM concurrency_counter 
+         WHERE concurrency_id = $1 
+         FOR UPDATE",
+        job_concurrency_key
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    // 2. Insert if missing, otherwise update
+    let running_job = sqlx::query_scalar!(
+        "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
+         VALUES ($1, $2)
+         ON CONFLICT (concurrency_id) 
+         DO UPDATE SET job_uuids = jsonb_set(concurrency_counter.job_uuids, array[$3], '{}')
+         RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
+        job_concurrency_key,
+        jobs_uuids_init_json_value,
+        pulled_job_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    Ok((tx, running_job))
 }
 
 async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
