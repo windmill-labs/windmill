@@ -33,7 +33,7 @@ on:
         type: boolean
 concurrency:
   group: ${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: write-all
 

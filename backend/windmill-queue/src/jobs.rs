@@ -810,15 +810,19 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or_else(|| queued_job.full_path_with_workspace())
                 }
             };
-            if let Err(e) = sqlx::query_scalar!(
-                "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
-                concurrency_key,
-                queued_job.id.hyphenated().to_string(),
-            )
-            .execute(&mut *tx)
-            .await
-            {
-                tracing::error!("Could not decrement concurrency counter: {}", e);
+            if *DISABLE_CONCURRENCY_LIMIT {
+                tracing::warn!("Concurrency limit is disabled, skipping");
+            } else {
+                if let Err(e) = sqlx::query_scalar!(
+                    "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
+                    concurrency_key,
+                    queued_job.id.hyphenated().to_string(),
+                )
+                .execute(&mut *tx)
+                .await
+                {
+                    tracing::error!("Could not decrement concurrency counter: {}", e);
+                }
             }
 
             if let Err(e) = sqlx::query_scalar!(
@@ -1842,6 +1846,10 @@ impl std::ops::Deref for PulledJob {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
+}
+
 pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
@@ -1968,10 +1976,13 @@ pub async fn pull(
             tx.commit().await?;
             return Ok((Option::Some(pulled_job), suspended));
         }
-        let x = sqlx::query_scalar!(
-            "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1 RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
-            job_concurrency_key,
-            pulled_job.id.hyphenated().to_string(),
+        if *DISABLE_CONCURRENCY_LIMIT {
+            tracing::warn!("Concurrency limit is disabled, skipping");
+        } else {
+            let x = sqlx::query_scalar!(
+                "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1 RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
+                job_concurrency_key,
+                pulled_job.id.hyphenated().to_string(),
 
         )
         .fetch_one(&mut *tx)
@@ -1981,8 +1992,8 @@ pub async fn pull(
                 "Error decreasing concurrency count for script path {job_script_path}: {e:#}"
             ))
         })?;
-
-        tracing::debug!("running_job after decrease: {}", x.unwrap_or(0));
+            tracing::debug!("running_job after decrease: {}", x.unwrap_or(0));
+        }
 
         let job_uuid: Uuid = pulled_job.id;
         let avg_script_duration: Option<i64> = sqlx::query_scalar!(
@@ -2066,6 +2077,10 @@ async fn update_concurrency_counter<'c>(
     jobs_uuids_init_json_value: serde_json::Value,
     pulled_job_id: String,
 ) -> anyhow::Result<(Transaction<'c, sqlx::Postgres>, Option<i64>)> {
+    if *DISABLE_CONCURRENCY_LIMIT {
+        tracing::warn!("Concurrency limit is disabled, skipping");
+        return Ok((tx, None));
+    }
     // 1. Try to lock the row first
     let _ = sqlx::query!(
         "SELECT job_uuids FROM concurrency_counter 
