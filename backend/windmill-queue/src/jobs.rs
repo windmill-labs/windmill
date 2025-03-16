@@ -2005,7 +2005,7 @@ pub async fn pull(
         )
         .fetch_one(&mut *tx)
         .await?;
-        tracing::info!("avg script duration computed: {:?}", avg_script_duration);
+        tracing::debug!("avg script duration computed: {:?}", avg_script_duration);
 
         // let before_me = sqlx::query!(
         //     "SELECT schedu FROM queue WHERE script_path = $1 AND job_kind != 'dependencies' AND running = true AND workspace_id = $2 AND canceled = false AND started_at < $3 ORDER BY started_at DESC LIMIT 1",
@@ -2027,28 +2027,39 @@ pub async fn pull(
             .max(now + Duration::try_seconds(3).unwrap_or_default());
 
         let mut estimated_next_schedule_timestamp = min_started_p_inc;
+        let all_jobs = sqlx::query_scalar!(
+            "SELECT scheduled_for FROM v2_job_queue  INNER JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
+             WHERE key = $1 AND running = false AND canceled_by IS NULL AND scheduled_for >= $2",
+            job_concurrency_key,
+            estimated_next_schedule_timestamp - inc
+        ).fetch_all(&mut *tx).await?;
+
+        let mut i = 0;
         loop {
-            let nestimated = estimated_next_schedule_timestamp + inc;
-            let jobs_in_window = sqlx::query_scalar!(
-                "SELECT COUNT(*) FROM v2_as_queue LEFT JOIN concurrency_key ON concurrency_key.job_id = v2_as_queue.id
-                 WHERE key = $1 AND running = false AND canceled = false AND scheduled_for >= $2 AND scheduled_for < $3",
-                job_concurrency_key,
-                estimated_next_schedule_timestamp,
-                nestimated
-            ).fetch_optional(&mut *tx).await?.flatten().unwrap_or(0) as i32;
-            tracing::info!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, nestimated: {nestimated}, inc: {inc}", estimated_next_schedule_timestamp);
+            let jobs_in_window = all_jobs
+                .iter()
+                .filter(|&scheduled_for| {
+                    scheduled_for >= &(estimated_next_schedule_timestamp - inc)
+                        && scheduled_for < &estimated_next_schedule_timestamp
+                })
+                .count() as i32;
+
+            tracing::debug!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, inc: {inc}", estimated_next_schedule_timestamp);
+
             if jobs_in_window < job_custom_concurrent_limit || *DISABLE_CONCURRENCY_LIMIT {
                 break;
             } else {
-                estimated_next_schedule_timestamp = nestimated;
+                i += 1;
+                estimated_next_schedule_timestamp = estimated_next_schedule_timestamp + inc;
             }
         }
 
-        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
-            job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
+        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {} (avg script duration: {:?}, number of time windows full: {})", 
+            job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp, avg_script_duration, i);
 
         let job_log_event = format!(
-            "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds",
+            "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds (avg script duration: {:?}, number of time windows full: {})",
+            avg_script_duration, i
         );
         let _ = append_logs(&job_uuid, &pulled_job.workspace_id, job_log_event, db).await;
 
