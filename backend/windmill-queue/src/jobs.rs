@@ -2037,7 +2037,7 @@ pub async fn pull(
                 nestimated
             ).fetch_optional(&mut *tx).await?.flatten().unwrap_or(0) as i32;
             tracing::info!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, nestimated: {nestimated}, inc: {inc}", estimated_next_schedule_timestamp);
-            if jobs_in_window < job_custom_concurrent_limit {
+            if jobs_in_window < job_custom_concurrent_limit || *DISABLE_CONCURRENCY_LIMIT {
                 break;
             } else {
                 estimated_next_schedule_timestamp = nestimated;
