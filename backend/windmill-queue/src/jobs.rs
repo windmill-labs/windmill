@@ -1911,24 +1911,14 @@ pub async fn pull(
             job_custom_concurrency_time_window_s
         );
 
-        let completed_count = sqlx::query!(
-            "SELECT COUNT(*) as count, COALESCE(MAX(ended_at), now() - INTERVAL '1 second' * $2)  as max_ended_at FROM concurrency_key WHERE key = $1 AND ended_at >=  (now() - INTERVAL '1 second' * $2)",
-            job_concurrency_key,
-            f64::from(job_custom_concurrency_time_window_s),
-        ).fetch_one(db).await.map_err(|e| {
-            Error::internal_err(format!(
-                "Error getting completed count for key {job_concurrency_key}: {e:#}"
-            ))
-        })?;
-
         let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
             format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
         )
         .expect("Unable to serialize job_uuids column to proper JSON");
 
-        let within_limit = if *DISABLE_CONCURRENCY_LIMIT {
+        let (within_limit, max_ended_at) = if *DISABLE_CONCURRENCY_LIMIT {
             tracing::warn!("Concurrency limit is disabled, skipping");
-            true
+            (true, None)
         } else {
             update_concurrency_counter(
                 db,
@@ -1936,7 +1926,7 @@ pub async fn pull(
                 job_concurrency_key.clone(),
                 jobs_uuids_init_json_value,
                 pulled_job.id.hyphenated().to_string(),
-                completed_count.count.unwrap_or_default() as i32,
+                job_custom_concurrency_time_window_s,
                 job_custom_concurrent_limit,
             )
             .await?
@@ -1957,7 +1947,7 @@ pub async fn pull(
             WHERE v2_job.runnable_path = $1 AND v2_job.kind != 'dependencies'  AND v2_job_queue.running = true AND v2_job_queue.workspace_id = $2 AND v2_job_queue.canceled_by IS NULL AND v2_job.concurrent_limit > 0), $3) as min_started_at, now() AS now",
             job_script_path,
             &pulled_job.workspace_id,
-            completed_count.max_ended_at
+            max_ended_at
         )
         .fetch_one(db)
         .await
