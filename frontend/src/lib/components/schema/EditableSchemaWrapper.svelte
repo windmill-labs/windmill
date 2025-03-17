@@ -172,7 +172,7 @@
 				lock={true}
 			/>
 		{:else}
-			<!-- svelte-ignore a11y_autofocus -->
+			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus={true}
 				bind:value={formatExtension}
