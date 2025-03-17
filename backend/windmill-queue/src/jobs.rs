@@ -1962,7 +1962,10 @@ pub async fn pull(
         )
         .fetch_one(db)
         .await?;
-        tracing::debug!("avg script duration computed: {:?}", avg_script_duration);
+        tracing::debug!(
+            "avg script duration computed: {}",
+            avg_script_duration.unwrap_or(0)
+        );
 
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
         let inc = Duration::try_milliseconds(
@@ -2085,7 +2088,10 @@ async fn update_concurrency_counter<'c>(
     // 2. count running jobs from concurrency_counter
     let running_jobs = sqlx::query_scalar!(
         "
-        SELECT COALESCE(jsonb_array_length(job_uuids), 0)
+        SELECT COALESCE(
+            (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids)),
+            0
+        )
         FROM concurrency_counter 
         WHERE concurrency_id = $1
         FOR UPDATE",
