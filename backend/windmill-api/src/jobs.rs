@@ -4969,6 +4969,13 @@ async fn add_batch_jobs(
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
         sqlx::query!(
+            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
+             VALUES ($1, '{}'::jsonb)",
+            &custom_concurrency_key
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
             "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
             custom_concurrency_key,
             &uuids
