@@ -868,7 +868,7 @@ Windmill Community Edition {GIT_VERSION}
                         },
                         _ = tokio::time::sleep(Duration::from_secs(30))    => {
                             if last_listener_refresh.elapsed() > Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS) {
-                                tracing::info!("Refreshing pg listener");
+                                tracing::info!("Refreshing pg listeners, settings and license key after {}s", Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS).as_secs());
                                 if let Err(e) = listener.unlisten_all().await {
                                     tracing::error!(error = %e, "Could not unlisten to database");
                                 }
@@ -882,6 +882,9 @@ Windmill Community Edition {GIT_VERSION}
                                     disable_s3_store,
                                 )
                                 .await;
+                                if let Err(err) = reload_license_key(&db).await {
+                                    tracing::error!("Failed to reload license key: {err:#}");
+                                }
                                 last_listener_refresh = Instant::now();
                             }
 

@@ -2064,11 +2064,9 @@ async fn update_concurrency_counter(
         return Ok(true);
     }
 
-    let mut tx = db.begin().await?;
-
     let job_id = job_id.clone();
     let (kill_tx, mut kill_rx) = tokio::sync::mpsc::channel(1);
-    let db = db.clone();
+    let db2 = db.clone();
     // Spawn the task and store its handle
     let ping_handle = tokio::spawn(async move {
         loop {
@@ -2082,7 +2080,7 @@ async fn update_concurrency_counter(
                         "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
                         job_id
                     )
-                    .execute(&db)
+                    .execute(&db2)
                     .await
                     {
                         tracing::error!("Could not update ping for job {job_id}: {e:#}");
@@ -2102,6 +2100,8 @@ async fn update_concurrency_counter(
     }
 
     let _ping_guard = TaskGuard(ping_handle);
+
+    let mut tx = db.begin().await?;
 
     let running_jobs = sqlx::query_scalar!(
         "
