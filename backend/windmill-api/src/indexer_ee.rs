@@ -1,9 +1,1 @@
-use axum::Router;
-
-pub fn workspaced_service() -> Router {
-    Router::new()
-}
-
-pub fn global_service() -> Router {
-    Router::new()
-}
+/home/rubenfiszel/windmill/../windmill-ee-private/windmill-api/src/indexer_ee.rs

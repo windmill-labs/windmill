@@ -62,6 +62,7 @@ use windmill_common::BASE_URL;
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
+use crate::jobs_ee::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 
 #[cfg(feature = "prometheus")]
@@ -1925,16 +1926,21 @@ pub async fn pull(
         )
         .expect("Unable to serialize job_uuids column to proper JSON");
 
-        let within_limit = update_concurrency_counter(
-            db,
-            &pulled_job.id,
-            job_concurrency_key.clone(),
-            jobs_uuids_init_json_value,
-            pulled_job.id.hyphenated().to_string(),
-            completed_count.count.unwrap_or_default() as i32,
-            job_custom_concurrent_limit,
-        )
-        .await?;
+        let within_limit = if *DISABLE_CONCURRENCY_LIMIT {
+            tracing::warn!("Concurrency limit is disabled, skipping");
+            true
+        } else {
+            update_concurrency_counter(
+                db,
+                &pulled_job.id,
+                job_concurrency_key.clone(),
+                jobs_uuids_init_json_value,
+                pulled_job.id.hyphenated().to_string(),
+                completed_count.count.unwrap_or_default() as i32,
+                job_custom_concurrent_limit,
+            )
+            .await?
+        };
         if within_limit {
             #[cfg(feature = "prometheus")]
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2048,113 +2054,6 @@ pub async fn pull(
         .await
         .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
     }
-}
-
-async fn update_concurrency_counter(
-    db: &DB,
-    job_id: &Uuid,
-    job_concurrency_key: String,
-    jobs_uuids_init_json_value: serde_json::Value,
-    pulled_job_id: String,
-    completed_count: i32,
-    limit: i32,
-) -> anyhow::Result<bool> {
-    if *DISABLE_CONCURRENCY_LIMIT {
-        tracing::warn!("Concurrency limit is disabled, skipping");
-        return Ok(true);
-    }
-
-    let job_id = job_id.clone();
-    let (kill_tx, mut kill_rx) = tokio::sync::mpsc::channel(1);
-    let db2 = db.clone();
-    // Spawn the task and store its handle
-    let ping_handle = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = kill_rx.recv() => {
-                    break;
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
-                    //update ping
-                    if let Err(e) = sqlx::query!(
-                        "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
-                        job_id
-                    )
-                    .execute(&db2)
-                    .await
-                    {
-                        tracing::error!("Could not update ping for job {job_id}: {e:#}");
-                    }
-                }
-            }
-        }
-    });
-
-    // Create a guard that will abort the task when dropped
-    struct TaskGuard(tokio::task::JoinHandle<()>);
-
-    impl Drop for TaskGuard {
-        fn drop(&mut self) {
-            self.0.abort();
-        }
-    }
-
-    let _ping_guard = TaskGuard(ping_handle);
-
-    let mut tx = db.begin().await?;
-
-    let running_jobs = sqlx::query_scalar!(
-        "
-        SELECT COALESCE(
-            (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids)),
-            0
-        )
-        FROM concurrency_counter 
-        WHERE concurrency_id = $1
-        FOR UPDATE",
-        job_concurrency_key
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "Error getting running jobs for concurrency key {job_concurrency_key}: {e:#}"
-        ))
-    })?
-    .flatten()
-    .unwrap_or(0);
-
-    tracing::debug!("running_job: {}", running_jobs);
-
-    let concurrent_jobs_for_this_script = completed_count + running_jobs as i32;
-    tracing::debug!(
-        "Current concurrent jobs for this script: {}",
-        concurrent_jobs_for_this_script
-    );
-    let within_limit = concurrent_jobs_for_this_script < limit;
-    if within_limit {
-        sqlx::query!(
-            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
-             VALUES ($1, $2)
-             ON CONFLICT (concurrency_id)
-             DO UPDATE SET job_uuids = jsonb_set(concurrency_counter.job_uuids, array[$3], '{}')",
-            job_concurrency_key,
-            jobs_uuids_init_json_value,
-            pulled_job_id
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Error inserting or updating concurrency counter: {e:#}"
-            ))
-        })?;
-    }
-    tx.commit().await?;
-    if let Err(e) = kill_tx.send(()).await {
-        tracing::error!("Could not send kill signal to concurrent ping loop: {e:#}");
-    }
-    Ok(within_limit)
 }
 
 async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
