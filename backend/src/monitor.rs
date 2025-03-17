@@ -112,6 +112,7 @@ lazy_static::lazy_static! {
 
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
 }
 
@@ -1885,13 +1886,17 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                     .await?;
 
             if let Some(key) = concurrency_key {
-                sqlx::query!(
-                    "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
-                    key,
-                    flow.id.hyphenated().to_string()
-                )
-                .execute(&mut *tx)
-                .await?;
+                if *DISABLE_CONCURRENCY_LIMIT {
+                    tracing::warn!("Concurrency limit is disabled, skipping");
+                } else {
+                    sqlx::query!(
+                        "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
+                        key,
+                        flow.id.hyphenated().to_string()
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
             }
 
             sqlx::query!(
