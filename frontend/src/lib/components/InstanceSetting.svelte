@@ -1041,6 +1041,12 @@
 						/>
 					</div>
 				{:else if setting.fieldType == 'git_installations'}
+					<p class="text-sm text-gray-500">
+						<a href="https://www.windmill.dev/docs/advanced/git_sync#github-app-setup" target="_blank">
+							Windmill GitHub App
+						</a>
+						installations are used to connect to GitHub repositories. Each workspace can have multiple installations, and each installation can be connected to multiple repositories.
+					</p>
 					<div class="flex my-2">
 						<Popover
 							floatingConfig={{

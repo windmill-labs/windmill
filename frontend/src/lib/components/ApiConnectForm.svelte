@@ -144,11 +144,12 @@
 
 	function applyRepositoryURL(close: (_: any) => void) {
 		if (!selectedGHAppRepository) return
-		// TODO: set resource from app boolean!
 		rawCode = JSON.stringify(
 			{
 				...args,
-				url: selectedGHAppRepository
+				url: selectedGHAppRepository,
+				github_app_installation_id: githubInstallations.find((_) => _.account_id === selectedGHAppAccountId)?.installation_id,
+				is_github_app: true
 			},
 			null,
 			2
