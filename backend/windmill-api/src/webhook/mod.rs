@@ -34,9 +34,9 @@ use tiktok::TikTok;
 use twitch::Twitch;
 use zoom::Zoom;
 
-struct HmacAuthenticationDetails {
-    algorithm_to_use: HmacAlgorithm,
-    header_key_encoding: Encoding,
+pub struct HmacAuthenticationDetails {
+    pub algorithm_to_use: HmacAlgorithm,
+    pub header_key_encoding: Encoding,
 }
 
 impl HmacAuthenticationDetails {
@@ -46,11 +46,11 @@ impl HmacAuthenticationDetails {
     }
 }
 
-struct HmacAuthenticationData<'payload, 'header, 'prefix> {
-    signed_payload: Cow<'payload, str>,
-    header_key_value: &'header str,
-    signature_prefix: Option<&'prefix str>,
-    config: HmacAuthenticationDetails,
+pub struct HmacAuthenticationData<'payload, 'header, 'prefix> {
+    pub signed_payload: Cow<'payload, str>,
+    pub header_key_value: &'header str,
+    pub signature_prefix: Option<&'prefix str>,
+    pub config: HmacAuthenticationDetails,
 }
 
 impl<'payload, 'header, 'prefix> HmacAuthenticationData<'payload, 'header, 'prefix> {
@@ -64,7 +64,7 @@ impl<'payload, 'header, 'prefix> HmacAuthenticationData<'payload, 'header, 'pref
     }
 }
 
-trait WebhookHandler {
+pub trait WebhookHandler {
     fn handle_challenge_request<'header>(
         &self,
         headers: &'header HeaderMap,
@@ -369,6 +369,7 @@ impl Webhook {
 }
 
 #[derive(thiserror::Error, Debug)]
+#[allow(unused)]
 pub enum WebhookError {
     #[error("failed to parse timestamp")]
     InvalidTimestamp,

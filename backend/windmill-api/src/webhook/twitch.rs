@@ -9,7 +9,9 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
 
+
 #[derive(Debug, Deserialize)]
+#[allow(unused)]
 struct TwitchCrcBody {
     challenge: String,
     subscription: Box<RawValue>,

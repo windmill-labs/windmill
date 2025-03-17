@@ -18,6 +18,7 @@ struct ZoomPayload {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(unused)]
 struct ZoomChallengeResponse {
     payload: ZoomPayload,
     event_ts: u64,

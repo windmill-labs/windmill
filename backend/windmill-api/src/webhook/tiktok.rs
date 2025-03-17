@@ -30,7 +30,7 @@ impl WebhookHandler for TikTok {
 
         Ok(HmacAuthenticationData::new(
             Cow::Owned(signed_payload),
-            tiktok_secret_signature,
+            tiktok_signature.s,
             None,
             HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
         ))
