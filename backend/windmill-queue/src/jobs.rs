@@ -1943,19 +1943,6 @@ pub async fn pull(
             return Ok((Option::Some(pulled_job), suspended));
         }
 
-        //         sqlx::query!(
-        //     "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
-        //     pulled_job.id
-        // )
-        // .execute(&mut *tx)
-        // .await
-        // .map_err(|e| {
-        //     Error::internal_err(format!(
-        //         "Could not set ping to nowfor job {}: {e:#}",
-        //         pulled_job.id
-        //     ))
-        // })?;
-
         let job_script_path = pulled_job.script_path.clone().unwrap_or_default();
 
         let min_started_at = sqlx::query!(
@@ -2045,7 +2032,11 @@ pub async fn pull(
         let _ = append_logs(&job_uuid, &pulled_job.workspace_id, job_log_event, db).await;
 
         sqlx::query!(
-            "UPDATE v2_job_queue SET
+            "
+            WITH ping AS (
+                UPDATE v2_job_runtime SET ping = null WHERE id = $2
+            )
+            UPDATE v2_job_queue SET
                 running = false,
                 started_at = null,
                 scheduled_for = $1
@@ -2078,7 +2069,8 @@ async fn update_concurrency_counter(
     let job_id = job_id.clone();
     let (kill_tx, mut kill_rx) = tokio::sync::mpsc::channel(1);
     let db = db.clone();
-    tokio::spawn(async move {
+    // Spawn the task and store its handle
+    let ping_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = kill_rx.recv() => {
@@ -2087,18 +2079,30 @@ async fn update_concurrency_counter(
                 _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
                     //update ping
                     if let Err(e) = sqlx::query!(
-                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
-                job_id
-            )
-            .execute(&db)
-            .await
-                {
+                        "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
+                        job_id
+                    )
+                    .execute(&db)
+                    .await
+                    {
                         tracing::error!("Could not update ping for job {job_id}: {e:#}");
                     }
                 }
             }
         }
     });
+
+    // Create a guard that will abort the task when dropped
+    struct TaskGuard(tokio::task::JoinHandle<()>);
+
+    impl Drop for TaskGuard {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
+    let _ping_guard = TaskGuard(ping_handle);
+
     let running_jobs = sqlx::query_scalar!(
         "
         SELECT COALESCE(
@@ -2147,7 +2151,9 @@ async fn update_concurrency_counter(
         })?;
     }
     tx.commit().await?;
-    kill_tx.send(()).await?;
+    if let Err(e) = kill_tx.send(()).await {
+        tracing::error!("Could not send kill signal to concurrent ping loop: {e:#}");
+    }
     Ok(within_limit)
 }
 
