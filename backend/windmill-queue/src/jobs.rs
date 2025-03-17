@@ -1999,8 +1999,9 @@ pub async fn pull(
                 .unwrap_or_default();
 
         let now = min_started_at.now.unwrap();
-        let min_started_p_inc = (min_started_at.min_started_at.unwrap_or(now) + inc)
-            .max(now + Duration::try_seconds(3).unwrap_or_default());
+        let min_started_at_or_now = min_started_at.min_started_at.unwrap_or(now);
+        let min_started_p_inc =
+            (min_started_at_or_now + inc).max(now + Duration::try_seconds(3).unwrap_or_default());
 
         let mut estimated_next_schedule_timestamp = min_started_p_inc;
         let all_jobs = sqlx::query_scalar!(
@@ -2010,15 +2011,19 @@ pub async fn pull(
             estimated_next_schedule_timestamp - inc
         ).fetch_all(db).await?;
 
+        tracing::debug!(
+            "all_jobs: {:?}, estimated_next_schedule_timestamp: {:?}, inc: {:?}",
+            all_jobs,
+            estimated_next_schedule_timestamp,
+            inc
+        );
         let mut i = 0;
         loop {
             let jobs_in_window = all_jobs
                 .iter()
-                .filter(|&scheduled_for| {
-                    scheduled_for >= &(estimated_next_schedule_timestamp - inc)
-                        && scheduled_for < &estimated_next_schedule_timestamp
-                })
-                .count() as i32;
+                .filter(|&scheduled_for| scheduled_for <= &estimated_next_schedule_timestamp)
+                .count() as i32
+                - (job_custom_concurrent_limit * i);
 
             tracing::debug!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, inc: {inc}", estimated_next_schedule_timestamp);
 
@@ -2030,11 +2035,11 @@ pub async fn pull(
             }
         }
 
-        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {} (avg script duration: {:?}, number of time windows full: {})", 
+        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {} (min_started_at: {min_started_at_or_now}, avg script duration: {:?}, number of time windows full: {})", 
             job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp, avg_script_duration, i);
 
         let job_log_event = format!(
-            "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds (avg script duration: {:?}, number of time windows full: {})",
+            "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds (min_started_at: {min_started_at_or_now}, avg script duration: {:?}, number of time windows full: {})\n",
             avg_script_duration, i
         );
         let _ = append_logs(&job_uuid, &pulled_job.workspace_id, job_log_event, db).await;
