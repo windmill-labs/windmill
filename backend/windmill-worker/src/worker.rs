@@ -268,6 +268,8 @@ pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311"
 pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
 pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
 
+pub const TAR_JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/java");
+
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
 pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");

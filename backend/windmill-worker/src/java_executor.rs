@@ -1,26 +1,18 @@
-use std::{
-    collections::{HashMap, HashSet},
-    process::Stdio,
-    sync::Arc,
-};
+use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
-use sqlx::{Pool, Postgres};
 use tokio::{
-    fs::{create_dir_all, metadata, read_to_string, File},
+    fs::{create_dir_all, read_to_string, File},
     io::AsyncWriteExt,
     process::Command,
-    sync::Semaphore,
 };
 use uuid::Uuid;
 use windmill_common::{
-    ee::{get_license_plan, LicensePlan},
     error::Error,
     jobs::QueuedJob,
-    s3_helpers::OBJECT_STORE_CACHE_SETTINGS,
     utils::calculate_hash,
-    worker::{pad_string, save_cache, write_file},
+    worker::{save_cache, write_file},
 };
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
@@ -28,10 +20,9 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
-        OccupancyMetrics,
+        create_args_and_out_file, get_reserved_variables, par_install_language_dependencies,
+        read_result, start_child_process, OccupancyMetrics, RequiredDependency,
     },
-    global_cache::{build_tar_and_push, pull_from_tar},
     handle_child, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
     NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
@@ -112,7 +103,7 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
 
     let classpath = install(&mut args, deps).await?;
 
-    // --- Build to JAR ---
+    // --- Build to .CLASS ---
     {
         compile(&mut args, &classpath).await?;
     }
@@ -400,89 +391,33 @@ async fn install<'a>(
     JobHandlerInput { worker_name, job, db, job_dir, .. }: &mut JobHandlerInput<'a>,
     deps: String,
 ) -> Result<String, Error> {
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        format!("\n\n--- INSTALLATION ---\n"),
-        db.clone(),
-    )
-    .await;
-
-    // Total to install
-    let mut to_install = vec![];
-    let total_to_install;
-    // let mut not_installed = vec![];
-    let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
-    // Append logs with line like this:
-    // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
-    #[allow(unused_assignments)]
-    async fn print_success(
-        mut s3_pull: bool,
-        mut s3_push: bool,
-        job_id: &Uuid,
-        w_id: &str,
-        req: &str,
-        req_tl: usize,
-        counter_arc: Arc<tokio::sync::Mutex<usize>>,
-        total_to_install: usize,
-        instant: std::time::Instant,
-        db: Pool<Postgres>,
-    ) {
-        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-        {
-            (s3_pull, s3_push) = (false, false);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if OBJECT_STORE_CACHE_SETTINGS.read().await.is_none() {
-            (s3_pull, s3_push) = (false, false);
-        }
-
-        let mut counter = counter_arc.lock().await;
-        *counter += 1;
-
-        append_logs(
-            job_id,
-            w_id,
-            format!(
-                "\n{}+  {}{}{}|  in {}ms",
-                pad_string(&format!("[{}/{total_to_install}]", counter), 9),
-                // Because we want to align to max len [999/999] we take ^
-                //                                     123456789
-                pad_string(&req, req_tl + 1),
-                // Margin to the right    ^
-                if s3_pull { "<< (S3) " } else { "" },
-                if s3_push { " > (S3) " } else { "" },
-                instant.elapsed().as_millis(),
-            ),
-            db,
-        )
-        .await;
-        // Drop lock, so next print success can fire
-    }
     let deps = deps
         .lines()
-        .map(|l| {
-            let l = l.replace(":jar", "").replace(":lib", "");
-            let mut iterator = l.split(":");
+        .map(|line| {
+            let unparsed_dep = line.replace(":jar", "").replace(":lib", "");
+            let mut it = unparsed_dep.split(":");
 
-            let group_id = iterator.next().unwrap();
-            let artifact_id = iterator.next().unwrap();
-            let version = iterator.next().unwrap();
-
-            let path = format!(
-                "/tmp/windmill/cache/java/maven-jars/{}/{artifact_id}/{version}",
-                group_id.replace(".", "/")
-            );
-
-            (path, format!("{group_id}:{artifact_id}:{version}"))
+            match (it.next(), it.next(), it.next()) {
+                (Some(group_id), Some(artifact_id), Some(version)) => {
+                    let path = format!(
+                        "{JAVA_CACHE_DIR}/maven-jars/{}/{artifact_id}/{version}",
+                        group_id.replace(".", "/")
+                    );
+                    Ok(RequiredDependency {
+                        path,
+                        custom_name: Some(format!("{group_id}:{artifact_id}:{version}")),
+                        short_name: Some(format!("{artifact_id}:{version}")),
+                    })
+                }
+                _ => anyhow::bail!("{line} is not parsable"),
+            }
         })
-        .collect_vec();
+        .collect::<anyhow::Result<Vec<RequiredDependency>>>()?;
 
     let classpath = deps
         .clone()
         .into_iter()
-        .map(|(path, ..)| path + "/*")
+        .map(|RequiredDependency { path, .. }| path + "/*")
         .collect_vec()
         .join(":")
         + ":target";
@@ -492,114 +427,17 @@ async fn install<'a>(
         workspace_id = %job.workspace_id,
         "JAVA classpath: {}", &classpath
     );
-
-    for (dep, name) in &deps {
-        if metadata(dep).await.is_ok() {
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                format!("\n{name} already in cache"),
-                db.clone(),
-            )
-            .await;
-        } else {
-            to_install.push((dep.clone(), name.clone()));
-        }
-    }
-    total_to_install = to_install.len();
-    if total_to_install == 0 {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!("\n\nINFO: All dependencies are present, skipping install\n"),
-            db.clone(),
-        )
-        .await;
-
-        return Ok(classpath);
-    }
-    let mut name_tl = 0;
-    for (.., name) in &to_install {
-        if name.len() > name_tl {
-            name_tl = name.len();
-        }
-    }
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    let is_not_pro = !matches!(get_license_plan().await, LicensePlan::Pro);
-
-    // Only install by maven
-    let mut mvn_install: HashSet<(String, String)> =
-        HashSet::from_iter(to_install.clone().into_iter());
-
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if is_not_pro {
-        for (path, name) in to_install {
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                let (name_2, job_id_2, w_id_2, db_2, counter_arc) = (
-                    name.clone(),
-                    job.id.clone(),
-                    job.workspace_id.clone(),
-                    db.clone(),
-                    counter_arc.clone(),
-                );
-                let start = std::time::Instant::now();
-                tokio::select! {
-                    pull = pull_from_tar(os, path.clone(), "lang".into(), Some(name.clone())) => {
-                        if let Err(e) = pull {
-                            tracing::info!(
-                                workspace_id = %w_id_2,
-                                "No tarball was found for {} on S3 or different problem occured {job_id_2}:\n{e}",
-                                &name_2
-                            );
-                        } else {
-                            mvn_install.remove(&(path, name.clone()));
-                            print_success(
-                                true,
-                                false,
-                                &job_id_2,
-                                &w_id_2,
-                                &name,
-                                name_tl,
-                                counter_arc,
-                                total_to_install,
-                                start,
-                                db_2,
-                            )
-                            .await;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // Parallelism level (N)
-    let parallel_limit = // Semaphore will panic if value less then 1
-        JAVA_CONCURRENT_DOWNLOADS.clamp(1, 30);
-
-    tracing::info!(
-        workspace_id = %job.workspace_id,
-        "Java install parallel limit: {}, job: {}",
-        parallel_limit,
-        job.id
-    );
-
-    let mut handles = vec![];
-    let semaphore = Arc::new(Semaphore::new(parallel_limit));
-    // let mut handles = Vec::with_capacity(total_to_install);
-    for (path, name) in mvn_install {
-        let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
-
-        if let Err(_) = permit {
-            // tracing::error!(
-            //     workspace_id = %w_id,
-            //     "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
-            // );
-            break;
-        }
-
-        let permit = permit.unwrap();
-
-        let child = {
+    par_install_language_dependencies(
+        deps,
+        "java",
+        "mvn",
+        *JAVA_CONCURRENT_DOWNLOADS,
+        |RequiredDependency { custom_name, path, .. }| {
+            let Some(artifact_name) = custom_name else {
+                return Err(windmill_common::error::Error::internal_err(format!(
+                    "Internal error while installing {path} e: custom_name should be Some"
+                )));
+            };
             let mut cmd = Command::new(if cfg!(windows) {
                 "mvn"
             } else {
@@ -609,13 +447,13 @@ async fn install<'a>(
                 .current_dir(job_dir.to_owned())
                 .env(
                     "MAVEN_OPTS",
-                    "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-jars",
+                    format!("-Dmaven.repo.local={JAVA_CACHE_DIR}/maven-jars"),
                 )
                 .env("PATH", PATH_ENV.as_str())
                 .envs(PROXY_ENVS.clone())
                 .args(&[
                     "dependency:get",
-                    &format!("-Dartifact={name}"),
+                    &format!("-Dartifact={artifact_name}"),
                     "-Dtransitive=false",
                     "-q",
                 ])
@@ -631,82 +469,15 @@ async fn install<'a>(
                         std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                     );
             }
-            start_child_process(cmd, "mvn").await?
-        };
 
-        let (worker_name_2, path_2, name_2, job_id_2, w_id_2, db_2, counter_arc) = (
-            worker_name.to_owned(),
-            path.clone(),
-            name.clone(),
-            job.id.clone(),
-            job.workspace_id.clone(),
-            db.clone(),
-            counter_arc.clone(),
-        );
-        let start = std::time::Instant::now();
-        let handle = tokio::spawn(async move {
-            let _permit = permit;
-            // let job_id = job_id_2.clone();
-
-            if let Err(e) = handle_child::handle_child(
-                &job_id_2,
-                &db_2,
-                &mut 0,
-                &mut None,
-                child,
-                !*DISABLE_NSJAIL,
-                &worker_name_2,
-                &w_id_2,
-                "mvn",
-                None,
-                false,
-                &mut None,
-            )
-            .await
-            {
-                append_logs(
-                    &job_id_2,
-                    &w_id_2,
-                    format!("error while installing {}: {e:?}", &name_2),
-                    db_2.clone(),
-                )
-                .await;
-            } else {
-                print_success(
-                    false,
-                    true,
-                    &job_id_2,
-                    &w_id_2,
-                    &name,
-                    name_tl,
-                    counter_arc,
-                    total_to_install,
-                    start,
-                    db_2,
-                )
-                .await;
-                #[cfg(all(feature = "enterprise", feature = "parquet"))]
-                {
-                    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                        tokio::spawn(build_tar_and_push(
-                            os,
-                            // push.replace("/", "_").clone(),
-                            path_2,
-                            "java".into(),
-                            Some(name_2),
-                            // None,
-                        ));
-                    }
-                }
-            }
-        });
-        handles.push(handle);
-    }
-
-    for handle in handles {
-        handle.await.unwrap();
-    }
-
+            Ok(cmd)
+        },
+        &job.id,
+        &job.workspace_id,
+        worker_name,
+        db,
+    )
+    .await?;
     Ok(classpath)
 }
 

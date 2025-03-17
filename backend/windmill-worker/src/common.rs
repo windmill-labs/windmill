@@ -11,6 +11,7 @@ use sha2::Digest;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
+use tokio::sync::Semaphore;
 use tokio::{fs::File, io::AsyncReadExt};
 
 #[cfg(feature = "parquet")]
@@ -40,7 +41,7 @@ use windmill_common::{variables, DB};
 use tokio::{io::AsyncWriteExt, process::Child, time::Instant};
 
 use crate::{
-    AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
+    AuthedClient, AuthedClientBackgroundTask, DISABLE_NSJAIL, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
     MAX_TIMEOUT_DURATION, PATH_ENV,
 };
 
@@ -980,4 +981,358 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
+}
+
+#[derive(Clone)]
+pub struct RequiredDependency {
+    /// Path in cache
+    pub path: String,
+    /// Name to use for S3 tars
+    pub custom_name: Option<String>,
+    /// Display name
+    pub short_name: Option<String>,
+}
+pub async fn par_install_language_dependencies<'a, F>(
+    deps: Vec<RequiredDependency>,
+    language_name: &'a str,
+    installer_executable_name: &'a str,
+    concurrent_downloads: usize,
+    install_fn: F,
+    job_id: &'a Uuid,
+    w_id: &'a str,
+    worker_name: &'a str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> Result<(), error::Error>
+where
+    F: Fn(RequiredDependency) -> Result<Command, error::Error>,
+{
+    windmill_queue::append_logs(
+        job_id,
+        w_id,
+        format!("\n\n--- INSTALLATION ---\n"),
+        db.clone(),
+    )
+    .await;
+
+    // Total to install
+    let mut not_installed = vec![];
+    let total_to_install;
+    // let mut not_installed = vec![];
+    let counter_arc = Arc::new(tokio::sync::Mutex::new(0));
+    // Append logs with line like this:
+    // [9/21]   +  requests==2.32.3            << (S3) |  in 57ms
+    #[allow(unused_assignments)]
+    async fn print_success(
+        mut s3_pull: bool,
+        mut s3_push: bool,
+        job_id: &Uuid,
+        w_id: &str,
+        req: &str,
+        req_tl: usize,
+        counter_arc: Arc<tokio::sync::Mutex<usize>>,
+        total_to_install: usize,
+        instant: std::time::Instant,
+        db: Pool<Postgres>,
+    ) {
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            (s3_pull, s3_push) = (false, false);
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .is_none()
+        {
+            (s3_pull, s3_push) = (false, false);
+        }
+
+        let mut counter = counter_arc.lock().await;
+        *counter += 1;
+
+        windmill_queue::append_logs(
+            job_id,
+            w_id,
+            format!(
+                "\n{}+  {}{}{}|  in {}ms",
+                windmill_common::worker::pad_string(
+                    &format!("[{}/{total_to_install}]", counter),
+                    9
+                ),
+                // Because we want to align to max len [999/999] we take ^
+                //                                     123456789
+                windmill_common::worker::pad_string(&req, req_tl + 1),
+                // Margin to the right    ^
+                if s3_pull { "<< (S3) " } else { "" },
+                if s3_push { " > (S3) " } else { "" },
+                instant.elapsed().as_millis(),
+            ),
+            db,
+        )
+        .await;
+        // Drop lock, so next print success can fire
+    }
+
+    let mut name_tl = 0;
+    struct NotInstalledDependency {
+        path: String,
+        custom_name: Option<String>,
+        short_name: Option<String>,
+        display_name: String,
+    }
+    {
+        windmill_queue::append_logs(job_id, w_id, format!("\nTo be installed:\n"), db.clone())
+            .await;
+        for RequiredDependency {
+            path, //
+            custom_name,
+            short_name,
+        } in deps.into_iter()
+        {
+            let display_name = dbg!(dbg!(short_name
+            .as_ref())
+            .or(custom_name.as_ref())
+            .or(path.split("/").last().map(|e| e.to_owned()).as_ref())
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    job_id = %job_id,
+                    "failed to parse top level directory name for {path}, fallback to full path.",
+                );
+
+                &path
+            })
+            .to_owned());
+            {
+                // Later will help us align text in log console
+                if display_name.len() > name_tl {
+                    name_tl = display_name.len();
+                }
+            }
+            // TODO: Add .valid.windmill atomic verifier
+            if tokio::fs::metadata(&path).await.is_ok() {
+                windmill_queue::append_logs(
+                    job_id,
+                    &w_id,
+                    format!("\n{display_name} already in cache",),
+                    db.clone(),
+                )
+                .await;
+            } else {
+                windmill_queue::append_logs(job_id, w_id, format!("{display_name}, "), db.clone())
+                    .await;
+                not_installed.push(NotInstalledDependency {
+                    path,
+                    custom_name,
+                    short_name,
+                    display_name,
+                });
+            }
+        }
+    }
+    total_to_install = not_installed.len();
+    if total_to_install == 0 {
+        windmill_queue::append_logs(
+            job_id,
+            w_id,
+            format!("\n\nINFO: All dependencies are present, skipping install\n"),
+            db.clone(),
+        )
+        .await;
+
+        return Ok(());
+    }
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let is_not_pro = !matches!(
+        windmill_common::ee::get_license_plan().await,
+        windmill_common::ee::LicensePlan::Pro
+    );
+
+    // Parallelism level (N)
+    let parallel_limit = // Semaphore will panic if value less then 1
+            concurrent_downloads.clamp(1, 30);
+
+    tracing::info!(
+        workspace_id = %w_id,
+        "Install parallel limit: {}, job: {}",
+        parallel_limit,
+        job_id
+    );
+
+    let mut handles = vec![];
+    let semaphore = Arc::new(Semaphore::new(parallel_limit));
+    // let mut handles = Vec::with_capacity(total_to_install);
+    for NotInstalledDependency {
+        //
+        path,
+        custom_name,
+        short_name,
+        display_name,
+    } in not_installed
+    {
+        let permit = semaphore.clone().acquire_owned().await; // Acquire a permit
+
+        if let Err(_) = permit {
+            tracing::error!(
+                workspace_id = %w_id,
+                "Cannot acquire permit on semaphore, that can only mean that semaphore has been closed."
+            );
+            break;
+        }
+
+        let permit = permit.unwrap();
+
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        let s3_pull_future = if is_not_pro {
+            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+                .read()
+                .await
+                .clone()
+            {
+                Some(crate::global_cache::pull_from_tar(
+                    os,
+                    path.clone(),
+                    language_name.to_owned(),
+                    custom_name.clone(),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let child = {
+            let cmd = install_fn(RequiredDependency {
+                path: path.clone(),
+                custom_name: custom_name.clone(),
+                short_name: short_name.clone(),
+            })?;
+            start_child_process(cmd, &installer_executable_name).await?
+        };
+
+        let (
+            worker_name_2,
+            path_2,
+            display_name_2,
+            custom_name,
+            job_id_2,
+            w_id_2,
+            db_2,
+            counter_arc,
+            language_name,
+            installer_executable_name,
+        ) = (
+            worker_name.to_owned(),
+            path.clone(),
+            display_name.clone(),
+            custom_name.clone(),
+            job_id.clone(),
+            w_id.to_owned(),
+            db.clone(),
+            counter_arc.clone(),
+            language_name.to_owned(),
+            installer_executable_name.to_owned(),
+        );
+        let start = std::time::Instant::now();
+        let handle = tokio::spawn(async move {
+            let _permit = permit;
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            if let Some(s3_pull_future) = s3_pull_future {
+                if let Err(e) = s3_pull_future.await {
+                    tracing::info!(
+                        workspace_id = %w_id_2,
+                        "No tarball was found for {:?} on S3 or different problem occured {job_id_2}:\n{e}",
+                        &custom_name.clone().unwrap_or(path)
+                    );
+                } else {
+                    print_success(
+                        true,
+                        false,
+                        &job_id_2,
+                        &w_id_2,
+                        &display_name_2,
+                        name_tl,
+                        counter_arc,
+                        total_to_install,
+                        start,
+                        db_2,
+                    )
+                    .await;
+                    return;
+                }
+            }
+
+            if let Err(e) = crate::handle_child::handle_child(
+                &job_id_2,
+                &db_2,
+                // TODO: Return mem_peak
+                &mut 0,
+                // TODO: Return canceld_by_ref
+                &mut None,
+                child,
+                !*DISABLE_NSJAIL,
+                &worker_name_2,
+                &w_id_2,
+                &installer_executable_name,
+                None,
+                false,
+                &mut None,
+            )
+            .await
+            {
+                windmill_queue::append_logs(
+                    &job_id_2,
+                    &w_id_2,
+                    format!("error while installing {}: {e:?}", &display_name_2),
+                    db_2.clone(),
+                )
+                .await;
+            } else {
+                print_success(
+                    false,
+                    true,
+                    &job_id_2,
+                    &w_id_2,
+                    &display_name_2,
+                    name_tl,
+                    counter_arc,
+                    total_to_install,
+                    start,
+                    db_2,
+                )
+                .await;
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                {
+                    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+                        .read()
+                        .await
+                        .clone()
+                    {
+                        tokio::spawn(async {
+                            if let Err(e) = crate::global_cache::build_tar_and_push(
+                                os,
+                                path_2,
+                                language_name.into(),
+                                custom_name,
+                            )
+                            .await
+                            {
+                                tracing::warn!("failed to build tar and push: {e:?}");
+                            }
+                        });
+                    }
+                }
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        if let Err(e) = handle.await {
+            tracing::error!("Error joining handles: {e:?}");
+        }
+    }
+    Ok(())
 }
