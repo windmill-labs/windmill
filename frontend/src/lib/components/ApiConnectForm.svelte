@@ -315,11 +315,15 @@
 				size="xs"
 				disabled={!$enterpriseLicense}
 				on:click={async () => {
-					const url = await GitSyncService.getGithubAppInstallationUrl({
-						workspace: $workspaceStore
-					})
-					if (url) {
-						window.open(url.installation_url, '_blank')
+					if ($workspaceStore) {
+						const url = await GitSyncService.getGithubAppInstallationUrl({
+							workspace: $workspaceStore
+						})
+						if (url) {
+							window.open(url.installation_url, '_blank')
+						} else {
+							sendUserToast('Failed to get GitHub app installation URL', true)
+						}
 					} else {
 						sendUserToast('Failed to get GitHub app installation URL', true)
 					}
