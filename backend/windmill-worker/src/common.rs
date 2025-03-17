@@ -986,6 +986,7 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
 #[derive(Clone)]
 pub struct RequiredDependency {
     /// Path in cache
+    /// IMPORTANT!: path should not end with '/'
     pub path: String,
     /// Name to use for S3 tars
     pub custom_name: Option<String>,
@@ -1002,7 +1003,7 @@ pub async fn par_install_language_dependencies<'a, F>(
     w_id: &'a str,
     worker_name: &'a str,
     db: &sqlx::Pool<sqlx::Postgres>,
-) -> Result<(), error::Error>
+) -> anyhow::Result<()>
 where
     F: Fn(RequiredDependency) -> Result<Command, error::Error>,
 {
@@ -1090,8 +1091,11 @@ where
             short_name,
         } in deps.into_iter()
         {
-            let display_name = dbg!(dbg!(short_name
-            .as_ref())
+            if path.ends_with("/") {
+                anyhow::bail!("Internal error: path should not end with '/'")
+            }
+            let display_name = short_name
+            .as_ref()
             .or(custom_name.as_ref())
             .or(path.split("/").last().map(|e| e.to_owned()).as_ref())
             .unwrap_or_else(|| {
@@ -1103,15 +1107,18 @@ where
 
                 &path
             })
-            .to_owned());
+            .to_owned();
             {
                 // Later will help us align text in log console
                 if display_name.len() > name_tl {
                     name_tl = display_name.len();
                 }
             }
-            // TODO: Add .valid.windmill atomic verifier
-            if tokio::fs::metadata(&path).await.is_ok() {
+            // Will look like: /tmp/windmill/cache/lang/dependency.valid.windmill
+            if tokio::fs::metadata(path.clone() + ".valid.windmill")
+                .await
+                .is_ok()
+            {
                 windmill_queue::append_logs(
                     job_id,
                     &w_id,
@@ -1247,6 +1254,19 @@ where
                         &custom_name.clone().unwrap_or(path)
                     );
                 } else {
+                    // Create a file to indicate that installation was successfull
+                    let valid_path = path_2.clone() + ".valid.windmill";
+                    // This is atomic operation, meaning, that it either completes and dependency is valid,
+                    // or it does not and dependency is invalid and will be reinstalled next run
+                    if let Err(e) = File::create(&valid_path).await {
+                        tracing::error!(
+                            workspace_id = %w_id_2,
+                            job_id = %job_id_2,
+                            "Failed to create {}!\n{e}\n
+                                This file needed for jobs to function",
+                            valid_path
+                        );
+                    };
                     print_success(
                         true,
                         false,
@@ -1303,6 +1323,19 @@ where
                     db_2,
                 )
                 .await;
+                // Create a file to indicate that installation was successfull
+                let valid_path = path_2.clone() + ".valid.windmill";
+                // This is atomic operation, meaning, that it either completes and dependency is valid,
+                // or it does not and dependency is invalid and will be reinstalled next run
+                if let Err(e) = File::create(&valid_path).await {
+                    tracing::error!(
+                        workspace_id = %w_id_2,
+                        job_id = %job_id_2,
+                        "Failed to create {}!\n{e}\n
+                            This file needed for jobs to function",
+                        valid_path
+                    );
+                };
                 #[cfg(all(feature = "enterprise", feature = "parquet"))]
                 {
                     if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
@@ -1314,7 +1347,7 @@ where
                             if let Err(e) = crate::global_cache::build_tar_and_push(
                                 os,
                                 path_2,
-                                language_name.into(),
+                                language_name,
                                 custom_name,
                             )
                             .await

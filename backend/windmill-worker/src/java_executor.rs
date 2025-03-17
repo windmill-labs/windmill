@@ -179,7 +179,6 @@ pub async fn resolve_dependencies<'a>(
         .write_all(&pom.into_bytes())
         .await?;
 
-    // TODO: Use not pip_resolution_cache?
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
         req_hash
@@ -422,8 +421,7 @@ async fn install<'a>(
         .join(":")
         + ":target";
 
-    // TODO: Change to debug
-    tracing::info!(
+    tracing::debug!(
         workspace_id = %job.workspace_id,
         "JAVA classpath: {}", &classpath
     );
