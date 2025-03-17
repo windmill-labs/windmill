@@ -2085,33 +2085,32 @@ async fn update_concurrency_counter<'c>(
     // 2. count running jobs from concurrency_counter
     let running_jobs = sqlx::query_scalar!(
         "
-        WITH locked_counter AS (
-            SELECT job_uuids
-            FROM concurrency_counter
-            WHERE concurrency_id = $1
-            FOR UPDATE
-        ),
-        concurrency_counter_jobs AS (
-            SELECT jsonb_array_elements(job_uuids) as job_id
-            FROM locked_counter
-        )
-        SELECT COUNT(*) FROM concurrency_counter_jobs",
+        SELECT COALESCE(jsonb_array_length(job_uuids), 0)
+        FROM concurrency_counter 
+        WHERE concurrency_id = $1
+        FOR UPDATE",
         job_concurrency_key
     )
-    .fetch_one(&mut *tx)
-    .await?;
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Error getting running jobs for concurrency key {job_concurrency_key}: {e:#}"
+        ))
+    })?
+    .flatten()
+    .unwrap_or(0);
 
-    tracing::debug!("running_job: {}", running_jobs.unwrap_or(0));
+    tracing::debug!("running_job: {}", running_jobs);
 
-    let concurrent_jobs_for_this_script = completed_count + running_jobs.unwrap_or(0) as i32;
+    let concurrent_jobs_for_this_script = completed_count + running_jobs as i32;
     tracing::debug!(
         "Current concurrent jobs for this script: {}",
         concurrent_jobs_for_this_script
     );
     let within_limit = concurrent_jobs_for_this_script < limit;
     if within_limit {
-        // 3. Insert if missing, otherwise update
-        let _ = sqlx::query!(
+        sqlx::query!(
             "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
              VALUES ($1, $2)
              ON CONFLICT (concurrency_id)
@@ -2121,7 +2120,12 @@ async fn update_concurrency_counter<'c>(
             pulled_job_id
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Error inserting or updating concurrency counter: {e:#}"
+            ))
+        })?;
     }
 
     Ok((tx, within_limit))
