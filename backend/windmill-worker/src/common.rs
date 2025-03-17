@@ -997,6 +997,7 @@ pub async fn par_install_language_dependencies<'a, F>(
     deps: Vec<RequiredDependency>,
     language_name: &'a str,
     installer_executable_name: &'a str,
+    platform_agnostic: bool,
     concurrent_downloads: usize,
     install_fn: F,
     job_id: &'a Uuid,
@@ -1007,13 +1008,7 @@ pub async fn par_install_language_dependencies<'a, F>(
 where
     F: Fn(RequiredDependency) -> Result<Command, error::Error>,
 {
-    windmill_queue::append_logs(
-        job_id,
-        w_id,
-        format!("\n\n--- INSTALLATION ---\n"),
-        db.clone(),
-    )
-    .await;
+    let total_time = std::time::Instant::now();
 
     // Total to install
     let mut not_installed = vec![];
@@ -1061,7 +1056,7 @@ where
                     &format!("[{}/{total_to_install}]", counter),
                     9
                 ),
-                // Because we want to align to max len [999/999] we take ^
+                // Because we want to align to max len [999/999] we take 9
                 //                                     123456789
                 windmill_common::worker::pad_string(&req, req_tl + 1),
                 // Margin to the right    ^
@@ -1083,8 +1078,7 @@ where
         display_name: String,
     }
     {
-        windmill_queue::append_logs(job_id, w_id, format!("\nTo be installed:\n"), db.clone())
-            .await;
+        let mut to_be_installed_is_used = false;
         for RequiredDependency {
             path, //
             custom_name,
@@ -1117,18 +1111,25 @@ where
             // Will look like: /tmp/windmill/cache/lang/dependency.valid.windmill
             if tokio::fs::metadata(path.clone() + ".valid.windmill")
                 .await
-                .is_ok()
+                .is_err()
             {
+                if !to_be_installed_is_used {
+                    windmill_queue::append_logs(
+                        job_id,
+                        w_id,
+                        format!("\n--- INSTALLATION ---\n\nTo be installed:\n"),
+                        db.clone(),
+                    )
+                    .await;
+                    to_be_installed_is_used = true;
+                }
                 windmill_queue::append_logs(
                     job_id,
-                    &w_id,
-                    format!("\n{display_name} already in cache",),
+                    w_id,
+                    format!("\t{display_name}\n"),
                     db.clone(),
                 )
                 .await;
-            } else {
-                windmill_queue::append_logs(job_id, w_id, format!("{display_name}, "), db.clone())
-                    .await;
                 not_installed.push(NotInstalledDependency {
                     path,
                     custom_name,
@@ -1139,17 +1140,12 @@ where
         }
     }
     total_to_install = not_installed.len();
-    if total_to_install == 0 {
-        windmill_queue::append_logs(
-            job_id,
-            w_id,
-            format!("\n\nINFO: All dependencies are present, skipping install\n"),
-            db.clone(),
-        )
-        .await;
-
+    if total_to_install != 0 {
+        windmill_queue::append_logs(job_id, w_id, format!("\n---\n"), db.clone()).await;
+    } else {
         return Ok(());
     }
+
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(
         windmill_common::ee::get_license_plan().await,
@@ -1202,6 +1198,7 @@ where
                     path.clone(),
                     language_name.to_owned(),
                     custom_name.clone(),
+                    platform_agnostic,
                 ))
             } else {
                 None
@@ -1215,6 +1212,7 @@ where
                 custom_name: custom_name.clone(),
                 short_name: short_name.clone(),
             })?;
+            tracing::debug!("{:?}", &cmd);
             start_child_process(cmd, &installer_executable_name).await?
         };
 
@@ -1343,12 +1341,13 @@ where
                         .await
                         .clone()
                     {
-                        tokio::spawn(async {
+                        tokio::spawn(async move {
                             if let Err(e) = crate::global_cache::build_tar_and_push(
                                 os,
                                 path_2,
                                 language_name,
                                 custom_name,
+                                platform_agnostic,
                             )
                             .await
                             {
@@ -1366,6 +1365,11 @@ where
         if let Err(e) = handle.await {
             tracing::error!("Error joining handles: {e:?}");
         }
+    }
+    {
+        let total_time = total_time.elapsed().as_millis();
+        windmill_queue::append_logs(&job_id, w_id, format!("\nEnv set in {}ms", total_time), db)
+            .await;
     }
     Ok(())
 }

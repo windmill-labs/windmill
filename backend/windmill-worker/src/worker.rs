@@ -282,6 +282,7 @@ pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
+pub const MAVEN_PLUGINS_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "maven-plugins-repository");
 // KJQXZ
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");

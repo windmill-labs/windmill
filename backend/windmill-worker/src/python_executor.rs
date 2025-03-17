@@ -2017,7 +2017,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None) => {
+                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
@@ -2168,7 +2168,7 @@ pub async fn handle_python_reqs(
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None));
+                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false));
                 }
             }
 

@@ -22,6 +22,7 @@ pub async fn build_tar_and_push(
     folder: String,
     lang: String,
     custom_folder_name: Option<String>,
+    platform_agnostic: bool,
 ) -> error::Result<()> {
     use object_store::path::Path;
 
@@ -58,7 +59,10 @@ pub async fn build_tar_and_push(
     // })?;
     if let Err(e) = s3_client
         .put(
-            &Path::from(format!("/tar/{TARGET}/{lang}/{folder_name}.tar")),
+            &Path::from(format!(
+                "/tar/{}/{lang}/{folder_name}.tar",
+                if platform_agnostic { "" } else { TARGET }
+            )),
             std::fs::read(&tar_path)?.into(),
         )
         .await
@@ -88,6 +92,7 @@ pub async fn pull_from_tar(
     folder: String,
     lang: String,
     custom_folder_name: Option<String>,
+    platform_agnostic: bool,
 ) -> error::Result<()> {
     use windmill_common::s3_helpers::attempt_fetch_bytes;
 
@@ -101,7 +106,10 @@ pub async fn pull_from_tar(
 
     let start = Instant::now();
 
-    let tar_path = format!("tar/{TARGET}/{lang}/{folder_name}.tar");
+    let tar_path = format!(
+        "tar/{}/{lang}/{folder_name}.tar",
+        if platform_agnostic { "" } else { TARGET }
+    );
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
     windmill_common::worker::extract_tar(bytes, &folder)

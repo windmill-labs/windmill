@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
@@ -12,7 +12,7 @@ use windmill_common::{
     error::Error,
     jobs::QueuedJob,
     utils::calculate_hash,
-    worker::{save_cache, write_file},
+    worker::{copy_dir_recursively, save_cache, write_file},
 };
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
@@ -24,7 +24,7 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics, RequiredDependency,
     },
     handle_child, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
-    NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    MAVEN_PLUGINS_DIR, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 lazy_static::lazy_static! {
     static ref JAVA_CONCURRENT_DOWNLOADS: usize = std::env::var("JAVA_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
@@ -64,6 +64,10 @@ pub fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
 }
 
 pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
+    // --- Init ---
+    {
+        init(&mut args).await?;
+    }
     // --- Prepare ---
     {
         create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
@@ -84,6 +88,9 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
                 .into_bytes(),
             )
             .await?;
+        if let Some(maven_config) = crate::MAVEN_CONFIG.read().await.clone() {
+            write_file(JAVA_CACHE_DIR, "settings.xml", &maven_config)?;
+        }
     }
     // --- Generate Lockfile ---
     let deps = resolve_dependencies(
@@ -153,7 +160,7 @@ pub async fn resolve_dependencies<'a>(
         .find_position(|x| x.starts_with("//<repository>") || x.starts_with("// <repository>"));
     let repos = if let Some((pos, _)) = find_repos {
         code.lines()
-            .skip(pos + 1)
+            .skip(pos)
             .map_while(|x| {
                 if x.starts_with("//") {
                     Some(x.to_owned())
@@ -186,20 +193,20 @@ pub async fn resolve_dependencies<'a>(
     .fetch_optional(db)
     .await?
     {
-        append_logs(
-            job_id,
-            w_id,
-            &format!("\nFound cached resolution: {req_hash}",),
-            db.clone(),
-        )
-        .await;
+        // append_logs(
+        //     job_id,
+        //     w_id,
+        //     &format!("\nFound cached resolution: {req_hash}",),
+        //     db.clone(),
+        // )
+        // .await;
         return Ok(cached);
     }
     let child = {
         append_logs(
             job_id,
             w_id,
-            format!("\n\n--- RESOLVING LOCKFILE ---\n"),
+            format!("\n--- RESOLVING LOCKFILE ---\n"),
             db.clone(),
         )
         .await;
@@ -213,11 +220,20 @@ pub async fn resolve_dependencies<'a>(
             .current_dir(job_dir.to_owned())
             // .env(
             //     "MAVEN_OPTS",
-            //     "-Dmaven.repo.local=/tmp/windmill/cache/java/maven-meta",
+            //     format!("-Dmaven.repo.local={JAVA_CACHE_DIR}/maven-meta"),
             // )
             .env("PATH", PATH_ENV.as_str())
             .envs(PROXY_ENVS.clone())
-            .args(&["dependency:collect", "-DoutputFile=dependencies.txt", "-q"])
+            .args(&[
+                "dependency:collect",
+                "-DoutputFile=dependencies.txt",
+                "--settings",
+                &format!("{JAVA_CACHE_DIR}/settings.xml"),
+                // Do not produce output
+                "-q",
+                // Force override
+                "-U",
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -263,7 +279,8 @@ pub async fn resolve_dependencies<'a>(
         lock.clone(),
     ).fetch_optional(db).await?;
 
-    Ok(dbg!(lock))
+    append_logs(job_id, w_id, format!("\n{}", &lock), db.clone()).await;
+    Ok(lock)
     // .map_err(|e| Error::IoErr { error: e, location: "".into() }))
 }
 
@@ -385,6 +402,98 @@ public class App{
     .replace("SPREAD", &spread)
     .replace("ARGS", &args))
 }
+async fn init<'a>(
+    JobHandlerInput {
+        occupancy_metrics,
+        mem_peak,
+        canceled_by,
+        worker_name,
+        job,
+        db,
+        job_dir,
+        // client,
+        // envs,
+        // base_internal_url,
+        // inner_content,
+        // requirements_o,
+        ..
+    }: &mut JobHandlerInput<'a>,
+) -> Result<(), Error> {
+    // 1. Check if plugin directory exists.
+    // 2. If not mvn dependency:help
+    //    2.1 Recursively copy from /tmp/windmill/maven-repository-plugins to /tmp/windmill/cache/java/maven-repository
+
+    if tokio::fs::metadata(format!(
+        "{JAVA_CACHE_DIR}/maven-repository/org/apache/maven/plugins/maven-dependency-plugin"
+    ))
+    .await
+    .is_ok()
+    {
+        return Ok(());
+    }
+    append_logs(
+        &job.id,
+        &job.workspace_id,
+        &format!("\n--- INIT ---\n Java is missing essential plugins, they will be either copied from docker image or fetched from remote."),
+        db.clone(),
+    )
+    .await;
+
+    let child = {
+        let mut cmd = Command::new(if cfg!(windows) {
+            "mvn"
+        } else {
+            MAVEN_PATH.as_str()
+        });
+        cmd.env_clear()
+            .current_dir(job_dir.to_owned())
+            .env("PATH", PATH_ENV.as_str())
+            .envs(PROXY_ENVS.clone())
+            .args(&[
+                "dependency:help",
+                // "--settings",
+                // &format!("{JAVA_CACHE_DIR}/settings.xml"),
+                "-Dtransitive=false",
+                // "-q",
+                &format!("-Dmaven.repo.local={MAVEN_PLUGINS_DIR}"),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+        start_child_process(cmd, "mvn").await?
+    };
+    handle_child::handle_child(
+        &job.id,
+        db,
+        mem_peak,
+        canceled_by,
+        child,
+        !*DISABLE_NSJAIL,
+        worker_name,
+        &job.workspace_id,
+        "mvn",
+        job.timeout,
+        false,
+        &mut Some(occupancy_metrics),
+    )
+    .await?;
+
+    copy_dir_recursively(
+        &PathBuf::from(&MAVEN_PLUGINS_DIR),
+        &PathBuf::from(&format!("{JAVA_CACHE_DIR}/maven-repository")),
+    )?;
+
+    Ok(())
+}
 
 async fn install<'a>(
     JobHandlerInput { worker_name, job, db, job_dir, .. }: &mut JobHandlerInput<'a>,
@@ -399,7 +508,7 @@ async fn install<'a>(
             match (it.next(), it.next(), it.next()) {
                 (Some(group_id), Some(artifact_id), Some(version)) => {
                     let path = format!(
-                        "{JAVA_CACHE_DIR}/maven-jars/{}/{artifact_id}/{version}",
+                        "{JAVA_CACHE_DIR}/maven-repository/{}/{artifact_id}/{version}",
                         group_id.replace(".", "/")
                     );
                     Ok(RequiredDependency {
@@ -429,6 +538,7 @@ async fn install<'a>(
         deps,
         "java",
         "mvn",
+        true,
         *JAVA_CONCURRENT_DOWNLOADS,
         |RequiredDependency { custom_name, path, .. }| {
             let Some(artifact_name) = custom_name else {
@@ -443,17 +553,22 @@ async fn install<'a>(
             });
             cmd.env_clear()
                 .current_dir(job_dir.to_owned())
-                .env(
-                    "MAVEN_OPTS",
-                    format!("-Dmaven.repo.local={JAVA_CACHE_DIR}/maven-jars"),
-                )
+                // .env(
+                //     "MAVEN_OPTS",
+                //     format!("-Dmaven.repo.local={JAVA_CACHE_DIR}/maven-jars"),
+                // )
                 .env("PATH", PATH_ENV.as_str())
                 .envs(PROXY_ENVS.clone())
                 .args(&[
                     "dependency:get",
+                    "--settings",
+                    &format!("{JAVA_CACHE_DIR}/settings.xml"),
                     &format!("-Dartifact={artifact_name}"),
                     "-Dtransitive=false",
                     "-q",
+                    // Reinstall
+                    "-U",
+                    &format!("-Dmaven.repo.local={JAVA_CACHE_DIR}/maven-repository"),
                 ])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -512,13 +627,6 @@ async fn compile<'a>(
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
         #[cfg(windows)]
         let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!("\n\nPulled existing .class files\n"),
-            db.clone(),
-        )
-        .await;
 
         symlink.map_err(|e| {
             Error::ExecutionErr(format!(
@@ -531,7 +639,7 @@ async fn compile<'a>(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("\n\n--- COMPILING .JAVA FILES ---\n"),
+                format!("\n--- COMPILING .JAVA FILES\n"),
                 db.clone(),
             )
             .await;
@@ -633,7 +741,7 @@ async fn run<'a>(
         append_logs(
             &job.id,
             &job.workspace_id,
-            format!("\n\n--- ISOLATED JAVA CODE EXECUTION ---\n"),
+            format!("\n--- ISOLATED JAVA CODE EXECUTION ---\n"),
             db.clone(),
         )
         .await;
@@ -674,7 +782,7 @@ async fn run<'a>(
         append_logs(
             &job.id,
             &job.workspace_id,
-            format!("\n\n--- JAVA CODE EXECUTION ---\n"),
+            format!("\n--- JAVA CODE EXECUTION ---\n"),
             db.clone(),
         )
         .await;
