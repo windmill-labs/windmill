@@ -3704,7 +3704,12 @@ pub async fn push<'c, 'd>(
                 &job_kind,
             ));
         sqlx::query!(
-            "INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+            "WITH inserted_concurrency_counter AS (
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                VALUES ($1, '{}'::jsonb)
+                ON CONFLICT DO NOTHING
+            )
+            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
             concurrency_key,
             job_id,
         )
