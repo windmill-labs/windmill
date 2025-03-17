@@ -108,13 +108,7 @@
 		if (!firstLoad) {
 			timeout && clearTimeout(timeout)
 			timeout = setTimeout(() => {
-				page = 0
-				count = 0
-				displayedCount = 0
-				allFilesByKey = {}
-				displayedFileKeys = []
-				listMarkers = []
-				loadFiles()
+				clearAndLoadFiles({ keepFilter: true })
 			}, 500)
 		} else {
 			firstLoad = false
@@ -286,7 +280,6 @@
 		fileInfoLoading = false
 	}
 
-	let render = 0
 	async function deleteFileFromS3(fileKey: string | undefined) {
 		fileDeletionInProgress = true
 		if (fileKey === undefined) {
@@ -303,12 +296,48 @@
 			deletionModalOpen = false
 		}
 		sendUserToast(`${fileKey} deleted from S3 bucket`)
-		displayedFileKeys = [...displayedFileKeys.filter((key) => key !== fileKey)]
-		delete allFilesByKey[fileKey]
-		filePreview = undefined
-		fileMetadata = undefined
 		selectedFileKey = { s3: '' }
-		render++
+		const currentPage = page
+		await clearAndLoadFiles()
+		for (let i = 0; i < currentPage; i++) {
+			page = i + 1
+			await loadFiles()
+		}
+		const fileKeyFolders = fileKey.split('/').slice(0, -1)
+		let current_path: string | undefined = undefined
+		for (let i = 0; i < fileKeyFolders.length; i++) {
+			current_path =
+				current_path === undefined ? fileKeyFolders[i] : current_path + fileKeyFolders[i]
+			if (i < fileKeyFolders.length) {
+				current_path += '/'
+			}
+			const folder = allFilesByKey[current_path]
+			if (folder) {
+				folder.collapsed = false
+			}
+			for (let file_key in allFilesByKey) {
+				let file_info = allFilesByKey[file_key]
+				if (file_info.parentPath === current_path) {
+					displayedFileKeys.push(file_key)
+				}
+			}
+		}
+		displayedFileKeys = displayedFileKeys.sort()
+	}
+
+	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}) {
+		displayedFileKeys = []
+		allFilesByKey = {}
+		count = 0
+		displayedCount = 0
+		page = 0
+		listMarkers = []
+		fileMetadata = undefined
+		filePreview = undefined
+		if (!keepFilter) {
+			filter = ''
+		}
+		await loadFiles()
 	}
 
 	async function moveS3File(srcFileKey: string | undefined, destFileKey: string | undefined) {
@@ -329,7 +358,7 @@
 		}
 		sendUserToast(`${srcFileKey} moved to ${destFileKey}`)
 		selectedFileKey = { s3: destFileKey! }
-		await loadFiles()
+		await clearAndLoadFiles()
 		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
 
@@ -342,15 +371,6 @@
 			initialFileKey = { ...preSelectedFileKey }
 			selectedFileKey = { ...preSelectedFileKey }
 		}
-		displayedFileKeys = []
-		allFilesByKey = {}
-		count = 0
-		displayedCount = 0
-		page = 0
-		filter = ''
-		listMarkers = []
-		fileMetadata = undefined
-		filePreview = undefined
 		reloadContent()
 		drawer.openDrawer?.()
 	}
@@ -372,7 +392,7 @@
 			workspaceSettingsInitialized = false
 			return
 		}
-		await loadFiles() // TODO: Potentially load only on the first open and add a refresh button
+		await clearAndLoadFiles()
 		if (selectedFileKey !== undefined) {
 			if (allFilesByKey[selectedFileKey.s3] === undefined) {
 				selectedFileKey = { s3: '' }
@@ -513,62 +533,58 @@
 							</div>
 						{:else}
 							<div class="grow" bind:clientHeight={listDivHeight}>
-								{#key render}
-									<VirtualList
-										width="100%"
-										height={listDivHeight}
-										itemCount={displayedFileKeys.length}
-										itemSize={42}
+								<VirtualList
+									width="100%"
+									height={listDivHeight}
+									itemCount={displayedFileKeys.length}
+									itemSize={42}
+								>
+									<div
+										slot="item"
+										let:index
+										let:style
+										{style}
+										class={twMerge(
+											'hover:bg-surface-hover border-b',
+											index === displayedFileKeys.length - 1 && 'border-b-0'
+										)}
 									>
-										<div
-											slot="item"
-											let:index
-											let:style
-											{style}
-											class={twMerge(
-												'hover:bg-surface-hover border-b',
-												index === displayedFileKeys.length - 1 && 'border-b-0'
-											)}
-										>
-											{@const file_info = allFilesByKey[displayedFileKeys[index]]}
-											{#if file_info}
+										{@const file_info = allFilesByKey[displayedFileKeys[index]]}
+										{#if file_info}
+											<div
+												on:click={() => selectItem(index)}
+												class={twMerge(
+													'flex flex-row h-full font-semibold text-xs items-center justify-start',
+													selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
+														? 'bg-surface-hover'
+														: ''
+												)}
+											>
 												<div
-													on:click={() => selectItem(index)}
-													class={twMerge(
-														'flex flex-row h-full font-semibold text-xs items-center justify-start',
-														selectedFileKey !== undefined &&
-															selectedFileKey.s3 === file_info.full_key
-															? 'bg-surface-hover'
-															: ''
-													)}
+													class={`flex flex-row w-full gap-2 h-full items-center`}
+													style={`margin-left: ${(2 + file_info.nestingLevel) * 0.25}rem;`}
 												>
-													<div
-														class={`flex flex-row w-full gap-2 h-full items-center`}
-														style={`margin-left: ${(2 + file_info.nestingLevel) * 0.25}rem;`}
-													>
-														{#if file_info.type === 'folder'}
-															{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-																	size={16}
-																/>{/if}
-															<div class="truncate text-ellipsis w-56">
-																{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
-																lastKeyFolders[file_info.nestingLevel / 2] ===
-																	file_info.display_name
-																	? '+'
-																	: ''} item{file_info.count === 1 ? '' : 's'})
-															</div>
-														{:else}
-															<FileIcon size={16} />
-															<div class="truncate text-ellipsis w-56">
-																{file_info.display_name}
-															</div>
-														{/if}
-													</div>
+													{#if file_info.type === 'folder'}
+														{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+																size={16}
+															/>{/if}
+														<div class="truncate text-ellipsis w-56">
+															{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
+															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
+																? '+'
+																: ''} item{file_info.count === 1 ? '' : 's'})
+														</div>
+													{:else}
+														<FileIcon size={16} />
+														<div class="truncate text-ellipsis w-56">
+															{file_info.display_name}
+														</div>
+													{/if}
 												</div>
-											{/if}
-										</div>
-									</VirtualList>
-								{/key}
+											</div>
+										{/if}
+									</div>
+								</VirtualList>
 							</div>
 							<div
 								class="flex flex-col gap-2 text-2xs justify-center items-center text-secondary w-full border-t h-16"
@@ -621,9 +637,9 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${
-												fileMetadata?.fileKey
-											}${storage ? `&storage=${storage}` : ''}`}
+											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+												fileMetadata?.fileKey ?? ''
+											)}${storage ? `&storage=${storage}` : ''}`}
 											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 											startIcon={{ icon: Download }}
 											iconOnly={true}
@@ -661,73 +677,77 @@
 					{/if}
 
 					<div class="flex flex-col h-full w-full overflow-auto text-xs p-4 bg-surface-secondary">
-						{#if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
-							<div>
-								<img
-									src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
-										(storage ? `&storage=${storage}` : '')}
-									alt="S3 preview"
-								/>
-							</div>
-						{:else if fileMetadata?.fileKey.endsWith('.pdf')}
-							<div class="w-full h-[950px] border">
-								<PdfViewer
-									source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
-										(storage ? `&storage=${storage}` : '')}
-								/>
-							</div>
-						{:else if filePreviewLoading}
-							<div class="flex h-6 items-center text-tertiary mb-4">
-								<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
-							</div>
-						{:else if fileMetadata !== undefined && filePreview !== undefined}
-							<div class="flex items-center text-tertiary mb-4">
-								{#if filePreview.contentType === 'Unknown'}
-									Type of file not supported for preview.
-								{:else if filePreview.contentType === 'Csv'}
-									Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
-									<div class="inline-flex w-12 ml-2 mr-2">
-										<select
-											class="h-8"
-											bind:value={csvSeparatorChar}
-											on:change={(e) =>
-												loadFilePreview(
-													fileMetadata?.fileKey ?? '',
-													fileMetadata?.size,
-													fileMetadata?.mimeType
-												)}
-										>
-											<option value=",">,</option>
-											<option value=";">;</option>
-											<option value="\t">\t</option>
-											<option value="|">|</option>
-										</select>
-									</div>
-									Header row:
-									<div class="inline-flex item-center w-4 ml-2 mr-2">
-										<input
-											on:focus
-											on:click
-											disabled={false}
-											type="checkbox"
-											id="csv-header"
-											class="h-5"
-											bind:checked={csvHasHeader}
-											on:change|stopPropagation={(e) =>
-												loadFilePreview(
-													fileMetadata?.fileKey ?? '',
-													fileMetadata?.size,
-													fileMetadata?.mimeType
-												)}
-										/>
-									</div>
-								{:else}
-									Previewing a {filePreview.contentType?.toLowerCase()} file.
-								{/if}
-							</div>
-							<pre class="grow whitespace-no-wrap break-words"
-								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}
+						{#if filePreviewLoading || fileMetadata}
+							{#if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
+								<div>
+									<img
+										src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+											fileMetadata.fileKey
+										)}` + (storage ? `&storage=${storage}` : '')}
+										alt="S3 preview"
+									/>
+								</div>
+							{:else if fileMetadata?.fileKey.endsWith('.pdf')}
+								<div class="w-full h-[950px] border">
+									<PdfViewer
+										source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+											fileMetadata.fileKey
+										)}` + (storage ? `&storage=${storage}` : '')}
+									/>
+								</div>
+							{:else if filePreviewLoading}
+								<div class="flex h-6 items-center text-tertiary mb-4">
+									<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
+								</div>
+							{:else if fileMetadata !== undefined && filePreview !== undefined}
+								<div class="flex items-center text-tertiary mb-4">
+									{#if filePreview.contentType === 'Unknown'}
+										Type of file not supported for preview.
+									{:else if filePreview.contentType === 'Csv'}
+										Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
+										<div class="inline-flex w-12 ml-2 mr-2">
+											<select
+												class="h-8"
+												bind:value={csvSeparatorChar}
+												on:change={(e) =>
+													loadFilePreview(
+														fileMetadata?.fileKey ?? '',
+														fileMetadata?.size,
+														fileMetadata?.mimeType
+													)}
+											>
+												<option value=",">,</option>
+												<option value=";">;</option>
+												<option value="\t">\t</option>
+												<option value="|">|</option>
+											</select>
+										</div>
+										Header row:
+										<div class="inline-flex item-center w-4 ml-2 mr-2">
+											<input
+												on:focus
+												on:click
+												disabled={false}
+												type="checkbox"
+												id="csv-header"
+												class="h-5"
+												bind:checked={csvHasHeader}
+												on:change|stopPropagation={(e) =>
+													loadFilePreview(
+														fileMetadata?.fileKey ?? '',
+														fileMetadata?.size,
+														fileMetadata?.mimeType
+													)}
+											/>
+										</div>
+									{:else}
+										Previewing a {filePreview.contentType?.toLowerCase()} file.
+									{/if}
+								</div>
+								<pre class="grow whitespace-no-wrap break-words"
+									>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}
 							</pre>
+							{/if}
 						{/if}
 					</div>
 				</div>
@@ -812,7 +832,7 @@
 		uploadModalOpen = false
 		if (evt.detail !== undefined && evt.detail !== null) {
 			selectedFileKey = { s3: evt.detail }
-			loadFiles()
+			await clearAndLoadFiles()
 			loadFileMetadataPlusPreviewAsync(evt.detail)
 		}
 	}}

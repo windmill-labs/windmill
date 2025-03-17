@@ -7,7 +7,8 @@
 		ScheduleService,
 		type Script,
 		type TriggersCount,
-		PostgresTriggerService
+		PostgresTriggerService,
+		CaptureService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -18,6 +19,7 @@
 		emptyString,
 		encodeState,
 		formatCron,
+		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
 		type Value
@@ -71,8 +73,10 @@
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
 	import {
-		BUN_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_MODULE_CODE
+		TS_PREPROCESSOR_MODULE_CODE,
+		TS_PREPROCESSOR_SCRIPT_INTRO,
+		PYTHON_PREPROCESSOR_MODULE_CODE,
+		PYTHON_PREPROCESSOR_SCRIPT_INTRO
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
@@ -103,6 +107,15 @@
 			modifiedValue: script
 		}
 	}
+
+	// used for new scripts for captures
+	let fakeInitialPath =
+		'u/' +
+		($userStore?.username?.includes('@')
+			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: $userStore!.username!) +
+		'/' +
+		generateRandomString(12)
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -563,9 +576,20 @@
 				if (savedScript?.draft_only) {
 					await ScriptService.deleteScriptByPath({
 						workspace: $workspaceStore!,
-						path: initialPath
+						path: initialPath,
+						keepCaptures: true
 					})
 					script.parent_hash = undefined
+				}
+				if (!initialPath || script.path != initialPath) {
+					await CaptureService.moveCapturesAndConfigs({
+						workspace: $workspaceStore!,
+						path: initialPath || fakeInitialPath,
+						requestBody: {
+							new_path: script.path
+						},
+						runnableKind: 'script'
+					})
 				}
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
@@ -733,8 +757,8 @@
 		if (code) {
 			const preprocessorCode =
 				script.language === 'python3'
-					? PYTHON_PREPROCESSOR_MODULE_CODE
-					: BUN_PREPROCESSOR_MODULE_CODE
+					? PYTHON_PREPROCESSOR_SCRIPT_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE
+					: TS_PREPROCESSOR_SCRIPT_INTRO + TS_PREPROCESSOR_MODULE_CODE
 			const mainIndex = code.indexOf(
 				script.language === 'python3' ? 'def main' : 'export async function main'
 			)
@@ -1390,8 +1414,9 @@
 									on:exitTriggers={() => {
 										captureTable?.loadCaptures(true)
 									}}
-									{args}
+									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									{initialPath}
+									{fakeInitialPath}
 									schema={script.schema}
 									noEditor={true}
 									isFlow={false}

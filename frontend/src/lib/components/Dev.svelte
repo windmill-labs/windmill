@@ -230,7 +230,12 @@
 		} else if (event.data.type == 'testBundleError') {
 			loadingCodebaseButton = false
 			sendUserToast(
-				typeof event.data.error == 'object' ? JSON.stringify(event.data.error) : event.data.error,
+				'Error bundling script:' +
+					event.data.errorMessage +
+					' ' +
+					(typeof event.data.error == 'object'
+						? JSON.stringify(event.data.error)
+						: event.data.error),
 				true
 			)
 		} else if (event.data.type == 'replaceFlow') {
@@ -294,6 +299,7 @@
 						array.push(file.charCodeAt(i))
 					}
 					let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
+
 					form.append('file', blob)
 				} else {
 					form.append('file', file)
@@ -522,7 +528,8 @@
 		flowStore,
 		testStepStore,
 		saveDraft: () => {},
-		initialPath: '',
+		initialPathStore: writable(''),
+		fakeInitialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
 		insertButtonOpen: writable(false),
@@ -630,7 +637,7 @@
 			{#if (currentScript?.language == 'bun' || currentScript?.language == 'python3') && currentScript?.content != undefined}
 				{#if relativePaths.length > 0}
 					<div class="flex flex-row-reverse py-1">
-						{#if currentScript?.language == 'bun'}
+						{#if currentScript?.language == 'bun' && !currentScript?.isCodebase}
 							<Toggle
 								size="xs"
 								bind:checked={typescriptBundlePreviewMode}

@@ -118,6 +118,8 @@ pub struct CompletedJobMini {
 #[derive(Deserialize)]
 struct GetInputHistory {
     include_preview: Option<bool>,
+    args: Option<String>,
+    include_non_root: Option<bool>,
 }
 
 async fn get_input_history(
@@ -132,13 +134,27 @@ async fn get_input_history(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let args_query = if let Some(args) = &g.args {
+        sql_builder::bind::Bind::bind(&"and v2_job.args @> ?", &args.replace("'", "''"))
+    } else {
+        "".to_string()
+    };
+
+    let include_non_root = if g.include_non_root.unwrap_or(false) {
+        ""
+    } else {
+        "AND parent_job IS NULL"
+    };
+
     let sql = &format!(
         "select id, v2_job.created_at, created_by, 'null'::jsonb as args, status = 'success' as success from v2_job JOIN v2_job_completed USING (id) \
-        where {} = $1 and kind = any($2) and v2_job.workspace_id = $3 AND v2_job_completed.status != 'skipped' \
+        where v2_job.workspace_id = $3 and {} = $1 and kind = any($2) {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
         order by v2_job.created_at desc limit $4 offset $5",
-        r.runnable_type.column_name()
+        r.runnable_type.column_name(),
+
     );
 
+    // tracing::info!("sql: {}", sql);
     let query = sqlx::query_as::<_, CompletedJobMini>(sql);
 
     let query = match r.runnable_type {
@@ -177,9 +193,9 @@ async fn get_input_history(
                 row.created_by
             ),
             created_at: row.created_at,
-            args: row.args.unwrap_or(sqlx::types::Json(
+            args: sqlx::types::Json(
                 serde_json::value::RawValue::from_string("null".to_string()).unwrap(),
-            )),
+            ),
             created_by: row.created_by,
             is_public: true,
             success: row.success,

@@ -58,7 +58,7 @@ use windmill_common::error::AppError;
 
 mod ai;
 mod apps;
-mod args;
+pub mod args;
 mod audit;
 mod auth;
 mod capture;
@@ -379,7 +379,7 @@ pub async fn run_server(
         Router::new()
     };
 
-    if !*CLOUD_HOSTED {
+    if !*CLOUD_HOSTED && server_mode {
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
@@ -403,7 +403,7 @@ pub async fn run_server(
             let db_killpill_rx = rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
-        
+
         #[cfg(feature = "mqtt_trigger")]
         {
             let mqtt_killpill_rx = rx.resubscribe();
@@ -620,7 +620,9 @@ pub async fn run_server(
                 .on_failure(MyOnFailure {}),
         )
     };
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("binding main windmill server")?;
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
     let ip = listener
         .local_addr()

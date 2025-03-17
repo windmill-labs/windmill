@@ -4516,10 +4516,10 @@ async fn run_bundle_preview_script(
                 std::fs::create_dir_all(
                     windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
                 )?;
-                windmill_common::worker::write_file(
+                windmill_common::worker::write_file_bytes(
                     &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                     &id,
-                    &String::from_utf8_lossy(&data),
+                    &data,
                 )?;
             } else {
                 #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
@@ -4968,6 +4968,13 @@ async fn add_batch_jobs(
     }
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
+        sqlx::query!(
+            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
+             VALUES ($1, '{}'::jsonb)",
+            &custom_concurrency_key
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
             custom_concurrency_key,

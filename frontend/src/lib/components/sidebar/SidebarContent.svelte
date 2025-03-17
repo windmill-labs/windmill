@@ -275,7 +275,7 @@
 			hasNewChangelogs =
 				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
 		} else {
-			recentChangelogs = changelogs.slice(-3)
+			recentChangelogs = changelogs.slice(0, 3)
 		}
 	})
 
@@ -449,7 +449,12 @@
 							>
 								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
 								{#if menuLink.label === 'Help' && hasNewChangelogs}
-									<span class="absolute top-1 right-1 flex h-2 w-2">
+									<span
+										class={twMerge(
+											'flex h-2 w-2 absolute',
+											isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
+										)}
+									>
 										<span
 											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
 										/>
