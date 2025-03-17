@@ -135,7 +135,7 @@
 				{:else if job.canceled}
 					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{:else}
-					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.schedule_path || ''} />)
 				{/if}
 			{/if}
 		</div>

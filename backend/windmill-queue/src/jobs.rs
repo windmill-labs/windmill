@@ -1887,22 +1887,6 @@ pub async fn pull(
             return Ok((Option::Some(pulled_job), suspended));
         }
 
-        sqlx::query!(
-            "UPDATE v2_job_runtime SET ping = NULL WHERE id = $1",
-            pulled_job.id
-        )
-        .execute(db)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Could not set ping to null for job {}: {e:#}",
-                pulled_job.id
-            ))
-        })?;
-
-        // Else the job is subject to concurrency limits
-        let job_script_path = pulled_job.script_path.clone().unwrap();
-
         let job_concurrency_key = match concurrency_key(db, &pulled_job).await {
             Ok(key) => key,
             Err(e) => {
@@ -1935,6 +1919,44 @@ pub async fn pull(
                 "Error getting completed count for key {job_concurrency_key}: {e:#}"
             ))
         })?;
+
+        let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
+            format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
+        )
+        .expect("Unable to serialize job_uuids column to proper JSON");
+
+        let within_limit = update_concurrency_counter(
+            db,
+            &pulled_job.id,
+            job_concurrency_key.clone(),
+            jobs_uuids_init_json_value,
+            pulled_job.id.hyphenated().to_string(),
+            completed_count.count.unwrap_or_default() as i32,
+            job_custom_concurrent_limit,
+        )
+        .await?;
+        if within_limit {
+            #[cfg(feature = "prometheus")]
+            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+                QUEUE_PULL_COUNT.inc();
+            }
+            return Ok((Option::Some(pulled_job), suspended));
+        }
+
+        //         sqlx::query!(
+        //     "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
+        //     pulled_job.id
+        // )
+        // .execute(&mut *tx)
+        // .await
+        // .map_err(|e| {
+        //     Error::internal_err(format!(
+        //         "Could not set ping to nowfor job {}: {e:#}",
+        //         pulled_job.id
+        //     ))
+        // })?;
+
+        let job_script_path = pulled_job.script_path.clone().unwrap_or_default();
 
         let min_started_at = sqlx::query!(
             "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
@@ -2008,44 +2030,6 @@ pub async fn pull(
             }
         }
 
-        let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
-            format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
-        )
-        .expect("Unable to serialize job_uuids column to proper JSON");
-
-        let tx = db.begin().await?;
-
-        let (mut tx, within_limit) = update_concurrency_counter(
-            tx,
-            job_concurrency_key.clone(),
-            jobs_uuids_init_json_value,
-            pulled_job.id.hyphenated().to_string(),
-            completed_count.count.unwrap_or_default() as i32,
-            job_custom_concurrent_limit,
-        )
-        .await?;
-        if within_limit {
-            sqlx::query!(
-                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
-                pulled_job.id
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "Could not set ping to nowfor job {}: {e:#}",
-                    pulled_job.id
-                ))
-            })?;
-            tx.commit().await?;
-
-            #[cfg(feature = "prometheus")]
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                QUEUE_PULL_COUNT.inc();
-            }
-            return Ok((Option::Some(pulled_job), suspended));
-        }
-
         tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {} (avg script duration: {:?}, number of time windows full: {})", 
             job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp, avg_script_duration, i);
 
@@ -2064,28 +2048,52 @@ pub async fn pull(
             estimated_next_schedule_timestamp,
             job_uuid,
         )
-        .execute(&mut *tx)
+        .execute(db)
         .await
         .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
-
-        tx.commit().await?
     }
 }
 
-async fn update_concurrency_counter<'c>(
-    mut tx: Transaction<'c, sqlx::Postgres>,
+async fn update_concurrency_counter(
+    db: &DB,
+    job_id: &Uuid,
     job_concurrency_key: String,
     jobs_uuids_init_json_value: serde_json::Value,
     pulled_job_id: String,
     completed_count: i32,
     limit: i32,
-) -> anyhow::Result<(Transaction<'c, sqlx::Postgres>, bool)> {
+) -> anyhow::Result<bool> {
     if *DISABLE_CONCURRENCY_LIMIT {
         tracing::warn!("Concurrency limit is disabled, skipping");
-        return Ok((tx, true));
+        return Ok(true);
     }
 
-    // 2. count running jobs from concurrency_counter
+    let mut tx = db.begin().await?;
+
+    let job_id = job_id.clone();
+    let (kill_tx, mut kill_rx) = tokio::sync::mpsc::channel(1);
+    let db = db.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = kill_rx.recv() => {
+                    break;
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                    //update ping
+                    if let Err(e) = sqlx::query!(
+                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
+                job_id
+            )
+            .execute(&db)
+            .await
+                {
+                        tracing::error!("Could not update ping for job {job_id}: {e:#}");
+                    }
+                }
+            }
+        }
+    });
     let running_jobs = sqlx::query_scalar!(
         "
         SELECT COALESCE(
@@ -2133,8 +2141,9 @@ async fn update_concurrency_counter<'c>(
             ))
         })?;
     }
-
-    Ok((tx, within_limit))
+    tx.commit().await?;
+    kill_tx.send(()).await?;
+    Ok(within_limit)
 }
 
 async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
