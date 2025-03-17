@@ -15,7 +15,6 @@
 	import AuthSettings from './AuthSettings.svelte'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
-
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
 	export let hideSave: boolean = false
@@ -83,6 +82,10 @@
 		}
 		if (nvalues['indexer_settings'] == undefined) {
 			nvalues['indexer_settings'] = {}
+		}
+
+		if (nvalues['git_installations'] == undefined) {
+			nvalues['git_installations'] = []
 		}
 
 		if (nvalues['critical_error_channels'] == undefined) {

@@ -23,6 +23,8 @@ pub const INDEXER_SETTING: &str = "indexer_settings";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
+pub const GIT_APP_PORTAL_SECRET: &str = "git_app_portal_secret";
+pub const GIT_INSTALLATIONS: &str = "git_installations";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
 pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";

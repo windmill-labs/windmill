@@ -5,7 +5,7 @@
 		type ResourceType,
 		type GetConnectedRepositoriesResponse
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -36,6 +36,7 @@
 	let selectedGHAppRepository: string | undefined = undefined
 
 	async function loadGithubInstallations() {
+		if (!$enterpriseLicense) return
 		try {
 			loadingGithubInstallations = true
 			const installations = await GitSyncService.getConnectedRepositories({
@@ -239,6 +240,7 @@
 					variant="contained"
 					size="xs"
 					on:click={loadGithubInstallations}
+					disabled={!$enterpriseLicense}
 					startIcon={{ icon: RotateCw }}
 				/>
 			{:else}
@@ -311,6 +313,7 @@
 				color="none"
 				variant="border"
 				size="xs"
+				disabled={!$enterpriseLicense}
 				on:click={async () => {
 					const url = await GitSyncService.getGithubAppInstallationUrl({
 						workspace: $workspaceStore
@@ -323,7 +326,7 @@
 				}}
 				startIcon={{ icon: Github }}
 			>
-				Install GitHub app to workspace
+				{$enterpriseLicense ? 'Install GitHub app to workspace' : 'Install GitHub app (ee only)'}
 			</Button>
 		{/if}
 	</div>
