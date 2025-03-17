@@ -11,7 +11,7 @@ use crate::{
     resources::try_get_resource_from_db_as,
     users::fetch_api_authed,
     utils::non_empty_str,
-    webhook::Webhook,
+    webhook::{Webhook, WebhookRequestType},
 };
 use axum::{
     extract::{Path, Query, Request},
@@ -971,8 +971,9 @@ async fn route_job(
         };
 
         match webhook.verify_signatures(&headers, &raw_payload) {
-            Ok(_) => {}
-            Err(e) => return e.to_string().into_response(),
+            Ok(WebhookRequestType::Challenge(response)) => return response,
+            Err(e) => return e.into_response(),
+            _ => {}
         }
     }
 

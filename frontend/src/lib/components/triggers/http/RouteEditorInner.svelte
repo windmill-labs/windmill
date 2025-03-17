@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { HttpTriggerService } from '$lib/gen'
+	import { HttpTriggerService, type WebhookType } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -23,9 +23,10 @@
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import Subsection from '$lib/components/Subsection.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -53,7 +54,7 @@
 	let s3Editor: SimpleEditor | undefined = undefined
 	let workspaced_route: boolean = false
 	let webhook_resource_path: string = ''
-
+	const items: WebhookType[] = ['custom', 'github', 'gitlab', 'shopify', 'slack', 'stripe', 'zoom']
 	let raw_string = false
 	let wrap_body = false
 	let drawerLoading = true
@@ -188,6 +189,7 @@
 	}
 
 	let drawer: Drawer
+	let darkMode = false
 
 	let dirtyPath = false
 
@@ -205,6 +207,8 @@
 		readOnlyMode={false}
 	/>
 {/if}
+
+<DarkModeObserver bind:darkMode />
 
 <Drawer size="700px" bind:this={drawer}>
 	<DrawerContent
@@ -385,15 +389,18 @@
 									>
 								{/if}
 							</div>
-
-
-							 <Subsection
-								label="Webhook"
-								tooltip="Make your http route endpoint act as a webhook endpoint"
-							>
-								<ResourcePicker resourceType="webhook_s" bind:value={webhook_resource_path} />
-							</Subsection>
-
+							<Select
+								class="grow shrink max-w-full"
+								on:change={(e) => {}}
+								on:clear={() => {}}
+								items={items}
+								placeholder="Webhook"
+								inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+								containerStyles={darkMode
+									? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+									: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+								portal={false}
+							/>
 						</div>
 					{/if}
 				</Section>
@@ -466,8 +473,8 @@
 							<Label label="Raw string" class="w-full">
 								<svelte:fragment slot="header">
 									<Tooltip
-										>Provides the raw JSON payload as a string under the 'raw_string' key, useful for
-										signature verification and other use cases.</Tooltip
+										>Provides the raw JSON payload as a string under the 'raw_string' key, useful
+										for signature verification and other use cases.</Tooltip
 									>
 								</svelte:fragment>
 								<svelte:fragment slot="action">

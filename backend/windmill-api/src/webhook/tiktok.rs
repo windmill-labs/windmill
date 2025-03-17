@@ -1,24 +1,38 @@
+use super::{
+    Encoding, HmacAlgorithm, HmacAuthenticationData, HmacAuthenticationDetails,
+    TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+};
+use axum::response::Response;
 use http::HeaderMap;
-
-use super::{HmacAuthenticationData, TryGetWebhookHeader, WebhookAuthenticationData, WebhookError};
+use std::borrow::Cow;
 
 pub struct TikTok;
 
-impl WebhookAuthenticationData for TikTok {
-    fn get_authentication_data<'header>(
+impl WebhookHandler for TikTok {
+    fn handle_challenge_request<'header>(
+        &self,
+        _: &'header HeaderMap,
+        _: &WebhookAuthenticationMethod,
+        _: &str,
+    ) -> Result<Option<Response>, WebhookError> {
+        Ok(None)
+    }
+
+    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
         &self,
         headers: &'header HeaderMap,
-        raw_payload: &str,
-    ) -> Result<HmacAuthenticationData<'header>, WebhookError> {
+        raw_payload: &'payload str,
+    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
         let tiktok_secret_signature = headers.try_get_webhook_header("TikTok-Signature")?;
 
         let tiktok_signature = TikTokSignature::parse(tiktok_secret_signature)?;
         let signed_payload = format!("{}.{}", tiktok_signature.t, raw_payload);
 
         Ok(HmacAuthenticationData::new(
-            signed_payload,
+            Cow::Owned(signed_payload),
             tiktok_secret_signature,
             None,
+            HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
         ))
     }
 }

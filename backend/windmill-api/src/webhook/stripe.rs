@@ -1,24 +1,38 @@
+use super::{
+    Encoding, HmacAlgorithm, HmacAuthenticationData, HmacAuthenticationDetails,
+    TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+};
+use axum::response::Response;
 use http::HeaderMap;
-
-use super::{HmacAuthenticationData, TryGetWebhookHeader, WebhookAuthenticationData, WebhookError};
+use std::borrow::Cow;
 
 pub struct Stripe;
 
-impl WebhookAuthenticationData for Stripe {
-    fn get_authentication_data<'header>(
+impl WebhookHandler for Stripe {
+    fn handle_challenge_request<'header>(
+        &self,
+        _: &'header HeaderMap,
+        _: &WebhookAuthenticationMethod,
+        _: &str,
+    ) -> Result<Option<Response>, WebhookError> {
+        Ok(None)
+    }
+
+    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
         &self,
         headers: &'header HeaderMap,
-        raw_payload: &str,
-    ) -> Result<HmacAuthenticationData<'header>, WebhookError> {
+        raw_payload: &'payload str,
+    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
         let stripe_signature_header = headers.try_get_webhook_header("STRIPE-SIGNATURE")?;
 
         let stripe_signature = StripeSignature::parse(stripe_signature_header)?;
         let signed_payload = format!("{}.{}", stripe_signature.t, raw_payload);
 
         Ok(HmacAuthenticationData::new(
-            signed_payload,
+            Cow::Owned(signed_payload),
             stripe_signature.v1,
             None,
+            HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
         ))
     }
 }

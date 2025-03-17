@@ -13828,6 +13828,75 @@ components:
         - wrap_body
         - raw_string
 
+    WebhookType:
+      type: string
+      enum:
+        - stripe
+        - github
+        - gitlab
+        - shopify
+        - slack
+        - zoom
+        - custom
+
+    WebhookHeaderEnconding:
+      type: string
+      enum:
+        - base64
+        - base64uri
+        - hex
+
+    WebhookHmacAlgorithm:
+      type: string
+      enum:
+        - sha1
+        - sha256
+        - sha512
+
+    WebhookHmacAuthentication:
+      type: object
+      properties:
+        webhook_signing_secret:
+          type: string
+        algorithm:
+          $ref: "#/components/schemas/HmacAlgorithm"
+        encoding:
+          $ref: "#/components/schemas/HeaderEnconding"
+        signature_header_key:
+          type: string
+        
+    WebhookBasicAuthentication:
+      username:
+        type: string
+      password:
+        type: string
+
+    WebhookApiKey:
+      api_key_header:
+        type: string
+      api_key:
+        type: string
+    
+    WebhookAuthenticationMethod:
+      oneOf:
+        - $ref: "#/components/schemas/WebhookHmacAuthentication"
+        - $ref: "#/components/schemas/WebhookBasicAuthentication"
+        - $ref: "#/components/schemas/WebhookApiKey"
+      discriminator:
+        propertyName: type
+        mapping:
+          HMAC: "#/components/schemas/WebhookHmacAuthentication"
+          BASIC: "#/components/schemas/WebhookBasicAuthentication"
+          API_KEY: "#/components/schemas/WebhookApiKey"
+
+    Webhook:
+      type: object
+      properties:
+        type:
+          $ref: "#/components/schemas/WebhookType"
+        authentication_method:
+          $ref: "#/components/schemas/WebhookAuthenticationMethod"
+
     NewHttpTrigger:
       type: object
       properties:

@@ -190,6 +190,7 @@ pub fn content_plain(body: Body) -> Response {
         .unwrap()
 }
 
+#[allow(unused)]
 pub fn non_empty_str<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
