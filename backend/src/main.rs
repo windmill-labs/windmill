@@ -116,9 +116,10 @@ where
 }
 
 lazy_static::lazy_static! {
-    static ref PG_LISTENER_REFRESH_PERIOD_SECS: Option<u64> = std::env::var("PG_LISTENER_REFRESH_PERIOD_SECS")
+    static ref PG_LISTENER_REFRESH_PERIOD_SECS: u64 = std::env::var("PG_LISTENER_REFRESH_PERIOD_SECS")
         .ok()
-        .and_then(|x| x.parse::<u64>().ok());
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(3600 * 12);
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -866,12 +867,24 @@ Windmill Community Edition {GIT_VERSION}
                             };
                         },
                         _ = tokio::time::sleep(Duration::from_secs(30))    => {
-                            if PG_LISTENER_REFRESH_PERIOD_SECS.is_some_and(|x| last_listener_refresh.elapsed() > Duration::from_secs(x)) {
-                                tracing::info!("Refreshing pg listener");
+                            if last_listener_refresh.elapsed() > Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS) {
+                                tracing::info!("Refreshing pg listeners, settings and license key after {}s", Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS).as_secs());
                                 if let Err(e) = listener.unlisten_all().await {
                                     tracing::error!(error = %e, "Could not unlisten to database");
                                 }
                                 listener = retry_listen_pg(&db_url).await;
+                                initial_load(
+                                    &db,
+                                    tx.clone(),
+                                    worker_mode,
+                                    server_mode,
+                                    #[cfg(feature = "parquet")]
+                                    disable_s3_store,
+                                )
+                                .await;
+                                if let Err(err) = reload_license_key(&db).await {
+                                    tracing::error!("Failed to reload license key: {err:#}");
+                                }
                                 last_listener_refresh = Instant::now();
                             }
 
