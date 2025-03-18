@@ -538,7 +538,7 @@
 				<Alert
 					type="warning"
 					class="mt-4"
-					title="Moving this item will break the following flows referencing it :"
+					title="Moving this item will break the following flows referencing it:"
 				>
 					<ul class="list-disc">
 						{#each pathUsageInFlows as flowPath}
@@ -557,7 +557,7 @@
 				<Alert
 					type="warning"
 					class="mt-4"
-					title="Moving this item will break the following apps referencing it :"
+					title="Moving this item will break the following apps referencing it:"
 				>
 					<ul class="list-disc">
 						{#each pathUsageInApps as appPath}
