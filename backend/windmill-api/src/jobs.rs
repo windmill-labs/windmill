@@ -2964,7 +2964,6 @@ impl<'a> From<UnifiedJob> for Job {
                     cache_ttl: None,
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
-                    worker: uj.worker,
                 },
             )),
             t => panic!("job type {} not valid", t),
