@@ -621,7 +621,7 @@ pub async fn handle_flow_dependency_job(
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
     sqlx::query!(
-        "DELETE FROM workspace_runnable_dependencies WHERE item_path = $1 AND workspace_id = $2 and item_kind = 'flow'",
+        "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
         job_path,
         job.workspace_id
     )
@@ -990,7 +990,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::Script { path, hash, .. } if !path.starts_with("hub/") => {
                     sqlx::query!(
-                        "INSERT INTO workspace_runnable_dependencies (item_path, runnable_path, script_hash, runnable_is_flow, workspace_id, item_kind) VALUES ($1, $2, $3, FALSE, $4, 'flow') ON CONFLICT DO NOTHING",
+                        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
                         job_path,
                         path,
                         hash.map(|h| h.0),
@@ -1001,7 +1001,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::Flow { path, .. } => {
                     sqlx::query!(
-                        "INSERT INTO workspace_runnable_dependencies (item_path, runnable_path, runnable_is_flow, workspace_id, item_kind) VALUES ($1, $2, TRUE, $3, 'flow') ON CONFLICT DO NOTHING",
+                        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
                         job_path,
                         path,
                         job.workspace_id,
@@ -1416,6 +1416,22 @@ async fn lock_modules_app(
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
+            if let (Some(Value::String(ref run_type)), Some(path), Some("runnableByPath")) = (
+                m.get("runType"),
+                m.get("path").and_then(|s| s.as_str()),
+                m.get("type").and_then(|s| s.as_str()),
+            ) {
+                // No script_hash because apps don't supports script version locks yet
+                sqlx::query!(
+                    "INSERT INTO workspace_runnable_dependencies (app_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                    job_path,
+                    path,
+                    run_type == "flow",
+                    job.workspace_id
+                )
+                .execute(db)
+                .await?;
+            }
             if m.contains_key("inlineScript") {
                 let v = m.get_mut("inlineScript").unwrap();
                 if let Some(v) = v.as_object_mut() {
@@ -1574,7 +1590,7 @@ pub async fn handle_app_dependency_job(
         .0;
 
     sqlx::query!(
-        "DELETE FROM workspace_runnable_dependencies WHERE item_path = $1 AND workspace_id = $2 and item_kind = 'app'",
+        "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
         job.workspace_id
     )

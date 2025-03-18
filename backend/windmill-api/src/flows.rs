@@ -339,8 +339,8 @@ async fn list_paths_from_workspace_runnable(
         r#"SELECT f.path
             FROM workspace_runnable_dependencies wru 
             JOIN flow f
-                ON wru.item_path = f.path AND wru.workspace_id = f.workspace_id
-            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3 AND wru.item_kind = 'flow'"#,
+                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
         path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
         w_id

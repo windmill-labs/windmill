@@ -1,10 +1,12 @@
 ALTER TABLE workspace_runnable_dependencies
-DROP COLUMN item_kind;
+DROP CONSTRAINT workspace_runnable_dependencies_path_exclusive;
 
 ALTER TABLE workspace_runnable_dependencies
-RENAME COLUMN item_path TO flow_path;
+DROP CONSTRAINT fk_workspace_runnable_dependencies_app_path;
+
+ALTER TABLE workspace_runnable_dependencies DROP COLUMN app_path;
+
+ALTER TABLE workspace_runnable_dependencies ALTER flow_path SET NOT NULL;
 
 ALTER TABLE workspace_runnable_dependencies
 RENAME TO flow_workspace_runnables;
-
-DROP TYPE RUNNABLE_DEPENDENCY_ITEM_KIND;
