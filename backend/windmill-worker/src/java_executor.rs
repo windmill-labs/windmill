@@ -125,7 +125,11 @@ async fn init<'a>(
             )
             .await?;
         {
-            let maven_config = crate::MAVEN_CONFIG.read().await.clone().unwrap_or_default();
+            let maven_config = crate::MAVEN_CONFIG
+                .read()
+                .await
+                .clone()
+                .unwrap_or("<settings/>".to_owned());
             write_file(JAVA_CACHE_DIR, "settings.xml", &maven_config)?;
         }
     }
@@ -134,7 +138,8 @@ async fn init<'a>(
         // 1. Check if plugin directory exists.
         // 2. If not mvn dependency:help
         //    2.1 Recursively copy from /tmp/windmill/maven-repository-plugins to /tmp/windmill/cache/java/maven-repository
-
+        // TODO: Let other workers know about it and make them wait until this one is done
+        //
         if tokio::fs::metadata(format!(
             "{JAVA_CACHE_DIR}/maven-repository/org/apache/maven/plugins/maven-dependency-plugin"
         ))
