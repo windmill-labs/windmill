@@ -985,14 +985,50 @@ pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result
 
 #[derive(Clone)]
 pub struct RequiredDependency {
-    /// Path in cache
+    /// Expected directory of dependency in cache
+    /// For example:
+    /// /tmp/windmill/cache/python_311/rich==0.0.0
     /// IMPORTANT!: path should not end with '/'
     pub path: String,
     /// Name to use for S3 tars
+    /// If not specified will use top level directory of path.
     pub custom_name: Option<String>,
     /// Display name
+    /// Name that will be used for console output and logging
+    /// If not specified will either use custom_name or top level directory of path.
     pub short_name: Option<String>,
 }
+/// # General
+/// There is two main types of workflows around which laguages are built.
+/// 1. Compilable languages
+/// 2. Dynamic
+///
+/// Languages that compile usually include dependencies in final executable.
+/// When dynamic languages do not and runtime dependencies provided separately.
+///
+/// This helper implies that the language is dynamic.
+/// Python, Ruby, Java are dynamic and they can use this helper.
+///
+/// # Features
+///
+/// This helper will install all specified dependencies in parallel and if it is EE, cache to S3
+/// It has atomic success file, allowing to distinguish failed installations from succesfull.
+///
+/// Besides that it provides console output and does logging.
+///
+/// # Usage
+///
+/// Most important arguments in this helper are `deps` and `install_fn`
+///
+/// In `deps` you specify all dependencies that are needed to be on worker in order to execute script.
+/// You don't know which are actually installed and which are not.
+///
+/// `deps` is a vector of RequiredDependency. Check [RequiredDependency] for more context.
+///
+/// After `deps` are provided helper will check each dependency and check if it is in cache, if not it will try to pull from S3
+/// and if it does not work either, it will invoke `install_fn` closure.
+/// Closure arguments has dependency name as well as it`s expected path in cache.
+/// Closure should return Command that will install dependency to asked place.
 pub async fn par_install_language_dependencies<'a, F>(
     deps: Vec<RequiredDependency>,
     language_name: &'a str,
