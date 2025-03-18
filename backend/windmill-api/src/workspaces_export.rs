@@ -555,7 +555,9 @@ pub(crate) async fn tarball_workspace(
                     requires_auth, 
                     http_method AS "http_method: _", 
                     static_asset_config AS "static_asset_config: _", 
-                    is_static_website 
+                    is_static_website,
+                    wrap_body,
+                    raw_string
                 FROM http_trigger
                 WHERE workspace_id = $1
                 "#,

@@ -1482,12 +1482,18 @@ async fn delete_script_by_hash(
     Ok(Json(script))
 }
 
+#[derive(Deserialize)]
+struct DeleteScriptQuery {
+    keep_captures: Option<bool>,
+}
+
 async fn delete_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteScriptQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
 
@@ -1541,21 +1547,23 @@ async fn delete_script_by_path(
     .execute(&db)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
-        path,
-        w_id
-    )
-    .execute(&db)
-    .await?;
+    if !query.keep_captures.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
+            path,
+            w_id
+        )
+        .execute(&db)
+        .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
-        path,
-        w_id
-    )
-    .execute(&db)
-    .await?;
+        sqlx::query!(
+            "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
+            path,
+            w_id
+        )
+        .execute(&db)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

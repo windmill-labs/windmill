@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.476.0"
+version = "1.477.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -31,7 +31,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.476.0"
+version = "1.477.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -121,7 +121,7 @@ object_store = { workspace = true, optional = true }
 quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
-
+rustls.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -164,6 +164,7 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+rustls = "0.23.0"
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"

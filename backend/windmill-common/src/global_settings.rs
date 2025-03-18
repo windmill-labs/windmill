@@ -99,6 +99,7 @@ pub const ENV_SETTINGS: [&str; 58] = [
     "OTEL_LOGS",
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
+    "PG_LISTENER_REFRESH_PERIOD_SECS",
 ];
 
 use crate::error;
