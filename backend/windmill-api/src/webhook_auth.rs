@@ -5,6 +5,7 @@ use base64::{
     prelude::{BASE64_STANDARD, BASE64_URL_SAFE},
     Engine,
 };
+use github::GITHUB_WEBHOOK_VALIDATOR;
 use hmac::{Hmac, Mac};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use itertools::Itertools;
@@ -17,22 +18,281 @@ pub type HmacSha256 = Hmac<Sha256>;
 pub type HmacSha512 = Hmac<Sha512>;
 pub type HmacSha1 = Hmac<Sha1>;
 
-mod github;
-mod shopify;
-mod slack;
-mod stripe;
-mod tiktok;
-mod twitch;
-mod zoom;
-
 use constant_time_eq::constant_time_eq;
-use github::{Github, GITHUB_WEBHOOK_VALIDATOR};
-use shopify::{Shopify, SHOPIFY_WEBHOOK_VALIDATOR};
-use slack::{Slack, SLACK_WEBHOOK_VALIDATOR};
-use stripe::{Stripe, STRIPE_WEBHOOK_VALIDATOR};
-use tiktok::{TikTok, TIKTOK_WEBHOOK_VALIDATOR};
+use shopify::SHOPIFY_WEBHOOK_VALIDATOR;
+use slack::SLACK_WEBHOOK_VALIDATOR;
+use stripe::STRIPE_WEBHOOK_VALIDATOR;
+use tiktok::TIKTOK_WEBHOOK_VALIDATOR;
 use twitch::{Twitch, TWITCH_WEBHOOK_VALIDATOR};
 use zoom::{Zoom, ZOOM_WEBHOOK_VALIDATOR};
+
+mod github {
+    use super::*;
+
+    lazy_static::lazy_static! {
+        pub static ref GITHUB_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+            prefix: Some("sha256=".to_string()),
+            payload_construction: PayloadConstruction {
+                signature_location: SignatureLocation::Header(SignatureParse {
+                    signature_header_name: "X-Hub-Signature-256".to_string(),
+                    parsing_rules: None,
+                }),
+                payload_format: vec![],
+                payload_separator: None,
+                body: BodyParsing::default()
+            },
+            signature_encoding: Encoding::Hex,
+            algorithm: HmacAlgorithm::Sha256,
+        };
+    }
+}
+
+mod shopify {
+    use super::*;
+
+    lazy_static::lazy_static! {
+        pub static ref SHOPIFY_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+            prefix: None,
+            payload_construction: PayloadConstruction {
+                signature_location: SignatureLocation::Header(SignatureParse {
+                    signature_header_name: "X-Shopify-Hmac-Sha256".to_string(),
+                    parsing_rules: None,
+                }),
+                payload_format: vec![],
+                payload_separator: None,
+                body: BodyParsing::default()
+            },
+            signature_encoding: Encoding::Base64,
+            algorithm: HmacAlgorithm::Sha256,
+        };
+    }
+}
+
+mod slack {
+    use super::*;
+
+    lazy_static::lazy_static! {
+        pub static ref SLACK_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+            prefix: Some("v0=".to_string()),
+            payload_construction: PayloadConstruction {
+                signature_location: SignatureLocation::Header(SignatureParse {
+                    signature_header_name: "X-Slack-Signature".to_string(),
+                    parsing_rules: None,
+                }),
+                payload_format: vec!["raw#v0".to_string(), "h#X-Slack-Request-Timestamp".to_string()],
+                payload_separator: Some(":".to_string()),
+                body: BodyParsing::default()
+            },
+            signature_encoding: Encoding::Hex,
+            algorithm: HmacAlgorithm::Sha256,
+        };
+    }
+}
+
+mod stripe {
+    use super::*;
+
+    lazy_static::lazy_static! {
+        pub static ref STRIPE_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+            prefix: None,
+            payload_construction: PayloadConstruction {
+                signature_location: SignatureLocation::Header(SignatureParse {
+                    signature_header_name: "STRIPE-SIGNATURE".to_string(),
+                    parsing_rules: Some(ParsingRules {
+                        separators: vec![",".to_string(), "=".to_string()],
+                        signature_key: "v1".to_string(),
+                    }),
+                }),
+                payload_format: vec!["sh#t".to_string()],
+                payload_separator: Some(".".to_string()),
+                body: BodyParsing::default()
+            },
+            signature_encoding: Encoding::Hex,
+            algorithm: HmacAlgorithm::Sha256,
+        };
+    }
+}
+
+mod tiktok {
+    use super::*;
+
+    lazy_static::lazy_static! {
+        pub static ref TIKTOK_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+            prefix: None,
+            payload_construction: PayloadConstruction {
+                signature_location: SignatureLocation::Header(SignatureParse {
+                    signature_header_name: "TikTok-Signature".to_string(),
+                    parsing_rules: Some(ParsingRules {
+                        separators: vec![",".to_string(), "=".to_string()],
+                        signature_key: "s".to_string(),
+                    }),
+                }),
+                payload_format: vec!["sh#t".to_string()],
+                payload_separator: Some(".".to_string()),
+                body: BodyParsing::default()
+            },
+            signature_encoding: Encoding::Hex,
+            algorithm: HmacAlgorithm::Sha256,
+        };
+    }
+}
+
+mod twitch {
+    use super::*;
+    use axum::body::Body;
+    use serde_json::value::RawValue;
+
+    lazy_static::lazy_static! {
+        pub static ref TWITCH_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+            prefix: Some("sha256=".to_string()),
+            payload_construction: PayloadConstruction {
+                signature_location: SignatureLocation::Header(SignatureParse {
+                    signature_header_name: "Twitch-Eventsub-Message-Signature".to_string(),
+                    parsing_rules: None,
+                }),
+                payload_format: vec!["h#Twitch-Eventsub-Message-Id".to_string(), "h#Twitch-Eventsub-Message-Timestamp".to_string()],
+                payload_separator: None,
+                body: BodyParsing::default()
+            },
+            signature_encoding: Encoding::Hex,
+            algorithm: HmacAlgorithm::Sha256,
+        };
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[allow(unused)]
+    struct TwitchCrcBody {
+        challenge: String,
+        subscription: Box<RawValue>,
+        transport: Box<RawValue>,
+        created_at: String,
+    }
+
+    pub struct Twitch;
+
+    impl WebhookHandler for Twitch {
+        fn handle_challenge_request<'header>(
+            &self,
+            headers: &'header HeaderMap,
+            authentication_data: &WebhookProviders,
+            raw_payload: &str,
+        ) -> Result<Option<Response>, WebhookError> {
+            let Some(secret) = authentication_data.webhook_signing_secret.as_ref() else {
+                return Err(WebhookError::InvalidConfig(
+                    "Twitch: Missing secret key for challenge request".to_string(),
+                ));
+            };
+
+            TWITCH_WEBHOOK_VALIDATOR.validate_hmac_signature(headers, secret, raw_payload)?;
+
+            let twitch_eventsub_message_type =
+                headers.try_get_webhook_header("Twitch-Eventsub-Message-Type")?;
+
+            if twitch_eventsub_message_type != "webhook_callback_verification" {
+                return Ok(None);
+            }
+
+            let twitch_crc_body =
+                serde_json::from_str::<TwitchCrcBody>(raw_payload).map_err(|e| {
+                    WebhookError::InvalidChallengeResponse(format!("Twitch :{}", e.to_string()))
+                })?;
+
+            let response = Response::builder()
+                .status(200)
+                .header("content-type", "text/plain")
+                .body(Body::from(twitch_crc_body.challenge))
+                .unwrap();
+
+            Ok(Some(response))
+        }
+    }
+}
+
+mod zoom {
+    use super::*;
+    use axum::body::Body;
+    use http::header;
+
+    lazy_static::lazy_static! {
+        pub static ref ZOOM_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+            prefix: Some("v0=".to_string()),
+            payload_construction: PayloadConstruction {
+                signature_location: SignatureLocation::Header(SignatureParse {
+                    signature_header_name: "x-zm-signature".to_string(),
+                    parsing_rules: None,
+                }),
+                payload_format: vec!["raw#v0".to_string(), "h#x-zm-request-timestamp".to_string()],
+                payload_separator: Some(":".to_string()),
+                body: BodyParsing::default()
+            },
+            signature_encoding: Encoding::Hex,
+            algorithm: HmacAlgorithm::Sha256,
+        };
+    }
+
+    pub struct Zoom;
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    struct ZoomPayload {
+        plain_token: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[allow(unused)]
+    struct ZoomChallengeResponse {
+        payload: ZoomPayload,
+        event_ts: u64,
+        event: String,
+    }
+
+    impl WebhookHandler for Zoom {
+        fn handle_challenge_request<'header>(
+            &self,
+            _: &'header HeaderMap,
+            authentication_data: &WebhookProviders,
+            raw_payload: &str,
+        ) -> Result<Option<Response>, WebhookError> {
+            let Ok(zoom_request_body) = serde_json::from_str::<ZoomChallengeResponse>(raw_payload)
+            else {
+                return Ok(None);
+            };
+
+            println!("Zoom request body: {:?}", &zoom_request_body);
+
+            if zoom_request_body.event != "endpoint.url_validation" {
+                return Ok(None);
+            }
+
+            let Some(secret) = authentication_data.webhook_signing_secret.as_ref() else {
+                return Err(WebhookError::InvalidConfig(
+                    "Missing secret key for zoom challenge request".to_string(),
+                ));
+            };
+
+            let hmac_signature = calculate_hmac_signature(
+                HmacAlgorithm::Sha256,
+                secret,
+                &zoom_request_body.payload.plain_token,
+            );
+
+            let encoded_hmac_signature = encode_hmac_signature(Encoding::Hex, &hmac_signature);
+
+            let response_body = json!({
+                "plainToken": zoom_request_body.payload.plain_token,
+                "encryptedToken": encoded_hmac_signature
+            })
+            .to_string();
+
+            let response = Response::builder()
+                .status(200)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(response_body))
+                .unwrap();
+            return Ok(Some(response));
+        }
+    }
+}
 
 fn deserialize_limited_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
@@ -112,11 +372,29 @@ pub enum SignatureLocation {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct BodyParsing {
+    pub include_body: bool,
+}
+
+#[allow(unused)]
+impl BodyParsing {
+    pub fn new(include_body: bool) -> Self {
+        Self { include_body }
+    }
+}
+
+impl Default for BodyParsing {
+    fn default() -> Self {
+        Self { include_body: true }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PayloadConstruction {
     pub signature_location: SignatureLocation,
     pub payload_format: Vec<String>,
     pub payload_separator: Option<String>,
-    pub include_raw_body_at_end_of_payload: bool,
+    pub body: BodyParsing,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -181,23 +459,23 @@ impl WebhookHmacValidator {
 
         let payload_format = &self.payload_construction.payload_format;
 
-        let include_body = self.payload_construction.include_raw_body_at_end_of_payload;
+        let include_body = self.payload_construction.body.include_body;
         let mut payload = Vec::with_capacity(payload_format.len() + 1);
 
         for format in payload_format {
-            if format.starts_with("#") && format.len() > 1 {
+            if format.starts_with("sh#") && format.len() > 3 {
                 let value =
                     *signature_headers_key
-                        .get(&format[1..])
+                        .get(&format[3..])
                         .ok_or(WebhookError::InvalidHeader(format!(
                             "Missing key {} in headers",
                             &format[1..]
                         )))?;
                 payload.push(value);
-            } else if format.starts_with("!") && format.len() > 1 {
-                payload.push(&format[1..])
-            } else {
-                payload.push(headers.try_get_webhook_header(&format)?);
+            } else if format.starts_with("raw#") && format.len() > 4 {
+                payload.push(&format[4..])
+            } else if format.starts_with("h#") && format.len() > 2 {
+                payload.push(headers.try_get_webhook_header(&format[2..])?);
             }
         }
 
@@ -250,7 +528,7 @@ pub trait WebhookHandler {
     fn handle_challenge_request<'header>(
         &self,
         headers: &'header HeaderMap,
-        authentication_method: &WebhookAuthenticationMethod,
+        authentication_data: &WebhookProviders,
         raw_payload: &str,
     ) -> Result<Option<Response>, WebhookError>;
 }
@@ -272,8 +550,7 @@ pub enum Encoding {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HmacAuthentication {
     pub webhook_signing_secret: String,
-    #[serde(flatten)]
-    pub config: Option<WebhookHmacValidator>,
+    pub config: WebhookHmacValidator,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -289,11 +566,19 @@ pub struct ApiKeyAuthentication {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct WebhookProviders {
+    pub webhook_type: WebhookType,
+    webhook_signing_secret: Option<String>,
+    webhook_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum WebhookAuthenticationMethod {
-    HMAC(HmacAuthentication),
-    BasicAuth(BasicAuthAuthentication),
     ApiKey(ApiKeyAuthentication),
+    BasicAuth(BasicAuthAuthentication),
+    PredefinedProviders(WebhookProviders),
+    HMAC(HmacAuthentication),
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
@@ -322,24 +607,23 @@ pub enum WebhookType {
     //WhatsApp,
     //X,
     Zoom,
-    Custom,
 }
 
 impl WebhookType {
     pub fn get_webhook_handler(
         &self,
-    ) -> Option<(&'static dyn WebhookHandler, &WebhookHmacValidator)> {
-        let handler: (&'static dyn WebhookHandler, &WebhookHmacValidator) = match *self {
-            WebhookType::Github => (&Github, &GITHUB_WEBHOOK_VALIDATOR),
-            WebhookType::Shopify => (&Shopify, &SHOPIFY_WEBHOOK_VALIDATOR),
-            WebhookType::Slack => (&Slack, &SLACK_WEBHOOK_VALIDATOR),
-            WebhookType::Stripe => (&Stripe, &STRIPE_WEBHOOK_VALIDATOR),
-            WebhookType::TikTok => (&TikTok, &TIKTOK_WEBHOOK_VALIDATOR),
-            WebhookType::Twitch => (&Twitch, &TWITCH_WEBHOOK_VALIDATOR),
-            WebhookType::Zoom => (&Zoom, &ZOOM_WEBHOOK_VALIDATOR),
-            WebhookType::Custom => return None,
+    ) -> (Option<&'static dyn WebhookHandler>, &WebhookHmacValidator) {
+        let handler: (Option<&'static dyn WebhookHandler>, &WebhookHmacValidator) = match *self {
+            WebhookType::Github => (None, &GITHUB_WEBHOOK_VALIDATOR),
+            WebhookType::Shopify => (None, &SHOPIFY_WEBHOOK_VALIDATOR),
+            WebhookType::Slack => (None, &SLACK_WEBHOOK_VALIDATOR),
+            WebhookType::Stripe => (None, &STRIPE_WEBHOOK_VALIDATOR),
+            WebhookType::TikTok => (None, &TIKTOK_WEBHOOK_VALIDATOR),
+            WebhookType::Twitch => (Some(&Twitch), &TWITCH_WEBHOOK_VALIDATOR),
+            WebhookType::Zoom => (Some(&Zoom), &ZOOM_WEBHOOK_VALIDATOR),
+            //WebhookType::Paypal => (&Zoom, &PAYPAL_WEBHOOK_VALIDATOR),
         };
-        Some(handler)
+        handler
     }
 }
 
@@ -381,7 +665,6 @@ pub enum WebhookRequestType {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Webhook {
-    pub r#type: WebhookType,
     pub authentication_method: WebhookAuthenticationMethod,
 }
 
@@ -391,39 +674,28 @@ impl Webhook {
         headers: &HeaderMap,
         raw_payload: &str,
     ) -> Result<WebhookRequestType, WebhookError> {
-        let handler = self.r#type.get_webhook_handler();
-
-        let challenge_response = handler
-            .map(|(handler, _)| {
-                handler.handle_challenge_request(headers, &self.authentication_method, raw_payload)
-            })
-            .transpose()?
-            .flatten();
-
-        if let Some(challenge_response) = challenge_response {
-            return Ok(WebhookRequestType::Challenge(challenge_response));
-        }
-
         match &self.authentication_method {
+            WebhookAuthenticationMethod::PredefinedProviders(providers) => {
+                let handler = providers.webhook_type.get_webhook_handler();
+
+                let challenge_response = handler
+                    .0
+                    .map(|handler| {
+                        handler.handle_challenge_request(headers, &providers, raw_payload)
+                    })
+                    .transpose()?
+                    .flatten();
+
+                if let Some(challenge_response) = challenge_response {
+                    return Ok(WebhookRequestType::Challenge(challenge_response));
+                }
+            }
             WebhookAuthenticationMethod::HMAC(HmacAuthentication {
                 webhook_signing_secret,
                 config,
-            }) => match handler {
-                Some((_, validator)) => {
-                    validator.validate_hmac_signature(
-                        headers,
-                        webhook_signing_secret,
-                        raw_payload,
-                    )?;
-                }
-                None => {
-                    let config = config
-                        .as_ref()
-                        .ok_or(WebhookError::InvalidConfig("Missing config".to_string()))?;
-
-                    config.validate_hmac_signature(headers, webhook_signing_secret, raw_payload)?;
-                }
-            },
+            }) => {
+                config.validate_hmac_signature(headers, webhook_signing_secret, raw_payload)?;
+            }
             WebhookAuthenticationMethod::ApiKey(ApiKeyAuthentication {
                 api_key_header,
                 api_key,

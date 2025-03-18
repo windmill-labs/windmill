@@ -1,3 +1,3 @@
 -- Add down migration script here
 ALTER TABLE http_trigger
-DROP COLUMN webhook_auth;
+DROP COLUMN webhook_auth_resource_path;

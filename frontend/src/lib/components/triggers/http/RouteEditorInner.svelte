@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { HttpTriggerService, type Webhook, type WebhookType } from '$lib/gen'
+	import { HttpTriggerService } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -24,9 +24,8 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -48,24 +47,15 @@
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
-	let custom_auth_config: unknown | undefined = undefined
 	let is_static_website: boolean = false
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode = false
 	let s3Editor: SimpleEditor | undefined = undefined
 	let workspaced_route: boolean = false
-	let show_custom_auth_method: boolean = false
-	let selected_auth_method: 'basic_auth' | 'api_key' | 'hmac' = 'api_key'
-	let secret: string = ''
-	let api_key: string = ''
-	const items: WebhookType[] = ['custom', 'github', 'gitlab', 'shopify', 'slack', 'stripe', 'zoom']
 	let raw_string = false
 	let wrap_body = false
 	let drawerLoading = true
-	let show_webhook_secret_input = false
-	let webhook_auth: Webhook = {
-		type: 'stripe'
-	}
+	let webhook_auth_resource_path: string = ''
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
 		try {
@@ -109,10 +99,7 @@
 			dirtyPath = false
 			is_static_website = false
 			workspaced_route = false
-			show_custom_auth_method = false
-			webhook_auth = {
-				type: 'stripe'
-			}
+			webhook_auth_resource_path = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -138,8 +125,7 @@
 		workspaced_route = s.workspaced_route
 		wrap_body = s.wrap_body
 		raw_string = s.raw_string
-		show_custom_auth_method = s.webhook_auth?.type === 'custom'
-		webhook_auth = s.webhook_auth ?? { type: 'stripe' }
+		webhook_auth_resource_path = s.webhook_auth_resource_path ?? ''
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config
@@ -165,7 +151,7 @@
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
-					webhook_auth,
+					webhook_auth_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -185,13 +171,7 @@
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
-					webhook_auth: {
-						type: 'Stripe',
-						authentification_method: {
-							webhook_signing_secret: secret,
-							config: null
-						}
-					},
+					webhook_auth_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -406,84 +386,6 @@
 									>
 								{/if}
 							</div>
-							<Select
-								class="grow shrink max-w-full"
-								on:change={(e) => {}}
-								on:clear={() => {}}
-								on:select={(e) => {
-									if (e?.detail && e.detail.value === 'custom') {
-										show_custom_auth_method = true
-									} else {
-										show_custom_auth_method = false
-										if (e?.detail && e.detail.value) {
-											show_webhook_secret_input = true
-										}
-									}
-								}}
-								{items}
-								placeholder="Webhook"
-								inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-								containerStyles={darkMode
-									? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-									: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-								portal={false}
-							/>
-							{#if show_webhook_secret_input}
-								<input
-									type="text"
-									autocomplete="off"
-									placeholder="secret"
-									bind:value={secret}
-									disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-								/>
-							{/if}
-							{#if show_custom_auth_method}
-								<ToggleButtonGroup
-									disabled={fixedScriptPath != '' || !can_write}
-									bind:selected={selected_auth_method}
-									let:item
-								>
-									<ToggleButton label="Api key authentification" value="api_key" {item} />
-									<ToggleButton label="Basic authentification" value="basic_auth" {item} />
-									<ToggleButton label="Hmac" value="hmac" {item} />
-								</ToggleButtonGroup>
-								{#if selected_auth_method === 'api_key'}
-									<input
-										type="text"
-										autocomplete="off"
-										placeholder="api_key"
-										bind:value={api_key}
-										disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-									/>
-								{:else if selected_auth_method === 'basic_auth'}
-									<input
-										type="text"
-										autocomplete="off"
-										placeholder="username"
-										bind:value={route_path}
-										disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-									/>
-									<input
-										type="text"
-										autocomplete="off"
-										placeholder="password"
-										bind:value={route_path}
-										disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-									/>
-								{:else}
-									<JsonEditor
-										bind:editor={s3Editor}
-										on:focus={(e) => {
-											dispatch('focus')
-										}}
-										on:blur={(e) => {
-											dispatch('blur')
-										}}
-										code={JSON.stringify({}, null, 2)}
-										bind:value={custom_auth_config}
-									/>
-								{/if}
-							{/if}
 						</div>
 					{/if}
 				</Section>
@@ -533,6 +435,7 @@
 								</div>
 							{/if}
 							<Label label="Authentication" class="w-full">
+								<ResourcePicker resourceType={'webhook_authentication'} bind:value={webhook_auth_resource_path}/>
 								<svelte:fragment slot="action">
 									<ToggleButtonGroup
 										class="w-auto h-full"
