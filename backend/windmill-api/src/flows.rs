@@ -334,12 +334,13 @@ async fn list_paths_from_workspace_runnable(
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
 ) -> JsonResult<Vec<String>> {
     let mut tx = user_db.begin(&authed).await?;
+    // TODO: Move this in a different file as this should support flows and apps
     let runnables = sqlx::query_scalar!(
         r#"SELECT f.path
-            FROM flow_workspace_runnables fwr 
-            JOIN flow f 
-                ON fwr.flow_path = f.path AND fwr.workspace_id = f.workspace_id
-            WHERE fwr.runnable_path = $1 AND fwr.runnable_is_flow = $2 AND fwr.workspace_id = $3"#,
+            FROM workspace_runnable_dependencies wru 
+            JOIN flow f
+                ON wru.item_path = f.path AND wru.workspace_id = f.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3 AND wru.item_kind = 'flow'"#,
         path.to_path(),
         matches!(runnable_kind, RunnableKind::Flow),
         w_id

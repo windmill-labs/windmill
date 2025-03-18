@@ -621,7 +621,7 @@ pub async fn handle_flow_dependency_job(
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
     sqlx::query!(
-        "DELETE FROM flow_workspace_runnables WHERE flow_path = $1 AND workspace_id = $2",
+        "DELETE FROM workspace_runnable_dependencies WHERE item_path = $1 AND workspace_id = $2 and item_kind = 'flow'",
         job_path,
         job.workspace_id
     )
@@ -990,7 +990,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::Script { path, hash, .. } if !path.starts_with("hub/") => {
                     sqlx::query!(
-                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
+                        "INSERT INTO workspace_runnable_dependencies (item_path, runnable_path, script_hash, runnable_is_flow, workspace_id, item_kind) VALUES ($1, $2, $3, FALSE, $4, 'flow') ON CONFLICT DO NOTHING",
                         job_path,
                         path,
                         hash.map(|h| h.0),
@@ -1001,10 +1001,10 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::Flow { path, .. } => {
                     sqlx::query!(
-                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
+                        "INSERT INTO workspace_runnable_dependencies (item_path, runnable_path, runnable_is_flow, workspace_id, item_kind) VALUES ($1, $2, TRUE, $3, 'flow') ON CONFLICT DO NOTHING",
                         job_path,
                         path,
-                        job.workspace_id
+                        job.workspace_id,
                     )
                     .execute(&mut *tx)
                     .await?;
@@ -1572,6 +1572,15 @@ pub async fn handle_app_dependency_job(
         .clone()
         .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
         .0;
+
+    sqlx::query!(
+        "DELETE FROM workspace_runnable_dependencies WHERE item_path = $1 AND workspace_id = $2 and item_kind = 'app'",
+        job_path,
+        job.workspace_id
+    )
+    .execute(db)
+    .await?;
+
     let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
         .await?
