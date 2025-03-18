@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT \n                    workspace_id, \n                    workspaced_route,\n                    path, \n                    route_path, \n                    route_path_key, \n                    script_path, \n                    is_flow, \n                    edited_by, \n                    edited_at, \n                    email, \n                    extra_perms, \n                    is_async, \n                    requires_auth, \n                    http_method AS \"http_method: _\", \n                    static_asset_config AS \"static_asset_config: _\", \n                    is_static_website,\n                    wrap_body,\n                    raw_string\n                FROM http_trigger\n                WHERE workspace_id = $1\n                ",
+  "query": "\n                SELECT \n                    workspace_id, \n                    workspaced_route,\n                    path, \n                    route_path, \n                    route_path_key, \n                    webhook_auth_resource_path,\n                    script_path, \n                    is_flow, \n                    edited_by, \n                    edited_at, \n                    email, \n                    extra_perms, \n                    is_async, \n                    requires_auth, \n                    http_method AS \"http_method: _\", \n                    static_asset_config AS \"static_asset_config: _\", \n                    is_static_website,\n                    wrap_body,\n                    raw_string\n                FROM http_trigger\n                WHERE workspace_id = $1\n                ",
   "describe": {
     "columns": [
       {
@@ -30,46 +30,51 @@
       },
       {
         "ordinal": 5,
-        "name": "script_path",
+        "name": "webhook_auth_resource_path",
         "type_info": "Varchar"
       },
       {
         "ordinal": 6,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
         "name": "is_flow",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "edited_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "edited_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "email",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "extra_perms",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "is_async",
         "type_info": "Bool"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "requires_auth",
         "type_info": "Bool"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "http_method: _",
         "type_info": {
           "Custom": {
@@ -87,22 +92,22 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "static_asset_config: _",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "is_static_website",
         "type_info": "Bool"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "wrap_body",
         "type_info": "Bool"
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "raw_string",
         "type_info": "Bool"
       }
@@ -118,6 +123,7 @@
       false,
       false,
       false,
+      true,
       false,
       false,
       false,
@@ -133,5 +139,5 @@
       false
     ]
   },
-  "hash": "5824982a58edd5bb2666daac49b2a6ff8553b9c196ca64ea2752df8cfe30c30c"
+  "hash": "acc9aa93334dbc0e4adfc05a69ba8b6ec0fc1332815fc8ce9b4b40474b6b3ff2"
 }

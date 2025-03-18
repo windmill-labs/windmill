@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                requires_auth, \n                edited_by, \n                email,\n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website \n            FROM \n                http_trigger \n            WHERE \n                workspace_id = $1 AND \n                http_method = $2\n            ",
+  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                requires_auth, \n                edited_by, \n                email,\n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website,\n                webhook_auth_resource_path\n            FROM \n                http_trigger \n            WHERE \n                workspace_id = $1 AND \n                http_method = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,11 @@
         "ordinal": 13,
         "name": "is_static_website",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "webhook_auth_resource_path",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -107,8 +112,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "6860deb7064e57b9e7646438145dc57cc51c7ea256058daf170a1ec8573ed102"
+  "hash": "3031287c03129bc472d29f468942e687ac6d83a8d4d026be041058b5360535f6"
 }
