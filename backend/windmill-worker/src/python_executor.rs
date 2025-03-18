@@ -911,7 +911,7 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
-        job.is_flow_step,
+        job.is_flow_step(),
         job.preprocessed,
         job.script_entrypoint_override.as_deref(),
         inner_content,

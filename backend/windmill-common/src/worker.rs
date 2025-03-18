@@ -133,20 +133,19 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
         ), j AS NOT MATERIALIZED (
             SELECT
-                id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
-                runnable_path AS script_path, args, kind AS job_kind,
-                CASE WHEN trigger_kind = 'schedule' THEN trigger END AS schedule_path,
-                permissioned_as, permissioned_as_email AS email, script_lang AS language,
-                flow_innermost_root_job AS root_job, flow_step_id, flow_step_id IS NOT NULL AS is_flow_step,
+                id, workspace_id, parent_job, created_by, created_at, runnable_id,
+                runnable_path, args, kind, trigger, trigger_kind,
+                permissioned_as, permissioned_as_email, script_lang,
+                flow_innermost_root_job AS root_job, flow_step_id, flow_step_id
                 same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
                 concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
         ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
-            running, script_hash, script_path, args, null as logs, canceled, canceled_by,
-            canceled_reason, null as last_ping, job_kind, schedule_path, permissioned_as,
-            flow_status, is_flow_step, language, suspend,  suspend_until,
+            running, runnable_id, runnable_path, args, null as logs, canceled, canceled_by,
+            canceled_reason, null as last_ping, kind, schedule_path, permissioned_as,
+            flow_status, is_flow_step, script_lang, suspend,  suspend_until,
             same_worker, pre_run_error, email,  visible_to_owner, null as mem_peak,
             root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
             timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,

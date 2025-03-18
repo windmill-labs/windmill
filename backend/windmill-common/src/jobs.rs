@@ -117,6 +117,8 @@ pub struct QueuedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker: Option<String>,
 }
 
 impl QueuedJob {
@@ -188,6 +190,7 @@ impl Default for QueuedJob {
             cache_ttl: None,
             priority: None,
             preprocessed: None,
+            worker: None,
         }
     }
 }
@@ -240,6 +243,8 @@ pub struct CompletedJob {
     pub labels: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker: Option<String>,
 }
 
 impl CompletedJob {

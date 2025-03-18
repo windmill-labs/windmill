@@ -47,14 +47,13 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
-use std::fmt;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use windmill_queue::{PushArgs, PushArgsOwned};
+use windmill_queue::{PushArgs, PushArgsOwned, TriggerKind};
 
 const KEEP_LAST: i64 = 20;
 
@@ -91,38 +90,6 @@ pub fn workspaced_unauthed_service() -> Router {
     #[cfg(not(feature = "http_trigger"))]
     {
         router
-    }
-}
-
-#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
-#[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerKind {
-    Webhook,
-    Http,
-    Websocket,
-    Kafka,
-    Email,
-    Nats,
-    Mqtt,
-    Sqs,
-    Postgres,
-}
-
-impl fmt::Display for TriggerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            TriggerKind::Webhook => "webhook",
-            TriggerKind::Http => "http",
-            TriggerKind::Websocket => "websocket",
-            TriggerKind::Kafka => "kafka",
-            TriggerKind::Email => "email",
-            TriggerKind::Nats => "nats",
-            TriggerKind::Mqtt => "mqtt",
-            TriggerKind::Sqs => "sqs",
-            TriggerKind::Postgres => "postgres",
-        };
-        write!(f, "{}", s)
     }
 }
 

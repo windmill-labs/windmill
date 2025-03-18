@@ -676,63 +676,166 @@ async fn get_job(
 }
 
 macro_rules! get_job_query {
-    ("v2_as_completed_job", $($opts:tt)*) => {
+    ("v2_job_completed", $($opts:tt)*) => {
         get_job_query!(
-            @impl "v2_as_completed_job", ($($opts)*),
-            "duration_ms, success, result, result_columns, deleted, is_skipped, result->'wm_labels' as labels, \
+            @impl "v2_job_completed", ($($opts)*),
+            "v2_job_completed.duration_ms, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
+            "",
         )
     };
-    ("v2_as_queue", $($opts:tt)*) => {
+    ("v2_job_queue", $($opts:tt)*) => {
         get_job_query!(
-            @impl "v2_as_queue", ($($opts)*),
-            "scheduled_for, running, last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
-            root_job, leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
+            @impl "v2_job_queue", ($($opts)*),
+            "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
+            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
             script_entrypoint_override",
+            "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
     };
-    (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         if $with_logs {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, logs = "right(job_logs.logs, 20000)", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "right(job_logs.logs, 20000)", $($args)*)
         } else {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, logs = "null", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "null", $($args)*)
         }
     };
-    (@impl $table:literal, (with_code: $with_code:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (with_code: $with_code:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         if $with_code {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, lock = "raw_lock", code = "raw_code", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "raw_lock", code = "raw_code", $($args)*)
         } else {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, lock = "null", code = "null", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "null", code = "null", $($args)*)
         }
     };
-    (@impl $table:literal, (with_flow: $with_flow:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (with_flow: $with_flow:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         if $with_flow {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, flow = "raw_flow", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "raw_flow", $($args)*)
         } else {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, flow = "null", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "null", $($args)*)
         }
     };
-    (@impl $table:literal, (), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         const_format::formatcp!(
             "SELECT \
-            id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, \
+            {table}.id, {table}.workspace_id, parent_job, v2_job.created_by, v2_job.created_at, started_at, v2_job.runnable_id as script_hash, v2_job.runnable_path as script_path, \
             CASE WHEN args is null THEN NULL
             WHEN pg_column_size(args) < 90000 THEN 
                 CASE WHEN jsonb_typeof(args) = 'object' THEN args
                 ELSE jsonb_build_object('value', args)
                 END
-            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, \
-            {logs} as logs, {code} as raw_code, canceled, canceled_by, canceled_reason, job_kind, \
-            schedule_path, permissioned_as, flow_status, {flow} as raw_flow, is_flow_step, language, \
-            {lock} as raw_lock, email, visible_to_owner, mem_peak, tag, priority, preprocessed, {additional_fields} \
-            FROM {table} LEFT JOIN job_logs ON id = job_id \
-            WHERE id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3)) LIMIT 1",
+            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, COALESCE(flow_status, workflow_as_code_status) AS flow_status, \
+            {logs} as logs, {code} as raw_code, canceled_by is not null as canceled, canceled_by, canceled_reason, kind as job_kind, \
+            CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, permissioned_as, \
+            {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
+            {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, worker, \
+            {additional_fields} \
+            FROM {table} 
+            INNER JOIN v2_job ON v2_job.id = {table}.id \
+            {additional_joins} \
+            LEFT JOIN job_logs ON {table}.id = job_id \
+            WHERE {table}.id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))",
             table = $table,
             additional_fields = $additional_fields,
+            additional_joins = $additional_joins,
             $($args)*
         )
     }
 }
+
+// CREATE OR REPLACE VIEW v2_as_queue AS
+// SELECT
+//     j.id,
+//     j.workspace_id,
+//     j.parent_job,
+//     j.created_by,
+//     j.created_at,
+//     q.started_at,
+//     q.scheduled_for,
+//     q.running,
+//     j.runnable_id              AS script_hash,
+//     j.runnable_path            AS script_path,
+//     j.args,
+//     j.raw_code,
+//     q.canceled_by IS NOT NULL  AS canceled,
+//     q.canceled_by,
+//     q.canceled_reason,
+//     r.ping                     AS last_ping,
+//     j.kind                     AS job_kind,
+//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
+//                                AS schedule_path,
+//     j.permissioned_as,
+//     COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status,
+//     j.raw_flow,
+//     j.flow_step_id IS NOT NULL AS is_flow_step,
+//     j.script_lang              AS language,
+//     q.suspend,
+//     q.suspend_until,
+//     j.same_worker,
+//     j.raw_lock,
+//     j.pre_run_error,
+//     j.permissioned_as_email    AS email,
+//     j.visible_to_owner,
+//     r.memory_peak              AS mem_peak,
+//     j.flow_innermost_root_job  AS root_job,
+//     s.flow_leaf_jobs           AS leaf_jobs,
+//     j.tag,
+//     j.concurrent_limit,
+//     j.concurrency_time_window_s,
+//     j.timeout,
+//     j.flow_step_id,
+//     j.cache_ttl,
+//     j.priority,
+//     NULL::TEXT                 AS logs,
+//     j.script_entrypoint_override,
+//     j.preprocessed
+// FROM v2_job_queue q
+//      JOIN v2_job j USING (id)
+//      LEFT JOIN v2_job_runtime r USING (id)
+//      LEFT JOIN v2_job_status s USING (id)
+// ;
+
+// -- Add up migration script here
+// CREATE OR REPLACE VIEW v2_as_completed_job AS
+// SELECT
+//     j.id,
+//     j.workspace_id,
+//     j.parent_job,
+//     j.created_by,
+//     j.created_at,
+//     c.duration_ms,
+//     c.status = 'success' OR c.status = 'skipped' AS success,
+//     j.runnable_id              AS script_hash,
+//     j.runnable_path            AS script_path,
+//     j.args,
+//     c.result,
+//     FALSE                      AS deleted,
+//     j.raw_code,
+//     c.status = 'canceled'      AS canceled,
+//     c.canceled_by,
+//     c.canceled_reason,
+//     j.kind                     AS job_kind,
+//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
+//                                AS schedule_path,
+//     j.permissioned_as,
+//     COALESCE(c.flow_status, c.workflow_as_code_status) AS flow_status,
+//     j.raw_flow,
+//     j.flow_step_id IS NOT NULL AS is_flow_step,
+//     j.script_lang              AS language,
+//     c.started_at,
+//     c.status = 'skipped'       AS is_skipped,
+//     j.raw_lock,
+//     j.permissioned_as_email    AS email,
+//     j.visible_to_owner,
+//     c.memory_peak              AS mem_peak,
+//     j.tag,
+//     j.priority,
+//     NULL::TEXT                 AS logs,
+//     c.result_columns,
+//     j.script_entrypoint_override,
+//     j.preprocessed
+// FROM v2_job_completed c
+//      JOIN v2_job j USING (id)
+// ;
 
 #[derive(Copy, Clone)]
 struct GetQuery<'a> {
@@ -839,7 +942,7 @@ impl<'a> GetQuery<'a> {
         job_id: Uuid,
         workspace_id: &str,
     ) -> error::Result<Option<JobExtended<QueuedJob>>> {
-        let query = get_job_query!("v2_as_queue",
+        let query = get_job_query!("v2_job_queue",
             with_logs: self.with_logs,
             with_code: self.with_code,
             with_flow: self.with_flow,
@@ -871,11 +974,13 @@ impl<'a> GetQuery<'a> {
         job_id: Uuid,
         workspace_id: &str,
     ) -> error::Result<Option<JobExtended<CompletedJob>>> {
-        let query = get_job_query!("v2_as_completed_job",
+        let query = get_job_query!("v2_job_completed",
             with_logs: self.with_logs,
             with_code: self.with_code,
             with_flow: self.with_flow,
         );
+
+        // tracing::info!("query: {}", query);
         let query = sqlx::query_as::<_, JobExtended<CompletedJob>>(query)
             .bind(job_id)
             .bind(workspace_id)
@@ -1259,6 +1364,7 @@ pub struct ListQueueQuery {
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
     pub suspended: Option<bool>,
+    pub worker: Option<String>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     pub tag: Option<String>,
@@ -1283,6 +1389,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             created_after: lcq.created_after,
             created_or_started_before: lcq.created_or_started_before,
             created_or_started_after: lcq.created_or_started_after,
+            worker: lcq.worker,
             running: lcq.running,
             parent_job: lcq.parent_job,
             order_desc: lcq.order_desc,
@@ -1317,6 +1424,10 @@ pub fn filter_list_queue_query(
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+    }
+
+    if let Some(w) = &lq.worker {
+        sqlb.and_where_eq("v2_job_queue.worker", "?".bind(w));
     }
 
     if let Some(ps) = &lq.script_path_start {
@@ -2678,6 +2789,7 @@ pub struct UnifiedJob {
     pub self_wait_time_ms: Option<i64>,
     pub aggregate_wait_time_ms: Option<i64>,
     pub preprocessed: Option<bool>,
+    pub worker: Option<String>,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -2716,6 +2828,7 @@ const CJ_FIELDS: &[&str] = &[
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
+    "v2_job_completed.worker",
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -2754,6 +2867,7 @@ const QJ_FIELDS: &[&str] = &[
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
+    "v2_job_queue.worker",
 ];
 
 impl UnifiedJob {
@@ -2804,6 +2918,7 @@ impl<'a> From<UnifiedJob> for Job {
                     priority: uj.priority,
                     labels: uj.labels,
                     preprocessed: uj.preprocessed,
+                    worker: uj.worker,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -2849,6 +2964,7 @@ impl<'a> From<UnifiedJob> for Job {
                     cache_ttl: None,
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
+                    worker: uj.worker,
                 },
             )),
             t => panic!("job type {} not valid", t),
@@ -3358,7 +3474,7 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: raw_lock,
-                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id)
+                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, &job.id)
                     .await
                     .map_err(to_anyhow)?,
                 concurrent_limit: job.concurrent_limit,
@@ -5328,6 +5444,10 @@ pub fn filter_list_completed_query(
         sqlb.and_where(&wh);
     }
 
+    if let Some(worker) = &lq.worker {
+        sqlb.and_where_eq("v2_job_completed.worker", "?".bind(worker));
+    }
+
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
@@ -5486,6 +5606,7 @@ pub struct ListCompletedQuery {
     pub label: Option<String>,
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
+    pub worker: Option<String>,
 }
 
 async fn list_completed_jobs(
