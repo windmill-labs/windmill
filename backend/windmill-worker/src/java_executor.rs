@@ -52,48 +52,13 @@ pub(crate) struct JobHandlerInput<'a> {
     pub worker_name: &'a str,
 }
 
-pub fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
-    calculate_hash(&format!(
-        "{}{}",
-        code,
-        requirements_o
-            .as_ref()
-            .map(|x| x.to_string())
-            .unwrap_or_default()
-    ))
-}
-
 pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
     // --- Init ---
     {
         init(&mut args).await?;
     }
-    // --- Prepare ---
-    {
-        create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
-        let app_path = format!("{}/src/main/java/net/script/", args.job_dir);
-        create_dir_all(&app_path).await?;
-        File::create(format!("{app_path}/App.java"))
-            .await?
-            .write_all(&wrap(args.inner_content)?.into_bytes())
-            .await?;
-        File::create(format!("{app_path}/Main.java"))
-            .await?
-            // .write_all(&format!("{}", args.inner_content).into_bytes())
-            .write_all(
-                &format!(
-                    "package net.script;\n{MINI_CLIENT_IMPORTS}\n{}\n{MINI_CLIENT}",
-                    args.inner_content
-                )
-                .into_bytes(),
-            )
-            .await?;
-        {
-            let maven_config = crate::MAVEN_CONFIG.read().await.clone().unwrap_or_default();
-            write_file(JAVA_CACHE_DIR, "settings.xml", &maven_config)?;
-        }
-    }
     // --- Generate Lockfile ---
+
     let deps = resolve_dependencies(
         &args.job.id,
         &args.inner_content,
@@ -124,6 +89,123 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
     {
         read_result(&args.job_dir).await
     }
+}
+
+async fn init<'a>(
+    JobHandlerInput {
+        occupancy_metrics,
+        mem_peak,
+        canceled_by,
+        worker_name,
+        job,
+        db,
+        job_dir,
+        client,
+        inner_content,
+        ..
+    }: &mut JobHandlerInput<'a>,
+) -> Result<(), Error> {
+    // Create needed files
+    {
+        create_args_and_out_file(&client, job, job_dir, db).await?;
+        let app_path = format!("{}/src/main/java/net/script/", job_dir);
+        create_dir_all(&app_path).await?;
+        File::create(format!("{app_path}/App.java"))
+            .await?
+            .write_all(&wrap(inner_content)?.into_bytes())
+            .await?;
+        File::create(format!("{app_path}/Main.java"))
+            .await?
+            .write_all(
+                &format!(
+                    "package net.script;\n{MINI_CLIENT_IMPORTS}\n{}\n{MINI_CLIENT}",
+                    inner_content
+                )
+                .into_bytes(),
+            )
+            .await?;
+        {
+            let maven_config = crate::MAVEN_CONFIG.read().await.clone().unwrap_or_default();
+            write_file(JAVA_CACHE_DIR, "settings.xml", &maven_config)?;
+        }
+    }
+    // Handle maven plugins
+    {
+        // 1. Check if plugin directory exists.
+        // 2. If not mvn dependency:help
+        //    2.1 Recursively copy from /tmp/windmill/maven-repository-plugins to /tmp/windmill/cache/java/maven-repository
+
+        if tokio::fs::metadata(format!(
+            "{JAVA_CACHE_DIR}/maven-repository/org/apache/maven/plugins/maven-dependency-plugin"
+        ))
+        .await
+        .is_ok()
+        {
+            return Ok(());
+        }
+        append_logs(
+        &job.id,
+        &job.workspace_id,
+        &format!("\n--- INIT ---\n Java is missing essential plugins, they will be either copied from docker image or fetched from remote."),
+        db.clone(),
+    )
+    .await;
+
+        let child = {
+            let mut cmd = Command::new(if cfg!(windows) {
+                "mvn.cmd"
+            } else {
+                MAVEN_PATH.as_str()
+            });
+            cmd.env_clear()
+                .current_dir(job_dir.to_owned())
+                .env("PATH", PATH_ENV.as_str())
+                .envs(PROXY_ENVS.clone())
+                .args(&[
+                    "dependency:help",
+                    // "--settings",
+                    // &format!("{JAVA_CACHE_DIR}/settings.xml"),
+                    "-Dtransitive=false",
+                    // "-q",
+                    &format!("-Dmaven.repo.local={MAVEN_PLUGINS_DIR}"),
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            #[cfg(windows)]
+            {
+                cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+                    .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                    .env(
+                        "TMP",
+                        std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                    );
+            }
+            start_child_process(cmd, "mvn").await?
+        };
+        handle_child::handle_child(
+            &job.id,
+            db,
+            mem_peak,
+            canceled_by,
+            child,
+            !*DISABLE_NSJAIL,
+            worker_name,
+            &job.workspace_id,
+            "mvn",
+            job.timeout,
+            false,
+            &mut Some(occupancy_metrics),
+        )
+        .await?;
+
+        copy_dir_recursively(
+            &PathBuf::from(&MAVEN_PLUGINS_DIR),
+            &PathBuf::from(&format!("{JAVA_CACHE_DIR}/maven-repository")),
+        )?;
+    }
+
+    Ok(())
 }
 
 pub async fn resolve_dependencies<'a>(
@@ -285,217 +367,6 @@ pub async fn resolve_dependencies<'a>(
     // .map_err(|e| Error::IoErr { error: e, location: "".into() }))
 }
 
-const MINI_CLIENT_IMPORTS: &str = r#"
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-"#;
-const MINI_CLIENT: &str = r#"
-class Wmill {
-    public static String getVariable(String path) {
-        var baseUrl = System.getenv("BASE_INTERNAL_URL");
-        var workspace = System.getenv("WM_WORKSPACE");
-        var uri = java.text.MessageFormat.format("{0}/api/w/{1}/variables/get_value/{2}", baseUrl, workspace, path);
-
-        // Create an HttpRequest
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(uri))
-                .header("Authorization", "Bearer " + System.getenv("WM_TOKEN")) // Add the Authorization header
-                .GET() // Set the request method to GET
-                .build();
-
-            // Send the request and get the response
-        return HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .join(); // Wait for the completion
-    }
-    public static String getResource(String path) {
-        var baseUrl = System.getenv("BASE_INTERNAL_URL");
-        var workspace = System.getenv("WM_WORKSPACE");
-        var uri = java.text.MessageFormat.format("{0}/api/w/{1}/resources/get_value_interpolated/{2}", baseUrl, workspace, path);
-
-        // Create an HttpRequest
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(uri))
-                .header("Authorization", "Bearer " + System.getenv("WM_TOKEN")) // Add the Authorization header
-                .GET() // Set the request method to GET
-                .build();
-
-            // Send the request and get the response
-        return HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .join(); // Wait for the completion
-    }
-}
-"#;
-
-/// Wraps content script
-/// that upon execution reads args.json (which are piped and transformed from previous flow step or top level inputs)
-/// Also wrapper takes output of program and serializes to result.json (Which windmill will know how to use later)
-fn wrap(inner_content: &str) -> Result<String, Error> {
-    let sig = parse_java_sig_meta(inner_content)?;
-    let ret_void = sig.returns_void;
-    let spread = sig
-        .main_sig
-        .args
-        .clone()
-        .into_iter()
-        .map(|Arg { name, .. }| {
-            // Apply additional input transformation
-            format!(" parsedArgs.{name}")
-        })
-        .collect_vec()
-        .join(",");
-    let args = sig
-        .main_sig
-        .args
-        .clone()
-        .into_iter()
-        .map(|Arg { name, otyp, .. }| {
-            // Apply additional input transformation
-            format!("public {} {name};\n", otyp.unwrap())
-        })
-        .collect_vec()
-        .join(" ");
-    Ok(r#"    
-package net.script;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.FileInputStream;
-import java.io.InputStream;
-import java.io.FileOutputStream;
-import net.script.Main;
-
-public class App{
-
-  public static class Args {ARGS}
-
-  public static void main(String[] args) {
-    try {
-      InputStream fileInputStream = new FileInputStream("args.json");
-      ObjectMapper mapper = new ObjectMapper();
-      Args parsedArgs = mapper.readValue(fileInputStream, Args.class);
-      fileInputStream.close();
-      {MAIN_HANDLER}
-      FileOutputStream fileOutputStream = new FileOutputStream("result.json");
-      mapper.writeValue(fileOutputStream, res);
-      fileOutputStream.close();
-
-    } catch (Exception e) { // Catching general Exception
-        e.printStackTrace(); // Handle the exception
-    }
-  }
-}
-            "#
-    .replace(
-        "{MAIN_HANDLER}",
-        if ret_void {
-            "
-            Main.main(SPREAD);
-            Object res = null;
-            "
-        } else {
-            "
-            Object res = Main.main(SPREAD);
-            "
-        },
-    )
-    .replace("SPREAD", &spread)
-    .replace("ARGS", &args))
-}
-async fn init<'a>(
-    JobHandlerInput {
-        occupancy_metrics,
-        mem_peak,
-        canceled_by,
-        worker_name,
-        job,
-        db,
-        job_dir,
-        // client,
-        // envs,
-        // base_internal_url,
-        // inner_content,
-        // requirements_o,
-        ..
-    }: &mut JobHandlerInput<'a>,
-) -> Result<(), Error> {
-    // 1. Check if plugin directory exists.
-    // 2. If not mvn dependency:help
-    //    2.1 Recursively copy from /tmp/windmill/maven-repository-plugins to /tmp/windmill/cache/java/maven-repository
-
-    if tokio::fs::metadata(format!(
-        "{JAVA_CACHE_DIR}/maven-repository/org/apache/maven/plugins/maven-dependency-plugin"
-    ))
-    .await
-    .is_ok()
-    {
-        return Ok(());
-    }
-    append_logs(
-        &job.id,
-        &job.workspace_id,
-        &format!("\n--- INIT ---\n Java is missing essential plugins, they will be either copied from docker image or fetched from remote."),
-        db.clone(),
-    )
-    .await;
-
-    let child = {
-        let mut cmd = Command::new(if cfg!(windows) {
-            "mvn.cmd"
-        } else {
-            MAVEN_PATH.as_str()
-        });
-        cmd.env_clear()
-            .current_dir(job_dir.to_owned())
-            .env("PATH", PATH_ENV.as_str())
-            .envs(PROXY_ENVS.clone())
-            .args(&[
-                "dependency:help",
-                // "--settings",
-                // &format!("{JAVA_CACHE_DIR}/settings.xml"),
-                "-Dtransitive=false",
-                // "-q",
-                &format!("-Dmaven.repo.local={MAVEN_PLUGINS_DIR}"),
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        #[cfg(windows)]
-        {
-            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-                .env(
-                    "TMP",
-                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-                );
-        }
-        start_child_process(cmd, "mvn").await?
-    };
-    handle_child::handle_child(
-        &job.id,
-        db,
-        mem_peak,
-        canceled_by,
-        child,
-        !*DISABLE_NSJAIL,
-        worker_name,
-        &job.workspace_id,
-        "mvn",
-        job.timeout,
-        false,
-        &mut Some(occupancy_metrics),
-    )
-    .await?;
-
-    copy_dir_recursively(
-        &PathBuf::from(&MAVEN_PLUGINS_DIR),
-        &PathBuf::from(&format!("{JAVA_CACHE_DIR}/maven-repository")),
-    )?;
-
-    Ok(())
-}
-
 async fn install<'a>(
     JobHandlerInput { worker_name, job, db, job_dir, .. }: &mut JobHandlerInput<'a>,
     deps: String,
@@ -614,6 +485,16 @@ async fn compile<'a>(
     classpath: &'a str,
     // plugins: Vec<&'a str>,
 ) -> Result<(), Error> {
+    fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
+        calculate_hash(&format!(
+            "{}{}",
+            code,
+            requirements_o
+                .as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or_default()
+        ))
+    }
     let client = &client.get_authed().await;
     let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let hash = compute_hash(inner_content, *requirements_o);
@@ -831,3 +712,121 @@ async fn run<'a>(
     )
     .await
 }
+
+/// Wraps content script
+/// that upon execution reads args.json (which are piped and transformed from previous flow step or top level inputs)
+/// Also wrapper takes output of program and serializes to result.json (Which windmill will know how to use later)
+fn wrap(inner_content: &str) -> Result<String, Error> {
+    let sig = parse_java_sig_meta(inner_content)?;
+    let ret_void = sig.returns_void;
+    let spread = sig
+        .main_sig
+        .args
+        .clone()
+        .into_iter()
+        .map(|Arg { name, .. }| {
+            // Apply additional input transformation
+            format!(" parsedArgs.{name}")
+        })
+        .collect_vec()
+        .join(",");
+    let args = sig
+        .main_sig
+        .args
+        .clone()
+        .into_iter()
+        .map(|Arg { name, otyp, .. }| {
+            // Apply additional input transformation
+            format!("public {} {name};\n", otyp.unwrap())
+        })
+        .collect_vec()
+        .join(" ");
+    Ok(r#"    
+package net.script;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.FileOutputStream;
+import net.script.Main;
+
+public class App{
+
+  public static class Args {ARGS}
+
+  public static void main(String[] args) {
+    try {
+      InputStream fileInputStream = new FileInputStream("args.json");
+      ObjectMapper mapper = new ObjectMapper();
+      Args parsedArgs = mapper.readValue(fileInputStream, Args.class);
+      fileInputStream.close();
+      {MAIN_HANDLER}
+      FileOutputStream fileOutputStream = new FileOutputStream("result.json");
+      mapper.writeValue(fileOutputStream, res);
+      fileOutputStream.close();
+
+    } catch (Exception e) { // Catching general Exception
+        e.printStackTrace(); // Handle the exception
+    }
+  }
+}
+            "#
+    .replace(
+        "{MAIN_HANDLER}",
+        if ret_void {
+            "
+            Main.main(SPREAD);
+            Object res = null;
+            "
+        } else {
+            "
+            Object res = Main.main(SPREAD);
+            "
+        },
+    )
+    .replace("SPREAD", &spread)
+    .replace("ARGS", &args))
+}
+const MINI_CLIENT_IMPORTS: &str = r#"
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+"#;
+const MINI_CLIENT: &str = r#"
+class Wmill {
+    public static String getVariable(String path) {
+        var baseUrl = System.getenv("BASE_INTERNAL_URL");
+        var workspace = System.getenv("WM_WORKSPACE");
+        var uri = java.text.MessageFormat.format("{0}/api/w/{1}/variables/get_value/{2}", baseUrl, workspace, path);
+
+        // Create an HttpRequest
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(uri))
+                .header("Authorization", "Bearer " + System.getenv("WM_TOKEN")) // Add the Authorization header
+                .GET() // Set the request method to GET
+                .build();
+
+            // Send the request and get the response
+        return HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .join(); // Wait for the completion
+    }
+    public static String getResource(String path) {
+        var baseUrl = System.getenv("BASE_INTERNAL_URL");
+        var workspace = System.getenv("WM_WORKSPACE");
+        var uri = java.text.MessageFormat.format("{0}/api/w/{1}/resources/get_value_interpolated/{2}", baseUrl, workspace, path);
+
+        // Create an HttpRequest
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(uri))
+                .header("Authorization", "Bearer " + System.getenv("WM_TOKEN")) // Add the Authorization header
+                .GET() // Set the request method to GET
+                .build();
+
+            // Send the request and get the response
+        return HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .join(); // Wait for the completion
+    }
+}
+"#;
