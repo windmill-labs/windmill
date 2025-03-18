@@ -76,11 +76,10 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
 
     let classpath = install(&mut args, deps).await?;
 
-    // --- Build to .CLASS ---
+    // --- Build .java files ---
     {
         compile(&mut args, &classpath).await?;
     }
-
     // --- Run ---
     {
         run(&mut args, &classpath).await?;
@@ -153,8 +152,8 @@ async fn init<'a>(
         &job.workspace_id,
         &format!("\n--- INIT ---\n Java is missing essential plugins, they will be either copied from docker image or fetched from remote."),
         db.clone(),
-    )
-    .await;
+        )
+        .await;
 
         let child = {
             let mut cmd = Command::new(if cfg!(windows) {
@@ -406,6 +405,9 @@ async fn install<'a>(
         .collect_vec()
         .join(":")
         + ":target";
+
+    #[cfg(windows)]
+    let classpath = classpath.replace(":", ";");
 
     tracing::debug!(
         workspace_id = %job.workspace_id,
