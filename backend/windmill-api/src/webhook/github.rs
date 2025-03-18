@@ -1,10 +1,28 @@
+use crate::webhook::{PayloadConstruction, SignatureLocation, SignatureParse};
+
 use super::{
-    Encoding, HmacAlgorithm, HmacAuthenticationData, HmacAuthenticationDetails,
-    TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    Encoding, HmacAlgorithm, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    WebhookHmacValidator,
 };
 use axum::response::Response;
 use http::HeaderMap;
-use std::borrow::Cow;
+
+lazy_static::lazy_static! {
+    pub static ref GITHUB_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+        prefix: Some("sha256=".to_string()),
+        payload_construction: PayloadConstruction {
+            signature_location: SignatureLocation::Header(SignatureParse {
+                signature_header_name: "X-Hub-Signature-256".to_string(),
+                parsing_rules: None,
+            }),
+            payload_format: vec![],
+            payload_separator: None,
+            include_raw_body_at_end_of_payload: true,
+        },
+        signature_encoding: Encoding::Hex,
+        algorithm: HmacAlgorithm::Sha256,
+    };
+}
 
 pub struct Github;
 
@@ -16,22 +34,5 @@ impl WebhookHandler for Github {
         _: &str,
     ) -> Result<Option<Response>, WebhookError> {
         Ok(None)
-    }
-
-    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
-        &self,
-        headers: &'header HeaderMap,
-        raw_payload: &'payload str,
-    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
-        let github_secret_header = headers.try_get_webhook_header("X-Hub-Signature-256")?;
-
-        let authentication_data = HmacAuthenticationData::new(
-            Cow::Borrowed(raw_payload),
-            github_secret_header,
-            Some("sha256"),
-            HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
-        );
-
-        Ok(authentication_data)
     }
 }

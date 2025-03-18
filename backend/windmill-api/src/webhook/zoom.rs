@@ -1,14 +1,34 @@
-use crate::webhook::{calculate_hmac_signature, encode_hmac_signature};
+use crate::webhook::{
+    calculate_hmac_signature, encode_hmac_signature, PayloadConstruction, SignatureLocation,
+    SignatureParse,
+};
 
 use super::{
-    Encoding, HmacAlgorithm, HmacAuthenticationData, HmacAuthenticationDetails,
-    TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    Encoding, HmacAlgorithm, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    WebhookHmacValidator,
 };
 use axum::{body::Body, response::Response};
 use http::{header, HeaderMap};
 use serde::Deserialize;
 use serde_json::json;
-use std::borrow::Cow;
+
+lazy_static::lazy_static! {
+    pub static ref ZOOM_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+        prefix: Some("v0=".to_string()),
+        payload_construction: PayloadConstruction {
+            signature_location: SignatureLocation::Header(SignatureParse {
+                signature_header_name: "x-zm-signature".to_string(),
+                parsing_rules: None,
+            }),
+            payload_format: vec!["#v0".to_string(), "x-zm-request-timestamp".to_string()],
+            payload_separator: Some(":".to_string()),
+            include_raw_body_at_end_of_payload: true,
+        },
+        signature_encoding: Encoding::Hex,
+        algorithm: HmacAlgorithm::Sha256,
+    };
+}
+
 pub struct Zoom;
 
 #[derive(Debug, Deserialize)]
@@ -68,23 +88,5 @@ impl WebhookHandler for Zoom {
             }
             _ => return Ok(None),
         }
-    }
-
-    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
-        &self,
-        headers: &'header HeaderMap,
-        raw_payload: &'payload str,
-    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
-        let zoom_signature_header = headers.try_get_webhook_header("x-zm-signature")?;
-        let zoom_timestamp_header = headers.try_get_webhook_header("x-zm-request-timestamp")?;
-
-        let message = format!("v0:{}:{}", zoom_timestamp_header, raw_payload);
-
-        Ok(HmacAuthenticationData::new(
-            Cow::Owned(message),
-            zoom_signature_header,
-            Some("v0="),
-            HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
-        ))
     }
 }

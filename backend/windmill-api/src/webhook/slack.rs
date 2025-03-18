@@ -1,10 +1,28 @@
+use crate::webhook::{PayloadConstruction, SignatureLocation, SignatureParse};
+
 use super::{
-    Encoding, HmacAlgorithm, HmacAuthenticationData, HmacAuthenticationDetails,
-    TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    Encoding, HmacAlgorithm, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    WebhookHmacValidator,
 };
 use axum::response::Response;
 use http::HeaderMap;
-use std::borrow::Cow;
+
+lazy_static::lazy_static! {
+    pub static ref SLACK_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+        prefix: Some("v0=".to_string()),
+        payload_construction: PayloadConstruction {
+            signature_location: SignatureLocation::Header(SignatureParse {
+                signature_header_name: "X-Slack-Signature".to_string(),
+                parsing_rules: None,
+            }),
+            payload_format: vec!["#v0".to_string(), "X-Slack-Request-Timestamp".to_string()],
+            payload_separator: Some(":".to_string()),
+            include_raw_body_at_end_of_payload: true,
+        },
+        signature_encoding: Encoding::Hex,
+        algorithm: HmacAlgorithm::Sha256,
+    };
+}
 
 pub struct Slack;
 
@@ -16,22 +34,5 @@ impl WebhookHandler for Slack {
         _: &str,
     ) -> Result<Option<Response>, WebhookError> {
         Ok(None)
-    }
-
-    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
-        &self,
-        headers: &'header HeaderMap,
-        raw_payload: &'payload str,
-    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
-        let slack_secret_signature = headers.try_get_webhook_header("X-Slack-Signature")?;
-        let slack_timestamp_header = headers.try_get_webhook_header("X-Slack-Request-Timestamp")?;
-        let signed_payload = format!("v0:{}:{}", slack_timestamp_header, raw_payload);
-
-        Ok(HmacAuthenticationData::new(
-            Cow::Owned(signed_payload),
-            slack_secret_signature,
-            Some("v0="),
-            HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
-        ))
     }
 }

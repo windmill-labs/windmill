@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{collections::HashMap, hash::Hash};
 
 use axum::response::{IntoResponse, Response};
 use base64::{
@@ -8,7 +8,7 @@ use base64::{
 use hmac::{Hmac, Mac};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
@@ -26,41 +26,223 @@ mod twitch;
 mod zoom;
 
 use constant_time_eq::constant_time_eq;
-use github::Github;
-use shopify::Shopify;
-use slack::Slack;
-use stripe::Stripe;
-use tiktok::TikTok;
-use twitch::Twitch;
-use zoom::Zoom;
+use github::{Github, GITHUB_WEBHOOK_VALIDATOR};
+use shopify::{Shopify, SHOPIFY_WEBHOOK_VALIDATOR};
+use slack::{Slack, SLACK_WEBHOOK_VALIDATOR};
+use stripe::{Stripe, STRIPE_WEBHOOK_VALIDATOR};
+use tiktok::{TikTok, TIKTOK_WEBHOOK_VALIDATOR};
+use twitch::{Twitch, TWITCH_WEBHOOK_VALIDATOR};
+use zoom::{Zoom, ZOOM_WEBHOOK_VALIDATOR};
 
-pub struct HmacAuthenticationDetails {
-    pub algorithm_to_use: HmacAlgorithm,
-    pub header_key_encoding: Encoding,
+fn deserialize_limited_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let vec: Vec<String> = Vec::deserialize(deserializer)?;
+
+    if vec.len() > 2 {
+        return Err(serde::de::Error::custom(
+            "minimum 1 separator, max 2 separators",
+        ));
+    }
+
+    Ok(vec)
 }
 
-impl HmacAuthenticationDetails {
-    #[inline]
-    fn new(algorithm_to_use: HmacAlgorithm, header_key_encoding: Encoding) -> Self {
-        Self { algorithm_to_use, header_key_encoding }
+pub fn calculate_hmac_signature(algorithm: HmacAlgorithm, secret: &str, payload: &str) -> Vec<u8> {
+    match algorithm {
+        HmacAlgorithm::Sha1 => {
+            let mut mac =
+                HmacSha1::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
+            mac.update(payload.as_bytes());
+            mac.finalize().into_bytes().to_vec()
+        }
+        HmacAlgorithm::Sha256 => {
+            let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+                .expect("HMAC can take key of any size");
+            mac.update(payload.as_bytes());
+            mac.finalize().into_bytes().to_vec()
+        }
+        HmacAlgorithm::Sha512 => {
+            let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
+                .expect("HMAC can take key of any size");
+            mac.update(payload.as_bytes());
+            mac.finalize().into_bytes().to_vec()
+        }
     }
 }
 
-pub struct HmacAuthenticationData<'payload, 'header, 'prefix> {
-    pub signed_payload: Cow<'payload, str>,
-    pub header_key_value: &'header str,
-    pub signature_prefix: Option<&'prefix str>,
-    pub config: HmacAuthenticationDetails,
+pub trait WebhookVerifier {
+    fn validate_hmac_signature(
+        &self,
+        headers: &HeaderMap,
+        secret: &str,
+        raw_payload: &str,
+    ) -> Result<WebhookRequestType, WebhookError>;
 }
 
-impl<'payload, 'header, 'prefix> HmacAuthenticationData<'payload, 'header, 'prefix> {
-    pub fn new(
-        signed_payload: Cow<'payload, str>,
-        header_key_value: &'header str,
-        signature_prefix: Option<&'prefix str>,
-        config: HmacAuthenticationDetails,
-    ) -> Self {
-        Self { signed_payload, header_key_value, signature_prefix, config }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HmacPayload<'headers> {
+    pub signature_to_verify: &'headers str,
+    pub payload: String,
+}
+
+impl<'headers> HmacPayload<'headers> {
+    pub fn new(signature_to_verify: &'headers str, payload: String) -> Self {
+        Self { signature_to_verify, payload }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ParsingRules {
+    #[serde(deserialize_with = "deserialize_limited_vec")]
+    pub separators: Vec<String>,
+    pub signature_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SignatureParse {
+    pub signature_header_name: String,
+    pub parsing_rules: Option<ParsingRules>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum SignatureLocation {
+    Header(SignatureParse),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PayloadConstruction {
+    pub signature_location: SignatureLocation,
+    pub payload_format: Vec<String>,
+    pub payload_separator: Option<String>,
+    pub include_raw_body_at_end_of_payload: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WebhookHmacValidator {
+    pub prefix: Option<String>,
+    pub payload_construction: PayloadConstruction,
+    pub signature_encoding: Encoding,
+    pub algorithm: HmacAlgorithm,
+}
+
+impl WebhookHmacValidator {
+    fn construct_payload<'headers>(
+        &self,
+        headers: &'headers HeaderMap,
+        raw_payload: &str,
+    ) -> Result<HmacPayload<'headers>, WebhookError> {
+        let mut signature_headers_key: HashMap<&str, &str> = HashMap::new();
+
+        let signature_to_verify = match &self.payload_construction.signature_location {
+            SignatureLocation::Header(signature_parser) => {
+                match signature_parser.parsing_rules.as_ref() {
+                    //Check if user has defined separator for headers e.g [",", "="] and header value is t=2154156654,s=dieri
+                    //first split by "," => ["t=2154156654", "s=dieri"]
+                    //second split "=" store in hashmap with key t=>897609600 and s=dieri
+                    Some(parsing_rules) => {
+                        let signature = headers
+                            .try_get_webhook_header(&signature_parser.signature_header_name)?;
+
+                        let separators = &parsing_rules.separators;
+
+                        signature_headers_key = signature
+                            .split(separators.get(0).unwrap())
+                            .map(|header| {
+                                let mut key_and_value = header.split(separators.get(1).unwrap());
+                                let key = key_and_value.next();
+                                let value = key_and_value.next();
+                                (key, value)
+                            })
+                            .filter_map(|(key, value)| match (key, value) {
+                                (Some(key), Some(value)) => Some((key, value)),
+                                _ => None,
+                            })
+                            .collect();
+
+                        let key = &parsing_rules.signature_key;
+
+                        //based on the example above the key here is `s` and it retrieves the signature value: dieri
+                        let signature = *signature_headers_key.get(key.as_str()).ok_or(
+                            WebhookError::InvalidConfig(
+                                "invalid key for signature retrieval".to_string(),
+                            ),
+                        )?;
+
+                        signature
+                    }
+                    None => {
+                        headers.try_get_webhook_header(&signature_parser.signature_header_name)?
+                    }
+                }
+            }
+        };
+
+        let payload_format = &self.payload_construction.payload_format;
+
+        let include_body = self.payload_construction.include_raw_body_at_end_of_payload;
+        let mut payload = Vec::with_capacity(payload_format.len() + 1);
+
+        for format in payload_format {
+            if format.starts_with("#") && format.len() > 1 {
+                let value =
+                    *signature_headers_key
+                        .get(&format[1..])
+                        .ok_or(WebhookError::InvalidHeader(format!(
+                            "Missing key {} in headers",
+                            &format[1..]
+                        )))?;
+                payload.push(value);
+            } else if format.starts_with("!") && format.len() > 1 {
+                payload.push(&format[1..])
+            } else {
+                payload.push(headers.try_get_webhook_header(&format)?);
+            }
+        }
+
+        if include_body {
+            payload.push(raw_payload);
+        }
+
+        let payload = if let Some(payload_separator) = &self.payload_construction.payload_separator
+        {
+            payload.join(&payload_separator)
+        } else {
+            payload.join("")
+        };
+
+        Ok(HmacPayload::new(signature_to_verify, payload))
+    }
+}
+
+impl WebhookVerifier for WebhookHmacValidator {
+    fn validate_hmac_signature(
+        &self,
+        headers: &HeaderMap,
+        secret: &str,
+        raw_payload: &str,
+    ) -> Result<WebhookRequestType, WebhookError> {
+        let hmac = self.construct_payload(headers, raw_payload)?;
+
+        let hmac_signature = calculate_hmac_signature(self.algorithm, &secret, &hmac.payload);
+
+        let encoded_signature = encode_hmac_signature(self.signature_encoding, &hmac_signature);
+
+        let final_expected_signature = if let Some(signature_prefix) = self.prefix.as_ref() {
+            format!("{}{}", signature_prefix, encoded_signature)
+        } else {
+            encoded_signature
+        };
+
+        if !constant_time_eq(
+            final_expected_signature.as_bytes(),
+            hmac.signature_to_verify.as_bytes(),
+        ) {
+            return Err(WebhookError::InvalidSignature);
+        }
+
+        Ok(WebhookRequestType::Event)
     }
 }
 
@@ -71,12 +253,6 @@ pub trait WebhookHandler {
         authentication_method: &WebhookAuthenticationMethod,
         raw_payload: &str,
     ) -> Result<Option<Response>, WebhookError>;
-
-    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
-        &self,
-        headers: &'header HeaderMap,
-        raw_payload: &'payload str,
-    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError>;
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -92,19 +268,12 @@ pub enum Encoding {
     Base64Uri,
     Hex,
 }
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HmacAuthenticationMethod {
-    algorithm: HmacAlgorithm,
-    encoding: Encoding,
-    signature_header_key: String,
-    signature_prefix: Option<String>,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HmacAuthentication {
     pub webhook_signing_secret: String,
     #[serde(flatten)]
-    pub config: Option<HmacAuthenticationMethod>,
+    pub config: Option<WebhookHmacValidator>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -120,6 +289,7 @@ pub struct ApiKeyAuthentication {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum WebhookAuthenticationMethod {
     HMAC(HmacAuthentication),
     BasicAuth(BasicAuthAuthentication),
@@ -156,15 +326,17 @@ pub enum WebhookType {
 }
 
 impl WebhookType {
-    pub fn get_webhook_handler(&self) -> Option<&'static dyn WebhookHandler> {
-        let handler: &'static dyn WebhookHandler = match *self {
-            WebhookType::Github => &Github,
-            WebhookType::Shopify => &Shopify,
-            WebhookType::Slack => &Slack,
-            WebhookType::Stripe => &Stripe,
-            WebhookType::TikTok => &TikTok,
-            WebhookType::Twitch => &Twitch,
-            WebhookType::Zoom => &Zoom,
+    pub fn get_webhook_handler(
+        &self,
+    ) -> Option<(&'static dyn WebhookHandler, &WebhookHmacValidator)> {
+        let handler: (&'static dyn WebhookHandler, &WebhookHmacValidator) = match *self {
+            WebhookType::Github => (&Github, &GITHUB_WEBHOOK_VALIDATOR),
+            WebhookType::Shopify => (&Shopify, &SHOPIFY_WEBHOOK_VALIDATOR),
+            WebhookType::Slack => (&Slack, &SLACK_WEBHOOK_VALIDATOR),
+            WebhookType::Stripe => (&Stripe, &STRIPE_WEBHOOK_VALIDATOR),
+            WebhookType::TikTok => (&TikTok, &TIKTOK_WEBHOOK_VALIDATOR),
+            WebhookType::Twitch => (&Twitch, &TWITCH_WEBHOOK_VALIDATOR),
+            WebhookType::Zoom => (&Zoom, &ZOOM_WEBHOOK_VALIDATOR),
             WebhookType::Custom => return None,
         };
         Some(handler)
@@ -194,67 +366,12 @@ impl TryGetWebhookHeader for HeaderMap<HeaderValue> {
     }
 }
 
-pub fn calculate_hmac_signature(algorithm: HmacAlgorithm, secret: &str, payload: &str) -> Vec<u8> {
-    match algorithm {
-        HmacAlgorithm::Sha1 => {
-            let mut mac =
-                HmacSha1::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
-            mac.update(payload.as_bytes());
-            mac.finalize().into_bytes().to_vec()
-        }
-        HmacAlgorithm::Sha256 => {
-            let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-                .expect("HMAC can take key of any size");
-            mac.update(payload.as_bytes());
-            mac.finalize().into_bytes().to_vec()
-        }
-        HmacAlgorithm::Sha512 => {
-            let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
-                .expect("HMAC can take key of any size");
-            mac.update(payload.as_bytes());
-            mac.finalize().into_bytes().to_vec()
-        }
-    }
-}
-
 pub fn encode_hmac_signature(encoding: Encoding, hmac_signature: &[u8]) -> String {
     match encoding {
         Encoding::Hex => hex::encode(hmac_signature),
         Encoding::Base64 => BASE64_STANDARD.encode(hmac_signature),
         Encoding::Base64Uri => BASE64_URL_SAFE.encode(hmac_signature),
     }
-}
-
-pub fn verify_hmac_signature(
-    authentication_data: HmacAuthenticationData,
-    webhook_signing_secret: &str,
-) -> Result<(), WebhookError> {
-    let hmac_signature = calculate_hmac_signature(
-        authentication_data.config.algorithm_to_use,
-        &webhook_signing_secret,
-        &authentication_data.signed_payload,
-    );
-
-    let encoded_signature = encode_hmac_signature(
-        authentication_data.config.header_key_encoding,
-        &hmac_signature,
-    );
-
-    let final_expected_signature =
-        if let Some(signature_prefix) = authentication_data.signature_prefix {
-            format!("{}{}", signature_prefix, encoded_signature)
-        } else {
-            encoded_signature
-        };
-
-    if !constant_time_eq(
-        final_expected_signature.as_bytes(),
-        authentication_data.header_key_value.as_bytes(),
-    ) {
-        return Err(WebhookError::InvalidSignature);
-    }
-
-    Ok(())
 }
 
 pub enum WebhookRequestType {
@@ -277,7 +394,7 @@ impl Webhook {
         let handler = self.r#type.get_webhook_handler();
 
         let challenge_response = handler
-            .map(|handler| {
+            .map(|(handler, _)| {
                 handler.handle_challenge_request(headers, &self.authentication_method, raw_payload)
             })
             .transpose()?
@@ -291,24 +408,22 @@ impl Webhook {
             WebhookAuthenticationMethod::HMAC(HmacAuthentication {
                 webhook_signing_secret,
                 config,
-            }) => {
-                let authentication_data = match handler {
-                    Some(handler) => handler.get_hmac_authentication_data(headers, raw_payload)?,
-                    None => {
-                        let config = config.as_ref().ok_or(WebhookError::InvalidCustomConfig)?;
-                        let signature_header_value =
-                            headers.try_get_webhook_header(&config.signature_header_key)?;
-                        HmacAuthenticationData::new(
-                            Cow::Borrowed(raw_payload),
-                            signature_header_value,
-                            config.signature_prefix.as_deref(),
-                            HmacAuthenticationDetails::new(config.algorithm, config.encoding),
-                        )
-                    }
-                };
+            }) => match handler {
+                Some((_, validator)) => {
+                    validator.validate_hmac_signature(
+                        headers,
+                        webhook_signing_secret,
+                        raw_payload,
+                    )?;
+                }
+                None => {
+                    let config = config
+                        .as_ref()
+                        .ok_or(WebhookError::InvalidConfig("Missing config".to_string()))?;
 
-                verify_hmac_signature(authentication_data, webhook_signing_secret)?;
-            }
+                    config.validate_hmac_signature(headers, webhook_signing_secret, raw_payload)?;
+                }
+            },
             WebhookAuthenticationMethod::ApiKey(ApiKeyAuthentication {
                 api_key_header,
                 api_key,
@@ -406,6 +521,9 @@ pub enum WebhookError {
 
     #[error("invalid challenge response: {0}")]
     InvalidChallengeResponse(String),
+
+    #[error("invalid webhook config: {0}")]
+    InvalidConfig(String),
 }
 
 impl IntoResponse for WebhookError {
@@ -427,6 +545,8 @@ impl IntoResponse for WebhookError {
             | WebhookError::InvalidAuthHeader(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
 
             WebhookError::InvalidApiKey => (StatusCode::FORBIDDEN, self.to_string()),
+
+            WebhookError::InvalidConfig(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
 
         let body = json!({ "error": error_message });

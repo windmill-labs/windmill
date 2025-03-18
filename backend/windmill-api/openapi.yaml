@@ -13803,8 +13803,8 @@ components:
             - put
             - delete
             - patch
-        webhook_resource_path:
-          type: string 
+        webhook_auth:
+          $ref: "#/components/schemas/Webhook"
         is_async:
           type: boolean
         requires_auth:
@@ -13839,31 +13839,73 @@ components:
         - zoom
         - custom
 
-    WebhookHeaderEnconding:
-      type: string
-      enum:
-        - base64
-        - base64uri
-        - hex
-
-    WebhookHmacAlgorithm:
-      type: string
-      enum:
-        - sha1
-        - sha256
-        - sha512
-
-    WebhookHmacAuthentication:
+    HmacAuthentication:
       type: object
       properties:
         webhook_signing_secret:
           type: string
-        algorithm:
-          $ref: "#/components/schemas/HmacAlgorithm"
-        encoding:
-          $ref: "#/components/schemas/HeaderEnconding"
-        signature_header_key:
+          description: The secret key used to validate the webhook signature.
+        config:
+          $ref: '#/components/schemas/WebhookHmacValidator'
+      required:
+        - webhook_signing_secret
+
+    WebhookHmacValidator:
+      type: object
+      properties:
+        prefix:
           type: string
+        payload_construction:
+          $ref: '#/components/schemas/PayloadConstruction'
+        signature_encoding:
+          $ref: '#/components/schemas/Encoding'
+        algorithm:
+          $ref: '#/components/schemas/HmacAlgorithm'
+      required:
+        - payload_construction
+        - signature_encoding
+        - algorithm
+
+    PayloadConstruction:
+      type: object
+      properties:
+        signature_location:
+          $ref: '#/components/schemas/SignatureLocation'
+        payload_format:
+          type: array
+          items:
+            type: string
+        payload_separator:
+          type: string
+          description: Optional separator between the payload segments.
+          nullable: true
+        include_raw_body_at_end_of_payload:
+          type: boolean
+          description: Whether to include the raw body at the end of the payload.
+      required:
+        - signature_location
+        - payload_format
+        - include_raw_body_at_end_of_payload
+
+    SignatureLocation:
+      type: string
+      enum:
+        - header
+        - body
+
+    HmacAlgorithm:
+      type: string
+      enum:
+        - Sha1
+        - Sha256
+        - Sha512
+
+    Encoding:
+      type: string
+      enum:
+        - Base64
+        - Base64Uri
+        - Hex
         
     WebhookBasicAuthentication:
       username:
@@ -13879,13 +13921,13 @@ components:
     
     WebhookAuthenticationMethod:
       oneOf:
-        - $ref: "#/components/schemas/WebhookHmacAuthentication"
+        - $ref: "#/components/schemas/HmacAuthentication"
         - $ref: "#/components/schemas/WebhookBasicAuthentication"
         - $ref: "#/components/schemas/WebhookApiKey"
       discriminator:
         propertyName: type
         mapping:
-          HMAC: "#/components/schemas/WebhookHmacAuthentication"
+          HMAC: "#/components/schemas/HmacAuthentication"
           BASIC: "#/components/schemas/WebhookBasicAuthentication"
           API_KEY: "#/components/schemas/WebhookApiKey"
 
@@ -13896,6 +13938,9 @@ components:
           $ref: "#/components/schemas/WebhookType"
         authentication_method:
           $ref: "#/components/schemas/WebhookAuthenticationMethod"
+      required:
+        - type
+
 
     NewHttpTrigger:
       type: object
@@ -13929,8 +13974,8 @@ components:
             - put
             - delete
             - patch
-        webhook_resource_path:
-          type: string 
+        webhook_auth:
+          $ref: "#/components/schemas/Webhook" 
         is_async:
           type: boolean
         requires_auth:
@@ -13974,8 +14019,8 @@ components:
               type: string
           required:
             - s3
-        webhook_resource_path:
-          type: string 
+        webhook_auth:
+          $ref: "#/components/schemas/Webhook"
         is_flow:
           type: boolean
         http_method:

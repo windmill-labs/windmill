@@ -1,10 +1,29 @@
+use crate::webhook::{PayloadConstruction, SignatureLocation, SignatureParse};
+
 use super::{
-    Encoding, HmacAlgorithm, HmacAuthenticationData, HmacAuthenticationDetails,
-    TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    Encoding, HmacAlgorithm, WebhookAuthenticationMethod, WebhookError, WebhookHandler,
+    WebhookHmacValidator,
 };
 use axum::response::Response;
 use http::HeaderMap;
-use std::borrow::Cow;
+
+lazy_static::lazy_static! {
+    pub static ref SHOPIFY_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+        prefix: None,
+        payload_construction: PayloadConstruction {
+            signature_location: SignatureLocation::Header(SignatureParse {
+                signature_header_name: "X-Shopify-Hmac-Sha256".to_string(),
+                parsing_rules: None,
+            }),
+            payload_format: vec![],
+            payload_separator: None,
+            include_raw_body_at_end_of_payload: true,
+        },
+        signature_encoding: Encoding::Base64,
+        algorithm: HmacAlgorithm::Sha256,
+    };
+}
+
 pub struct Shopify;
 
 impl WebhookHandler for Shopify {
@@ -15,19 +34,5 @@ impl WebhookHandler for Shopify {
         _: &str,
     ) -> Result<Option<Response>, WebhookError> {
         Ok(None)
-    }
-
-    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
-        &self,
-        headers: &'header HeaderMap,
-        raw_payload: &'payload str,
-    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
-        let shopify_secret_header = headers.try_get_webhook_header("X-Shopify-Hmac-Sha256")?;
-        Ok(HmacAuthenticationData::new(
-            Cow::Borrowed(raw_payload),
-            shopify_secret_header,
-            None,
-            HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Base64),
-        ))
     }
 }

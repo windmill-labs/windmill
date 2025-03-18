@@ -1,14 +1,30 @@
+use crate::webhook::{PayloadConstruction, SignatureLocation, SignatureParse};
+
 use super::{
-    verify_hmac_signature, Encoding, HmacAlgorithm, HmacAuthenticationData,
-    HmacAuthenticationDetails, TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError,
-    WebhookHandler,
+    Encoding, HmacAlgorithm, TryGetWebhookHeader, WebhookAuthenticationMethod, WebhookError,
+    WebhookHandler, WebhookHmacValidator, WebhookVerifier,
 };
 use axum::{body::Body, response::Response};
 use http::HeaderMap;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use std::borrow::Cow;
 
+lazy_static::lazy_static! {
+    pub static ref TWITCH_WEBHOOK_VALIDATOR: WebhookHmacValidator = WebhookHmacValidator {
+        prefix: Some("sha256=".to_string()),
+        payload_construction: PayloadConstruction {
+            signature_location: SignatureLocation::Header(SignatureParse {
+                signature_header_name: "Twitch-Eventsub-Message-Signature".to_string(),
+                parsing_rules: None,
+            }),
+            payload_format: vec!["Twitch-Eventsub-Message-Id".to_string(), "Twitch-Eventsub-Message-Timestamp".to_string()],
+            payload_separator: None,
+            include_raw_body_at_end_of_payload: true,
+        },
+        signature_encoding: Encoding::Hex,
+        algorithm: HmacAlgorithm::Sha256,
+    };
+}
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
@@ -30,9 +46,11 @@ impl WebhookHandler for Twitch {
     ) -> Result<Option<Response>, WebhookError> {
         match &authentication_method {
             WebhookAuthenticationMethod::HMAC(hmac) => {
-                let authentication_data =
-                    self.get_hmac_authentication_data(headers, raw_payload)?;
-                verify_hmac_signature(authentication_data, &hmac.webhook_signing_secret)?;
+                TWITCH_WEBHOOK_VALIDATOR.validate_hmac_signature(
+                    headers,
+                    &hmac.webhook_signing_secret,
+                    raw_payload,
+                )?;
             }
             _ => {
                 tracing::error!("Twitch webhook should only handle hmac authentication");
@@ -58,30 +76,5 @@ impl WebhookHandler for Twitch {
             .unwrap();
 
         Ok(Some(response))
-    }
-
-    fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
-        &self,
-        headers: &'header HeaderMap,
-        raw_payload: &'payload str,
-    ) -> Result<HmacAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
-        let twitch_secret_signature =
-            headers.try_get_webhook_header("Twitch-Eventsub-Message-Signature")?;
-        let twitch_message_id_header =
-            headers.try_get_webhook_header("Twitch-Eventsub-Message-Id header")?;
-        let twitch_timestamp_header =
-            headers.try_get_webhook_header("Twitch-Eventsub-Message-Timestamp")?;
-
-        let message = format!(
-            "{}{}{}",
-            twitch_message_id_header, twitch_timestamp_header, raw_payload
-        );
-
-        Ok(HmacAuthenticationData::new(
-            Cow::Owned(message),
-            twitch_secret_signature,
-            Some("sha256="),
-            HmacAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
-        ))
     }
 }
