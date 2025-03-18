@@ -19,6 +19,7 @@
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
 	import ScriptFix from './copilot/ScriptFix.svelte'
+	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema | { properties?: Record<string, any> }
@@ -144,6 +145,50 @@
 	</Pane>
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>
+			<Pane size={50} minSize={10} class="text-sm text-tertiary">
+				<OutputPickerInner fullResult>
+					{#if scriptProgress}
+						<JobProgressBar
+							job={testJob}
+							bind:scriptProgress
+							bind:reset={jobProgressReset}
+							compact={true}
+						/>
+					{/if}
+					{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
+						<div class="break-words relative h-full p-2">
+							<DisplayResult
+								bind:forceJson
+								workspaceId={testJob?.workspace_id}
+								jobId={testJob?.id}
+								result={testJob.result}
+							>
+								<svelte:fragment slot="copilot-fix">
+									{#if lang && editor && diffEditor && stepArgs && typeof testJob?.result == 'object' && `error` in testJob?.result && testJob?.result.error}
+										<ScriptFix
+											error={JSON.stringify(testJob.result.error)}
+											{lang}
+											{editor}
+											{diffEditor}
+											args={stepArgs}
+										/>
+									{/if}
+								</svelte:fragment>
+							</DisplayResult>
+						</div>
+					{:else}
+						<div class="p-2">
+							{#if testIsLoading}
+								{#if !scriptProgress}
+									<Loader2 class="animate-spin" />
+								{/if}
+							{:else}
+								Test to see the result here
+							{/if}
+						</div>
+					{/if}
+				</OutputPickerInner>
+			</Pane>
 			<Pane size={50} minSize={10}>
 				<LogViewer
 					small
@@ -154,48 +199,6 @@
 					isLoading={testIsLoading && testJob?.['running'] == false}
 					tag={testJob?.tag}
 				/>
-			</Pane>
-			<Pane size={50} minSize={10} class="text-sm text-tertiary">
-				{#if scriptProgress}
-					<JobProgressBar
-						job={testJob}
-						bind:scriptProgress
-						bind:reset={jobProgressReset}
-						compact={true}
-					/>
-				{/if}
-				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<div class="break-words relative h-full p-2">
-						<DisplayResult
-							bind:forceJson
-							workspaceId={testJob?.workspace_id}
-							jobId={testJob?.id}
-							result={testJob.result}
-						>
-							<svelte:fragment slot="copilot-fix">
-								{#if lang && editor && diffEditor && stepArgs && typeof testJob?.result == 'object' && `error` in testJob?.result && testJob?.result.error}
-									<ScriptFix
-										error={JSON.stringify(testJob.result.error)}
-										{lang}
-										{editor}
-										{diffEditor}
-										args={stepArgs}
-									/>
-								{/if}
-							</svelte:fragment>
-						</DisplayResult>
-					</div>
-				{:else}
-					<div class="p-2">
-						{#if testIsLoading}
-							{#if !scriptProgress}
-								<Loader2 class="animate-spin" />
-							{/if}
-						{:else}
-							Test to see the result here
-						{/if}
-					</div>
-				{/if}
 			</Pane>
 		</Splitpanes>
 	</Pane>

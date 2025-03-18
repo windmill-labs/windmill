@@ -22,6 +22,7 @@
 		  }
 		| undefined = { enabled: false }
 	export let moduleId: string = ''
+	export let fullResult: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -124,41 +125,45 @@
 			/>
 		</div>
 	{/if}
-	<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
-		{#if !jsonData || jsonData === 'never tested this far'}
-			<div class="flex flex-col items-center justify-center h-full">
-				<p class="text-xs text-secondary">Test this step to see results</p>
-			</div>
-		{:else if jsonView}
-			<JsonEditor
-				small
-				on:changeValue={({ detail }) => {
-					if (mock?.enabled) {
-						const newMock = {
-							enabled: true,
-							return_value: structuredClone(detail)
+	{#if fullResult}
+		<slot />
+	{:else}
+		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
+			{#if !jsonData || jsonData === 'never tested this far'}
+				<div class="flex flex-col items-center justify-center h-full">
+					<p class="text-xs text-secondary">Test this step to see results</p>
+				</div>
+			{:else if jsonView}
+				<JsonEditor
+					small
+					on:changeValue={({ detail }) => {
+						if (mock?.enabled) {
+							const newMock = {
+								enabled: true,
+								return_value: structuredClone(detail)
+							}
+							mock = newMock
+							dispatch('updateMock', newMock)
 						}
-						mock = newMock
-						dispatch('updateMock', newMock)
-					}
-					jsonData = detail
-				}}
-				code={JSON.stringify(
-					mock?.enabled && mock.return_value ? mock.return_value : jsonData,
-					null,
-					2
-				)}
-				class="h-full"
-			/>
-		{:else}
-			<ObjectViewer
-				json={mock?.enabled && mock.return_value ? mock.return_value : jsonData}
-				topBrackets={false}
-				pureViewer={false}
-				{prefix}
-				on:select
-				{allowCopy}
-			/>
-		{/if}
-	</div>
+						jsonData = detail
+					}}
+					code={JSON.stringify(
+						mock?.enabled && mock.return_value ? mock.return_value : jsonData,
+						null,
+						2
+					)}
+					class="h-full"
+				/>
+			{:else}
+				<ObjectViewer
+					json={mock?.enabled && mock.return_value ? mock.return_value : jsonData}
+					topBrackets={false}
+					pureViewer={false}
+					{prefix}
+					on:select
+					{allowCopy}
+				/>
+			{/if}
+		</div>
+	{/if}
 </div>
