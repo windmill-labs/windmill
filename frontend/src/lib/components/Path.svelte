@@ -540,10 +540,10 @@
 					class="mt-4"
 					title="Moving this item will break the following flows referencing it :"
 				>
-					<ul>
+					<ul class="list-disc">
 						{#each pathUsageInFlows as flowPath}
 							<li>
-								• <a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
+								<a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
 									{flowPath}
 								</a>
 							</li>
@@ -559,10 +559,10 @@
 					class="mt-4"
 					title="Moving this item will break the following apps referencing it :"
 				>
-					<ul>
+					<ul class="list-disc">
 						{#each pathUsageInApps as appPath}
 							<li>
-								• <a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
+								<a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
 									{appPath}
 								</a>
 							</li>
