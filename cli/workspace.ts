@@ -40,9 +40,13 @@ async function getActiveWorkspaceName(
     return opts?.workspace;
   }
   try {
-    return await Deno.readTextFile((await getRootStore()) + "/activeWorkspace");
+    return (await Deno.readTextFile(".wmill/activeWorkspace")).trim();
   } catch {
-    return undefined;
+    try {
+      return await Deno.readTextFile((await getRootStore()) + "/activeWorkspace");
+    } catch {
+      return undefined;
+    }
   }
 }
 
@@ -120,6 +124,14 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
 }
 
 export async function setActiveWorkspace(workspaceName: string) {
+  try {
+    if (Deno.statSync('.wmill').isDirectory) {
+      await Deno.writeTextFile(".wmill/activeWorkspace", workspaceName);
+      return;
+    }
+  } catch {
+    log.info("No .wmill folder found, set active workspace global");
+  }
   await Deno.writeTextFile(
     (await getRootStore()) + "/activeWorkspace",
     workspaceName
