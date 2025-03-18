@@ -332,13 +332,9 @@
 	)
 
 	$: displayPathChangedWarning =
-		kind != 'app' &&
-		kind != 'schedule' &&
-		kind != 'http_trigger' &&
-		kind != 'websocket_trigger' &&
-		initialPath != '' &&
-		initialPath != undefined &&
-		initialPath != path
+		(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
+		initialPath &&
+		initialPath !== path
 
 	$: pathUsageInFlowsPromise =
 		displayPathChangedWarning &&
