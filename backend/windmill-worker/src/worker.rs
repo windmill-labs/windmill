@@ -2333,6 +2333,70 @@ pub async fn get_script_content_by_hash(
     })
 }
 
+async fn try_validate_schema(
+    job: &QueuedJob,
+    db: &Pool<Postgres>,
+    schema_validator: Option<&SchemaValidator>,
+    code: &str,
+    language: Option<&ScriptLang>,
+) -> Result<(), Error> {
+    if let Some(args) = job.args.as_ref() {
+        if job.job_kind == JobKind::Preview {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                "\n--- ARGS VALIDATION ---\nScript contains `schema_validation` annotation, running schema validation for the script arguments...\n",
+                db,
+            )
+            .await;
+        }
+        if let Some(sv) = schema_validator {
+            sv.validate(args)?;
+        } else {
+            let sv_fut = async move {
+                if let Some(sig) = parse_sig_of_lang(
+                    code,
+                    language,
+                    job.script_entrypoint_override.clone(),
+                )? {
+                    Ok(schema_validator_from_main_arg_sig(&sig))
+                } else {
+                    Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
+                }
+            }
+            .map_ok(Arc::new);
+
+            let sub_key = match job.job_kind {
+                JobKind::Script => 0,
+                JobKind::FlowScript => 1,
+                JobKind::AppScript => 2,
+                JobKind::Script_Hub => 3,
+                _ => 255,
+            };
+
+            let sv = match job.script_hash {
+                Some(hash) if sub_key != 255 => {
+                    let validators_cache = cache::anon!({ (u8, ScriptHash) => Arc<SchemaValidator> } in "schemavalidators" <= 1000);
+
+                    sv_fut.cached(validators_cache, (sub_key, hash)).await?
+                }
+                _ => sv_fut.await?,
+            };
+
+            sv.validate(args)?
+        }
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            "Script arguments were validated!\n\n",
+            db,
+        )
+        .await;
+    }
+
+    Ok(())
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &QueuedJob,
@@ -2487,59 +2551,7 @@ async fn handle_code_execution_job(
     };
 
     if *validate_schema {
-        if let Some(args) = job.args.as_ref() {
-            if job.job_kind == JobKind::Preview {
-                append_logs(
-                    &job.id,
-                    &job.workspace_id,
-                    "\n--- ARGS VALIDATION ---\nScript contains `schema_validation` annotation, running schema validation for the script arguments...\n",
-                    db,
-                )
-                .await;
-            }
-            if let Some(sv) = schema_validator {
-                sv.validate(args)?;
-            } else {
-                let sv_fut = async move {
-                    if let Some(sig) = parse_sig_of_lang(
-                        code,
-                        language.as_ref(),
-                        job.script_entrypoint_override.clone(),
-                    )? {
-                        Ok(schema_validator_from_main_arg_sig(&sig))
-                    } else {
-                        Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
-                    }
-                }
-                .map_ok(Arc::new);
-
-                let sub_key = match job.job_kind {
-                    JobKind::Script => 0,
-                    JobKind::FlowScript => 1,
-                    JobKind::AppScript => 2,
-                    JobKind::Script_Hub => 3,
-                    _ => 255,
-                };
-
-                let sv = match job.script_hash {
-                    Some(hash) if sub_key != 255 => {
-                        let validators_cache = cache::anon!({ (u8, ScriptHash) => Arc<SchemaValidator> } in "schemavalidators" <= 1000);
-
-                        sv_fut.cached(validators_cache, (sub_key, hash)).await?
-                    }
-                    _ => sv_fut.await?,
-                };
-
-                sv.validate(args)?
-            }
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                "Script arguments were validated!\n\n",
-                db,
-            )
-            .await;
-        }
+        try_validate_schema(job, db, schema_validator.as_ref(), code, language.as_ref()).await?;
     }
 
     let language = *language;
