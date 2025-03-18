@@ -212,7 +212,7 @@ pub async fn resolve_dependencies<'a>(
         .await;
 
         let mut cmd = Command::new(if cfg!(windows) {
-            "mvn"
+            "mvn.cmd"
         } else {
             MAVEN_PATH.as_str()
         });
@@ -441,7 +441,7 @@ async fn init<'a>(
 
     let child = {
         let mut cmd = Command::new(if cfg!(windows) {
-            "mvn"
+            "mvn.cmd"
         } else {
             MAVEN_PATH.as_str()
         });
@@ -547,7 +547,7 @@ async fn install<'a>(
                 )));
             };
             let mut cmd = Command::new(if cfg!(windows) {
-                "mvn"
+                "mvn.cmd"
             } else {
                 MAVEN_PATH.as_str()
             });
