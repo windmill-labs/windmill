@@ -28,7 +28,6 @@ use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{format_completed_job_result, format_result, ENTRYPOINT_OVERRIDE};
 use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR};
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
@@ -4397,7 +4396,6 @@ async fn run_preview_script(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn run_bundle_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -4407,8 +4405,6 @@ async fn run_bundle_preview_script(
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
     use windmill_common::scripts::PREVIEW_IS_TAR_CODEBASE_HASH;
-
-    check_license_key_valid().await?;
 
     check_scopes(&authed, || format!("jobs:runscript"))?;
     if authed.is_operator {
@@ -4457,8 +4453,8 @@ async fn run_bundle_preview_script(
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
                     lock: preview.lock,
-                    concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
-                    concurrency_time_window_s: None, // TODO(gbouv): same as above
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
                     cache_ttl: None,
                     dedicated_worker: preview.dedicated_worker,
                     custom_concurrency_key: None,
@@ -4504,21 +4500,48 @@ async fn run_bundle_preview_script(
 
             uploaded = true;
 
-            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
                 .read()
                 .await
-                .clone()
+                .clone();
+
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            let object_store: Option<()> = None;
+
+            if &windmill_common::utils::MODE_AND_ADDONS.mode
+                == &windmill_common::utils::Mode::Standalone
+                && object_store.is_none()
             {
-                let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-                if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data.into())
-                    .await
-                {
-                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                    return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                }
+                std::fs::create_dir_all(
+                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
+                )?;
+                windmill_common::worker::write_file_bytes(
+                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                    &id,
+                    &data,
+                )?;
             } else {
-                return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+                {
+                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
+                }
+
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                if let Some(os) = object_store {
+                    check_license_key_valid().await?;
+
+                    let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+                    if let Err(e) = os
+                        .put(&object_store::path::Path::from(path.clone()), data.into())
+                        .await
+                    {
+                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
+                    }
+                } else {
+                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                }
             }
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
@@ -4535,13 +4558,6 @@ async fn run_bundle_preview_script(
     tx.unwrap().commit().await?;
 
     Ok((StatusCode::CREATED, job_id.unwrap().to_string()))
-}
-
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-async fn run_bundle_preview_script() -> error::Result<(StatusCode, String)> {
-    return Err(Error::BadRequest(
-        "bundle preview is an ee feature".to_string(),
-    ));
 }
 
 #[derive(Deserialize)]
@@ -4952,6 +4968,13 @@ async fn add_batch_jobs(
     }
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
+        sqlx::query!(
+            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
+             VALUES ($1, '{}'::jsonb)",
+            &custom_concurrency_key
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
             custom_concurrency_key,

@@ -1,14 +1,11 @@
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
+use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use object_store::ObjectStore;
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use std::sync::Arc;
@@ -112,17 +109,38 @@ pub async fn pull_from_tar(
     );
     let bytes = attempt_fetch_bytes(client, &tar_path).await?;
 
-    windmill_common::worker::extract_tar(bytes, &folder)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to extract tar {folder_name}. Error: {:?}", e);
-            e
-        })?;
+    extract_tar(bytes, &folder).map_err(|e| {
+        tracing::error!("Failed to extract piptar {folder_name}. Error: {:?}", e);
+        e
+    })?;
 
     tracing::info!(
         "Finished pulling and extracting {folder_name}. Took {:?}ms",
         start.elapsed().as_millis()
     );
 
+    Ok(())
+}
+
+pub fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
+    use bytes::Buf;
+
+    let start: Instant = Instant::now();
+    std::fs::create_dir_all(&folder)?;
+
+    let mut ar = tar::Archive::new(tar.reader());
+
+    if let Err(e) = ar.unpack(folder) {
+        tracing::info!("Failed to untar to {folder}. Error: {:?}", e);
+        std::fs::remove_dir_all(&folder)?;
+        return Err(error::Error::ExecutionErr(format!(
+            "Failed to untar tar {folder}. Error: {:?}",
+            e
+        )));
+    }
+    tracing::info!(
+        "Finished extracting tar to {folder}. Took {}ms",
+        start.elapsed().as_millis(),
+    );
     Ok(())
 }

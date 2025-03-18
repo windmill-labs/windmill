@@ -578,6 +578,7 @@ export type HttpTrigger = TriggerExtraProperty & {
     is_async: boolean;
     requires_auth: boolean;
     is_static_website: boolean;
+    workspaced_route?: boolean;
 };
 
 export type http_method = 'get' | 'post' | 'put' | 'delete' | 'patch';
@@ -586,6 +587,7 @@ export type NewHttpTrigger = {
     path: string;
     script_path: string;
     route_path: string;
+    workspaced_route?: boolean;
     static_asset_config?: {
         s3: string;
         storage?: string;
@@ -602,6 +604,7 @@ export type EditHttpTrigger = {
     path: string;
     script_path: string;
     route_path?: string;
+    workspaced_route?: boolean;
     static_asset_config?: {
         s3: string;
         storage?: string;
@@ -626,6 +629,7 @@ export type TriggersCount = {
     postgres_count?: number;
     kafka_count?: number;
     nats_count?: number;
+    mqtt_count?: number;
     sqs_count?: number;
 };
 
@@ -681,6 +685,64 @@ export type WebsocketTriggerInitialMessage = {
         args: ScriptArgs;
         is_flow: boolean;
     };
+};
+
+export type MqttQoS = 'qos0' | 'qos1' | 'qos2';
+
+export type MqttV3Config = {
+    clean_session?: boolean;
+};
+
+export type MqttV5Config = {
+    clean_start?: boolean;
+    topic_alias?: number;
+    session_expiry_interval?: number;
+};
+
+export type MqttSubscribeTopic = {
+    qos: MqttQoS;
+    topic: string;
+};
+
+export type MqttClientVersion = 'v3' | 'v5';
+
+export type MqttTrigger = TriggerExtraProperty & {
+    mqtt_resource_path: string;
+    subscribe_topics: Array<MqttSubscribeTopic>;
+    v3_config?: MqttV3Config;
+    v5_config?: MqttV5Config;
+    client_id?: string;
+    client_version?: MqttClientVersion;
+    server_id?: string;
+    last_server_ping?: string;
+    error?: string;
+    enabled: boolean;
+};
+
+export type NewMqttTrigger = {
+    mqtt_resource_path: string;
+    subscribe_topics: Array<MqttSubscribeTopic>;
+    client_id?: string;
+    v3_config?: MqttV3Config;
+    v5_config?: MqttV5Config;
+    client_version?: MqttClientVersion;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled?: boolean;
+};
+
+export type EditMqttTrigger = {
+    mqtt_resource_path: string;
+    subscribe_topics: Array<MqttSubscribeTopic>;
+    client_id?: string;
+    v3_config?: MqttV3Config;
+    v5_config?: MqttV5Config;
+    client_version?: MqttClientVersion;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled: boolean;
 };
 
 export type SqsTrigger = TriggerExtraProperty & {
@@ -1002,6 +1064,10 @@ export type Policy = {
     s3_inputs?: Array<{
         [key: string]: unknown;
     }>;
+    allowed_s3_keys?: Array<{
+        s3_path?: string;
+        resource?: string;
+    }>;
     execution_mode?: 'viewer' | 'publisher' | 'anonymous';
     on_behalf_of?: string;
     on_behalf_of_email?: string;
@@ -1147,7 +1213,7 @@ export type WorkspaceGitSyncSettings = {
 
 export type WorkspaceDeployUISettings = {
     include_path?: Array<(string)>;
-    include_type?: Array<('script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret')>;
+    include_type?: Array<('script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger')>;
 };
 
 export type WorkspaceDefaultScripts = {
@@ -1289,7 +1355,7 @@ export type CriticalAlert = {
     workspace_id?: (string) | null;
 };
 
-export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats' | 'postgres' | 'sqs';
+export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats' | 'postgres' | 'sqs' | 'mqtt';
 
 export type Capture = {
     trigger_kind: CaptureTriggerKind;
@@ -2826,6 +2892,7 @@ export type GetUsedTriggersResponse = ({
     kafka_used: boolean;
     nats_used: boolean;
     postgres_used: boolean;
+    mqtt_used: boolean;
     sqs_used: boolean;
 });
 
@@ -5729,6 +5796,7 @@ export type ExistsRouteData = {
         route_path: string;
         http_method: 'get' | 'post' | 'put' | 'delete' | 'patch';
         trigger_path?: string;
+        workspaced_route?: boolean;
     };
     workspace: string;
 };
@@ -6090,6 +6158,95 @@ export type TestSqsConnectionData = {
 };
 
 export type TestSqsConnectionResponse = (string);
+
+export type CreateMqttTriggerData = {
+    /**
+     * new mqtt trigger
+     */
+    requestBody: NewMqttTrigger;
+    workspace: string;
+};
+
+export type CreateMqttTriggerResponse = (string);
+
+export type UpdateMqttTriggerData = {
+    path: string;
+    /**
+     * updated trigger
+     */
+    requestBody: EditMqttTrigger;
+    workspace: string;
+};
+
+export type UpdateMqttTriggerResponse = (string);
+
+export type DeleteMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type DeleteMqttTriggerResponse = (string);
+
+export type GetMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetMqttTriggerResponse = (MqttTrigger);
+
+export type ListMqttTriggersData = {
+    isFlow?: boolean;
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    /**
+     * filter by path
+     */
+    path?: string;
+    pathStart?: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    workspace: string;
+};
+
+export type ListMqttTriggersResponse = (Array<MqttTrigger>);
+
+export type ExistsMqttTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type ExistsMqttTriggerResponse = (boolean);
+
+export type SetMqttTriggerEnabledData = {
+    path: string;
+    /**
+     * updated mqtt trigger enable
+     */
+    requestBody: {
+        enabled: boolean;
+    };
+    workspace: string;
+};
+
+export type SetMqttTriggerEnabledResponse = (string);
+
+export type TestMqttConnectionData = {
+    /**
+     * test mqtt connection
+     */
+    requestBody: {
+        connection: {
+            [key: string]: unknown;
+        };
+    };
+    workspace: string;
+};
+
+export type TestMqttConnectionResponse = (string);
 
 export type IsValidPostgresConfigurationData = {
     path: string;
@@ -6513,6 +6670,13 @@ export type GetFolderData = {
 
 export type GetFolderResponse = (Folder);
 
+export type ExistsFolderData = {
+    name: string;
+    workspace: string;
+};
+
+export type ExistsFolderResponse = (boolean);
+
 export type GetFolderUsageData = {
     name: string;
     workspace: string;
@@ -6625,7 +6789,7 @@ export type ListAutoscalingEventsData = {
 export type ListAutoscalingEventsResponse = (Array<AutoscalingEvent>);
 
 export type GetGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
     path: string;
     workspace: string;
 };
@@ -6635,7 +6799,7 @@ export type GetGranularAclsResponse = ({
 });
 
 export type AddGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
     path: string;
     /**
      * acl to add
@@ -6650,7 +6814,7 @@ export type AddGranularAclsData = {
 export type AddGranularAclsResponse = (string);
 
 export type RemoveGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
     path: string;
     /**
      * acl to add

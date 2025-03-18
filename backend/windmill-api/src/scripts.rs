@@ -18,7 +18,6 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use axum::extract::Multipart;
 
 use axum::{
@@ -42,7 +41,6 @@ use std::{
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
@@ -358,12 +356,6 @@ fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-async fn create_snapshot_script() -> Result<(StatusCode, String)> {
-    Err(Error::BadRequest("Upgrade to EE to use bundle".to_string()))
-}
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn create_snapshot_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -404,21 +396,48 @@ async fn create_snapshot_script(
             })?;
 
             uploaded = true;
-            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
                 .read()
                 .await
-                .clone()
+                .clone();
+
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            let object_store: Option<()> = None;
+
+            if &windmill_common::utils::MODE_AND_ADDONS.mode
+                == &windmill_common::utils::Mode::Standalone
+                && object_store.is_none()
             {
-                let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-                if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data.into())
-                    .await
-                {
-                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                    return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                }
+                std::fs::create_dir_all(
+                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
+                )?;
+                windmill_common::worker::write_file(
+                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                    &hash,
+                    &String::from_utf8_lossy(&data),
+                )?;
             } else {
-                return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+                {
+                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
+                }
+
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                if let Some(os) = object_store {
+                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+
+                    if let Err(e) = os
+                        .put(&object_store::path::Path::from(path.clone()), data.into())
+                        .await
+                    {
+                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
+                    }
+                } else {
+                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                }
             }
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
@@ -1466,12 +1485,18 @@ async fn delete_script_by_hash(
     Ok(Json(script))
 }
 
+#[derive(Deserialize)]
+struct DeleteScriptQuery {
+    keep_captures: Option<bool>,
+}
+
 async fn delete_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteScriptQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
 
@@ -1525,21 +1550,23 @@ async fn delete_script_by_path(
     .execute(&db)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
-        path,
-        w_id
-    )
-    .execute(&db)
-    .await?;
+    if !query.keep_captures.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
+            path,
+            w_id
+        )
+        .execute(&db)
+        .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
-        path,
-        w_id
-    )
-    .execute(&db)
-    .await?;
+        sqlx::query!(
+            "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
+            path,
+            w_id
+        )
+        .execute(&db)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

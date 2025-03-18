@@ -62,6 +62,7 @@ use windmill_common::BASE_URL;
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
+use crate::jobs_ee::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 
 #[cfg(feature = "prometheus")]
@@ -810,15 +811,19 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or_else(|| queued_job.full_path_with_workspace())
                 }
             };
-            if let Err(e) = sqlx::query_scalar!(
-                "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
-                concurrency_key,
-                queued_job.id.hyphenated().to_string(),
-            )
-            .execute(&mut *tx)
-            .await
-            {
-                tracing::error!("Could not decrement concurrency counter: {}", e);
+            if *DISABLE_CONCURRENCY_LIMIT {
+                tracing::warn!("Concurrency limit is disabled, skipping");
+            } else {
+                if let Err(e) = sqlx::query_scalar!(
+                    "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
+                    concurrency_key,
+                    queued_job.id.hyphenated().to_string(),
+                )
+                .execute(&mut *tx)
+                .await
+                {
+                    tracing::error!("Could not decrement concurrency counter: {}", e);
+                }
             }
 
             if let Err(e) = sqlx::query_scalar!(
@@ -1842,6 +1847,10 @@ impl std::ops::Deref for PulledJob {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
+}
+
 pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
@@ -1879,11 +1888,6 @@ pub async fn pull(
             return Ok((Option::Some(pulled_job), suspended));
         }
 
-        let mut tx = db.begin().await?;
-
-        // Else the job is subject to concurrency limits
-        let job_script_path = pulled_job.script_path.clone().unwrap();
-
         let job_concurrency_key = match concurrency_key(db, &pulled_job).await {
             Ok(key) => key,
             Err(e) => {
@@ -1907,110 +1911,67 @@ pub async fn pull(
             job_custom_concurrency_time_window_s
         );
 
-        sqlx::query_scalar!(
-            "SELECT null FROM v2_job_queue WHERE id = $1 FOR UPDATE",
-            pulled_job.id
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .context("lock job in queue")?;
-
         let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
             format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
         )
         .expect("Unable to serialize job_uuids column to proper JSON");
-        let running_job = sqlx::query_scalar!(
-            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) VALUES ($1, $2)
-        ON CONFLICT (concurrency_id) 
-        DO UPDATE SET job_uuids = jsonb_set(concurrency_counter.job_uuids, array[$3], '{}')
-        RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
-            job_concurrency_key,
-            jobs_uuids_init_json_value,
-            pulled_job.id.hyphenated().to_string(),
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Error getting concurrency count for script path {job_script_path}: {e:#}"
-            ))
-        })?;
-        tracing::debug!("running_job: {}", running_job.unwrap_or(0));
 
-        let completed_count = sqlx::query!(
-            "SELECT COUNT(*) as count, COALESCE(MAX(ended_at), now() - INTERVAL '1 second' * $2)  as max_ended_at FROM concurrency_key WHERE key = $1 AND ended_at >=  (now() - INTERVAL '1 second' * $2)",
-            job_concurrency_key,
-            f64::from(job_custom_concurrency_time_window_s),
-        ).fetch_one(&mut *tx).await.map_err(|e| {
-            Error::internal_err(format!(
-                "Error getting completed count for key {job_concurrency_key}: {e:#}"
-            ))
-        })?;
-
-        let min_started_at = sqlx::query!(
-            "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
-            FROM v2_as_queue
-            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false AND concurrent_limit > 0), $3) as min_started_at, now() AS now",
-            job_script_path,
-            &pulled_job.workspace_id,
-            completed_count.max_ended_at
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Error getting concurrency count for script path {job_script_path}: {e:#}"
-            ))
-        })?;
-
-        let concurrent_jobs_for_this_script =
-            completed_count.count.unwrap_or_default() as i32 + running_job.unwrap_or(0) as i32;
-        tracing::debug!(
-            "Current concurrent jobs for this script: {}",
-            concurrent_jobs_for_this_script
-        );
-        if concurrent_jobs_for_this_script <= job_custom_concurrent_limit {
+        let (within_limit, max_ended_at) = if *DISABLE_CONCURRENCY_LIMIT {
+            tracing::warn!("Concurrency limit is disabled, skipping");
+            (true, None)
+        } else {
+            update_concurrency_counter(
+                db,
+                &pulled_job.id,
+                job_concurrency_key.clone(),
+                jobs_uuids_init_json_value,
+                pulled_job.id.hyphenated().to_string(),
+                job_custom_concurrency_time_window_s,
+                job_custom_concurrent_limit,
+            )
+            .await?
+        };
+        if within_limit {
             #[cfg(feature = "prometheus")]
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            tx.commit().await?;
             return Ok((Option::Some(pulled_job), suspended));
         }
-        let x = sqlx::query_scalar!(
-            "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1 RETURNING (SELECT COUNT(*) FROM jsonb_object_keys(job_uuids))",
-            job_concurrency_key,
-            pulled_job.id.hyphenated().to_string(),
 
+        let job_script_path = pulled_job.script_path.clone().unwrap_or_default();
+
+        let min_started_at = sqlx::query!(
+            "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
+            FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+            WHERE v2_job.runnable_path = $1 AND v2_job.kind != 'dependencies'  AND v2_job_queue.running = true AND v2_job_queue.workspace_id = $2 AND v2_job_queue.canceled_by IS NULL AND v2_job.concurrent_limit > 0), $3) as min_started_at, now() AS now",
+            job_script_path,
+            &pulled_job.workspace_id,
+            max_ended_at
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(db)
         .await
         .map_err(|e| {
             Error::internal_err(format!(
-                "Error decreasing concurrency count for script path {job_script_path}: {e:#}"
+                "Error getting min started at for script path {job_script_path}: {e:#}"
             ))
         })?;
-
-        tracing::debug!("running_job after decrease: {}", x.unwrap_or(0));
 
         let job_uuid: Uuid = pulled_job.id;
         let avg_script_duration: Option<i64> = sqlx::query_scalar!(
             "SELECT CAST(ROUND(AVG(duration_ms), 0) AS BIGINT) AS avg_duration_s FROM
-                (SELECT duration_ms FROM concurrency_key LEFT JOIN v2_as_completed_job ON v2_as_completed_job.id = concurrency_key.job_id WHERE key = $1 AND ended_at IS NOT NULL
+                (SELECT duration_ms FROM concurrency_key LEFT JOIN v2_job_completed ON v2_job_completed.id = concurrency_key.job_id WHERE key = $1 AND ended_at IS NOT NULL
                 ORDER BY ended_at
                 DESC LIMIT 10) AS t",
             job_concurrency_key
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(db)
         .await?;
-        tracing::info!("avg script duration computed: {:?}", avg_script_duration);
+        tracing::debug!(
+            "avg script duration computed: {}",
+            avg_script_duration.unwrap_or(0)
+        );
 
-        // let before_me = sqlx::query!(
-        //     "SELECT schedu FROM queue WHERE script_path = $1 AND job_kind != 'dependencies' AND running = true AND workspace_id = $2 AND canceled = false AND started_at < $3 ORDER BY started_at DESC LIMIT 1",
-        //     job_script_path,
-        //     &pulled_job.workspace_id,
-        //     min_started_at.now.unwrap()
-        // )
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
         let inc = Duration::try_milliseconds(
             avg_script_duration.map(|x| i64::from(x + 100)).unwrap_or(0),
@@ -2021,38 +1982,56 @@ pub async fn pull(
                 .unwrap_or_default();
 
         let now = min_started_at.now.unwrap();
-        let min_started_p_inc = (min_started_at.min_started_at.unwrap_or(now) + inc)
-            .max(now + Duration::try_seconds(3).unwrap_or_default());
+        let min_started_at_or_now = min_started_at.min_started_at.unwrap_or(now);
+        let min_started_p_inc =
+            (min_started_at_or_now + inc).max(now + Duration::try_seconds(3).unwrap_or_default());
 
         let mut estimated_next_schedule_timestamp = min_started_p_inc;
+        let all_jobs = sqlx::query_scalar!(
+            "SELECT scheduled_for FROM v2_job_queue  INNER JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
+             WHERE key = $1 AND running = false AND canceled_by IS NULL AND scheduled_for >= $2",
+            job_concurrency_key,
+            estimated_next_schedule_timestamp - inc
+        ).fetch_all(db).await?;
+
+        tracing::debug!(
+            "all_jobs: {:?}, estimated_next_schedule_timestamp: {:?}, inc: {:?}",
+            all_jobs,
+            estimated_next_schedule_timestamp,
+            inc
+        );
+        let mut i = 0;
         loop {
-            let nestimated = estimated_next_schedule_timestamp + inc;
-            let jobs_in_window = sqlx::query_scalar!(
-                "SELECT COUNT(*) FROM v2_as_queue LEFT JOIN concurrency_key ON concurrency_key.job_id = v2_as_queue.id
-                 WHERE key = $1 AND running = false AND canceled = false AND scheduled_for >= $2 AND scheduled_for < $3",
-                job_concurrency_key,
-                estimated_next_schedule_timestamp,
-                nestimated
-            ).fetch_optional(&mut *tx).await?.flatten().unwrap_or(0) as i32;
-            tracing::info!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, nestimated: {nestimated}, inc: {inc}", estimated_next_schedule_timestamp);
-            if jobs_in_window < job_custom_concurrent_limit {
+            let jobs_in_window = all_jobs
+                .iter()
+                .filter(|&scheduled_for| scheduled_for <= &estimated_next_schedule_timestamp)
+                .count() as i32
+                - (job_custom_concurrent_limit * i);
+
+            tracing::debug!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, inc: {inc}", estimated_next_schedule_timestamp);
+
+            if jobs_in_window < job_custom_concurrent_limit || *DISABLE_CONCURRENCY_LIMIT {
                 break;
             } else {
-                estimated_next_schedule_timestamp = nestimated;
+                i += 1;
+                estimated_next_schedule_timestamp = estimated_next_schedule_timestamp + inc;
             }
         }
 
-        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
-            job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
+        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {} (min_started_at: {min_started_at_or_now}, avg script duration: {:?}, number of time windows full: {})", 
+            job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp, avg_script_duration, i);
 
         let job_log_event = format!(
-            "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds",
+            "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds (min_started_at: {min_started_at_or_now}, avg script duration: {:?}, number of time windows full: {})\n",
+            avg_script_duration, i
         );
         let _ = append_logs(&job_uuid, &pulled_job.workspace_id, job_log_event, db).await;
 
-        // if using posgtres, then we're able to re-queue the entire batch of scheduled job for this script_path, so we do it
         sqlx::query!(
-            "WITH ping AS (UPDATE v2_job_runtime SET ping = NULL WHERE id = $2 RETURNING id)
+            "
+            WITH ping AS (
+                UPDATE v2_job_runtime SET ping = null WHERE id = $2
+            )
             UPDATE v2_job_queue SET
                 running = false,
                 started_at = null,
@@ -2061,11 +2040,9 @@ pub async fn pull(
             estimated_next_schedule_timestamp,
             job_uuid,
         )
-        .execute(&mut *tx)
+        .execute(db)
         .await
         .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
-
-        tx.commit().await?
     }
 }
 
@@ -3717,7 +3694,12 @@ pub async fn push<'c, 'd>(
                 &job_kind,
             ));
         sqlx::query!(
-            "INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+            "WITH inserted_concurrency_counter AS (
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                VALUES ($1, '{}'::jsonb)
+                ON CONFLICT DO NOTHING
+            )
+            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
             concurrency_key,
             job_id,
         )

@@ -68,7 +68,7 @@ jobs:
           push: true
           # KJQXZ 
           build-args: |
-            features=embedding,parquet,openidconnect,deno_core,license,http_trigger,zip,oauth2,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust,nu,java
+            features=embedding,parquet,openidconnect,deno_core,license,http_trigger,zip,oauth2,php,mysql,mssql,bigquery,oracledb,postgres_trigger,mqtt_trigger,websocket,python,smtp,csharp,static_frontend,rust,java
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
             ${{ steps.meta-public.outputs.tags }}

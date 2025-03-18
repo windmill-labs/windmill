@@ -6,36 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{
-    extract::{Extension, Path, Query},
-    routing::{delete, get, head, post},
-    Json, Router,
-};
-#[cfg(feature = "http_trigger")]
-use http::HeaderMap;
-use hyper::StatusCode;
-#[cfg(feature = "http_trigger")]
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use sqlx::types::Json as SqlxJson;
-#[cfg(feature = "http_trigger")]
-use std::collections::HashMap;
-use std::fmt;
-#[cfg(feature = "http_trigger")]
-use windmill_common::error::Error;
-use windmill_common::{
-    db::UserDB,
-    error::{JsonResult, Result},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
-    worker::{to_raw_value, CLOUD_HOSTED},
-};
-use windmill_queue::{PushArgs, PushArgsOwned};
-
 #[cfg(feature = "http_trigger")]
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+#[cfg(feature = "mqtt_trigger")]
+use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 #[cfg(feature = "postgres_trigger")]
@@ -43,10 +19,18 @@ use crate::postgres_triggers::{
     create_logical_replication_slot_query, create_publication_query, drop_publication_query,
     generate_random_string, get_database_connection, PublicationData,
 };
+#[cfg(feature = "http_trigger")]
+use http::HeaderMap;
 #[cfg(feature = "postgres_trigger")]
 use itertools::Itertools;
 #[cfg(feature = "postgres_trigger")]
 use pg_escape::quote_literal;
+#[cfg(feature = "http_trigger")]
+use serde::de::DeserializeOwned;
+#[cfg(feature = "http_trigger")]
+use std::collections::HashMap;
+#[cfg(feature = "http_trigger")]
+use windmill_common::error::Error;
 
 use crate::{
     args::WebhookArgs,
@@ -54,6 +38,23 @@ use crate::{
     users::fetch_api_authed,
     utils::RunnableKind,
 };
+use axum::{
+    extract::{Extension, Path, Query},
+    routing::{delete, get, head, post},
+    Json, Router,
+};
+use hyper::StatusCode;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use sqlx::types::Json as SqlxJson;
+use std::fmt;
+use windmill_common::{
+    db::UserDB,
+    error::{JsonResult, Result},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    worker::{to_raw_value, CLOUD_HOSTED},
+};
+use windmill_queue::{PushArgs, PushArgsOwned};
 
 const KEEP_LAST: i64 = 20;
 
@@ -66,6 +67,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/get_configs/:runnable_kind/*path", get(get_configs))
         .route("/list/:runnable_kind/*path", get(list_captures))
+        .route(
+            "/move/:runnable_kind/*path",
+            post(move_captures_and_configs),
+        )
         .route("/:id", delete(delete_capture))
         .route("/:id", get(get_capture))
 }
@@ -99,6 +104,7 @@ pub enum TriggerKind {
     Kafka,
     Email,
     Nats,
+    Mqtt,
     Sqs,
     Postgres,
 }
@@ -112,6 +118,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Kafka => "kafka",
             TriggerKind::Email => "email",
             TriggerKind::Nats => "nats",
+            TriggerKind::Mqtt => "mqtt",
             TriggerKind::Sqs => "sqs",
             TriggerKind::Postgres => "postgres",
         };
@@ -156,6 +163,16 @@ pub struct NatsTriggerConfig {
     pub use_jetstream: bool,
 }
 
+#[cfg(feature = "mqtt_trigger")]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MqttTriggerConfig {
+    pub mqtt_resource_path: String,
+    pub subscribe_topics: Vec<SubscribeTopic>,
+    pub v3_config: Option<MqttV3Config>,
+    pub v5_config: Option<MqttV5Config>,
+    pub client_version: Option<MqttClientVersion>,
+    pub client_id: Option<String>,
+}
 #[cfg(feature = "postgres_trigger")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
@@ -188,6 +205,8 @@ enum TriggerConfig {
     Kafka(KafkaTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "nats"))]
     Nats(NatsTriggerConfig),
+    #[cfg(feature = "mqtt_trigger")]
+    Mqtt(MqttTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -431,6 +450,41 @@ async fn delete_capture(
     sqlx::query!("DELETE FROM capture WHERE id = $1", id)
         .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct MoveCapturesAndConfigsBody {
+    new_path: String,
+}
+
+async fn move_captures_and_configs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, old_path)): Path<(String, RunnableKind, StripPath)>,
+    Json(body): Json<MoveCapturesAndConfigsBody>,
+) -> Result<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    let old_path = old_path.to_path();
+    sqlx::query!(
+        "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        body.new_path,
+        old_path,
+        &w_id,
+        matches!(runnable_kind, RunnableKind::Flow),
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE capture SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        body.new_path,
+        old_path,
+        &w_id,
+        matches!(runnable_kind, RunnableKind::Flow),
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }

@@ -90,6 +90,10 @@
 			<Badge color="red" baseClass="!px-1.5">
 				<X size={14} />
 			</Badge>
+		{:else if 'running' in job && job.running && job.suspend}
+			<Badge color="violet" baseClass="!px-1.5" title="Suspended">
+				<Hourglass size={14} />
+			</Badge>
 		{:else if 'running' in job && job.running}
 			<Badge color="yellow" baseClass="!px-1.5">
 				<Play size={14} />
@@ -130,6 +134,11 @@
 					Scheduled for {displayDate(job.scheduled_for)}
 				{:else if job.canceled}
 					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
+					Waiting for executor (scheduled for <TimeAgo
+						agoOnlyIfRecent
+						date={job.scheduled_for || ''}
+					/>)
 				{:else}
 					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}

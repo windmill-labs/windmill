@@ -58,7 +58,7 @@ use windmill_common::error::AppError;
 
 mod ai;
 mod apps;
-mod args;
+pub mod args;
 mod audit;
 mod auth;
 mod capture;
@@ -89,6 +89,8 @@ pub mod job_metrics;
 pub mod jobs;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_ee;
+#[cfg(feature = "mqtt_trigger")]
+mod mqtt_triggers;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 mod nats_triggers_ee;
 #[cfg(feature = "oauth2")]
@@ -321,6 +323,18 @@ pub async fn run_server(
         }
     };
 
+    let mqtt_triggers_service = {
+        #[cfg(all(feature = "mqtt_trigger"))]
+        {
+            mqtt_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "mqtt_trigger"))]
+        {
+            Router::new()
+        }
+    };
+
     let sqs_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
@@ -363,7 +377,7 @@ pub async fn run_server(
         Router::new()
     };
 
-    if !*CLOUD_HOSTED {
+    if !*CLOUD_HOSTED && server_mode {
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
@@ -386,6 +400,12 @@ pub async fn run_server(
         {
             let db_killpill_rx = rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
+        }
+
+        #[cfg(feature = "mqtt_trigger")]
+        {
+            let mqtt_killpill_rx = rx.resubscribe();
+            mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
@@ -447,6 +467,7 @@ pub async fn run_server(
                         .nest("/websocket_triggers", websocket_triggers_service)
                         .nest("/kafka_triggers", kafka_triggers_service)
                         .nest("/nats_triggers", nats_triggers_service)
+                        .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service),
                 )
@@ -579,8 +600,9 @@ pub async fn run_server(
                 .on_failure(MyOnFailure {}),
         )
     };
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("binding main windmill server")?;
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
     let ip = listener
         .local_addr()

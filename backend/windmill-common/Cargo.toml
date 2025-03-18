@@ -8,6 +8,7 @@ edition.workspace = true
 default = []
 enterprise = []
 jemalloc = ["dep:tikv-jemalloc-ctl"]
+tantivy = []
 prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []

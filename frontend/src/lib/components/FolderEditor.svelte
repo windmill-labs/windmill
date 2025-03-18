@@ -276,6 +276,7 @@
 								{#if can_write}
 									<div>
 										<ToggleButtonGroup
+											disabled={owner_name == 'u/' + $userStore?.username && !$userStore?.is_admin}
 											selected={role}
 											let:item
 											on:selected={async (e) => {
@@ -343,7 +344,7 @@
 								{/if}</td
 							>
 							<td>
-								{#if can_write}
+								{#if can_write && (owner_name != 'u/' + $userStore?.username || $userStore?.is_admin)}
 									<button
 										class="ml-2 text-red-500"
 										on:click={async () => {
@@ -366,6 +367,8 @@
 											loadFolder()
 										}}>remove</button
 									>
+								{:else}
+									<span class="text-tertiary text-xs">cannot remove yourself</span>
 								{/if}</td
 							>
 						</tr>{/each}
