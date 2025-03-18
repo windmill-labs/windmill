@@ -27,7 +27,7 @@
 	aria-label="Toggle italic"
 	class=" items-center justify-center rounded-md
      hover:bg-surface-hover
-      data-[disabled]:cursor-not-allowed data-[state=on]:bg-surface-hover
+      data-[disabled]:cursor-not-allowed
       data-[state=on]:text-blue-500"
 >
 	<slot {pressed} />

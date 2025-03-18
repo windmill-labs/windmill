@@ -103,7 +103,11 @@
 						color="light"
 						size="xs2"
 						variant="contained"
-						btnClasses="bg-transparent"
+						btnClasses={`bg-transparent ${
+							mock?.enabled
+								? 'text-blue-500 outline outline-1 outline-blue-500 outline-offset-[-1px]'
+								: ''
+						}`}
 						startIcon={{ icon: Pin }}
 						iconOnly
 						nonCaptureEvent
@@ -114,8 +118,7 @@
 				size="2xs"
 				options={{
 					right: 'JSON',
-					rightTooltip:
-						'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+					rightTooltip: 'Edit the output as JSON'
 				}}
 				textClass="text-2xs"
 				bind:checked={jsonView}
