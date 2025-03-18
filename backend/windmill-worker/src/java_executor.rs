@@ -88,7 +88,8 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
                 .into_bytes(),
             )
             .await?;
-        if let Some(maven_config) = crate::MAVEN_CONFIG.read().await.clone() {
+        {
+            let maven_config = crate::MAVEN_CONFIG.read().await.clone().unwrap_or_default();
             write_file(JAVA_CACHE_DIR, "settings.xml", &maven_config)?;
         }
     }
