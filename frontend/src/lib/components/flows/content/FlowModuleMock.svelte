@@ -2,9 +2,11 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
-
+	import StepHistory from '$lib/components/flows/propPicker/StepHistory.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { Button, Section } from '$lib/components/common'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
-	import Section from '$lib/components/Section.svelte'
+	import { History } from 'lucide-svelte'
 
 	export let flowModule: FlowModule
 
@@ -48,34 +50,61 @@
 
 <Section label="Mock">
 	<svelte:fragment slot="header">
-		<Tooltip>
-			If defined and enabled, the step will immediately return the mock value instead of being
-			executed.
-		</Tooltip>
+		<div class="flex flex-row items-center gap-2">
+			<Tooltip>
+				If defined and enabled, the step will immediately return the mock value instead of being
+				executed.
+			</Tooltip>
+			<Toggle
+				checked={isMockEnabled}
+				on:change={() => {
+					if (isMockEnabled) {
+						flowModule.mock = {
+							enabled: false,
+							return_value: flowModule.mock?.return_value
+						}
+					} else {
+						flowModule.mock = {
+							enabled: true,
+							return_value: flowModule.mock?.return_value ?? { example: 'value' }
+						}
+						code = JSON.stringify(flowModule.mock?.return_value, null, 2)
+					}
+				}}
+				size="xs"
+			/>
+		</div>
 	</svelte:fragment>
 
-	<Toggle
-		checked={isMockEnabled}
-		on:change={() => {
-			if (isMockEnabled) {
-				flowModule.mock = {
-					enabled: false,
-					return_value: flowModule.mock?.return_value
-				}
-			} else {
-				flowModule.mock = {
-					enabled: true,
-					return_value: flowModule.mock?.return_value ?? { example: 'value' }
-				}
-				code = JSON.stringify(flowModule.mock?.return_value, null, 2)
-			}
-		}}
-		options={{
-			right: 'Enable step mocking'
-		}}
-	/>
 	<div>
-		<span class="text-xs font-bold">Mocked Return value</span>
+		<div class="text-xs flex flex-row items-center gap-1 py-1">
+			<span>Mocked Return value</span>
+			<Popover placement="bottom-end" contentClasses={'w-[275px]'}>
+				<svelte:fragment slot="trigger">
+					<Button
+						color="light"
+						size="xs2"
+						variant="border"
+						btnClasses="bg-transparent"
+						startIcon={{ icon: History }}
+						iconOnly
+						nonCaptureEvent
+					/>
+				</svelte:fragment>
+				<svelte:fragment slot="content">
+					<StepHistory
+						moduleId={flowModule.id}
+						on:select={({ detail }) => {
+							if (detail.result) {
+								updateMockValue({
+									detail
+								})
+							}
+						}}
+					/>
+				</svelte:fragment>
+			</Popover>
+		</div>
 		{#if isMockEnabled}
 			{#key renderCount}
 				<JsonEditor {code} on:changeValue={updateMockValue} />
