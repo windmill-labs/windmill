@@ -6913,6 +6913,10 @@ export type UnstarData = {
 export type UnstarResponse = (unknown);
 
 export type GetInputHistoryData = {
+    /**
+     * filter on jobs containing those args as a json subset (@> in postgres)
+     */
+    args?: string;
     includePreview?: boolean;
     /**
      * which page to return (start at 1, default 1)

@@ -1,149 +1,261 @@
 #![cfg_attr(target_arch = "wasm32", feature(c_variadic))]
 
-use anyhow::bail;
-use nu_protocol::{
-    ast::{Expr, Expression},
-    engine::StateWorkingSet,
-    PositionalArg, SyntaxShape,
-};
-use serde_json::{json, Map};
-use windmill_parser::{Arg, MainArgSignature, ObjectProperty};
+use anyhow::{anyhow, bail};
+use nu_parser::lex;
 
-// TODO: Preprocessors?
+use serde_json::{json, Value};
+use windmill_parser::{Arg, MainArgSignature, Typ};
+
 pub fn parse_nu_signature(code: &str) -> anyhow::Result<MainArgSignature> {
-    let engine_state = nu_cmd_lang::create_default_context();
-    let mut set = StateWorkingSet::new(&engine_state);
-    let block = { &nu_parser::parse(&mut set, None, code.as_bytes(), false) };
+    let (tokens, ..) = lex(code.as_bytes(), 0, &[], &[], true);
+    let src = code.to_owned();
+    #[derive(Debug)]
+    enum LastToken {
+        None,
+        Def,
+        Main,
+        Args(String),
+    }
+    let mut last_token = LastToken::None;
+    for token in tokens {
+        let s = token.span;
+        let cont = src.get(s.start..s.end).ok_or(anyhow!("Parsing error"))?;
+        last_token = match last_token {
+            LastToken::None if cont == "def" => LastToken::Def,
+            LastToken::Def if cont == "main" => LastToken::Main,
+            LastToken::Main => {
+                LastToken::Args(cont.get(1..(cont.len() - 1)).unwrap_or("Error").to_owned())
+            }
+            LastToken::Args(_) => break,
+            _ => LastToken::None,
+        };
+    }
 
-    let mut sig = MainArgSignature {
-        no_main_func: Some(true),
-        ..Default::default() //
+    let LastToken::Args(args) = last_token else {
+        bail!("Cannot find main function.");
     };
 
-    for pipeline in &block.pipelines {
-        for el in &pipeline.elements {
-            if let Expr::Call(ref call) = el.expr.expr {
-                let mut iter = call.positional_iter();
-                match (iter.next(), iter.next()) {
+    let mut sig = MainArgSignature::default();
+    sig.no_main_func = Some(false);
+
+    let batches = args
+        .lines()
+        .filter_map(|el| {
+            if el.trim_start().starts_with('#') {
+                None
+            } else {
+                Some(
+                    el.split(',')
+                        .map(|el| el.trim())
+                        .filter(|el| el != &"")
+                        .collect::<Vec<&str>>(),
+                )
+            }
+        })
+        .flatten()
+        .collect::<Vec<&str>>();
+
+    let mut compensate_lookahead = 0;
+    for (i, batch) in batches.iter().enumerate() {
+        // parse_default can lookahead and if it does we need to compensate
+        // otherwise we would try to parse data already parsed but not yielded by parse_default
+        if compensate_lookahead > 0 {
+            compensate_lookahead -= 1;
+            continue;
+        }
+
+        let type_start = batch.find(":");
+        let default_start = batch.find("=");
+
+        let (name, typ, default) = match (type_start, default_start) {
+            (None, None) => (batch.trim(), None, None),
+            (None, Some(d)) => (
+                batch
+                    .get(0..d)
+                    .ok_or(anyhow!("Cannot parse argument ident"))?
+                    .trim(),
+                None,
+                Some(parse_default(
+                    &batch
+                        .get(d..)
+                        .ok_or(anyhow!("Cannot parse default value for argument"))?,
+                    &batches,
+                    i,
+                    &mut compensate_lookahead,
+                )?),
+            ),
+            (Some(t), None) => (
+                batch
+                    .get(0..t)
+                    .ok_or(anyhow!("Cannot parse argument ident"))?
+                    .trim(),
+                Some(parse_type(
+                    &batch
+                        .get(t..)
+                        .ok_or(anyhow!("Cannot parse type of argument"))?,
+                )?),
+                None,
+            ),
+            (Some(t), Some(d)) => {
+                if t < d {
                     (
-                        Some(Expression { expr: Expr::String(fn_name), .. }),
-                        Some(Expression { expr: Expr::Signature(nu_sig), .. }),
-                    ) if fn_name == "main" => {
-                        sig.no_main_func = Some(false);
-                        let mut handle_arg =
-                            |PositionalArg { name, desc: _, shape, var_id: _, default_value },
-                             has_default|
-                             -> anyhow::Result<()> {
-                                let or_null = if has_default { Some(json!(null)) } else { None };
-                                sig.args.push(Arg {
-                                    name: name.clone(),
-                                    typ: glue_types(name, shape, true)?,
-                                    otyp: None,
-                                    default: default_value
-                                        .and_then(|val| parse_default_value(val).ok())
-                                        .or(or_null),
-                                    has_default,
-                                    oidx: None,
-                                });
-                                Ok(())
-                            };
-                        for arg in nu_sig.required_positional.clone() {
-                            handle_arg(arg, false)?;
-                        }
-                        for arg in nu_sig.optional_positional.clone() {
-                            handle_arg(arg, true)?;
-                        }
-                        if let Some(arg) = nu_sig.rest_positional.clone() {
-                            sig.star_args = true;
-                            handle_arg(arg, false)?;
-                        }
-                    }
-                    _ => {}
+                        batch
+                            .get(0..t)
+                            .ok_or(anyhow!("Cannot parse argument ident"))?
+                            .trim(),
+                        Some(parse_type(
+                            &batch
+                                .get(t..d)
+                                .ok_or(anyhow!("Cannot parse type of argument"))?,
+                        )?),
+                        Some(parse_default(
+                            &batch
+                                .get(d..)
+                                .ok_or(anyhow!("Cannot parse default value of argument"))?,
+                            &batches,
+                            i,
+                            &mut compensate_lookahead,
+                        )?),
+                    )
+                } else {
+                    bail!("Parsing error `:` should be before `=`\nit likely means you are trying to set default value to record or table which is not supported at the moment.")
                 }
             }
+        };
+
+        // Check if it is optional
+        let optional = {
+            let Some(element) = name.chars().last() else {
+                bail!("Internal error, cannot check if argument is optional")
+            };
+            element == '?'
+        };
+
+        // Rest parameters are not supported
+        if matches!(name.get(0..3), Some("...")) {
+            bail!("Rest (...) parameters are not supported")
         }
+
+        // Flags are not supported
+        if matches!(name.get(0..2), Some("--")) {
+            bail!("Flags are not supported")
+        }
+
+        sig.args.push(Arg {
+            name: if optional {
+                name.get(..name.len() - 1).unwrap_or("Error").to_owned()
+            } else {
+                name.to_owned()
+            },
+            typ: typ.unwrap_or(Typ::Unknown),
+            otyp: None,
+            has_default: default.is_some() || optional,
+            default: default.or_else(|| if optional { Some(json!(null)) } else { None }),
+            oidx: None,
+        });
+    }
+
+    fn parse_type(content: &str) -> anyhow::Result<Typ> {
+        let c = content.replace(":", "").trim().to_owned();
+        let typ = match c.as_str() {
+            "string" => Typ::Str(None),
+            "int" => Typ::Int,
+            "float" => Typ::Float,
+            "number" => Typ::Float,
+            "record" => Typ::Object(vec![]),
+            "table" => Typ::List(Box::new(Typ::Object(vec![]))),
+            "nothing" => Typ::Unknown,
+            // TODO: needs additional work on literal parsing
+            // "binary" => Typ::Bytes,
+            "datetime" => Typ::Datetime,
+            "any" => Typ::Unknown,
+            "bool" => Typ::Bool,
+            // Lists
+            "list" | "list<any>" | "list<nothing>" => Typ::List(Box::new(Typ::Unknown)),
+            "list<number>" => Typ::List(Box::new(Typ::Float)),
+            "list<bool>" => Typ::List(Box::new(Typ::Bool)),
+            "list<string>" => Typ::List(Box::new(Typ::Str(None))),
+            // list<float/int> is not supported
+            // Records and Tables
+            // TODO: Support in V1?
+            s if s.contains("record<") => {
+                bail!("typed records are not supported, use `ident: record`")
+            }
+            s if s.contains("table<") => {
+                bail!("typed tables are not supported, use `ident: table`")
+            }
+            s => bail!("{s} is not supported"),
+        };
+        Ok(typ)
+    }
+    fn parse_default(
+        content: &str,
+        ctx: &[&str],
+        i: usize,
+        skip: &mut usize,
+    ) -> anyhow::Result<Value> {
+        let mut c = content.replace("=", "").trim().to_owned();
+
+        fn parse_object_literal(
+            (open, close): (char, char),
+            mut c_2: String,
+            ctx: &[&str],
+            i: usize,
+            skip: &mut usize,
+        ) -> anyhow::Result<String> {
+            // It is list
+            // if c.contains("[") {
+            let mut closed = false;
+            if c_2 != open.to_string() {
+                // [a ~ , ~ ...
+                //  Add ^
+                c_2 += ",";
+            }
+            // else {
+            // [
+            // a  < Do not add ","
+            // ...
+            // }
+            let remainder = &ctx
+                .iter()
+                .skip(i + 1)
+                .map_while(|el| {
+                    let el = el.trim();
+
+                    if closed {
+                        None
+                    } else {
+                        if el.chars().last() == Some(close) {
+                            closed = true;
+                        }
+                        *skip += 1;
+                        Some(el)
+                    }
+                })
+                .collect::<Vec<&str>>()
+                .join(",");
+
+            if remainder.contains(&['{', '[']) {
+                bail!("Nesting is not supported")
+            }
+
+            Ok((c_2 + remainder)
+                // Remove trailing comma if there is any
+                .replace(&format!(",{close}"), &close.to_string()))
+        }
+        // It is list
+        if c.contains("[") {
+            if c.chars().last() != Some(']') {
+                c = parse_object_literal(('[', ']'), c.clone(), ctx, i, skip)?;
+            }
+        }
+        // It is record
+        if c.contains("{") {
+            if c.chars().last() != Some('}') {
+                c = parse_object_literal(('{', '}'), c.clone(), ctx, i, skip)?;
+            }
+        }
+        Ok(serde_json::from_str(&c)?)
     }
     Ok(sig)
-}
-
-fn parse_default_value(val: nu_protocol::Value) -> anyhow::Result<serde_json::Value> {
-    use nu_protocol::Value::*;
-    use serde_json::to_value;
-    match val {
-        Bool { val, .. } => to_value(val).map_err(anyhow::Error::from),
-        Int { val, .. } => to_value(val).map_err(anyhow::Error::from),
-        // Number { val, .. } => to_value(val).map_err(anyhow::Error::from),
-        Float { val, .. } => to_value(val).map_err(anyhow::Error::from),
-        String { val, .. } => to_value(val).map_err(anyhow::Error::from),
-        Date { val, .. } => to_value(val).map_err(anyhow::Error::from),
-        Record { val, .. } => Ok(serde_json::Value::Object(Map::from_iter({
-            let mut fields = vec![];
-            for (name, val) in <nu_protocol::Record as Clone>::clone(&val) {
-                fields.push((name, parse_default_value(val)?));
-            }
-            fields.into_iter()
-        }))),
-        List { vals, .. } => {
-            let mut json_values = vec![];
-            for val in vals.into_iter() {
-                json_values.push(parse_default_value(val)?);
-            }
-            Ok(serde_json::Value::Array(json_values))
-        }
-        Nothing { .. } => Ok(json!("null")),
-        Binary { val, .. } => to_value(val).map_err(anyhow::Error::from),
-        wc => Err(anyhow::anyhow!(
-            "Unexpected Nu type node kind: {:?}. This type is not handled by Windmill, please open an issue if this seems to be an error",
-            wc,
-        )),
-    }
-}
-
-use windmill_parser::Typ;
-fn glue_types(var_name: String, shape: SyntaxShape, is_top_level: bool) -> anyhow::Result<Typ> {
-    use nu_protocol::SyntaxShape::*;
-    Ok(match shape {
-        Any | Nothing => Typ::Unknown,
-        Number => Typ::Float,
-        Boolean => Typ::Bool,
-        String => Typ::Str(None),
-
-        Record(vec) => Typ::Object({
-            let mut fields = vec![];
-            for (key, shape) in vec.into_iter() {
-                fields.push(
-                    ObjectProperty {
-                        key,
-                        typ: Box::new(glue_types(var_name.clone(), shape, false)?),
-                    }
-                );
-            }
-            fields
-        }),
-        Table(vec) => Typ::List(Box::new(
-            Typ::Object({
-                let mut fields = vec![];
-                for (key, shape) in vec.into_iter() {
-                    fields.push(
-                        ObjectProperty {
-                            key,
-                            typ: Box::new(glue_types(var_name.clone(), shape, false)?),
-                        }
-                    );
-                }
-                fields
-            })
-        )),
-
-        List(syntax_shape) => Typ::List(Box::new(glue_types(var_name, *syntax_shape, false)?)),
-        Float if !is_top_level => bail!("arg: {var_name}\n `float` is only supported on top level, use `number` instead."),
-        Int if !is_top_level => bail!("arg: {var_name}\n `int` is only supported on top level, use `number` instead."),
-        t if !is_top_level => bail!("arg: {var_name}\n `{t}` is only supported on top level."),
-
-        Binary => Typ::Bytes,
-        DateTime => Typ::Datetime,
-        Float => Typ::Float,
-        Int => Typ::Int,
-        t => bail!("arg: {var_name}\n `{t}` is not handled by Windmill, please open an issue if this seems to be an error"),
-    })
 }

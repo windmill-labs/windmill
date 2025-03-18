@@ -423,13 +423,9 @@ def main [
     name = "Nicolas Bourbaki",
     age: int = 42,
     date_of_birth?: datetime,
-    obj: record = {records: "included"},
+    obj: record = {"records": "included"},
     l: list<string> = ["or", "lists!"],
-    tables: table<a: string, b: string, c: number> = [
-      { a: "table",   b: "is just a", c: 100 },
-      { a: "list of", b: "records",   c: 999 }
-    ]
-    work_with_bytes: binary = 0x[ffff ffff],
+    tables?: table,
     enable_kill_mode?: bool = true,
 ] {
     # Test

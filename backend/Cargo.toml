@@ -316,8 +316,6 @@ pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
-nu-protocol = { version = "0.101.0", default-features = false }
-nu-cmd-lang = { version = "0.101.0", default-features = false }
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
@@ -363,7 +361,7 @@ quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
-tree-sitter = { version = "0.23.0", features = []}
+tree-sitter = { version = "0.23.0", features = [] }
 tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
