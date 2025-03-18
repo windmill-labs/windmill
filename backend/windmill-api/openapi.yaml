@@ -1300,27 +1300,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
 
-  /w/{workspace}/github_app/installation_url:
-    get:
-      summary: get github app installation url
-      operationId: getGithubAppInstallationUrl
-      tags:
-        - git_sync
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: github app installation url
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  installation_url:
-                    type: string
-                required:
-                  - installation_url
-
   /w/{workspace}/github_app/get_github_app_token:
     post:
       summary: get github app token
