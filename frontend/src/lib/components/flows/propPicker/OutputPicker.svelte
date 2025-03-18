@@ -53,6 +53,7 @@
 				'group'
 			)}
 			data-prop-picker
+			title={`${isOpen ? 'Close' : 'Open'} step output`}
 		>
 			<div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-[14px]">
 				<AnimatedButton
