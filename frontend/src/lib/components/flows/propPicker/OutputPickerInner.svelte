@@ -105,9 +105,7 @@
 						size="xs2"
 						variant="contained"
 						btnClasses={`bg-transparent ${
-							mock?.enabled
-								? 'text-blue-500 outline outline-1 outline-blue-500 outline-offset-[-1px]'
-								: ''
+							mock?.enabled ? 'text-white bg-blue-500 hover:text-primary' : ''
 						}`}
 						startIcon={{ icon: Pin }}
 						iconOnly
