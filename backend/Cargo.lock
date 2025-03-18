@@ -14460,7 +14460,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.475.1"
+version = "1.477.1"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -14787,8 +14787,8 @@ version = "0.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba6d44ec8c2591c134257ce647b7ea6b20335bf6379a27dac5f1641fcf59f99"
 dependencies = [
- "windows-implement",
- "windows-interface",
+ "windows-implement 0.58.0",
+ "windows-interface 0.58.0",
  "windows-result 0.2.0",
  "windows-strings 0.1.0",
  "windows-targets 0.52.6",
