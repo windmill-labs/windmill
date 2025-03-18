@@ -19,7 +19,8 @@ use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
 use crate::{
-    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, DB,
+    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp,
+    KillpillSender, DB,
 };
 
 lazy_static::lazy_static! {
@@ -716,7 +717,7 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
 
 pub async fn load_worker_config(
     db: &DB,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
 ) -> error::Result<WorkerConfig> {
     tracing::info!("Loading config from WORKER_GROUP: {}", *WORKER_GROUP);
     let mut config: WorkerConfigOpt = sqlx::query_scalar!(
@@ -750,7 +751,7 @@ pub async fn load_worker_config(
         .map(|x| {
             let splitted = x.split(':').to_owned().collect_vec();
             if splitted.len() != 2 {
-                killpill_tx.send(()).expect("send");
+                killpill_tx.send();
                 return Err(anyhow::anyhow!(
                     "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
                 ));

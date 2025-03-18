@@ -24,6 +24,7 @@
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
+	export let fakeInitialPath: string
 	export let hash: string | undefined = undefined
 	export let initialPath: string
 	export let schema: any
@@ -85,7 +86,7 @@
 									on:updateSchema
 									on:testWithArgs
 									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-									path={currentPath}
+									path={initialPath || fakeInitialPath}
 									{hash}
 									{isFlow}
 									{args}
@@ -105,7 +106,7 @@
 									on:testWithArgs
 									token=""
 									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-									path={currentPath}
+									path={initialPath || fakeInitialPath}
 									{isFlow}
 									isEditor={true}
 									{canHavePreprocessor}
@@ -122,7 +123,7 @@
 									on:testWithArgs
 									{newItem}
 									{args}
-									path={currentPath}
+									path={initialPath || fakeInitialPath}
 									{isFlow}
 									isEditor={true}
 									{canHavePreprocessor}
@@ -137,7 +138,7 @@
 									on:updateSchema
 									on:testWithArgs
 									{newItem}
-									path={currentPath}
+									path={initialPath || fakeInitialPath}
 									{isFlow}
 									isEditor={true}
 									{canHavePreprocessor}
@@ -152,7 +153,7 @@
 									on:updateSchema
 									on:testWithArgs
 									{newItem}
-									path={currentPath}
+									path={initialPath || fakeInitialPath}
 									{isFlow}
 									{canHavePreprocessor}
 									{hasPreprocessor}
@@ -174,7 +175,7 @@
 										on:updateSchema
 										on:testWithArgs
 										{newItem}
-										path={currentPath}
+										path={initialPath || fakeInitialPath}
 										{isFlow}
 										isEditor={true}
 										{canHavePreprocessor}
@@ -185,7 +186,7 @@
 										on:applyArgs
 										on:addPreprocessor
 										{newItem}
-										path={currentPath}
+										path={initialPath || fakeInitialPath}
 										{isFlow}
 										isEditor={true}
 										{canHavePreprocessor}
@@ -198,7 +199,7 @@
 										on:updateSchema
 										on:testWithArgs
 										{newItem}
-										path={currentPath}
+										path={initialPath || fakeInitialPath}
 										{isFlow}
 										isEditor={true}
 										{canHavePreprocessor}
@@ -211,7 +212,7 @@
 										on:updateSchema
 										on:testWithArgs
 										{newItem}
-										path={currentPath}
+										path={initialPath || fakeInitialPath}
 										{isFlow}
 										isEditor={true}
 										{canHavePreprocessor}
