@@ -2373,7 +2373,15 @@ async fn try_validate_schema(
                 JobKind::Script_Hub => 3,
                 JobKind::Preview => 4,
                 JobKind::DeploymentCallback=> 5,
-                _ => 255,
+                JobKind::SingleScriptFlow => 6,
+                JobKind::Dependencies => 7,
+                JobKind::Flow => 8,
+                JobKind::FlowPreview => 9,
+                JobKind::Identity => 10,
+                JobKind::FlowDependencies => 11,
+                JobKind::AppDependencies => 12,
+                JobKind::Noop => 13,
+                JobKind::FlowNode => 14,
             };
 
             let sv = match job.script_hash {
