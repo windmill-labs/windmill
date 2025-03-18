@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                job_kind AS \"job_kind!: JobKind\",\n                script_hash AS \"script_hash: ScriptHash\",\n                flow_status AS \"flow_status!: Json<Box<RawValue>>\",\n                raw_flow AS \"raw_flow: Json<Box<RawValue>>\"\n            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+  "query": "SELECT\n                kind AS \"job_kind!: JobKind\",\n                runnable_id AS \"script_hash: ScriptHash\",\n                flow_status AS \"flow_status!: Json<Box<RawValue>>\",\n                raw_flow AS \"raw_flow: Json<Box<RawValue>>\"\n            FROM v2_job INNER JOIN v2_job_status ON v2_job.id = v2_job_status.id WHERE v2_job.id = $1 AND v2_job.workspace_id = $2 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -57,11 +57,11 @@
       ]
     },
     "nullable": [
-      true,
+      false,
       true,
       true,
       true
     ]
   },
-  "hash": "4535c8effd1bae49894d13293a37e1ee949cf9108239032cb3addbf350fb33de"
+  "hash": "c50b6a4a6739d6df087a3b37c209e5f4b72fc27578d988155b74b05ec5df30b9"
 }

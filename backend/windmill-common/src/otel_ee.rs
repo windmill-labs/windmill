@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::utils::Mode;
+use crate::{jobs::QueuedJob, utils::Mode};
 use uuid::Uuid;
 
 pub fn set_span_parent(_span: &tracing::Span, _rj: &Uuid) {}
@@ -54,3 +54,5 @@ pub(crate) fn init_otlp_tracer(
 pub(crate) fn init_meter_provider(_mode: &Mode, _hostname: &str, _env: &str) -> OtelProvider {
     None
 }
+
+pub fn add_root_flow_job_to_otlp(_queued_job: &QueuedJob, _success: bool) {}

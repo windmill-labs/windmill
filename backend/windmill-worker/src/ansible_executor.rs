@@ -11,9 +11,10 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    jobs::QueuedJob,
     worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
+use windmill_queue::MiniPulledJob;
+
 use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -180,7 +181,7 @@ pub async fn handle_ansible_job(
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,

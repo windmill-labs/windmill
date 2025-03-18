@@ -917,7 +917,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 "INSERT INTO usage (id, is_workspace, month_, usage) 
                 VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
                 ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-                queued_job.email,
+                queued_job.permissioned_as_email,
                 additional_usage as i32
             )
             .execute(db)

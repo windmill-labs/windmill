@@ -53,7 +53,8 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use windmill_queue::{PushArgs, PushArgsOwned, TriggerKind};
+use windmill_queue::TriggerKind;
+use windmill_queue::{PushArgs, PushArgsOwned};
 
 const KEEP_LAST: i64 = 20;
 
