@@ -7,7 +7,7 @@
 	import ToggleSimple from '$lib/components/meltComponents/ToggleSimple.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import StepHistory from './StepHistory.svelte'
-	import { Popover, ScrollArea } from '$lib/components/meltComponents'
+	import { Popover } from '$lib/components/meltComponents'
 	import { createEventDispatcher } from 'svelte'
 
 	export let jsonData = {}
@@ -59,7 +59,7 @@
 						/>
 					</svelte:fragment>
 					<svelte:fragment slot="content">
-						<ScrollArea style="height: {clientHeight}px" type="hover" class="rounded-[inherit]">
+						<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
 							<StepHistory
 								{moduleId}
 								on:select={({ detail }) => {
@@ -79,7 +79,7 @@
 									}
 								}}
 							/>
-						</ScrollArea>
+						</div>
 					</svelte:fragment>
 				</Popover>
 				<ToggleSimple
