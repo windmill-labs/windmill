@@ -1,3 +1,3 @@
 -- Add down migration script here
-ALTER TABLE your_table_name
+ALTER TABLE script
 DROP COLUMN schema_validation;
