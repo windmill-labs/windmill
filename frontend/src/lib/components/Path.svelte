@@ -349,6 +349,16 @@
 			path: initialPath,
 			runnableKind: kind
 		})
+
+	$: pathUsageInAppsPromise =
+		displayPathChangedWarning &&
+		(kind == 'script' || kind == 'flow') &&
+		!!$workspaceStore &&
+		AppService.listAppPathsFromWorkspaceRunnable({
+			workspace: $workspaceStore,
+			path: initialPath,
+			runnableKind: kind
+		})
 </script>
 
 <Drawer bind:this={newFolder}>
@@ -522,26 +532,46 @@
 		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 	</div>
 
-	{#await pathUsageInFlowsPromise then pathUsageInFlows}
-		{#if pathUsageInFlows && pathUsageInFlows.length}
-			<Alert
-				type="warning"
-				class="mt-4"
-				title="Moving this item will break the following flows referencing it :"
-			>
-				<ul>
-					{#each pathUsageInFlows as flowPath}
-						<li>
-							• <a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
-								{flowPath}
-							</a>
-						</li>
-					{/each}
-				</ul>
-			</Alert>
-		{/if}
-	{/await}
-	{#if displayPathChangedWarning}
+	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise}
+		{#await pathUsageInFlowsPromise then pathUsageInFlows}
+			{#if pathUsageInFlows && pathUsageInFlows.length}
+				<Alert
+					type="warning"
+					class="mt-4"
+					title="Moving this item will break the following flows referencing it :"
+				>
+					<ul>
+						{#each pathUsageInFlows as flowPath}
+							<li>
+								• <a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
+									{flowPath}
+								</a>
+							</li>
+						{/each}
+					</ul>
+				</Alert>
+			{/if}
+		{/await}
+		{#await pathUsageInAppsPromise then pathUsageInApps}
+			{#if pathUsageInApps && pathUsageInApps.length}
+				<Alert
+					type="warning"
+					class="mt-4"
+					title="Moving this item will break the following apps referencing it :"
+				>
+					<ul>
+						{#each pathUsageInApps as appPath}
+							<li>
+								• <a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
+									{appPath}
+								</a>
+							</li>
+						{/each}
+					</ul>
+				</Alert>
+			{/if}
+		{/await}
+	{:else if displayPathChangedWarning}
 		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
 			You are renaming an item that may be depended upon by other items. This may break apps, flows
 			or resources. Find if it used elsewhere using the content search. Note that linked variables

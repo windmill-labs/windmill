@@ -334,7 +334,6 @@ async fn list_paths_from_workspace_runnable(
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
 ) -> JsonResult<Vec<String>> {
     let mut tx = user_db.begin(&authed).await?;
-    // TODO: Move this in a different file as this should support flows and apps
     let runnables = sqlx::query_scalar!(
         r#"SELECT f.path
             FROM workspace_runnable_dependencies wru 

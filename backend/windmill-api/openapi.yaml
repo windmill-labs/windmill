@@ -5934,6 +5934,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppHistory"
 
+  /w/{workspace}/apps/list_paths_from_workspace_runnable/{runnable_kind}/{path}:
+    get:
+      summary: list app paths from workspace runnable
+      operationId: listAppPathsFromWorkspaceRunnable
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: list of app paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/apps/history_update/a/{id}/v/{version}:
     post:
       summary: update app history
