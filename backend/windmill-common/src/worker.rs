@@ -481,6 +481,7 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_tar: bool) -> (bo
                 );
             }
         }
+        let _ = is_tar;
         (false, "".to_string())
     }
 }

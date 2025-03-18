@@ -118,10 +118,10 @@ use crate::{
 use crate::rust_executor::handle_rust_job;
 
 #[cfg(feature = "nu")]
-use crate::nu_executor::{handle_nu_job, JobHandlerInput};
+use crate::nu_executor::{handle_nu_job, JobHandlerInput as JobHandlerInputNu};
 
 #[cfg(feature = "java")]
-use crate::java_executor::{handle_java_job, JobHandlerInput};
+use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJava};
 
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
@@ -2884,7 +2884,7 @@ mount {{
             );
 
             #[cfg(feature = "nu")]
-            handle_nu_job(JobHandlerInput {
+            handle_nu_job(JobHandlerInputNu {
                 mem_peak,
                 canceled_by,
                 job,
@@ -2909,7 +2909,7 @@ mount {{
             .into());
 
             #[cfg(feature = "java")]
-            handle_java_job(JobHandlerInput {
+            handle_java_job(JobHandlerInputJava {
                 mem_peak,
                 canceled_by,
                 job,

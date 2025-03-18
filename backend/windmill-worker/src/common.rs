@@ -1044,6 +1044,9 @@ pub async fn par_install_language_dependencies<'a, F>(
 where
     F: Fn(RequiredDependency) -> Result<Command, error::Error>,
 {
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    let _ = (platform_agnostic, language_name);
+
     let total_time = std::time::Instant::now();
 
     // Total to install
@@ -1275,6 +1278,9 @@ where
             language_name.to_owned(),
             installer_executable_name.to_owned(),
         );
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        let _ = (custom_name, language_name);
+
         let start = std::time::Instant::now();
         let handle = tokio::spawn(async move {
             let _permit = permit;

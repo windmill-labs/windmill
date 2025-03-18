@@ -980,7 +980,7 @@ pub async fn reload_nuget_config_setting(db: &DB) {
     .await;
 }
 pub async fn reload_maven_config_setting(db: &DB) {
-    reload_option_setting_with_tracing(db, MAVEN_SETTING, "MAVEN_SETTINGS", MAVEN_CONFIG.clone())
+    reload_option_setting_with_tracing(db, windmill_common::global_settings::MAVEN_SETTING, "MAVEN_SETTINGS", MAVEN_CONFIG.clone())
         .await;
 }
 
