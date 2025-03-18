@@ -9,7 +9,7 @@
 	export let selected: string | undefined = undefined
 	export let moduleId: string = ''
 
-	const { pathStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	let infiniteList: InfiniteList | undefined = undefined
@@ -19,7 +19,7 @@
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			const previousJobs = await JobService.listJobs({
 				workspace: $workspaceStore!,
-				scriptPathExact: (initialPath == '' ? $pathStore : initialPath) + '/' + moduleId,
+				scriptPathExact: $pathStore + '/' + moduleId,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 				page: 1,
 				perPage: 10
