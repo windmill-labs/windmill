@@ -514,9 +514,6 @@ async fn compile<'a>(
 
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
-        // #[cfg(windows)]
-        // let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
-
         #[cfg(windows)]
         let symlink = copy_dir_recursively(&PathBuf::from(&bin_path), &PathBuf::from(&target));
 
