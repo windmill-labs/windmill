@@ -16,8 +16,9 @@ use std::{
 };
 pub use windmill_parser::{Arg, MainArgSignature, Typ};
 
-pub const SANITIZED_IDENTIFIER_STR: &str = "sanitized_identifier";
-pub const SANITIZED_DYN_IDENTIFIER_STR: &str = "sanitized_dyn_identifier";
+pub const SANITIZED_ENUM_STR: &str = "sanitized_enum";
+pub const SANITIZED_ENUM_PREFIX: &str = "sanitized_enum(";
+pub const SANITIZED_RAW_STRING_STR: &str = "sanitized_raw_string";
 
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
@@ -585,25 +586,26 @@ fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 
 fn parse_unsafe_typ(typ: &str) -> Typ {
     match typ {
-        typ if typ.starts_with(SANITIZED_IDENTIFIER_STR) => {
-            let mut possibles = vec![];
-
+        typ if typ.starts_with(SANITIZED_ENUM_PREFIX) => {
             if let Some(raw_possibles) = typ
-                .strip_prefix(SANITIZED_IDENTIFIER_STR)
+                .strip_prefix(SANITIZED_ENUM_STR)
                 .and_then(|s| s.strip_prefix("("))
                 .and_then(|s| s.strip_suffix(")"))
             {
-                possibles = raw_possibles
+                let variants = raw_possibles
                     .split(",")
                     .map(|x| x.trim().to_string())
                     .filter(|x| !x.is_empty())
                     .collect();
+
+                Typ::Str(Some(variants))
+            } else {
+                Typ::Unknown
             }
 
-            Typ::Str(Some(possibles))
         }
-        SANITIZED_DYN_IDENTIFIER_STR => Typ::Str(None),
-        _ => Typ::Str(None),
+        SANITIZED_RAW_STRING_STR => Typ::Str(None),
+        _ => Typ::Unknown,
     }
 }
 
@@ -616,8 +618,7 @@ pub fn parse_mysql_typ(typ: &str) -> Typ {
         "bool" | "bit" => Typ::Bool,
         "double precision" | "float" | "real" | "dec" | "fixed" => Typ::Float,
         "date" | "datetime" | "timestamp" | "time" => Typ::Datetime,
-        // _ => Typ::Str(None),
-        _ => parse_unsafe_typ(typ),
+        _ => Typ::Str(None),
     }
 }
 
@@ -629,7 +630,7 @@ pub fn parse_oracledb_typ(typ: &str) -> Typ {
         "bool" => Typ::Bool,
         "number" | "float" | "binary_float" | "binary_double" => Typ::Float,
         "date" | "datetime" | "timestamp" | "time" => Typ::Datetime,
-        _ => parse_unsafe_typ(typ),
+        _ => Typ::Str(None),
     }
 }
 

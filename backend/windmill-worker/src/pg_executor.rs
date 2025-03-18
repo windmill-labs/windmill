@@ -291,16 +291,8 @@ pub async fn do_postgresql(
 
     let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
 
-    let job_args = pg_args
-        .iter()
-        .filter_map(|(key, value)| {
-            serde_json::value::to_raw_value(&value)
-                .ok()
-                .map(|raw| (key.to_string(), raw))
-        })
-        .collect();
     let (query, _) =
-        &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, Some(&Json(job_args)))?;
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args)?;
 
     let queries = parse_sql_blocks(query);
 

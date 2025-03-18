@@ -20,7 +20,10 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, check_executor_binary_exists, OccupancyMetrics}, handle_child::run_future_with_polling_update_job_poller, santized_sql_params::sanitize_and_interpolate_unsafe_sql_args, AuthedClientBackgroundTask
+    common::{build_args_map, build_args_values, check_executor_binary_exists, OccupancyMetrics},
+    handle_child::run_future_with_polling_update_job_poller,
+    santized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
+    AuthedClientBackgroundTask,
 };
 
 #[derive(Deserialize)]
@@ -218,7 +221,7 @@ fn convert_oracledb_value_to_json(v: &oracle::SqlValue, c: &OracleType) -> serde
 
 fn get_statement_values(
     sig: Vec<Arg>,
-    job_args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    job_args: &HashMap<String, Value>,
 ) -> (Vec<(String, Box<dyn ToSql + Send + Sync>)>, Vec<String>) {
     let mut statement_values = vec![];
     let mut errors = vec![];
@@ -226,16 +229,11 @@ fn get_statement_values(
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
-        let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args
-            .and_then(|x| {
-                x.get(arg.name.as_str())
-                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
-            })
-            .flatten()
-            .unwrap_or_else(|| json!(null))
+        let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args.get(arg.name.as_str())
+            .unwrap_or_else(|| &json!(null))
         {
             // Value::Null => todo!(),
-            Value::Bool(b) => Box::new(b),
+            Value::Bool(b) => Box::new(*b),
             Value::String(s)
                 if arg_t == "timestamp"
                     || arg_t == "datetime"
@@ -245,10 +243,10 @@ fn get_statement_values(
                 if let Ok(d) = chrono::DateTime::<Utc>::from_str(s.as_str()) {
                     Box::new(d)
                 } else {
-                    Box::new(s)
+                    Box::new(s.clone())
                 }
             }
-            Value::String(s) => Box::new(s),
+            Value::String(s) => Box::new(s.clone()),
             Value::Number(n)
                 if n.is_i64()
                     && (arg_t == "int"
@@ -306,36 +304,27 @@ pub async fn do_oracledb(
         "Oracle Database",
     )?;
 
-    let args = build_args_map(job, client, db).await?.map(Json);
-    let job_args = if args.is_some() {
-        args.as_ref()
-    } else {
-        job.args.as_ref()
-    };
+    let job_args = build_args_values(job, client, db).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
-        let val = client
-            .get_authed()
-            .await
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &inline_db_res_path,
-                Some(job.id.to_string()),
-            )
-            .await?;
-
-        let as_raw = serde_json::from_value(val).map_err(|e| {
-            Error::internal_err(format!("Error while parsing inline resource: {e:#}"))
-        })?;
-
-        Some(as_raw)
+        Some(
+            client
+                .get_authed()
+                .await
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
     } else {
-        job_args.and_then(|x| x.get("database").cloned())
+        job_args.get("database").cloned()
     };
 
     let database = if let Some(db) = db_arg {
-        serde_json::from_str::<OracleDatabase>(db.get())
+        serde_json::from_value::<OracleDatabase>(db)
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
@@ -347,9 +336,9 @@ pub async fn do_oracledb(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (query, _) = sanitize_and_interpolate_unsafe_sql_args(query, &sig, job_args)?;
+    let (query, _) = sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
 
-    let (statement_values, errors) = get_statement_values(sig.clone(), job_args);
+    let (statement_values, errors) = get_statement_values(sig.clone(), &job_args);
 
     if !errors.is_empty() {
         return Err(Error::ExecutionErr(errors.join("\n")));
@@ -377,7 +366,7 @@ pub async fn do_oracledb(
         let f = async {
             let mut res: Vec<Box<RawValue>> = vec![];
             for (i, q) in queries.iter().enumerate() {
-                let (vals, _) = get_statement_values(sig.clone(), job_args);
+                let (vals, _) = get_statement_values(sig.clone(), &job_args);
                 let r = do_oracledb_inner(
                     q,
                     vals,

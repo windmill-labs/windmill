@@ -1,11 +1,11 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
 
-use serde_json::value::RawValue;
+use serde_json::{value::RawValue, Value};
 use sqlx::types::Json;
-use windmill_common::{error, utils::not_found_if_none};
+use windmill_common::{error, schema::SchemaValidator, utils::not_found_if_none};
 use windmill_parser::Arg;
-use windmill_parser_sql::{SANITIZED_DYN_IDENTIFIER_STR, SANITIZED_IDENTIFIER_STR};
+use windmill_parser_sql::{SANITIZED_ENUM_PREFIX, SANITIZED_RAW_STRING_STR};
 
 /// Identifier must be a continuous ASCII alphanumeric word, not starting with
 /// a number, that can contain underscores
@@ -26,40 +26,54 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
 pub fn sanitize_and_interpolate_unsafe_sql_args(
     code: &str,
     args: &Vec<Arg>,
-    args_map: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    args_map: &HashMap<String, Value>,
 ) -> Result<(String, Vec<String>), error::Error> {
     let mut ret = code.to_string();
     let mut args_to_skip = vec![];
 
-    if let Some(args_map) = args_map {
-        for arg in args {
-            if let Some(typ) = &arg.otyp {
-                let pattern = format!("%%{}%%", arg.name);
-                match typ.as_str() {
-                    typ if typ.starts_with(SANITIZED_IDENTIFIER_STR) => {
-                        let replace = &not_found_if_none(
-                            args_map
-                                .get(&arg.name)
-                                .and_then(|rv| serde_json::from_str::<String>(rv.get()).ok()),
-                            typ,
-                            &arg.name,
-                        )?;
-
-                        sanitize_identifier(&arg, replace)?;
-                        ret = ret.replace(&pattern, replace);
-                        args_to_skip.push(arg.name.to_string());
+    for arg in args {
+        if let Some(typ) = &arg.otyp {
+            let pattern = format!("%%{}%%", arg.name);
+            let replace = not_found_if_none(
+                args_map.get(&arg.name).and_then(|rv| rv.as_str()),
+                typ,
+                &arg.name,
+            )?;
+            match typ.as_str() {
+                typ if typ.starts_with(SANITIZED_ENUM_PREFIX) => {
+                    let windmill_parser::Typ::Str(Some(variants)) = &arg.typ else {
+                        return Err(error::Error::ArgumentErr(
+                            format!("Wrong type of argument for sanitized enum `{}`", arg.name)
+                        ));
+                    };
+                    if variants.iter().all(|v| v != replace) {
+                        return Err(error::Error::ArgumentErr(format!(
+                            "Sanitized enum argument `{}` expected one of `[{}]` but received `{}`",
+                            arg.name,
+                            variants
+                                .iter()
+                                .map(|s| format!("{s}"))
+                                .collect::<Vec<String>>()
+                                .join(","),
+                            replace,
+                        )));
                     }
-                    typ if typ == SANITIZED_DYN_IDENTIFIER_STR => {
-                        let replace: String = serde_json::from_str(
-                            args_map.get(&arg.name).ok_or(anyhow!("asdasdd"))?.get(),
-                        )?;
 
-                        sanitize_identifier(&arg, &replace)?;
-                        ret = ret.replace(&pattern, &replace);
-                        args_to_skip.push(arg.name.to_string());
-                    }
-                    _ => continue,
+                    sanitize_identifier(&arg, replace)?;
+                    ret = ret.replace(&pattern, replace);
+                    args_to_skip.push(arg.name.to_string());
                 }
+                typ if typ == SANITIZED_RAW_STRING_STR => {
+                    let windmill_parser::Typ::Str(_) = &arg.typ else {
+                        return Err(error::Error::ArgumentErr(
+                            format!("Wrong type of argument for sanitized raw string `{}`", arg.name)
+                        ));
+                    };
+                    sanitize_identifier(&arg, replace)?;
+                    ret = ret.replace(&pattern, &replace);
+                    args_to_skip.push(arg.name.to_string());
+                }
+                _ => continue,
             }
         }
     }
