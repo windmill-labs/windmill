@@ -50,7 +50,7 @@
 	})
 
 	let result: Schema | undefined = undefined
-	let args: Record<string, unknown> = outputs?.values?.peak() ?? {}
+	let args: Record<string, unknown> = !iterContext ? outputs?.values?.peak() ?? {} : {}
 
 	function handleArgsChange() {
 		const newArgs: Record<string, unknown> = {}
