@@ -2404,7 +2404,7 @@ async fn try_validate_schema(
                 JobKind::AppScript => 2,
                 JobKind::Script_Hub => 3,
                 JobKind::Preview => 4,
-                JobKind::DeploymentCallback=> 5,
+                JobKind::DeploymentCallback => 5,
                 JobKind::SingleScriptFlow => 6,
                 JobKind::Dependencies => 7,
                 JobKind::Flow => 8,
@@ -2417,7 +2417,9 @@ async fn try_validate_schema(
             };
 
             let sv = match job.runnable_id {
-                Some(hash) if sub_key != 255 => {
+                Some(hash)
+                    if job.kind != JobKind::Preview && job.kind != JobKind::FlowPreview =>
+                {
                     sv_fut.cached(validators_cache, (sub_key, hash)).await?
                 }
                 _ => sv_fut.await?,
@@ -2504,7 +2506,8 @@ async fn handle_code_execution_job(
         }
         JobKind::Script_Hub => {
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                get_hub_script_content_and_requirements(job.runnable_path.as_ref(), Some(db)).await?;
+                get_hub_script_content_and_requirements(job.runnable_path.as_ref(), Some(db))
+                    .await?;
 
             data = ScriptData { code: content, lock: lockfile };
             metadata = ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
