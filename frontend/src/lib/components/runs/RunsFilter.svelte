@@ -26,6 +26,7 @@
 	export let path: string | null = null
 	export let label: string | null = null
 	export let concurrencyKey: string | null = null
+	export let worker: string | null = null
 	export let tag: string | null = null
 	export let success:
 		| 'running'
@@ -56,6 +57,7 @@
 	$: displayedConcurrencyKey = concurrencyKey
 	$: displayedTag = tag
 	$: displayedSchedule = schedulePath
+	$: displayedWorker = worker
 
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
@@ -66,6 +68,7 @@
 		| 'folder'
 		| 'label'
 		| 'concurrencyKey'
+		| 'worker'
 		| 'tag'
 		| 'schedulePath' = 'path'
 
@@ -73,7 +76,8 @@
 
 	let autoSet = false
 
-	$: (path || user || folder || label || concurrencyKey || tag || schedulePath) && autosetFilter()
+	$: (path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
+		autosetFilter()
 
 	function autosetFilter() {
 		if (path !== null && path !== '' && filterBy !== 'path') {
@@ -97,12 +101,16 @@
 		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
 			autoSet = true
 			filterBy = 'schedulePath'
+		} else if (worker !== null && worker !== '' && filterBy !== 'worker') {
+			autoSet = true
+			filterBy = 'worker'
 		}
 	}
 
 	let labelTimeout: NodeJS.Timeout | undefined = undefined
 	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
 	let tagTimeout: NodeJS.Timeout | undefined = undefined
+	let workerTimeout: NodeJS.Timeout | undefined = undefined
 
 	let allWorkspacesValue = allWorkspaces ? 'all' : 'admins'
 </script>
@@ -151,7 +159,8 @@
 							{ label: 'Schedule path', value: 'schedulePath' },
 							{ label: 'Concurrency key', value: 'concurrencyKey' },
 							{ label: 'Label', value: 'label' },
-							{ label: 'Tag', value: 'tag' }
+							{ label: 'Tag', value: 'tag' },
+							{ label: 'Worker', value: 'worker' }
 						]}
 						{item}
 						bind:selected={filterBy}
@@ -415,6 +424,40 @@
 						/>
 					</div>
 				{/key}
+			{:else if filterBy === 'worker'}
+				{#key worker}
+					<div class="relative">
+						{#if worker}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									worker = null
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+						<span class="text-xs absolute -top-4"> Worker </span>
+
+						<!-- svelte-ignore a11y-autofocus -->
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedWorker}
+							on:keydown={(e) => {
+								if (workerTimeout) {
+									clearTimeout(workerTimeout)
+								}
+
+								workerTimeout = setTimeout(() => {
+									worker = displayedWorker
+								}, 1000)
+							}}
+						/>
+					</div>
+				{/key}
 			{/if}
 		</div>
 		<div class="relative">
@@ -549,6 +592,7 @@
 								<ToggleButton value="concurrencyKey" label="Concurrency" {item} />
 								<ToggleButton value="tag" label="Tag" {item} />
 								<ToggleButton value="label" label="Label" {item} />
+								<ToggleButton value="worker" label="Worker" {item} />
 							</ToggleButtonGroup>
 						</Label>
 
@@ -739,6 +783,41 @@
 
 												concurrencyKeyTimeout = setTimeout(() => {
 													concurrencyKey = displayedConcurrencyKey
+												}, 1000)
+											}}
+										/>
+									</div>
+								</Label>
+							{/key}
+						{:else if filterBy === 'worker'}
+							{#key worker}
+								<Label label="worker">
+									<div class="relative w-full">
+										{#if concurrencyKey}
+											<button
+												class="absolute top-2 right-2 z-50"
+												on:click={() => {
+													worker = null
+													// dispatch('reset')
+												}}
+											>
+												<X size={14} />
+											</button>
+										{/if}
+
+										<!-- svelte-ignore a11y-autofocus -->
+										<input
+											autofocus
+											type="text"
+											class="!h-[32px] py-1 !text-xs !w-80"
+											bind:value={displayedWorker}
+											on:keydown={(e) => {
+												if (workerTimeout) {
+													clearTimeout(workerTimeout)
+												}
+
+												workerTimeout = setTimeout(() => {
+													worker = displayedWorker
 												}, 1000)
 											}}
 										/>

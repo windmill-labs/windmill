@@ -50,7 +50,7 @@ use windmill_common::{
         SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
     }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS
 };
-use windmill_queue::cancel_job;
+use windmill_queue::{cancel_job, MiniPulledJob};
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
     SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
@@ -1826,7 +1826,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         let _ = handle_job_error(
             db,
             &client,
-            &job,
+            &MiniPulledJob::from(&job),
             0,
             None,
             error::Error::ExecutionErr(error_message),
