@@ -75,7 +75,9 @@
 	function handleDefault(defaultValue: string | undefined) {
 		if (initialHandleDefault) {
 			initialHandleDefault = false
-			return
+			if (value != undefined && value != '') {
+				return
+			}
 		}
 		value = defaultValue
 	}
