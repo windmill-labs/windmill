@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import { Pin, History } from 'lucide-svelte'
+	import { Pin, History, Pen, Check, X } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import ToggleSimple from '$lib/components/meltComponents/ToggleSimple.svelte'
@@ -9,6 +8,7 @@
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { createEventDispatcher } from 'svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
 
 	export let jsonData = {}
 	export let selected: boolean = false
@@ -29,6 +29,8 @@
 	let jsonView = false
 	let clientHeight: number = 0
 	let savedJsonData: any = {}
+	let tmpMock = mock
+	let error = ''
 </script>
 
 <div class="w-full h-full flex flex-col p-1" bind:clientHeight>
@@ -106,23 +108,57 @@
 						size="xs2"
 						variant="contained"
 						btnClasses={`bg-transparent ${
-							mock?.enabled ? 'text-white bg-blue-500 hover:text-primary' : ''
+							mock?.enabled
+								? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+								: ''
 						}`}
 						startIcon={{ icon: Pin }}
 						iconOnly
 						nonCaptureEvent
 					/>
 				</ToggleSimple>
+
+				{#if !jsonView}
+					<Tooltip disablePopup={mock?.enabled}>
+						<Button
+							size="xs2"
+							color="light"
+							variant="contained"
+							startIcon={{ icon: Pen }}
+							on:click={() => {
+								jsonView = true
+							}}
+							disabled={!mock?.enabled}
+						/>
+						<svelte:fragment slot="text">
+							{'Enable mock to edit the output'}
+						</svelte:fragment>
+					</Tooltip>
+				{:else}
+					<Button
+						size="xs2"
+						color="green"
+						variant="contained"
+						startIcon={{ icon: Check }}
+						on:click={() => {
+							jsonView = false
+							mock = tmpMock
+							dispatch('updateMock', tmpMock)
+							jsonData = tmpMock?.return_value ?? {}
+						}}
+						disabled={!!error}
+					/>
+					<Button
+						size="xs2"
+						color="red"
+						variant="contained"
+						startIcon={{ icon: X }}
+						on:click={() => {
+							jsonView = false
+						}}
+					/>
+				{/if}
 			</div>
-			<Toggle
-				size="2xs"
-				options={{
-					right: 'JSON',
-					rightTooltip: 'Edit the output as JSON'
-				}}
-				textClass="text-2xs"
-				bind:checked={jsonView}
-			/>
 		</div>
 	{/if}
 	{#if fullResult}
@@ -135,6 +171,7 @@
 				</div>
 			{:else if jsonView}
 				<JsonEditor
+					bind:error
 					small
 					on:changeValue={({ detail }) => {
 						if (mock?.enabled) {
@@ -142,10 +179,8 @@
 								enabled: true,
 								return_value: structuredClone(detail)
 							}
-							mock = newMock
-							dispatch('updateMock', newMock)
+							tmpMock = newMock
 						}
-						jsonData = detail
 					}}
 					code={JSON.stringify(
 						mock?.enabled && mock.return_value ? mock.return_value : jsonData,
