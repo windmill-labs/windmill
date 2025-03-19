@@ -30,8 +30,10 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 
+use windmill_queue::TriggerKind;
+
 use crate::{
-    capture::{insert_capture_payload, TriggerKind, WebsocketTriggerConfig},
+    capture::{insert_capture_payload, WebsocketTriggerConfig},
     db::{ApiAuthed, DB},
     jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
