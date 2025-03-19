@@ -54,8 +54,8 @@ await build({
     Deno.copyFileSync("../LICENSE", "npm/LICENSE");
     Deno.copyFileSync("README.md", "npm/README.md");
     Deno.copyFileSync(
-      "wasm/windmill_parser_wasm_bg.wasm",
-      "npm/esm/wasm/windmill_parser_wasm_bg.wasm"
+      "wasm/windmill_parser_wasm.wasm",
+      "npm/esm/wasm/windmill_parser_wasm.wasm"
     );
   },
 });

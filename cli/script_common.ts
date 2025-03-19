@@ -16,7 +16,10 @@ export type ScriptLanguage =
   | "php"
   | "rust"
   | "csharp"
-  | "ansible";
+  | "nu"
+  | "ansible"
+  | "java";
+	// KJQXZ 
 
 export function inferContentTypeFromFilePath(
   contentPath: string,
@@ -60,6 +63,11 @@ export function inferContentTypeFromFilePath(
     return "csharp";
   } else if (contentPath.endsWith(".playbook.yml")) {
     return "ansible";
+  } else if (contentPath.endsWith(".nu")) {
+    return "nu";
+  } else if (contentPath.endsWith(".java")) {
+    return "java";
+	// KJQXZ 
   } else {
     throw new Error(
       "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))

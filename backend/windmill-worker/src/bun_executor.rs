@@ -594,7 +594,6 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
 
     if std::fs::metadata(&bun_cache_path).is_ok() {
         tracing::info!("loading {bun_cache_path} from cache");
-
         extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -733,7 +732,7 @@ pub async fn prebundle_bun_script(
     )
     .await?;
 
-    save_cache(&local_path, &remote_path, &origin).await?;
+    save_cache(&local_path, &remote_path, &origin, None).await?;
 
     Ok(())
 }
@@ -851,7 +850,8 @@ pub async fn handle_bun_job(
         )
         .await;
 
-        let (cache, logs) = windmill_common::worker::load_cache(&local_path, &remote_path).await;
+        let (cache, logs) =
+            windmill_common::worker::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -1181,7 +1181,14 @@ try {{
             )
             .await?;
             if !local_path.is_empty() {
-                match save_cache(&local_path, &remote_path, &format!("{job_dir}/main.js")).await {
+                match save_cache(
+                    &local_path,
+                    &remote_path,
+                    &format!("{job_dir}/main.js"),
+                    None,
+                )
+                .await
+                {
                     Err(e) => {
                         let em = format!("could not save {local_path} to bundle cache: {e:?}");
                         tracing::error!(em)

@@ -122,7 +122,10 @@
 		'php',
 		'rust',
 		'ansible',
-		'csharp'
+		'csharp',
+		'nu',
+		'java'
+		// KJQXZ 
 	]
 	const nativeTags = [
 		'nativets',

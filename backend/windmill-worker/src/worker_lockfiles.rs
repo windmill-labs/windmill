@@ -35,6 +35,9 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel}
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
 
+#[cfg(feature = "java")]
+use crate::java_executor::resolve_dependencies;
+
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
@@ -2042,6 +2045,27 @@ async fn capture_dependency_job(
             )
             .await
         }
+        ScriptLang::Java => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for Java".to_string(),
+                ));
+            }
+
+            #[cfg(feature = "java")]
+            resolve_dependencies(
+                job_id,
+                job_raw_code,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                occupancy_metrics,
+            )
+            .await
+        }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),
@@ -2050,7 +2074,9 @@ async fn capture_dependency_job(
         ScriptLang::Graphql => Ok("".to_owned()),
         ScriptLang::OracleDB => Ok("".to_owned()),
         ScriptLang::Bash => Ok("".to_owned()),
+        ScriptLang::Nu => Ok("".to_owned()),
         ScriptLang::Powershell => Ok("".to_owned()),
         ScriptLang::Nativets => Ok("".to_owned()),
+        // KJQXZ
     }
 }

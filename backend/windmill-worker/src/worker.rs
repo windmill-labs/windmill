@@ -122,6 +122,12 @@ use crate::{
 #[cfg(feature = "rust")]
 use crate::rust_executor::handle_rust_job;
 
+#[cfg(feature = "nu")]
+use crate::nu_executor::{handle_nu_job, JobHandlerInput as JobHandlerInputNu};
+
+#[cfg(feature = "java")]
+use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJava};
+
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
 
@@ -266,6 +272,8 @@ pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311"
 pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
 pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
 
+pub const TAR_JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/java");
+
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
 pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
@@ -275,7 +283,11 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
+pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
+pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
+pub const MAVEN_PLUGINS_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "maven-plugins-repository");
+// KJQXZ
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const BUN_CODEBASE_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "script_bundle");
@@ -399,6 +411,7 @@ lazy_static::lazy_static! {
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref MAVEN_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -3024,6 +3037,55 @@ mount {{
                 envs,
                 occupancy_metrics,
             )
+            .await
+        }
+        Some(ScriptLang::Nu) => {
+            #[cfg(not(feature = "nu"))]
+            return Err(
+                anyhow::anyhow!("Nu is not available because the feature is not enabled").into(),
+            );
+
+            #[cfg(feature = "nu")]
+            handle_nu_job(JobHandlerInputNu {
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
+            .await
+        }
+        Some(ScriptLang::Java) => {
+            #[cfg(not(feature = "java"))]
+            return Err(anyhow::anyhow!(
+                "Java is not available because the feature is not enabled"
+            )
+            .into());
+
+            #[cfg(feature = "java")]
+            handle_java_job(JobHandlerInputJava {
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
             .await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),

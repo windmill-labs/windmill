@@ -41,6 +41,8 @@ COPY /typescript-client/docs/ /frontend/static/tsdocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# Read more about macro in docker/dev.nu
+# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- # 
 RUN npm run build
 
 
@@ -217,7 +219,8 @@ RUN addgroup --gid 1000 windmill && \
 RUN cp -r /root/.cache /home/windmill/.cache
 
 RUN mkdir -p /tmp/windmill/logs && \
-    mkdir -p /tmp/windmill/search
+    mkdir -p /tmp/windmill/search && \
+    mkdir -p /tmp/windmill/cache_nomount
 
 RUN chown -R windmill:windmill ${APP} && \
      chown -R windmill:windmill /tmp/windmill && \

@@ -374,7 +374,7 @@ export type MainArgSignature = {
 
 export type type2 = 'Valid' | 'Invalid';
 
-export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
+export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp' | 'nu' | 'java';
 
 export type Preview = {
     content?: string;
@@ -6913,6 +6913,10 @@ export type UnstarData = {
 export type UnstarResponse = (unknown);
 
 export type GetInputHistoryData = {
+    /**
+     * filter on jobs containing those args as a json subset (@> in postgres)
+     */
+    args?: string;
     includePreview?: boolean;
     /**
      * which page to return (start at 1, default 1)

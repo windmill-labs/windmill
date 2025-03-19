@@ -13,7 +13,6 @@ import {
   defaultScriptMetadata,
 } from "./bootstrap/script_bootstrap.ts";
 import {
-  instantiate as instantiateWasm,
   parse_ansible,
   parse_bash,
   parse_bigquery,
@@ -27,10 +26,12 @@ import {
   parse_python,
   parse_rust,
   parse_csharp,
+  parse_nu,
   parse_snowflake,
   parse_sql,
   parse_oracledb,
-} from "./wasm/windmill_parser_wasm.generated.js";
+  parse_java,
+} from "./wasm/windmill_parser_wasm.internal.js";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
@@ -312,7 +313,6 @@ export async function updateScriptSchema(
   path: string
 ): Promise<void> {
   // infer schema from script content and update it inplace
-  await instantiateWasm();
   const result = inferSchema(
     language,
     scriptContent,
@@ -544,8 +544,13 @@ export function inferSchema(
     inferedSchema = JSON.parse(parse_rust(content));
   } else if (language === "csharp") {
     inferedSchema = JSON.parse(parse_csharp(content));
+  } else if (language === "nu") {
+    inferedSchema = JSON.parse(parse_nu(content));
   } else if (language === "ansible") {
     inferedSchema = JSON.parse(parse_ansible(content));
+  } else if (language === "java") {
+    inferedSchema = JSON.parse(parse_java(content));
+  	// KJQXZ 
   } else {
     throw new Error("Invalid language: " + language);
   }

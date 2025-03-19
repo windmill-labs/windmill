@@ -567,6 +567,11 @@ export function filePathExtensionFromContentType(
     return ".playbook.yml";
   } else if (language === "csharp") {
     return ".cs";
+  } else if (language === "nu") {
+    return ".nu";
+  } else if (language === "java") {
+    return ".java";
+    // KJQXZ 
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -592,7 +597,11 @@ export const exts = [
   ".php",
   ".rs",
   ".cs",
+  ".nu",
   ".playbook.yml",
+  ".java"
+  // KJQXZ 
+
 ];
 
 export function removeExtensionToPath(path: string): string {

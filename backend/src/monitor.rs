@@ -54,7 +54,8 @@ use windmill_queue::{cancel_job, MiniPulledJob};
 use windmill_worker::{
     create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
     SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    MAVEN_CONFIG, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    SCRIPT_TOKEN_EXPIRY,
 };
 
 #[cfg(feature = "parquet")]
@@ -186,6 +187,7 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&db).await;
         reload_instance_python_version_setting(&db).await;
         reload_nuget_config_setting(&db).await;
+        reload_maven_config_setting(&db).await;
     }
 }
 
@@ -976,6 +978,10 @@ pub async fn reload_nuget_config_setting(db: &DB) {
         NUGET_CONFIG.clone(),
     )
     .await;
+}
+pub async fn reload_maven_config_setting(db: &DB) {
+    reload_option_setting_with_tracing(db, windmill_common::global_settings::MAVEN_SETTING, "MAVEN_SETTINGS", MAVEN_CONFIG.clone())
+        .await;
 }
 
 pub async fn reload_retention_period_setting(db: &DB) {
