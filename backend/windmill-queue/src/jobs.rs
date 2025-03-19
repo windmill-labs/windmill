@@ -1845,6 +1845,21 @@ pub enum TriggerKind {
     Mqtt,
     Sqs,
     Postgres,
+}
+
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
+#[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum JobTriggerKind {
+    Webhook,
+    Http,
+    Websocket,
+    Kafka,
+    Email,
+    Nats,
+    Mqtt,
+    Sqs,
+    Postgres,
     Schedule,
 }
 
@@ -1860,7 +1875,6 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Mqtt => "mqtt",
             TriggerKind::Sqs => "sqs",
             TriggerKind::Postgres => "postgres",
-            TriggerKind::Schedule => "schedule",
         };
         write!(f, "{}", s)
     }
@@ -1897,7 +1911,7 @@ pub struct MiniPulledJob {
     pub preprocessed: Option<bool>,
     pub script_entrypoint_override: Option<String>,
     pub trigger: Option<String>,
-    pub trigger_kind: Option<TriggerKind>,
+    pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
 }
 
@@ -1957,7 +1971,7 @@ impl MiniPulledJob {
             script_entrypoint_override: job.script_entrypoint_override.clone(),
             trigger: job.schedule_path.clone(),
             trigger_kind: if job.schedule_path.is_some() {
-                Some(TriggerKind::Schedule)
+                Some(JobTriggerKind::Schedule)
             } else {
                 None
             },
@@ -1972,7 +1986,7 @@ impl MiniPulledJob {
         if self
             .trigger_kind
             .as_ref()
-            .is_some_and(|t| matches!(t, TriggerKind::Schedule))
+            .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
         {
             self.trigger.clone()
         } else {
@@ -2037,7 +2051,7 @@ pub async fn get_mini_pulled_job<'c>(
         preprocessed,
         script_entrypoint_override,
         trigger,
-        trigger_kind as \"trigger_kind: TriggerKind\",
+        trigger_kind as \"trigger_kind: JobTriggerKind\",
         visible_to_owner
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id INNER JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
