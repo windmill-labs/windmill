@@ -30,3 +30,7 @@ ADD CONSTRAINT flow_workspace_runnables_workspace_id_flow_path_fkey
 FOREIGN KEY (flow_path, workspace_id) REFERENCES flow (path, workspace_id) 
 ON DELETE CASCADE 
 ON UPDATE CASCADE;
+
+
+CREATE UNIQUE INDEX app_workspace_without_hash_unique_idx ON workspace_runnable_dependencies (app_path, runnable_path, runnable_is_flow, workspace_id) WHERE script_hash IS NULL;
+CREATE UNIQUE INDEX app_workspace_with_hash_unique_idx ON workspace_runnable_dependencies (app_path, runnable_path, script_hash, runnable_is_flow, workspace_id) WHERE script_hash IS NOT NULL;
