@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
 		VerticalAlignment,
-		RichConfigurations
+		RichConfigurations,
+		ListContext,
+		ListInputs
 	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
@@ -27,23 +29,35 @@
 	const { app, worldStore, componentControl, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+
 	let resolvedConfig = initConfig(
 		components['datetimeinputcomponent'].initialData.configuration,
 		configuration
 	)
 
-	let value: string | undefined = undefined
-
-	$componentControl[id] = {
-		setValue(nvalue: string) {
-			value = nvalue
-		}
-	}
-
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as string | undefined,
 		validity: true as boolean | undefined
 	})
+
+	let initValue = outputs?.result.peak()
+	let value: string | undefined =
+		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
+
+	$componentControl[id] = {
+		setValue(nvalue: string) {
+			value = nvalue
+			outputs?.result.set(value)
+		}
+	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
+	let initialHandleDefault = true
 
 	$: handleDefault(resolvedConfig.defaultValue)
 
@@ -62,7 +76,8 @@
 
 	$: {
 		if (value) {
-			outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
+			const r = formatDate(value, resolvedConfig.outputFormat)
+			outputs?.result.set(r)
 			const valueDate = new Date(value)
 
 			if (resolvedConfig.minDateTime) {
@@ -95,12 +110,24 @@
 					outputs?.validity.set(false)
 				}
 			}
+			if (iterContext && listInputs) {
+				listInputs.set(id, value)
+			}
 		} else {
 			outputs?.result.set(undefined)
+			if (iterContext && listInputs) {
+				listInputs.set(id, undefined)
+			}
 		}
 	}
 
 	function handleDefault(defaultValue: string | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined) {
+				return
+			}
+		}
 		value = defaultValue
 	}
 
