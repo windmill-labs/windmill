@@ -165,6 +165,7 @@ export type App = {
 	subgrids?: Record<string, GridItem[]>
 	theme: AppTheme | undefined
 	lazyInitRequire?: string[] | undefined
+	eagerRendering?: boolean | undefined
 	hideLegacyTopBar?: boolean | undefined
 	mobileViewOnSmallerScreens?: boolean | undefined
 	version?: number
