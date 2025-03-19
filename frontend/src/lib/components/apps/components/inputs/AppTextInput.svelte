@@ -46,7 +46,7 @@
 
 	let initValue = outputs?.result.peak()
 	let value: string | undefined =
-		initValue && initValue != '' ? initValue : resolvedConfig.defaultValue
+		!iterContext && initValue && initValue != '' ? initValue : resolvedConfig.defaultValue
 
 	onDestroy(() => {
 		listInputs?.remove(id)
