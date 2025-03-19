@@ -1,10 +1,12 @@
 use crate::{
-    capture::{insert_capture_payload, MqttTriggerConfig, TriggerKind},
+    capture::{insert_capture_payload, MqttTriggerConfig},
     db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     resources::try_get_resource_from_db_as,
     users::fetch_api_authed,
 };
+use windmill_queue::TriggerKind;
+
 use axum::{
     async_trait,
     extract::{Path, Query},

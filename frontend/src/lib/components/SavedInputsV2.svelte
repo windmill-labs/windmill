@@ -64,7 +64,7 @@
 
 	$: filteredSchema = {
 		properties: Object.fromEntries(
-			Object.entries(schema.properties).filter(([key]) => searchArgsFields.includes(key))
+			Object.entries(schema?.properties ?? {}).filter(([key]) => searchArgsFields.includes(key))
 		)
 	}
 </script>
@@ -138,30 +138,30 @@
 									<div class="flex items-center flex-wrap gap-x-2 justify-between">
 										<div class="text-sm text-secondary">Search by args</div>
 										<div class="flex flex-wrap gap-x-2">
-											<Button
-												on:click={async () => {
-													appliedSearchArgs = structuredClone(searchArgs)
-													await tick()
-													historicInputs?.refresh()
-												}}
-												endIcon={{ icon: Search }}
-												variant="contained"
-												size="xs2"
-												color="dark">Search</Button
-											>
 											{#if !emptySearchArgs}
 												<Button
 													on:click={async () => {
 														searchArgs = {}
 														appliedSearchArgs = {}
 														await tick()
-														historicInputs?.refresh()
+														historicInputs?.refresh(true)
 													}}
 													variant="contained"
 													size="xs2"
 													color="light">Reset filters</Button
 												>
 											{/if}
+											<Button
+												on:click={async () => {
+													appliedSearchArgs = structuredClone(searchArgs)
+													await tick()
+													historicInputs?.refresh(true)
+												}}
+												endIcon={{ icon: Search }}
+												variant="contained"
+												size="xs2"
+												color="dark">Search</Button
+											>
 										</div>
 									</div>
 									<div class="my-2">
@@ -169,7 +169,7 @@
 											topPlacement
 											target="#multi-select-search"
 											placeholder="arg fields to filter on"
-											items={Object.keys(schema.properties)}
+											items={Object.keys(schema?.properties ?? {})}
 											bind:value={searchArgsFields}
 										/>
 									</div>

@@ -51,7 +51,8 @@ export type FlowEditorContext = {
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void
-	initialPath: string
+	initialPathStore: Writable<string>
+	fakeInitialPath: string
 	flowInputsStore: Writable<FlowInput>
 	customUi: FlowBuilderWhitelabelCustomUi
 	insertButtonOpen: Writable<boolean>

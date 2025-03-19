@@ -58,7 +58,7 @@ use windmill_common::error::AppError;
 
 mod ai;
 mod apps;
-mod args;
+pub mod args;
 mod audit;
 mod auth;
 mod capture;
@@ -377,7 +377,7 @@ pub async fn run_server(
         Router::new()
     };
 
-    if !*CLOUD_HOSTED {
+    if !*CLOUD_HOSTED && server_mode {
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
