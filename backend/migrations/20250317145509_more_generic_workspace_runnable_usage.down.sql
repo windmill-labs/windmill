@@ -1,3 +1,5 @@
+DROP VIEW flow_workspace_runnables;
+
 ALTER TABLE workspace_runnable_dependencies
 DROP CONSTRAINT flow_workspace_runnables_workspace_id_flow_path_fkey;
 

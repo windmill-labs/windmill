@@ -34,3 +34,9 @@ ON UPDATE CASCADE;
 
 CREATE UNIQUE INDEX app_workspace_without_hash_unique_idx ON workspace_runnable_dependencies (app_path, runnable_path, runnable_is_flow, workspace_id) WHERE script_hash IS NULL;
 CREATE UNIQUE INDEX app_workspace_with_hash_unique_idx ON workspace_runnable_dependencies (app_path, runnable_path, script_hash, runnable_is_flow, workspace_id) WHERE script_hash IS NOT NULL;
+
+
+-- This is to maintain compatibility with old workers
+CREATE VIEW flow_workspace_runnables AS 
+SELECT flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id
+FROM workspace_runnable_dependencies;
