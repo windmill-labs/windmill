@@ -8,7 +8,7 @@
 	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 	contentClasses="border rounded-lg shadow-lg p-4 flex flex-col w-80 pt-8 bg-surface"
 >
-	<svelte:fragment slot="button">
+	<svelte:fragment slot="trigger">
 		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
 			Filters
 		</Button>
