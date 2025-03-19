@@ -205,7 +205,7 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
                     };
                     (Typ::Str(values), false)
                 }
-                "List" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
+                "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
                 "Optional" => (parse_expr(&x.slice).0, true),
                 _ => (Typ::Unknown, false),
             },
