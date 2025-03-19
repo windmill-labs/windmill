@@ -26,9 +26,7 @@
 	use:melt={$root}
 	aria-label="Toggle italic"
 	class=" items-center justify-center rounded-md
-     hover:bg-surface-hover
-      data-[disabled]:cursor-not-allowed
-      data-[state=on]:text-blue-500"
+      data-[disabled]:cursor-not-allowed"
 >
 	<slot {pressed} />
 </button>
