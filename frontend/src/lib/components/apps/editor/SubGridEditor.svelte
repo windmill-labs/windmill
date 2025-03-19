@@ -177,7 +177,7 @@
 	}
 </script>
 
-{#if everVisible}
+{#if everVisible || $app.eagerRendering}
 	<div
 		class="translate-x-0 translate-y-0 w-full subgrid {visible
 			? 'visible'
