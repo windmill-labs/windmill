@@ -173,7 +173,6 @@
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = structuredClone(defaultValue)
-			console.log('computeDefaultValue', value, defaultValue)
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = nullable ? null : ''
@@ -185,7 +184,6 @@
 					value = []
 				}
 			} else if (inputCat === 'object') {
-				console.log('computeDefaultValue object', value)
 				evalValueToRaw()
 			}
 		}
