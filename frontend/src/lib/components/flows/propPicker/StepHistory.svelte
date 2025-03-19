@@ -8,6 +8,7 @@
 
 	export let selected: string | undefined = undefined
 	export let moduleId: string = ''
+	export let getLogs: boolean = false
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -26,11 +27,8 @@
 			})
 			const jobsResults = await Promise.all(
 				previousJobs.map(async (job) => {
-					const result = await getJobResult(job.id)
-					return {
-						...job,
-						payloadData: result
-					}
+					const fullJob = await getJobResultAndLogs(job.id, !getLogs)
+					return fullJob
 				})
 			)
 			return jobsResults
@@ -38,17 +36,13 @@
 		infiniteList?.setLoader(loadInputsPageFn)
 	}
 
-	async function getJobResult(jobId: string) {
+	async function getJobResultAndLogs(jobId: string, noLogs: boolean) {
 		const job = await JobService.getJob({
 			workspace: $workspaceStore ?? '',
 			id: jobId ?? '',
-			noLogs: true
+			noLogs
 		})
-		// Handle different job types
-		if ('result' in job) {
-			return job.result ?? {}
-		}
-		return {}
+		return job
 	}
 
 	$: infiniteList && initLoadInputs()
@@ -60,7 +54,7 @@
 			return
 		}
 		selected = e.detail.id
-		dispatch('select', { result: e.detail.payloadData, jobId: e.detail.id })
+		dispatch('select', { ...e.detail })
 	}
 </script>
 
@@ -73,7 +67,7 @@
 		</colgroup>
 	</svelte:fragment>
 	<svelte:fragment let:item let:hover>
-		<JobSchemaPicker job={item} hovering={hover} payloadData={item.payloadData} />
+		<JobSchemaPicker job={item} hovering={hover} payloadData={item.result} />
 	</svelte:fragment>
 	<svelte:fragment slot="empty">
 		<div class="text-center text-tertiary text-xs py-2"> 'No run yet' </div>

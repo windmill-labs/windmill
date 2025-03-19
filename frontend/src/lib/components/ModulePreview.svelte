@@ -37,6 +37,7 @@
 	let testJobLoader: TestJobLoader
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
+	let selectedJob: Job | undefined = undefined
 
 	let jobProgressReset: () => void
 
@@ -101,6 +102,11 @@
 		}
 	}
 
+	function selectJob(job: Job) {
+		selectedJob = job
+	}
+	$: testJob && selectJob(testJob)
+
 	let forceJson = false
 </script>
 
@@ -146,7 +152,15 @@
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
-				<OutputPickerInner fullResult>
+				<OutputPickerInner
+					fullResult
+					moduleId={mod.id}
+					closeOnOutsideClick={true}
+					on:selectJob={({ detail }) => {
+						selectJob(detail)
+					}}
+					getLogs
+				>
 					{#if scriptProgress}
 						<JobProgressBar
 							job={testJob}
@@ -155,18 +169,18 @@
 							compact={true}
 						/>
 					{/if}
-					{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
+					{#if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
 						<div class="break-words relative h-full p-2">
 							<DisplayResult
 								bind:forceJson
-								workspaceId={testJob?.workspace_id}
-								jobId={testJob?.id}
-								result={testJob.result}
+								workspaceId={selectedJob?.workspace_id}
+								jobId={selectedJob?.id}
+								result={selectedJob?.result}
 							>
 								<svelte:fragment slot="copilot-fix">
-									{#if lang && editor && diffEditor && stepArgs && typeof testJob?.result == 'object' && `error` in testJob?.result && testJob?.result.error}
+									{#if lang && editor && diffEditor && stepArgs && typeof selectedJob?.result == 'object' && `error` in selectedJob?.result && selectedJob?.result.error}
 										<ScriptFix
-											error={JSON.stringify(testJob.result.error)}
+											error={JSON.stringify(selectedJob.result.error)}
 											{lang}
 											{editor}
 											{diffEditor}
@@ -180,7 +194,7 @@
 						<div class="p-2">
 							{#if testIsLoading}
 								{#if !scriptProgress}
-									<Loader2 class="animate-spin" />
+									<Loader2 class="animate-spin m-auto" />
 								{/if}
 							{:else}
 								Test to see the result here
@@ -192,12 +206,12 @@
 			<Pane size={50} minSize={10}>
 				<LogViewer
 					small
-					jobId={testJob?.id}
-					duration={testJob?.['duration_ms']}
-					mem={testJob?.['mem_peak']}
-					content={testJob?.logs}
-					isLoading={testIsLoading && testJob?.['running'] == false}
-					tag={testJob?.tag}
+					jobId={selectedJob?.id}
+					duration={selectedJob?.['duration_ms']}
+					mem={selectedJob?.['mem_peak']}
+					content={selectedJob?.logs}
+					isLoading={testIsLoading && selectedJob?.['running'] == false}
+					tag={selectedJob?.tag}
 				/>
 			</Pane>
 		</Splitpanes>

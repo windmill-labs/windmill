@@ -8,6 +8,7 @@
 	import { Popover } from '$lib/components/meltComponents'
 	import { createEventDispatcher } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
+	import type { Job } from '$lib/gen'
 
 	export let jsonData = {}
 	export let prefix: string = ''
@@ -21,8 +22,13 @@
 		| undefined = { enabled: false }
 	export let moduleId: string = ''
 	export let fullResult: boolean = false
+	export let closeOnOutsideClick: boolean = false
+	export let getLogs: boolean = false
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{
+		selectJob: Job
+		updateMock: { enabled: boolean; return_value?: unknown }
+	}>()
 
 	let jsonView = false
 	let clientHeight: number = 0
@@ -42,7 +48,7 @@
 						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 					}}
 					contentClasses="w-[275px]"
-					closeOnOutsideClick={false}
+					{closeOnOutsideClick}
 				>
 					<svelte:fragment slot="trigger">
 						<Button
@@ -58,8 +64,10 @@
 						<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
 							<StepHistory
 								{moduleId}
+								{getLogs}
 								on:select={({ detail }) => {
 									if (detail.result) {
+										dispatch('selectJob', detail)
 										savedJsonData = detail.result
 										jsonData = detail.result
 										//TODO: display warning approval here : this will override the mock value
@@ -136,7 +144,10 @@
 						on:click={() => {
 							jsonView = false
 							mock = tmpMock
-							dispatch('updateMock', tmpMock)
+							dispatch('updateMock', {
+								enabled: tmpMock?.enabled ?? false,
+								return_value: tmpMock?.return_value
+							})
 							jsonData = tmpMock?.return_value ?? {}
 						}}
 						disabled={!!error}

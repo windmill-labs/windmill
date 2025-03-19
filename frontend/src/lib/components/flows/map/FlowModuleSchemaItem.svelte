@@ -97,7 +97,7 @@
 		jsonData =
 			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
 				? { [id]: pickableIds[id] }
-				: flowStateStore?.[id]?.previewResult ?? {}
+				: { [id]: flowStateStore?.[id]?.previewResult ?? {} }
 	}
 	$: updateJsonData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
 </script>
@@ -288,7 +288,7 @@
 				!!pickableIds &&
 				Object.keys(pickableIds).includes(id)}
 			let:isConnecting
-			let:select
+			let:selectConnection
 		>
 			<OutputPickerInner
 				{jsonData}
@@ -296,7 +296,7 @@
 				prefix={'results'}
 				{isConnecting}
 				{mock}
-				on:select={select}
+				on:select={selectConnection}
 				moduleId={id}
 				on:updateMock
 			/>

@@ -27,7 +27,7 @@
 
 	$: showConnecting = isConnectingCandidate && isConnecting
 
-	function select(event: CustomEvent) {
+	function selectConnection(event: CustomEvent) {
 		if ($flowPropPickerConfig?.onSelect(event.detail)) {
 			$flowPropPickerConfig?.clearFocus()
 			popover?.close()
@@ -90,7 +90,7 @@
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
-		<slot allowCopy={!$flowPropPickerConfig} {isConnecting} {select} />
+		<slot allowCopy={!$flowPropPickerConfig} {isConnecting} {selectConnection} />
 	</svelte:fragment>
 </Popover>
 
