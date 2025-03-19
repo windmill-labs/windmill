@@ -74,6 +74,8 @@ pub enum Error {
     AlreadyCompleted(String),
     #[error("Find python error: {0}")]
     FindPythonError(String),
+    #[error("Problem with arguments: {0}")]
+    ArgumentErr(String),
 }
 
 fn prettify_location(location: &'static Location<'static>) -> String {
