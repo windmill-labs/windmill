@@ -123,7 +123,7 @@
 		if (
 			oneOf &&
 			oneOf.length >= 2 &&
-			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected) || !value)
 		) {
 			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
 				const existingValue = JSON.parse(JSON.stringify(value))
@@ -173,6 +173,7 @@
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = structuredClone(defaultValue)
+			console.log('computeDefaultValue', value, defaultValue)
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = nullable ? null : ''
@@ -184,6 +185,7 @@
 					value = []
 				}
 			} else if (inputCat === 'object') {
+				console.log('computeDefaultValue object', value)
 				evalValueToRaw()
 			}
 		}
@@ -275,11 +277,13 @@
 			rawValue = newRawValue
 			rawValue != undefined && editor?.getCode() != rawValue && editor?.setCode(rawValue)
 		}
-		// console.log('evalValueToRaw', value, rawValue, inputCat, label)
 	}
 
 	let setCodeDisabled = false
-	$: (inputCat && (isObjectCat(inputCat) || isRawStringEditor(inputCat)) && evalValueToRaw()) ||
+	$: (inputCat &&
+		(isObjectCat(inputCat) || isRawStringEditor(inputCat)) &&
+		!oneOf &&
+		evalValueToRaw()) ||
 		value
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -296,7 +300,6 @@
 
 	onMount(() => {
 		computeDefaultValue()
-		// console.log('onMount', value, rawValue, inputCat)
 		evalValueToRaw()
 	})
 
