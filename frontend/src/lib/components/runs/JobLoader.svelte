@@ -18,7 +18,7 @@
 	export let jobs: Job[] | undefined
 	export let user: string | null
 	export let label: string | null = null
-	export let worker: string | null
+	export let worker: string | null = null
 	export let folder: string | null
 	export let path: string | null
 	export let success: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined =

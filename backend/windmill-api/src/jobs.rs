@@ -727,7 +727,7 @@ macro_rules! get_job_query {
             {logs} as logs, {code} as raw_code, canceled_by is not null as canceled, canceled_by, canceled_reason, kind as job_kind, \
             CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, permissioned_as, \
             {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
-            {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, \
+            {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, worker,\
             {additional_fields} \
             FROM {table} 
             INNER JOIN v2_job ON v2_job.id = {table}.id \
@@ -2555,6 +2555,9 @@ pub struct JobExtended<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker: Option<String>,
+
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub self_wait_time_ms: Option<i64>,
@@ -2574,6 +2577,7 @@ impl<T> JobExtended<T> {
             raw_code: None,
             raw_lock: None,
             raw_flow: None,
+            worker: None,
             self_wait_time_ms,
             aggregate_wait_time_ms,
         }
