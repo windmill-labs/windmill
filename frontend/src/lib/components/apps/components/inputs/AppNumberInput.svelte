@@ -32,14 +32,6 @@
 		configuration
 	)
 
-	let value: number | undefined = resolvedConfig.defaultValue
-
-	$componentControl[id] = {
-		setValue(nvalue: number | undefined) {
-			value = nvalue
-		}
-	}
-
 	onDestroy(() => {
 		listInputs?.remove(id)
 	})
@@ -48,9 +40,23 @@
 		result: undefined as number | undefined
 	})
 
+	let initValue = outputs?.result.peak()
+	let value: number | undefined =
+		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
+
+	$componentControl[id] = {
+		setValue(nvalue: number | undefined) {
+			value = nvalue
+			outputs?.result.set(value)
+		}
+	}
+	let initialHandleDefault = true
+
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: {
+	$: value && onChangeValue()
+
+	function onChangeValue() {
 		outputs?.result.set(value)
 		if (iterContext && listInputs) {
 			listInputs.set(id, value)
@@ -58,6 +64,12 @@
 	}
 
 	function handleDefault(defaultValue: number | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined) {
+				return
+			}
+		}
 		value = defaultValue
 	}
 

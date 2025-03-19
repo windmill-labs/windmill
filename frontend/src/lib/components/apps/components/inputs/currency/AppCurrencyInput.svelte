@@ -41,11 +41,14 @@
 		configuration
 	)
 
-	let value: number | undefined = resolvedConfig.defaultValue
+	let initValue = outputs?.result.peak()
+	let value: number | undefined =
+		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
 
 	$componentControl[id] = {
 		setValue(nvalue: number) {
 			value = nvalue
+			outputs?.result.set(value ?? null)
 		}
 	}
 
@@ -56,14 +59,22 @@
 		}
 	}
 
+	let initialHandleDefault = true
+
+	$: handleDefault(resolvedConfig.defaultValue)
+
 	function handleDefault(dflt: number | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined) {
+				return
+			}
+		}
 		value = dflt
 		handleInput()
 	}
 
 	$: value != undefined && handleInput()
-
-	$: handleDefault(resolvedConfig.defaultValue)
 
 	let css = initCss($app.css?.currencycomponent, customCss)
 </script>
