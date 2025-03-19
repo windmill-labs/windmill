@@ -4,14 +4,12 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import ToggleSimple from '$lib/components/meltComponents/ToggleSimple.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { createEventDispatcher } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 
 	export let jsonData = {}
-	export let selected: boolean = false
 	export let prefix: string = ''
 	export let allowCopy: boolean = false
 	export let isConnecting: boolean = false
@@ -43,12 +41,7 @@
 						offset: { mainAxis: 10, crossAxis: -6 },
 						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 					}}
-					contentClasses={twMerge(
-						selected
-							? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400'
-							: '',
-						'w-[275px]'
-					)}
+					contentClasses="w-[275px]"
 					closeOnOutsideClick={false}
 				>
 					<svelte:fragment slot="trigger">

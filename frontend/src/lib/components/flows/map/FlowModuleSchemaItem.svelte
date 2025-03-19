@@ -292,7 +292,6 @@
 		>
 			<OutputPickerInner
 				{jsonData}
-				{selected}
 				{allowCopy}
 				prefix={'results'}
 				{isConnecting}

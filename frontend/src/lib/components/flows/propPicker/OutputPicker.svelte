@@ -47,10 +47,7 @@
 	}}
 	bind:this={popover}
 	allowFullScreen
-	contentClasses={twMerge(
-		'overflow-hidden resize rounded-sm',
-		selected && 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400'
-	)}
+	contentClasses="overflow-hidden resize rounded-md"
 	contentStyle={`width: calc(${MIN_WIDTH * zoom}px); min-width: calc(${
 		MIN_WIDTH * zoom
 	}px); height: calc(${MIN_HEIGHT * zoom}px); min-height: calc(${MIN_HEIGHT * zoom}px);`}
