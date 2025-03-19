@@ -2482,8 +2482,8 @@ pub async fn get_result_and_success_by_id_from_flow(
     let success = match &job_result {
         JobResult::SingleJob(job_id) => {
             sqlx::query_scalar!(
-                "SELECT success AS \"success!\"
-                FROM v2_as_completed_job WHERE id = $1 AND workspace_id = $2",
+                "SELECT status = 'success' OR status = 'skipped' AS \"success!\"
+                FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
                 job_id,
                 w_id
             )
@@ -2495,20 +2495,19 @@ pub async fn get_result_and_success_by_id_from_flow(
                 r#"WITH modules AS (
                     SELECT jsonb_array_elements(flow_status->'modules') AS module
                     FROM {}
-                    WHERE id = $1 AND workspace_id = $2
+                    WHERE id = $1 
                 )
                 SELECT module->>'type' = 'Success'
                 FROM modules
-                WHERE module->>'id' = $3"#,
+                WHERE module->>'id' = $2"#,
                 if completed {
-                    "v2_as_completed_job"
+                    "v2_job_completed"
                 } else {
-                    "v2_as_queue"
+                    "v2_job_status"
                 }
             );
             sqlx::query_scalar(&query)
                 .bind(flow_id)
-                .bind(w_id)
                 .bind(node_id)
                 .fetch_optional(db)
                 .await?
@@ -2612,9 +2611,10 @@ async fn get_completed_flow_node_result_rec(
             };
         } else {
             let subflows = sqlx::query!(
-                "SELECT id AS \"id!\", flow_status AS \"flow_status!: Json<FlowStatus>\"
-                FROM v2_as_completed_job
-                WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
+                "SELECT v2_job_completed.id AS \"id!\", flow_status AS \"flow_status!: Json<FlowStatus>\"
+                FROM v2_job_completed
+                INNER JOIN v2_job ON (v2_job_completed.id = v2_job.id)
+                WHERE parent_job = $1 AND v2_job_completed.workspace_id = $2 AND flow_status IS NOT NULL",
                 id,
                 w_id
             )
