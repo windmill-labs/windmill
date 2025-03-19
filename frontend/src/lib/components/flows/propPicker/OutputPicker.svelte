@@ -13,6 +13,8 @@
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
+	const MIN_WIDTH = 275
+	const MIN_HEIGHT = 275
 
 	let isConnecting = false
 
@@ -86,9 +88,9 @@
 				'overflow-hidden resize rounded-sm',
 				selected && 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400'
 			)}
-			style={`width: calc(${275 * zoom}px); min-width: calc(${275 * zoom}px); height: calc(${
-				180 * zoom
-			}px); min-height: calc(${180 * zoom}px);`}
+			style={`width: calc(${MIN_WIDTH * zoom}px); min-width: calc(${
+				MIN_WIDTH * zoom
+			}px); height: calc(${MIN_HEIGHT * zoom}px); min-height: calc(${MIN_HEIGHT * zoom}px);`}
 			data-prop-picker
 		>
 			<slot allowCopy={!$flowPropPickerConfig} {isConnecting} {select} />
