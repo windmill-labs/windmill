@@ -2053,7 +2053,7 @@ pub async fn get_mini_pulled_job<'c>(
         trigger,
         trigger_kind as \"trigger_kind: JobTriggerKind\",
         visible_to_owner
-        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id INNER JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
+        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
     )
     .fetch_optional(e)

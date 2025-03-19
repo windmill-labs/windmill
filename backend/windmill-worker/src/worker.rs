@@ -1299,11 +1299,48 @@ pub async fn run_worker(
                     same_worker_job.job_id
                 );
                 let r = sqlx::query_as::<_, PulledJob>(
-                    "
-                    WITH ping AS (
-                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 RETURNING id
+                    "WITH ping AS (
+                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 
+                    ),
+                    started_at AS (
+                        UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1
                     )
-                    SELECT * FROM v2_as_queue WHERE id = (SELECT id FROM ping)
+                    SELECT 
+                    v2_job_queue.workspace_id,
+                    v2_job_queue.id,
+                    v2_job.args,
+                    v2_job.parent_job,
+                    v2_job.created_by,
+                    v2_job_queue.started_at,
+                    scheduled_for,
+                    runnable_path,
+                    kind,
+                    runnable_id,
+                    canceled_reason,
+                    canceled_by,
+                    permissioned_as,
+                    permissioned_as_email,
+                    flow_status,
+                    v2_job.tag,
+                    script_lang,
+                    same_worker,
+                    pre_run_error,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    flow_innermost_root_job,
+                    timeout,
+                    flow_step_id,
+                    cache_ttl,
+                    v2_job_queue.priority,
+                    preprocessed,
+                    script_entrypoint_override,
+                    trigger,
+                    trigger_kind,
+                    visible_to_owner,
+                    raw_code,
+                    raw_lock,
+                    raw_flow
+                    FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1
                     ",
                 )
                 .bind(same_worker_job.job_id)
@@ -1315,12 +1352,7 @@ pub async fn run_worker(
                         same_worker_job.job_id, e
                     ))
                 });
-                let _ = sqlx::query!(
-                    "UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1",
-                    same_worker_job.job_id
-                )
-                .execute(db)
-                .await;
+                // tracing::error!("r: {:?}", r);
                 if r.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
                         worker = %worker_name, hostname = %hostname,
