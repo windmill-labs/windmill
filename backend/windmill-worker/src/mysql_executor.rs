@@ -12,7 +12,6 @@ use sqlx::types::Json;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
     worker::to_raw_value,
 };
 use windmill_parser_sql::{
@@ -20,6 +19,7 @@ use windmill_parser_sql::{
     RE_ARG_MYSQL_NAMED,
 };
 use windmill_queue::CanceledBy;
+use windmill_queue::MiniPulledJob;
 
 use crate::{
     common::{build_args_map, OccupancyMetrics},
@@ -103,7 +103,7 @@ pub fn do_mysql_inner<'a>(
 }
 
 pub async fn do_mysql(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

@@ -301,6 +301,7 @@
 									on:filterByFolder
 									on:filterByConcurrencyKey
 									on:filterBySchedule
+									on:filterByWorker
 									{containerWidth}
 								/>
 							</div>

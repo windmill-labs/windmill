@@ -6649,6 +6649,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/SchedulePath"
@@ -6856,6 +6857,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -6910,6 +6912,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -12097,6 +12100,12 @@ components:
       in: query
       schema:
         type: string
+    Worker:
+      name: worker
+      description: worker this job was ran on
+      in: query
+      schema:
+        type: string
     ParentJob:
       name: parent_job
       description:
@@ -12732,6 +12741,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        worker:
+          type: string
       required:
         - id
         - running
@@ -12841,6 +12852,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        worker:
+          type: string
       required:
         - id
         - created_by

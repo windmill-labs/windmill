@@ -25,14 +25,14 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
 };
-use windmill_queue::CanceledBy;
+use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
@@ -157,7 +157,7 @@ fn do_postgresql_inner<'a>(
 }
 
 pub async fn do_postgresql(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

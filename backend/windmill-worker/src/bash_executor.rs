@@ -15,7 +15,6 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error::Error,
-    jobs::QueuedJob,
     worker::{to_raw_value, write_file},
 };
 
@@ -25,7 +24,7 @@ use windmill_common::DB;
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -63,7 +62,7 @@ lazy_static::lazy_static! {
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     content: &str,
@@ -163,7 +162,7 @@ exit $exit_status
 
     let nsjail = !*DISABLE_NSJAIL
         && job
-            .script_path
+            .runnable_path
             .as_ref()
             .map(|x| !x.starts_with("init_script_"))
             .unwrap_or(true);
@@ -470,7 +469,7 @@ fn raw_to_string(x: &str) -> String {
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     content: &str,

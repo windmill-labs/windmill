@@ -47,6 +47,7 @@
 	// All Filters
 	// Filter by
 	let path: string | null = $page.params.path
+	let worker: string | null = $page.url.searchParams.get('worker')
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	let label: string | null = $page.url.searchParams.get('label')
@@ -99,6 +100,7 @@
 		label = $page.url.searchParams.get('label')
 		concurrencyKey = $page.url.searchParams.get('concurrency_key')
 		tag = $page.url.searchParams.get('tag')
+		worker = $page.url.searchParams.get('worker')
 		// Rest of filters handled by RunsFilter
 		success = ($page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
@@ -179,6 +181,7 @@
 	let runsTable: RunsTable
 
 	$: (user ||
+		worker ||
 		label ||
 		folder ||
 		path ||
@@ -207,6 +210,12 @@
 			searchParams.set('user', user)
 		} else {
 			searchParams.delete('user')
+		}
+
+		if (worker) {
+			searchParams.set('worker', worker)
+		} else {
+			searchParams.delete('worker')
 		}
 
 		if (folder) {
@@ -369,6 +378,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -389,6 +399,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -399,6 +410,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -409,6 +421,7 @@
 		concurrencyKey = e.detail
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByTag(e: CustomEvent<string>) {
@@ -419,6 +432,7 @@
 		concurrencyKey = null
 		tag = e.detail
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterBySchedule(e: CustomEvent<string>) {
@@ -429,6 +443,18 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = e.detail
+		worker = null
+	}
+
+	function filterByWorker(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = null
+		schedulePath = undefined
+		worker = e.detail
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
@@ -538,6 +564,7 @@
 		schedulePath = undefined
 		path = null
 		tag = null
+		worker = null
 		if (success == f) {
 			success = undefined
 		} else {
@@ -555,6 +582,7 @@
 	{user}
 	{folder}
 	{path}
+	{worker}
 	{label}
 	{success}
 	{isSkipped}
@@ -683,6 +711,7 @@
 					bind:label
 					bind:concurrencyKey
 					bind:tag
+					bind:worker
 					bind:path
 					bind:success
 					bind:argFilter
@@ -1011,6 +1040,7 @@
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
 							on:filterByTag={filterByTag}
 							on:filterBySchedule={filterBySchedule}
+							on:filterByWorker={filterByWorker}
 							bind:this={runsTable}
 						/>
 					{:else}
@@ -1028,6 +1058,7 @@
 						{:else}
 							<JobPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}
 								workspace={selectedWorkspace}
 							/>
@@ -1070,6 +1101,7 @@
 					bind:path
 					bind:user
 					bind:label
+					bind:worker
 					bind:concurrencyKey
 					bind:tag
 					bind:success
@@ -1390,6 +1422,7 @@
 				on:filterByFolder={filterByFolder}
 				on:filterByLabel={filterByLabel}
 				on:filterByConcurrencyKey={filterByConcurrencyKey}
+				on:filterByWorker={filterByWorker}
 				on:filterByTag={filterByTag}
 				bind:this={runsTable}
 			/>

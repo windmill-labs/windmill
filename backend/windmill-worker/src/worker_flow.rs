@@ -40,7 +40,7 @@ use windmill_common::flow_status::{
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId};
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, JobKind, JobPayload, OnBehalfOf,
-    QueuedJob, RawCode, ENTRYPOINT_OVERRIDE,
+    RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
@@ -56,8 +56,9 @@ use windmill_common::{
 };
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, handle_maybe_scheduled_job,
-    CanceledBy, PushArgs, PushIsolationLevel, WrappedError,
+    add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
+    handle_maybe_scheduled_job, CanceledBy, MiniPulledJob, PushArgs, PushIsolationLevel,
+    WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -82,7 +83,7 @@ pub async fn update_flow_status_after_job_completion(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> error::Result<Option<Arc<QueuedJob>>> {
+) -> error::Result<Option<Arc<MiniPulledJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
     potentially_crash_for_testing();
 
@@ -166,7 +167,7 @@ pub async fn update_flow_status_after_job_completion(
 
 pub enum UpdateFlowStatusAfterJobCompletion {
     Rec(RecUpdateFlowStatusAfterJobCompletion),
-    Done(Arc<QueuedJob>),
+    Done(Arc<MiniPulledJob>),
     NotDone,
     NonLastParallelBranch,
 }
@@ -217,11 +218,11 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         let (job_kind, script_hash, old_status, raw_flow) = sqlx::query!(
             "SELECT
-                job_kind AS \"job_kind!: JobKind\",
-                script_hash AS \"script_hash: ScriptHash\",
+                kind AS \"job_kind!: JobKind\",
+                runnable_id AS \"script_hash: ScriptHash\",
                 flow_status AS \"flow_status!: Json<Box<RawValue>>\",
                 raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2 LIMIT 1",
+            FROM v2_job INNER JOIN v2_job_status ON v2_job.id = v2_job_status.id WHERE v2_job.id = $1 AND v2_job.workspace_id = $2 LIMIT 1",
             flow,
             w_id
         )
@@ -811,6 +812,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             old_status.step
         };
 
+        // tracing::error!(
+        //     "step_counter: {:?} {} {inc_step_counter} {flow}",
+        //     step_counter,
+        //     old_status.step,
+        // );
+        // panic!("stop");
+
         /* is_last_step is true when the step_counter (the next step index) is an invalid index */
         let is_last_step = usize::try_from(step_counter)
             .map(|i| !(..old_status.modules.len()).contains(&i))
@@ -962,26 +970,20 @@ pub async fn update_flow_status_after_job_completion_internal(
             .context("remove flow status retry")?;
         }
 
-        let flow_job = sqlx::query_as::<_, QueuedJob>(
-            "SELECT * FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
-        )
-        .bind(flow)
-        .bind(w_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(Into::<Error>::into)?
-        .ok_or_else(|| Error::internal_err(format!("requiring flow to be in the queue")))?;
+        let flow_job = get_mini_pulled_job(&mut *tx, &flow)
+            .await?
+            .ok_or_else(|| Error::internal_err(format!("requiring flow to be in the queue")))?;
         tx.commit().await?;
 
         let job_root = flow_job
-            .root_job
+            .flow_innermost_root_job
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
         tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
         let should_continue_flow = match success {
             _ if stop_early => false,
-            _ if flow_job.canceled => false,
+            _ if flow_job.is_canceled() => false,
             true => !is_last_step,
             false if unrecoverable => false,
             false if skip_branch_failure || skip_loop_failures || continue_on_error => {
@@ -1039,7 +1041,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
     let done = if !should_continue_flow {
         {
-            let logs = if flow_job.canceled {
+            let logs = if flow_job.is_canceled() {
                 "Flow job canceled\n".to_string()
             } else if stop_early {
                 format!("Flow job stopped early because of a stop early predicate returning true\n")
@@ -1078,7 +1080,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 })?;
             }
         }
-        if flow_job.canceled {
+        if flow_job.is_canceled() {
             add_completed_job_error(
                 db,
                 &flow_job,
@@ -1182,7 +1184,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
         }
 
-        if flow_job.is_flow_step {
+        if flow_job.is_flow_step() {
             if let Some(parent_job) = flow_job.parent_job {
                 tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
 
@@ -1539,7 +1541,7 @@ async fn transform_input(
 
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_flow(
-    flow_job: Arc<QueuedJob>,
+    flow_job: Arc<MiniPulledJob>,
     flow_data: &cache::FlowData,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
@@ -1554,13 +1556,14 @@ pub async fn handle_flow(
         .parse_flow_status()
         .with_context(|| "Unable to parse flow status")?;
 
-    if !flow_job.is_flow_step
+    let schedule_path = flow_job.schedule_path();
+    if !flow_job.is_flow_step()
         && status.retry.fail_count == 0
-        && flow_job.schedule_path.is_some()
-        && flow_job.script_path.is_some()
+        && schedule_path.is_some()
+        && flow_job.runnable_path.is_some()
         && status.step == 0
     {
-        let schedule_path = flow_job.schedule_path.as_ref().unwrap();
+        let schedule_path = schedule_path.as_ref().unwrap();
 
         let schedule = get_schedule_opt(db, &flow_job.workspace_id, schedule_path)
             .warn_after_seconds(5)
@@ -1571,7 +1574,7 @@ pub async fn handle_flow(
                 db,
                 &flow_job,
                 &schedule,
-                flow_job.script_path.as_ref().unwrap(),
+                flow_job.runnable_path.as_ref().unwrap(),
                 &flow_job.workspace_id,
             )
             .warn_after_seconds(5)
@@ -1652,13 +1655,13 @@ lazy_static::lazy_static! {
 }
 
 struct PushNextFlowJobRec {
-    flow_job: Arc<QueuedJob>,
+    flow_job: Arc<MiniPulledJob>,
     status: FlowStatus,
 }
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
-    flow_job: Arc<QueuedJob>,
+    flow_job: Arc<MiniPulledJob>,
     mut status: FlowStatus,
     flow: &FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1670,7 +1673,7 @@ async fn push_next_flow_job(
     worker_name: &str,
 ) -> error::Result<Option<PushNextFlowJobRec>> {
     let job_root = flow_job
-        .root_job
+        .flow_innermost_root_job
         .map(|x| x.to_string())
         .unwrap_or_else(|| "none".to_string());
     tracing::info!(id = %flow_job.id, root_id = %job_root, "pushing next flow job");
@@ -1690,7 +1693,7 @@ async fn push_next_flow_job(
         Step::FailureStep => status.failure_module.module_status.clone(),
     };
 
-    let fj: mappable_rc::Marc<QueuedJob> = flow_job.clone().into();
+    let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
     let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> = Marc::map(fj, |x| {
         if let Some(args) = &x.args {
             &args.0
@@ -1727,10 +1730,11 @@ async fn push_next_flow_job(
     }
 
     if matches!(step, Step::Step(0)) {
-        if !flow_job.is_flow_step && flow_job.schedule_path.is_some() {
+        if !flow_job.is_flow_step() && flow_job.schedule_path().is_some() {
+            let schedule_path = flow_job.schedule_path();
             let no_flow_overlap = sqlx::query_scalar!(
                 "SELECT no_flow_overlap FROM schedule WHERE path = $1 AND workspace_id = $2",
-                flow_job.schedule_path.as_ref().unwrap(),
+                schedule_path.as_ref().unwrap(),
                 flow_job.workspace_id.as_str()
             )
             .fetch_one(db)
@@ -1748,10 +1752,10 @@ async fn push_next_flow_job(
                         AND parent_job IS NULL
                         AND j.id != $3
                         AND running = true",
-                    flow_job.schedule_path.as_ref().unwrap(),
+                    schedule_path.as_ref().unwrap(),
                     flow_job.workspace_id.as_str(),
                     flow_job.id,
-                    flow_job.script_path.as_ref().unwrap()
+                    flow_job.runnable_path()
                 )
                 .fetch_all(db)
                 .await?;
@@ -1966,7 +1970,7 @@ async fn push_next_flow_job(
                     .permissioned_as
                     .trim_start_matches("u/")
                     .to_string(),
-                email: flow_job.email.clone(),
+                email: flow_job.permissioned_as_email.clone(),
                 username_override: None,
             };
 
@@ -2056,9 +2060,8 @@ async fn push_next_flow_job(
 
                 sqlx::query!(
                     "UPDATE v2_job_runtime SET ping = NULL
-                    WHERE id = $1 AND ping = $2",
+                    WHERE id = $1",
                     flow_job.id,
-                    flow_job.last_ping
                 )
                 .execute(&mut *tx)
                 .await?;
@@ -2464,8 +2467,8 @@ async fn push_next_flow_job(
     // Also check `flow_job.same_worker` for [`JobKind::Flow`] jobs as it's no
     // more reflected to the flow value on push.
     let job_same_worker = flow_job.same_worker
-        && matches!(flow_job.job_kind, JobKind::Flow)
-        && flow_job.script_hash.is_some();
+        && matches!(flow_job.kind, JobKind::Flow)
+        && flow_job.runnable_id.is_some();
     let continue_on_same_worker =
         (flow.same_worker || job_same_worker) && module.suspend.is_none() && module.sleep.is_none();
 
@@ -2635,12 +2638,17 @@ async fn push_next_flow_job(
         } {
             None
         } else {
-            flow_job.root_job.or_else(|| Some(flow_job.id))
+            flow_job
+                .flow_innermost_root_job
+                .or_else(|| Some(flow_job.id))
         };
 
         // forward root job permissions to the new job
         let job_perms: Option<Authed> = if JOB_TOKEN.is_none() {
-            if let Some(root_job) = &flow_job.root_job.or_else(|| Some(flow_job.id)) {
+            if let Some(root_job) = &flow_job
+                .flow_innermost_root_job
+                .or_else(|| Some(flow_job.id))
+            {
                 sqlx::query_as!(
                     JobPerms,
                     "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
@@ -2670,7 +2678,10 @@ async fn push_next_flow_job(
         {
             (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
         } else {
-            (&flow_job.email, flow_job.permissioned_as.to_owned())
+            (
+                &flow_job.permissioned_as_email,
+                flow_job.permissioned_as.to_owned(),
+            )
         };
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
@@ -2683,7 +2694,7 @@ async fn push_next_flow_job(
             email,
             permissioned_as,
             scheduled_for_o,
-            flow_job.schedule_path.clone(),
+            flow_job.schedule_path(),
             Some(flow_job.id),
             root_job,
             None,
@@ -3119,22 +3130,22 @@ fn payload_from_modules<'a>(
     })
 }
 
-fn get_path(flow_job: &QueuedJob, status: &FlowStatus, module: &FlowModule) -> String {
+fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModule) -> String {
     if status
         .preprocessor_module
         .as_ref()
         .is_some_and(|x| x.id() == module.id)
     {
-        format!("{}/preprocessor", flow_job.script_path())
+        format!("{}/preprocessor", flow_job.runnable_path())
     } else {
-        format!("{}/{}", flow_job.script_path(), module.id)
+        format!("{}/{}", flow_job.runnable_path(), module.id)
     }
 }
 
 async fn compute_next_flow_transform(
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
-    flow_job: &QueuedJob,
+    flow_job: &MiniPulledJob,
     flow: &FlowValue,
     by_id: Option<IdContext>,
     db: &DB,
@@ -3299,7 +3310,7 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, modules_node, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = !matches!(flow_job.job_kind, JobKind::FlowPreview)
+            let is_simple = !matches!(flow_job.kind, JobKind::FlowPreview)
                 && !parallel
                 && is_simple_modules(&modules, flow.failure_module.as_ref());
 
@@ -3370,7 +3381,7 @@ async fn compute_next_flow_transform(
                                 flow.failure_module.as_ref(),
                                 flow.same_worker,
                                 || format!("{}-{i}", status.step),
-                                || format!("{}/forloop-{i}", flow_job.script_path()),
+                                || format!("{}/forloop-{i}", flow_job.runnable_path()),
                                 true,
                             ) else {
                                 return None;
@@ -3460,7 +3471,7 @@ async fn compute_next_flow_transform(
                 flow.failure_module.as_ref(),
                 flow.same_worker,
                 || status.step.to_string(),
-                || format!("{}/branchone-{}", flow_job.script_path(), branch_idx),
+                || format!("{}/branchone-{}", flow_job.runnable_path(), branch_idx),
                 true,
             ) else {
                 return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: Some(branch) });
@@ -3496,7 +3507,7 @@ async fn compute_next_flow_transform(
                                     flow.failure_module.as_ref(),
                                     flow.same_worker,
                                     || format!("{}-{i}", status.step),
-                                    || format!("{}/branchall-{}", flow_job.script_path(), i),
+                                    || format!("{}/branchall-{}", flow_job.runnable_path(), i),
                                     false,
                                 ) else {
                                     return None;
@@ -3563,7 +3574,7 @@ async fn compute_next_flow_transform(
                 || {
                     format!(
                         "{}/branchall-{}",
-                        flow_job.script_path(),
+                        flow_job.runnable_path(),
                         branch_status.branch
                     )
                 },
@@ -3598,13 +3609,13 @@ async fn next_loop_iteration(
     ns: ForloopNextIteration,
     modules: Vec<FlowModule>,
     modules_node: Option<FlowNodeId>,
-    flow_job: &QueuedJob,
+    flow_job: &MiniPulledJob,
     is_simple: bool,
     db: &sqlx::Pool<sqlx::Postgres>,
     module: &FlowModule,
     delete_after_use: bool,
 ) -> Result<NextFlowTransform, Error> {
-    let inner_path = || format!("{}/loop-{}", flow_job.script_path(), ns.index);
+    let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
         let mut value = modules[0].get_value()?;
         let simple_input_transforms = match &mut value {
@@ -3669,7 +3680,7 @@ pub(super) fn is_simple_modules(
 async fn next_forloop_status(
     status_module: &FlowStatusModule,
     by_id: Option<IdContext>,
-    flow_job: &QueuedJob,
+    flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,
     iterator: &InputTransform,
@@ -3808,7 +3819,7 @@ async fn next_forloop_status(
 async fn payload_from_simple_module(
     value: FlowModuleValue,
     db: &sqlx::Pool<sqlx::Postgres>,
-    flow_job: &QueuedJob,
+    flow_job: &MiniPulledJob,
     module: &FlowModule,
     inner_path: String,
 ) -> Result<JobPayloadWithTag, Error> {
@@ -3929,7 +3940,7 @@ async fn script_to_payload(
     script_hash: Option<windmill_common::scripts::ScriptHash>,
     script_path: String,
     db: &sqlx::Pool<sqlx::Postgres>,
-    flow_job: &QueuedJob,
+    flow_job: &MiniPulledJob,
     module: &FlowModule,
     tag_override: Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
@@ -4003,7 +4014,7 @@ async fn script_to_payload(
 }
 
 async fn get_transform_context(
-    flow_job: &QueuedJob,
+    flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,
 ) -> error::Result<IdContext> {

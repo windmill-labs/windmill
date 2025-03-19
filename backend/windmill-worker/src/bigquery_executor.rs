@@ -5,7 +5,6 @@ use futures::{FutureExt, TryFutureExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
-use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
@@ -203,8 +202,10 @@ fn do_bigquery_inner<'a>(
     Ok(result_f.boxed())
 }
 
+use windmill_queue::MiniPulledJob;
+
 pub async fn do_bigquery(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

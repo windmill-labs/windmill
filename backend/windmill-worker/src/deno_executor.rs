@@ -3,7 +3,7 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use uuid::Uuid;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
@@ -15,11 +15,8 @@ use crate::{
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
+use windmill_common::error::{self};
 use windmill_common::{error::Result, worker::write_file, BASE_URL};
-use windmill_common::{
-    error::{self},
-    jobs::QueuedJob,
-};
 use windmill_parser::Typ;
 
 lazy_static::lazy_static! {
@@ -180,7 +177,7 @@ pub async fn handle_deno_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
@@ -196,7 +193,7 @@ pub async fn handle_deno_job(
     append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
+    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
 
     write_file(job_dir, "main.ts", inner_content)?;
 
@@ -310,7 +307,7 @@ try {{
 
     let write_import_map_f = build_import_map(
         &job.workspace_id,
-        job.script_path(),
+        job.runnable_path(),
         base_internal_url,
         job_dir,
     );
@@ -502,7 +499,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<()> {

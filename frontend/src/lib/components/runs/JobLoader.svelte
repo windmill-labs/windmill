@@ -18,6 +18,7 @@
 	export let jobs: Job[] | undefined
 	export let user: string | null
 	export let label: string | null = null
+	export let worker: string | null = null
 	export let folder: string | null
 	export let path: string | null
 	export let success: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined =
@@ -61,6 +62,7 @@
 		(path &&
 			label &&
 			success &&
+			worker &&
 			isSkipped != undefined &&
 			jobKinds &&
 			concurrencyKey &&
@@ -173,6 +175,7 @@
 				hasNullParent: jobKindsCat != 'all' ? true : undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,
+				worker: worker === null || worker === '' ? undefined : worker,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
 				scheduledForBeforeNow:

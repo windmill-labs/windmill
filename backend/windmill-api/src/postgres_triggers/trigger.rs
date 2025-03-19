@@ -1,7 +1,7 @@
 use std::{collections::HashMap, pin::Pin};
 
 use crate::{
-    capture::{insert_capture_payload, PostgresTriggerConfig, TriggerKind},
+    capture::{insert_capture_payload, PostgresTriggerConfig},
     db::{ApiAuthed, DB},
     postgres_triggers::{
         relation::RelationConverter,
@@ -14,6 +14,8 @@ use crate::{
     resources::try_get_resource_from_db_as,
     users::fetch_api_authed,
 };
+use windmill_queue::TriggerKind;
+
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
 use futures::{pin_mut, SinkExt, StreamExt};
