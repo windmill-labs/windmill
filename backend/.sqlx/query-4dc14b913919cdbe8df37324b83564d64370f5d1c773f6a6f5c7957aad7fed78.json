@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT \n        v2_job_queue.workspace_id,\n        v2_job_queue.id,\n        v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n        v2_job.parent_job,\n        v2_job.created_by,\n        v2_job.created_at,\n        v2_job_queue.started_at,\n        scheduled_for,\n        runnable_path,\n        kind as \"kind: JobKind\",\n        runnable_id as \"runnable_id: ScriptHash\",\n        canceled_reason,\n        canceled_by,\n        permissioned_as,\n        permissioned_as_email,\n        flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n        v2_job.tag,\n        script_lang as \"script_lang: ScriptLang\",\n        same_worker,\n        pre_run_error,\n        concurrent_limit,\n        concurrency_time_window_s,\n        flow_innermost_root_job,\n        timeout,\n        flow_step_id,\n        cache_ttl,\n        v2_job_queue.priority,\n        preprocessed,\n        script_entrypoint_override,\n        trigger,\n        trigger_kind as \"trigger_kind: TriggerKind\",\n        visible_to_owner\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id INNER JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
+  "query": "SELECT \n        v2_job_queue.workspace_id,\n        v2_job_queue.id,\n        v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",\n        v2_job.parent_job,\n        v2_job.created_by,\n        v2_job_queue.started_at,\n        scheduled_for,\n        runnable_path,\n        kind as \"kind: JobKind\",\n        runnable_id as \"runnable_id: ScriptHash\",\n        canceled_reason,\n        canceled_by,\n        permissioned_as,\n        permissioned_as_email,\n        flow_status as \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n        v2_job.tag,\n        script_lang as \"script_lang: ScriptLang\",\n        same_worker,\n        pre_run_error,\n        concurrent_limit,\n        concurrency_time_window_s,\n        flow_innermost_root_job,\n        timeout,\n        flow_step_id,\n        cache_ttl,\n        v2_job_queue.priority,\n        preprocessed,\n        script_entrypoint_override,\n        trigger,\n        trigger_kind as \"trigger_kind: TriggerKind\",\n        visible_to_owner\n        FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id INNER JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
   "describe": {
     "columns": [
       {
@@ -30,26 +30,21 @@
       },
       {
         "ordinal": 5,
-        "name": "created_at",
-        "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 6,
         "name": "started_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "scheduled_for",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "runnable_path",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "kind: JobKind",
         "type_info": {
           "Custom": {
@@ -80,42 +75,42 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "runnable_id: ScriptHash",
         "type_info": "Int8"
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "canceled_reason",
         "type_info": "Text"
       },
       {
-        "ordinal": 12,
+        "ordinal": 11,
         "name": "canceled_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 13,
+        "ordinal": 12,
         "name": "permissioned_as",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "permissioned_as_email",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "flow_status: sqlx::types::Json<Box<RawValue>>",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 16,
+        "ordinal": 15,
         "name": "tag",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 17,
+        "ordinal": 16,
         "name": "script_lang: ScriptLang",
         "type_info": {
           "Custom": {
@@ -147,67 +142,67 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 17,
         "name": "same_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 19,
+        "ordinal": 18,
         "name": "pre_run_error",
         "type_info": "Text"
       },
       {
-        "ordinal": 20,
+        "ordinal": 19,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 21,
+        "ordinal": 20,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 22,
+        "ordinal": 21,
         "name": "flow_innermost_root_job",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 23,
+        "ordinal": 22,
         "name": "timeout",
         "type_info": "Int4"
       },
       {
-        "ordinal": 24,
+        "ordinal": 23,
         "name": "flow_step_id",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 25,
+        "ordinal": 24,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 26,
+        "ordinal": 25,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 27,
+        "ordinal": 26,
         "name": "preprocessed",
         "type_info": "Bool"
       },
       {
-        "ordinal": 28,
+        "ordinal": 27,
         "name": "script_entrypoint_override",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 29,
+        "ordinal": 28,
         "name": "trigger",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 30,
+        "ordinal": 29,
         "name": "trigger_kind: TriggerKind",
         "type_info": {
           "Custom": {
@@ -230,7 +225,7 @@
         }
       },
       {
-        "ordinal": 31,
+        "ordinal": 30,
         "name": "visible_to_owner",
         "type_info": "Bool"
       }
@@ -245,7 +240,6 @@
       false,
       true,
       true,
-      false,
       false,
       true,
       false,
@@ -275,5 +269,5 @@
       false
     ]
   },
-  "hash": "75d84ae72c6418ee399c2705ce7cdb8dde76f28d59137661f2ec55f04f9b8681"
+  "hash": "4dc14b913919cdbe8df37324b83564d64370f5d1c773f6a6f5c7957aad7fed78"
 }
