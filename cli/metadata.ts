@@ -30,7 +30,7 @@ import {
   parse_snowflake,
   parse_sql,
   parse_oracledb,
-} from "./wasm/windmill_parser_wasm.internal.js";
+} from "./wasm/windmill_parser_wasm.js";
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
