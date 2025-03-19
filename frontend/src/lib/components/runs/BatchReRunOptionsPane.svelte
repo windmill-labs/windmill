@@ -4,7 +4,6 @@
 	import type { Job } from '$lib/gen'
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
-
 	const scriptPaths = $derived(new Set(selectedJobs.flatMap((j) => j.script_path ?? [])))
 	let selectedPath: string | undefined = $state(undefined)
 	$effect(() => {
@@ -18,26 +17,30 @@
 	<p class="ml-4 mt-4 text-xs font-semibold truncate">Batch re-run options</p>
 	<div class="border m-4 flex-1">
 		<Splitpanes>
-			<Pane size={30}>
+			<Pane size={32} class="bg-surface-secondary relative">
 				<PanelSection
 					title="Runnables"
+					class="bg-surface-secondary overflow-y-scroll absolute inset-0"
 					id="batch-rerun-options-runnable-list"
-					class="bg-surface-secondary"
 				>
-					{#each scriptPaths as scriptPath}
-						<button
-							class="border rounded-sm w-full text-left font-normal py-1 px-2 text-2xs truncate {selectedPath ===
-							scriptPath
-								? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-								: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-							onclick={() => (selectedPath = scriptPath)}
-						>
-							{scriptPath}
-						</button>
-					{/each}
+					<div class="w-full flex flex-col gap-1">
+						{#each scriptPaths as scriptPath}
+							<button
+								class="border rounded-sm w-full text-left font-normal py-1.5 px-2 text-2xs truncate {selectedPath ===
+								scriptPath
+									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
+								onclick={() => (selectedPath = scriptPath)}
+							>
+								{scriptPath}
+							</button>
+						{/each}
+					</div>
 				</PanelSection>
 			</Pane>
-			<Pane size={70}></Pane>
+			<Pane size={68}>
+				<PanelSection title="Inputs" class="" id="batch-rerun-options-args"></PanelSection>
+			</Pane>
 		</Splitpanes>
 	</div>
 </div>
