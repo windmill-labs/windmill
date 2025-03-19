@@ -573,7 +573,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                     let new_status = if skip_loop_failures
                         || sqlx::query_scalar!(
-                            "SELECT success AS \"success!\" FROM v2_as_completed_job WHERE id = ANY($1)",
+                            "SELECT status = 'success' OR status = 'skipped' AS \"success!\" FROM v2_job_completed WHERE id = ANY($1)",
                             jobs.as_slice()
                         )
                         .fetch_all(&mut *tx)

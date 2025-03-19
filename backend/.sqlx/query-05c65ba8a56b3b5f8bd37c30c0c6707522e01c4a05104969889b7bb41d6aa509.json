@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT success AS \"success!\"\n                FROM v2_as_completed_job WHERE id = $1 AND workspace_id = $2",
+  "query": "SELECT status = 'success' OR status = 'skipped' AS \"success!\" FROM v2_job_completed WHERE id = ANY($1)",
   "describe": {
     "columns": [
       {
@@ -11,13 +11,12 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text"
+        "UuidArray"
       ]
     },
     "nullable": [
-      true
+      null
     ]
   },
-  "hash": "05d6405b2cc6aabf564a10f05402878e9f2a13e0ce0dad42723f95ac7fb15d4b"
+  "hash": "05c65ba8a56b3b5f8bd37c30c0c6707522e01c4a05104969889b7bb41d6aa509"
 }
