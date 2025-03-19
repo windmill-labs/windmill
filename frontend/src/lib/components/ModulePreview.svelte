@@ -107,6 +107,25 @@
 	}
 	$: testJob && selectJob(testJob)
 
+	async function getLastJob(noLogs: boolean) {
+		const previousJobs = await JobService.listJobs({
+			workspace: $workspaceStore!,
+			scriptPathExact: $pathStore + '/' + mod.id,
+			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
+			page: 1,
+			perPage: 1
+		})
+		if (previousJobs.length > 0) {
+			const job = await JobService.getJob({
+				workspace: $workspaceStore ?? '',
+				id: previousJobs[0].id ?? '',
+				noLogs
+			})
+			job && selectJob(job)
+		}
+	}
+	$: !selectedJob && getLastJob(true)
+
 	let forceJson = false
 </script>
 
@@ -171,24 +190,26 @@
 					{/if}
 					{#if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
 						<div class="break-words relative h-full p-2">
-							<DisplayResult
-								bind:forceJson
-								workspaceId={selectedJob?.workspace_id}
-								jobId={selectedJob?.id}
-								result={selectedJob?.result}
-							>
-								<svelte:fragment slot="copilot-fix">
-									{#if lang && editor && diffEditor && stepArgs && typeof selectedJob?.result == 'object' && `error` in selectedJob?.result && selectedJob?.result.error}
-										<ScriptFix
-											error={JSON.stringify(selectedJob.result.error)}
-											{lang}
-											{editor}
-											{diffEditor}
-											args={stepArgs}
-										/>
-									{/if}
-								</svelte:fragment>
-							</DisplayResult>
+							{#key selectedJob}
+								<DisplayResult
+									bind:forceJson
+									workspaceId={selectedJob?.workspace_id}
+									jobId={selectedJob?.id}
+									result={selectedJob?.result}
+								>
+									<svelte:fragment slot="copilot-fix">
+										{#if lang && editor && diffEditor && stepArgs && typeof selectedJob?.result == 'object' && `error` in selectedJob?.result && selectedJob?.result.error}
+											<ScriptFix
+												error={JSON.stringify(selectedJob.result.error)}
+												{lang}
+												{editor}
+												{diffEditor}
+												args={stepArgs}
+											/>
+										{/if}
+									</svelte:fragment>
+								</DisplayResult>
+							{/key}
 						</div>
 					{:else}
 						<div class="p-2">
