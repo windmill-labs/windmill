@@ -84,7 +84,9 @@
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width
-
+				if (width === 0) {
+					width = 1
+				}
 				if (width === containerWidth) {
 					mounted = true
 					return
