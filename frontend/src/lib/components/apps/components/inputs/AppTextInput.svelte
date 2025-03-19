@@ -40,11 +40,13 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let value: string | undefined = resolvedConfig.defaultValue
-
 	let outputs = initOutput($worldStore, id, {
-		result: value ?? ''
+		result: undefined as string | undefined
 	})
+
+	let initValue = outputs?.result.peak()
+	let value: string | undefined =
+		initValue && initValue != '' ? initValue : resolvedConfig.defaultValue
 
 	onDestroy(() => {
 		listInputs?.remove(id)
@@ -53,12 +55,16 @@
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			value = nvalue
+			outputs?.result.set(value)
 		}
 	}
 
+	let initialHandleDefault = true
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: {
+	$: value && onValueChange()
+
+	function onValueChange() {
 		let val = value ?? ''
 		outputs?.result.set(val)
 		if (iterContext && listInputs) {
@@ -67,6 +73,10 @@
 	}
 
 	function handleDefault(defaultValue: string | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			return
+		}
 		value = defaultValue
 	}
 
