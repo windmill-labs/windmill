@@ -9,11 +9,12 @@
 <script lang="ts">
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
 	import { fade } from 'svelte/transition'
-	import { X } from 'lucide-svelte'
+	import { X, Minimize2, Maximize2 } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
+	import { Button } from '$lib/components/common'
 
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
@@ -27,18 +28,26 @@
 	export let contentStyle: string = ''
 	export let portal: string | HTMLElement | null = 'body'
 	export let closeOnOtherPopoverOpen: boolean = false
+	export let allowFullScreen: boolean = false
+	export let fullScreenWidthOffset: number = 0
+
+	let fullScreen = false
 
 	const dispatch = createEventDispatcher()
 
 	const {
-		elements: { trigger, content, arrow, close: closeElement },
+		elements: { trigger, content, arrow, close: closeElement, overlay },
 		states,
 		options: { closeOnOutsideClick: closeOnOutsideClickOption },
 		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
 		positioning: floatingConfig ?? {
-			placement
+			placement,
+			strategy: fullScreen ? 'fixed' : 'absolute',
+			middleware: fullScreen ? [] : undefined,
+			x: fullScreen ? 0 : undefined,
+			y: fullScreen ? 0 : undefined
 		},
 		portal,
 		onOpenChange: ({ curr, next }) => {
@@ -56,6 +65,9 @@
 				} else if ($activePopover.id === $popoverId) {
 					activePopover.set({ id: null, close: null })
 				}
+			}
+			if (fullScreen && !next) {
+				fullScreen = false
 			}
 			return next
 		}
@@ -104,22 +116,48 @@
 </button>
 
 {#if isOpen && !disablePopup}
+	{#if fullScreen}
+		<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50" />
+	{/if}
+
 	<div
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
-		class={twMerge(' w-fit border rounded-md bg-surface shadow-lg', contentClasses, `z-[5001]`)}
+		class={twMerge(
+			'relative border rounded-md bg-surface shadow-lg',
+			fullScreen
+				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
+				: 'w-fit',
+			contentClasses,
+			`z-[5001]`
+		)}
 		data-popover
-		style={contentStyle}
+		style={fullScreen
+			? `width: calc(90vw - ${fullScreenWidthOffset}px); height: 90vh;`
+			: contentStyle}
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow} />
 		{/if}
-		<slot name="content" {open} {close} />
+		{#if allowFullScreen}
+			<div class="absolute top-0 right-0 z-10">
+				<Button
+					on:click={() => (fullScreen = !fullScreen)}
+					color="light"
+					size="xs2"
+					iconOnly
+					startIcon={fullScreen ? { icon: Minimize2 } : { icon: Maximize2 }}
+					btnClasses="text-gray-400"
+				/>
+			</div>
+		{/if}
 		{#if closeButton}
 			<button class="close" use:melt={$closeElement}>
 				<X class="size-3" />
 			</button>
 		{/if}
+
+		<slot name="content" {open} {close} />
 	</div>
 {/if}
 
