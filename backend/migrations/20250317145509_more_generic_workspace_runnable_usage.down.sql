@@ -1,4 +1,12 @@
 ALTER TABLE workspace_runnable_dependencies
+DROP CONSTRAINT flow_workspace_runnables_workspace_id_flow_path_fkey;
+
+ALTER TABLE workspace_runnable_dependencies
+ADD CONSTRAINT flow_workspace_runnables_workspace_id_flow_path_fkey
+FOREIGN KEY (flow_path, workspace_id) REFERENCES flow (path, workspace_id) 
+ON DELETE CASCADE;
+
+ALTER TABLE workspace_runnable_dependencies
 DROP CONSTRAINT workspace_runnable_dependencies_path_exclusive;
 
 ALTER TABLE workspace_runnable_dependencies
