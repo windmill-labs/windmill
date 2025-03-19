@@ -940,7 +940,7 @@ async fn route_job(
             &trigger.workspace_id,
         )
         .await;
-
+        println!("{:#?}", &webhook_auth);
         let webhook_auth = match webhook_auth {
             Ok(webhook_auth) => webhook_auth,
             Err(e) => return e.into_response(),
@@ -968,7 +968,10 @@ async fn route_job(
         };
 
         match webhook_auth.verify_signatures(&headers, &raw_payload) {
-            Ok(WebhookRequestType::Challenge(response)) => return response,
+            Ok(WebhookRequestType::Challenge(response)) => {
+                println!("Response");
+                return response;
+            }
             Err(e) => return e.into_response(),
             _ => {}
         }
