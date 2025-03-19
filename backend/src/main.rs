@@ -882,6 +882,7 @@ Windmill Community Edition {GIT_VERSION}
                                     disable_s3_store,
                                 )
                                 .await;
+                                #[cfg(feature = "enterprise")]
                                 if let Err(err) = reload_license_key(&db).await {
                                     tracing::error!("Failed to reload license key: {err:#}");
                                 }
