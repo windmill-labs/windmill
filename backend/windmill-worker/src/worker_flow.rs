@@ -812,6 +812,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             old_status.step
         };
 
+        // tracing::error!(
+        //     "step_counter: {:?} {} {inc_step_counter} {flow}",
+        //     step_counter,
+        //     old_status.step,
+        // );
+        // panic!("stop");
+
         /* is_last_step is true when the step_counter (the next step index) is an invalid index */
         let is_last_step = usize::try_from(step_counter)
             .map(|i| !(..old_status.modules.len()).contains(&i))
@@ -963,7 +970,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .context("remove flow status retry")?;
         }
 
-        let flow_job = get_mini_pulled_job(db, &flow)
+        let flow_job = get_mini_pulled_job(&mut *tx, &flow)
             .await?
             .ok_or_else(|| Error::internal_err(format!("requiring flow to be in the queue")))?;
         tx.commit().await?;

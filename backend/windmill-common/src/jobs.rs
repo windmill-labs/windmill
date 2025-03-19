@@ -240,8 +240,6 @@ pub struct CompletedJob {
     pub labels: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub worker: Option<String>,
 }
 
 impl CompletedJob {

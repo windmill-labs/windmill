@@ -1873,7 +1873,6 @@ pub struct MiniPulledJob {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
     pub parent_job: Option<Uuid>,
     pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
     pub scheduled_for: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub runnable_path: Option<String>,
@@ -1919,6 +1918,8 @@ impl MiniPulledJob {
     }
 
     pub fn parse_flow_status(&self) -> Option<FlowStatus> {
+        // tracing::error!("parse_flow_status: {:?}", self.flow_status);
+
         self.flow_status
             .as_ref()
             .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
@@ -1931,7 +1932,6 @@ impl MiniPulledJob {
             args: job.args.clone(),
             parent_job: job.parent_job.clone(),
             created_by: job.created_by.clone(),
-            created_at: job.created_at,
             started_at: job.started_at.clone(),
             scheduled_for: job.scheduled_for,
             runnable_path: job.script_path.clone(),
@@ -1990,71 +1990,6 @@ pub struct PulledJob {
     pub raw_flow: Option<Json<Box<RawValue>>>,
 }
 
-// pub workspace_id: String,
-// pub id: Uuid,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub parent_job: Option<Uuid>,
-// pub created_by: String,
-// pub created_at: chrono::DateTime<chrono::Utc>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-// pub scheduled_for: chrono::DateTime<chrono::Utc>,
-// pub running: bool,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub script_hash: Option<ScriptHash>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub script_path: Option<String>,
-// pub script_entrypoint_override: Option<String>,
-// pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub logs: Option<String>,
-// pub canceled: bool,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub canceled_by: Option<String>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub canceled_reason: Option<String>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
-// pub job_kind: JobKind,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub schedule_path: Option<String>,
-// pub permissioned_as: String,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub flow_status: Option<Json<Box<RawValue>>>,
-// pub is_flow_step: bool,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub language: Option<ScriptLang>,
-// pub same_worker: bool,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub pre_run_error: Option<String>,
-// pub email: String,
-// pub visible_to_owner: bool,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub suspend: Option<i32>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub mem_peak: Option<i32>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub root_job: Option<Uuid>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub leaf_jobs: Option<serde_json::Value>,
-// pub tag: String,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub concurrent_limit: Option<i32>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub concurrency_time_window_s: Option<i32>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub timeout: Option<i32>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub flow_step_id: Option<String>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub cache_ttl: Option<i32>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub priority: Option<i16>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub preprocessed: Option<bool>,
-// #[serde(skip_serializing_if = "Option::is_none")]
-// pub worker: Option<String>,
-
 impl std::ops::Deref for PulledJob {
     type Target = MiniPulledJob;
     fn deref(&self) -> &Self::Target {
@@ -2066,39 +2001,6 @@ lazy_static::lazy_static! {
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 }
 
-//
-// pub workspace_id: String,
-// pub id: Uuid,
-// pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
-// pub parent_job: Option<Uuid>,
-// pub created_by: String,
-// pub created_at: chrono::DateTime<chrono::Utc>,
-// pub scheduled_for: chrono::DateTime<chrono::Utc>,
-// pub runnable_path: Option<String>,
-// pub kind: JobKind,
-// pub runnable_id: Option<ScriptHash>,
-// pub canceled_reason: Option<String>,
-// pub canceled_by: Option<String>,
-// pub permissioned_as: String,
-// pub permissioned_as_email: String,
-// pub flow_status: Option<Json<Box<RawValue>>>,
-// pub is_flow_step: bool,
-// pub tag: String,
-// pub language: Option<ScriptLang>,
-// pub same_worker: bool,
-// pub pre_run_error: Option<String>,
-// pub concurrent_limit: Option<i32>,
-// pub concurrency_time_window_s: Option<i32>,
-// pub flow_innermost_root_job: Option<Uuid>,
-// pub timeout: Option<i32>,
-// pub flow_step_id: Option<String>,
-// pub cache_ttl: Option<i32>,
-// pub priority: Option<i16>,
-// pub preprocessed: Option<bool>,
-// pub script_entrypoint_override: Option<String>,
-// pub trigger: Option<String>,
-// pub trigger_kind: Option<TriggerKind>,
-// pub visible_to_owner: bool,
 pub async fn get_mini_pulled_job<'c>(
     e: impl PgExecutor<'c>,
     job_id: &Uuid,
@@ -2111,7 +2013,6 @@ pub async fn get_mini_pulled_job<'c>(
         v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
         v2_job.parent_job,
         v2_job.created_by,
-        v2_job.created_at,
         v2_job_queue.started_at,
         scheduled_for,
         runnable_path,

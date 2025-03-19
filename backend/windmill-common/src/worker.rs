@@ -141,14 +141,14 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
+        ) SELECT id, workspace_id, parent_job, created_by, started_at, scheduled_for,
             runnable_id, runnable_path, args, canceled_by,
-            canceled_reason, null as last_ping, kind, trigger, trigger_kind, permissioned_as, permissioned_as_email,
+            canceled_reason, kind, trigger, trigger_kind, permissioned_as, permissioned_as_email,
             flow_status, script_lang,
-            same_worker, pre_run_error, visible_to_owner, null as mem_peak,
+            same_worker, pre_run_error, visible_to_owner, 
             tag, concurrent_limit, concurrency_time_window_s, flow_innermost_root_job,
             timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
-            script_entrypoint_override, preprocessed, worker
+            script_entrypoint_override, preprocessed
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)",
         peek
