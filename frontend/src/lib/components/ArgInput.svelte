@@ -131,7 +131,9 @@
 				await tick()
 				value = existingValue
 			} else {
-				oneOfSelected = oneOf[0]['title']
+				const label = oneOf[0]['title']
+				oneOfSelected = label
+				value = { ...(typeof value === 'object' ? value ?? {} : {}), label }
 			}
 		}
 	}
