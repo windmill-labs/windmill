@@ -41,9 +41,12 @@
 	import type { RunsSelectionMode } from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import { isJobSelectable } from '$lib/utils'
+	import BatchReRunOptionsPane from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
+	// TODO: more efficient data structure
+	$: selectedJobs = jobs?.filter((j) => selectedIds.includes(j.id))
 	let selectedWorkspace: string | undefined = undefined
 
 	// All Filters
@@ -542,6 +545,14 @@
 		isCancelingVisibleJobs = true
 	}
 
+	async function onReRunFilteredJobs() {
+		// TODO
+	}
+
+	async function onReRunSelectedJobs() {
+		// TODO
+	}
+
 	function setLookback(lookbackInDays: number) {
 		lookback = lookbackInDays
 	}
@@ -854,6 +865,8 @@
 						{onSetSelectionMode}
 						{onCancelFilteredJobs}
 						{onCancelSelectedJobs}
+						{onReRunFilteredJobs}
+						{onReRunSelectedJobs}
 					/>
 				</div>
 			</div>
@@ -1003,8 +1016,10 @@
 						</div>
 					{/if}
 				</Pane>
-				<Pane size={40} minSize={15} class="border-t">
-					{#if selectedIds.length === 1}
+				<Pane size={40} minSize={15} class="border-t flex flex-col">
+					{#if selectionMode === 're-run'}
+						<BatchReRunOptionsPane selectedJobs={selectedJobs ?? []} />
+					{:else if selectedIds.length === 1}
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
@@ -1181,6 +1196,8 @@
 						{onSetSelectionMode}
 						{onCancelFilteredJobs}
 						{onCancelSelectedJobs}
+						{onReRunFilteredJobs}
+						{onReRunSelectedJobs}
 					/>
 				</div>
 			</div>
