@@ -30,7 +30,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
+	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
 
 	type PathKind =
 		| 'resource'
@@ -529,6 +529,11 @@
 	</div>
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise}
+		{#await Promise.all([pathUsageInAppsPromise, pathUsageInFlowsPromise])}
+			<Alert type="warning" class="mt-4" title="Looking for references ...">
+				<Loader2 class="animate-spin" />
+			</Alert>
+		{/await}
 		{#await pathUsageInFlowsPromise then pathUsageInFlows}
 			{#if pathUsageInFlows && pathUsageInFlows.length}
 				<Alert
