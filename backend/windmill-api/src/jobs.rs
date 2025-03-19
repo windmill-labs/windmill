@@ -5929,6 +5929,7 @@ async fn get_completed_job_result_maybe(
 async fn delete_completed_job<'a>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     check_scopes(&authed, || format!("jobs:deletejob"))?;
@@ -5937,9 +5938,8 @@ async fn delete_completed_job<'a>(
 
     require_admin(authed.is_admin, &authed.username)?;
     let tags = get_scope_tags(&authed);
-    let job_o = sqlx::query_as::<_, CompletedJob>(
-        "WITH mark_as_deleted AS (
-            UPDATE v2_job_completed c SET
+    let job_o = sqlx::query_scalar!(
+        "UPDATE v2_job_completed c SET
                 result = NULL,
                 deleted = TRUE
             FROM v2_job j
@@ -5948,15 +5948,15 @@ async fn delete_completed_job<'a>(
                 AND c.workspace_id = $2
                 AND ($3::TEXT[] IS NULL OR tag = ANY($3))
             RETURNING c.id
-        ) SELECT * FROM v2_as_completed_job WHERE id = (SELECT id FROM mark_as_deleted)",
+        ",
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
     )
-    .bind(id)
-    .bind(&w_id)
-    .bind(tags.as_ref().map(|v| v.as_slice()))
     .fetch_optional(&mut *tx)
     .await?;
 
-    let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
+    not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
     sqlx::query!("UPDATE v2_job SET args = NULL WHERE id = $1", id)
         .execute(&mut *tx)
@@ -5977,9 +5977,5 @@ async fn delete_completed_job<'a>(
     .await?;
 
     tx.commit().await?;
-
-    let cj = format_completed_job_result(cj);
-
-    let response = Json(cj).into_response();
-    Ok(response)
+    return get_completed_job(OptAuthed(Some(authed)), Extension(db), Path((w_id, id))).await;
 }
