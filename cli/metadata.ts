@@ -12,25 +12,37 @@ import {
   ScriptMetadata,
   defaultScriptMetadata,
 } from "./bootstrap/script_bootstrap.ts";
-import {
-  parse_ansible,
-  parse_bash,
-  parse_bigquery,
-  parse_deno,
-  parse_go,
-  parse_graphql,
-  parse_mssql,
-  parse_mysql,
-  parse_php,
-  parse_powershell,
-  parse_python,
-  parse_rust,
-  parse_csharp,
-  parse_nu,
-  parse_snowflake,
-  parse_sql,
-  parse_oracledb,
-} from "./wasm/windmill_parser_wasm.js";
+
+// @ts-ignore
+import initTsParser, { parse_deno, parse_outputs } from 'npm:windmill-parser-wasm-ts'
+import initRegexParsers, {
+	parse_sql,
+	parse_mysql,
+	parse_oracledb,
+	parse_bigquery,
+	parse_snowflake,
+	parse_graphql,
+	parse_mssql,
+	parse_db_resource,
+	parse_bash,
+	parse_powershell
+// @ts-ignore
+} from 'npm:windmill-parser-wasm-regex'
+// @ts-ignore
+import initPythonParser, { parse_python } from 'npm:windmill-parser-wasm-py'
+// @ts-ignore
+import initGoParser, { parse_go } from 'npm:windmill-parser-wasm-go'
+// @ts-ignore
+import initPhpParser, { parse_php } from 'npm:windmill-parser-wasm-php'
+// @ts-ignore
+import initRustParser, { parse_rust } from 'npm:windmill-parser-wasm-rust'
+// @ts-ignore
+import initYamlParser, { parse_ansible } from 'npm:windmill-parser-wasm-yaml'
+// @ts-ignore
+import initCSharpParser, { parse_csharp } from 'npm:windmill-parser-wasm-csharp'
+// @ts-ignore
+import initNuParser, { parse_nu } from "npm:windmill-parser-wasm-nu";
+
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
@@ -312,7 +324,7 @@ export async function updateScriptSchema(
   path: string
 ): Promise<void> {
   // infer schema from script content and update it inplace
-  const result = inferSchema(
+  const result = await inferSchema(
     language,
     scriptContent,
     metadataContent.schema,
@@ -470,82 +482,103 @@ export async function updateFlow(
 ////////////////////////////////////////////////////////////////////////////////////////////
 // below functions copied from Windmill's FE inferArgs function. TODO: refactor           //
 ////////////////////////////////////////////////////////////////////////////////////////////
-export function inferSchema(
+export async function inferSchema(
   language: ScriptLanguage,
   content: string,
   currentSchema: any,
   path: string
-): {
+): Promise<{
   schema: any;
   has_preprocessor: boolean | undefined;
   no_main_func: boolean | undefined;
-} {
+}> {
   let inferedSchema: any;
   if (language === "python3") {
+    await initPythonParser(undefined);
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
+    await initTsParser(undefined);
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "bun") {
+    await initTsParser(undefined);
     inferedSchema = JSON.parse(parse_deno(content));
+    await initTsParser(undefined);
   } else if (language === "deno") {
+    await initTsParser(undefined);
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "go") {
+    await initGoParser(undefined)
     inferedSchema = JSON.parse(parse_go(content));
   } else if (language === "mysql") {
+		await initRegexParsers(undefined)
+
     inferedSchema = JSON.parse(parse_mysql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "mysql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "bigquery") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_bigquery(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "bigquery" } },
       ...inferedSchema.args,
     ];
   } else if (language === "oracledb") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_oracledb(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "oracledb" } },
       ...inferedSchema.args,
     ];
   } else if (language === "snowflake") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_snowflake(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "snowflake" } },
       ...inferedSchema.args,
     ];
   } else if (language === "mssql") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_mssql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "ms_sql_server" } },
       ...inferedSchema.args,
     ];
   } else if (language === "postgresql") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_sql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "postgresql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "graphql") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_graphql(content));
     inferedSchema.args = [
       { name: "api", typ: { resource: "graphql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "bash") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_bash(content));
   } else if (language === "powershell") {
+		await initRegexParsers(undefined)
     inferedSchema = JSON.parse(parse_powershell(content));
   } else if (language === "php") {
+		await initPhpParser(undefined)
     inferedSchema = JSON.parse(parse_php(content));
   } else if (language === "rust") {
+		await initRustParser(undefined)
     inferedSchema = JSON.parse(parse_rust(content));
   } else if (language === "csharp") {
+		await initCSharpParser(undefined)
     inferedSchema = JSON.parse(parse_csharp(content));
   } else if (language === "nu") {
+    await initNuParser(undefined);
     inferedSchema = JSON.parse(parse_nu(content));
   } else if (language === "ansible") {
+    await initYamlParser(undefined);
     inferedSchema = JSON.parse(parse_ansible(content));
   } else {
     throw new Error("Invalid language: " + language);
@@ -589,6 +622,7 @@ export function inferSchema(
     }
   }
 
+  
   return {
     schema: currentSchema,
     has_preprocessor: inferedSchema.has_preprocessor,

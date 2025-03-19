@@ -13,6 +13,16 @@
     "@std/path": "jsr:@std/path@^1.0.4",
     "@std/streams": "jsr:@std/streams@^1.0.4",
     "@std/yaml": "jsr:@std/yaml@^1.0.5",
-    "@types/diff": "npm:@types/diff@^5.2.2"
+    "@types/diff": "npm:@types/diff@^5.2.2",
+    "windmill-parser-wasm-nu": "npm:windmill-parser-wasm-nu@^1.474.0",
+    "windmill-parser-wasm-csharp": "npm:windmill-parser-wasm-csharp@^1.437.1",
+    "windmill-parser-wasm-go": "npm:windmill-parser-wasm-go@^1.429.0",
+    "windmill-parser-wasm-php": "npm:windmill-parser-wasm-php@^1.429.0",
+    "windmill-parser-wasm-py": "npm:windmill-parser-wasm-py@^1.477.1",
+    "windmill-parser-wasm-rust": "npm:windmill-parser-wasm-rust@^1.429.0",
+    "windmill-parser-wasm-ts": "npm:windmill-parser-wasm-ts@^1.429.0",
+    "windmill-parser-wasm-yaml": "npm:windmill-parser-wasm-yaml@^1.429.0",
+    "windmill-parser-wasm-regex": "npm:windmill-parser-wasm-regex@^1.439.0",
+    "windmill-sql-datatype-parser-wasm": "npm:windmill-sql-datatype-parser-wasm@^1.318.0"
   }
 }
