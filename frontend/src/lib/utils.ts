@@ -16,12 +16,13 @@ import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
+import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
 
-export function isJobSelectable(selectionType: 'cancel' | 're-run') {
+export function isJobSelectable(selectionType: RunsSelectionMode) {
 	const f: (j: Job) => boolean = {
 		cancel: isJobCancelable,
 		're-run': () => true
@@ -93,7 +94,7 @@ export function displayDate(
 			? {
 					day: 'numeric',
 					month: 'numeric'
-			  }
+				}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -237,7 +238,7 @@ export function clickOutside(
 		}
 	}
 
-	const capture = typeof options === 'boolean' ? options : options?.capture ?? true
+	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
 	document.addEventListener('click', handleClick, capture ?? true)
 
 	return {

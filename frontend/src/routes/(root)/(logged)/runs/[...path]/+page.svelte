@@ -12,7 +12,7 @@
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { superadmin, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
@@ -31,14 +31,16 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { AlertTriangle, Calendar, Check, ChevronDown, Clock, X } from 'lucide-svelte'
+	import { AlertTriangle, Calendar, ChevronDown, Clock } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
-	import { isJobCancelable } from '$lib/utils'
+	import type { RunsSelectionMode } from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import { isJobSelectable } from '$lib/utils'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -69,14 +71,14 @@
 		$page.url.searchParams.get('show_schedules') != undefined
 			? $page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
-			? false
-			: true
+				? false
+				: true
 	let showFutureJobs: boolean =
 		$page.url.searchParams.get('show_future_jobs') != undefined
 			? $page.url.searchParams.get('show_future_jobs') == 'true'
 			: localStorage.getItem('show_future_jobs') == 'false'
-			? false
-			: true
+				? false
+				: true
 
 	let argFilter: any = $page.url.searchParams.get('arg')
 		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -116,14 +118,14 @@
 			$page.url.searchParams.get('show_schedules') != undefined
 				? $page.url.searchParams.get('show_schedules') == 'true'
 				: localStorage.getItem('show_schedules_in_run') == 'false'
-				? false
-				: true
+					? false
+					: true
 		showFutureJobs =
 			$page.url.searchParams.get('show_future_jobs') != undefined
 				? $page.url.searchParams.get('show_future_jobs') == 'true'
 				: localStorage.getItem('show_future_jobs') == 'false'
-				? false
-				: true
+					? false
+					: true
 
 		argFilter = $page.url.searchParams.get('arg')
 			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -343,7 +345,7 @@
 		selectedManualDate = 0
 		selectedIds = []
 		jobIdsToCancel = []
-		isSelectingJobs = false
+		selectionMode = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -471,18 +473,26 @@
 	}
 
 	let jobIdsToCancel: string[] = []
-	let isSelectingJobs: false | 'cancel' | 're-run' = false
+	let selectionMode: RunsSelectionMode | false = false
 	let fetchingFilteredJobs = false
 	let selectedFiltersString: string | undefined = undefined
 
-	async function cancelVisibleJobs() {
-		isSelectingJobs = 'cancel'
-		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
+	async function onSetSelectionMode(mode: RunsSelectionMode | false) {
+		selectionMode = mode
+		if (!mode) {
+			selectedIds = []
+			return
+		}
+		selectedIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
 		if (selectedIds.length === 0) {
-			sendUserToast('There are no visible jobs that can be canceled', true)
+			sendUserToast(
+				'There are no visible jobs that can be ' +
+					{ cancel: 'cancelled', 're-run': 're-ran' }[mode],
+				true
+			)
 		}
 	}
-	async function cancelFilteredJobs() {
+	async function onCancelFilteredJobs() {
 		isCancelingFilteredJobs = true
 		fetchingFilteredJobs = true
 		const selectedFilters = {
@@ -499,8 +509,8 @@
 				success == 'running' || success == 'suspended'
 					? true
 					: success == 'waiting'
-					? false
-					: undefined,
+						? false
+						: undefined,
 			isSkipped: isSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
@@ -527,13 +537,9 @@
 		fetchingFilteredJobs = false
 	}
 
-	async function cancelSelectedJobs() {
+	async function onCancelSelectedJobs() {
 		jobIdsToCancel = selectedIds
 		isCancelingVisibleJobs = true
-	}
-
-	function jobCountString(count: number) {
-		return `${count} ${count == 1 ? 'job' : 'jobs'}`
 	}
 
 	function setLookback(lookbackInDays: number) {
@@ -625,7 +631,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobs = false
+		selectionMode = false
 	}}
 	loading={fetchingFilteredJobs}
 	on:canceled={() => {
@@ -649,7 +655,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobs = false
+		selectionMode = false
 	}}
 	on:canceled={() => {
 		isCancelingVisibleJobs = false
@@ -798,7 +804,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobs}
+					canSelect={!selectionMode}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -842,67 +848,13 @@
 					}}
 				/>
 				<div class="flex flex-row">
-					{#if isSelectingJobs}
-						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
-							<Button
-								startIcon={{ icon: X }}
-								size="xs"
-								color="gray"
-								variant="contained"
-								on:click={() => {
-									isSelectingJobs = false
-									selectedIds = []
-								}}
-							/>
-							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-						</div>
-					{:else if !$userStore?.is_admin && !$superadmin}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								}
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{:else}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								},
-								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{/if}
+					<RunsBatchActionsDropdown
+						{selectionMode}
+						selectionCount={selectedIds.length}
+						{onSetSelectionMode}
+						{onCancelFilteredJobs}
+						{onCancelSelectedJobs}
+					/>
 				</div>
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40" bind:clientWidth={schedulesWidth}>
@@ -1028,7 +980,7 @@
 							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
-							{isSelectingJobs}
+							{selectionMode}
 							bind:selectedIds
 							bind:selectedWorkspace
 							bind:lastFetchWentToEnd
@@ -1177,7 +1129,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobs}
+					canSelect={!selectionMode}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -1223,67 +1175,13 @@
 					/>
 				{/if}
 				<div class="flex flex-row">
-					{#if isSelectingJobs}
-						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
-							<Button
-								startIcon={{ icon: X }}
-								size="xs"
-								color="gray"
-								variant="contained"
-								on:click={() => {
-									isSelectingJobs = false
-									selectedIds = []
-								}}
-							/>
-							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-						</div>
-					{:else if !$userStore?.is_admin && !$superadmin}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								}
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{:else}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								},
-								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{/if}
+					<RunsBatchActionsDropdown
+						{selectionMode}
+						selectionCount={selectedIds.length}
+						{onSetSelectionMode}
+						{onCancelFilteredJobs}
+						{onCancelSelectedJobs}
+					/>
 				</div>
 			</div>
 			<div class="flex gap-2 py-1">
@@ -1409,13 +1307,13 @@
 				externalJobs={externalJobs ?? []}
 				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 				showExternalJobs={!graphIsRunsChart}
-				{isSelectingJobs}
+				{selectionMode}
 				bind:selectedIds
 				bind:selectedWorkspace
 				bind:lastFetchWentToEnd
 				on:loadExtra={loadExtra}
 				on:select={() => {
-					if (!isSelectingJobs) runDrawer.openDrawer()
+					if (!selectionMode) runDrawer.openDrawer()
 				}}
 				on:filterByPath={filterByPath}
 				on:filterByUser={filterByUser}

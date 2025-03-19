@@ -9,13 +9,14 @@
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { isJobSelectable } from '$lib/utils'
+	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
 	export let externalJobs: Job[] = []
 	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
-	export let isSelectingJobs: false | 'cancel' | 're-run' = false
+	export let selectionMode: RunsSelectionMode | false = false
 	export let selectedIds: string[] = []
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
@@ -143,20 +144,20 @@
 	let allSelected: boolean = false
 
 	function selectAll() {
-		if (!isSelectingJobs) return
+		if (!selectionMode) return
 		if (allSelected) {
 			allSelected = false
 			selectedIds = []
 		} else {
 			allSelected = true
-			selectedIds = jobs?.filter(isJobSelectable(isSelectingJobs)).map((j) => j.id) ?? []
+			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
 		}
 	}
-	$: isSelectingJobs && (allSelected = selectedIds.length === selectableJobCount)
+	$: selectionMode && (allSelected = selectedIds.length === selectableJobCount)
 
 	let selectableJobCount: number = 0
-	$: isSelectingJobs &&
-		(selectableJobCount = jobs?.filter(isJobSelectable(isSelectingJobs)).length ?? 0)
+	$: selectionMode &&
+		(selectableJobCount = jobs?.filter(isJobSelectable(selectionMode)).length ?? 0)
 
 	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
 		if (jobCount === undefined) {
@@ -198,7 +199,7 @@
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={header}>
-		{#if isSelectingJobs && selectableJobCount}
+		{#if selectionMode && selectableJobCount}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
@@ -277,10 +278,10 @@
 									{containsLabel}
 									job={jobOrDate.job}
 									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-									{isSelectingJobs}
+									{selectionMode}
 									on:select={() => {
 										const jobId = jobOrDate.job.id
-										if (isSelectingJobs) {
+										if (selectionMode) {
 											if (selectedIds.includes(jobOrDate.job.id)) {
 												selectedIds = selectedIds.filter((id) => id != jobId)
 											} else {
