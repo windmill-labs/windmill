@@ -38,133 +38,134 @@
 </script>
 
 <div class="w-full h-full flex flex-col p-1" bind:clientHeight>
-	{#if !isConnecting}
-		<div class="flex flex-row items-center justify-between w-full">
-			<div class="flex flex-row items-center gap-0.5">
-				<Popover
-					floatingConfig={{
-						placement: 'left-start',
-						offset: { mainAxis: 10, crossAxis: -6 },
-						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-					}}
-					contentClasses="w-[275px]"
-					{closeOnOutsideClick}
-				>
-					<svelte:fragment slot="trigger">
-						<Button
-							color="light"
-							size="xs2"
-							variant="contained"
-							btnClasses="bg-transparent"
-							startIcon={{ icon: History }}
-							nonCaptureEvent
-						/>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
-							<StepHistory
-								{moduleId}
-								{getLogs}
-								on:select={({ detail }) => {
-									if (detail.result) {
-										dispatch('selectJob', detail)
-										savedJsonData = detail.result
-										jsonData = detail.result
-										//TODO: display warning approval here : this will override the mock value
-										if (mock?.enabled) {
-											const newMock = {
-												enabled: true,
-												return_value: detail.result ?? {}
-											}
-											dispatch('updateMock', newMock)
-										}
-									} else {
-										jsonData = savedJsonData
-									}
-								}}
-							/>
-						</div>
-					</svelte:fragment>
-				</Popover>
-				<ToggleSimple
-					pressed={mock?.enabled ?? false}
-					on:pressedChange={({ detail }) => {
-						if (mock?.enabled && !detail) {
-							const newMock = {
-								enabled: false,
-								return_value: mock?.return_value
-							}
-							dispatch('updateMock', newMock)
-						} else if (detail && !!mock) {
-							const newMock = {
-								enabled: true,
-								return_value: jsonData ?? { example: 'value' }
-							}
-							dispatch('updateMock', newMock)
-						}
-					}}
-				>
+	<div class="flex flex-row items-center justify-between w-full">
+		<div class="flex flex-row items-center gap-0.5">
+			<Popover
+				floatingConfig={{
+					placement: 'left-start',
+					offset: { mainAxis: 10, crossAxis: -6 },
+					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+				}}
+				contentClasses="w-[275px]"
+				{closeOnOutsideClick}
+				disablePopup={isConnecting}
+			>
+				<svelte:fragment slot="trigger">
 					<Button
 						color="light"
 						size="xs2"
 						variant="contained"
-						btnClasses={`bg-transparent ${
-							mock?.enabled
-								? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-								: ''
-						}`}
-						startIcon={{ icon: Pin }}
-						iconOnly
+						btnClasses="bg-transparent"
+						startIcon={{ icon: History }}
 						nonCaptureEvent
 					/>
-				</ToggleSimple>
-
-				{#if !jsonView}
-					<Tooltip disablePopup={mock?.enabled}>
-						<Button
-							size="xs2"
-							color="light"
-							variant="contained"
-							startIcon={{ icon: Pen }}
-							on:click={() => {
-								jsonView = true
+				</svelte:fragment>
+				<svelte:fragment slot="content">
+					<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
+						<StepHistory
+							{moduleId}
+							{getLogs}
+							on:select={({ detail }) => {
+								if (detail.result) {
+									dispatch('selectJob', detail)
+									savedJsonData = detail.result
+									jsonData = detail.result
+									//TODO: display warning approval here : this will override the mock value
+									if (mock?.enabled) {
+										const newMock = {
+											enabled: true,
+											return_value: detail.result ?? {}
+										}
+										dispatch('updateMock', newMock)
+									}
+								} else {
+									jsonData = savedJsonData
+								}
 							}}
-							disabled={!mock?.enabled}
 						/>
-						<svelte:fragment slot="text">
-							{'Enable mock to edit the output'}
-						</svelte:fragment>
-					</Tooltip>
-				{:else}
+					</div>
+				</svelte:fragment>
+			</Popover>
+			<ToggleSimple
+				disabled={isConnecting}
+				pressed={mock?.enabled ?? false}
+				on:pressedChange={({ detail }) => {
+					if (mock?.enabled && !detail) {
+						const newMock = {
+							enabled: false,
+							return_value: mock?.return_value
+						}
+						dispatch('updateMock', newMock)
+					} else if (detail && !!mock) {
+						const newMock = {
+							enabled: true,
+							return_value: jsonData ?? { example: 'value' }
+						}
+						dispatch('updateMock', newMock)
+					}
+				}}
+			>
+				<Button
+					color="light"
+					size="xs2"
+					variant="contained"
+					btnClasses={`bg-transparent ${
+						mock?.enabled
+							? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+							: ''
+					}`}
+					startIcon={{ icon: Pin }}
+					iconOnly
+					nonCaptureEvent
+				/>
+			</ToggleSimple>
+
+			{#if !jsonView}
+				<Tooltip disablePopup={mock?.enabled}>
 					<Button
 						size="xs2"
-						color="green"
+						color="light"
 						variant="contained"
-						startIcon={{ icon: Check }}
+						startIcon={{ icon: Pen }}
 						on:click={() => {
-							jsonView = false
-							mock = tmpMock
-							dispatch('updateMock', {
-								enabled: tmpMock?.enabled ?? false,
-								return_value: tmpMock?.return_value
-							})
-							jsonData = tmpMock?.return_value ?? {}
+							jsonView = true
 						}}
-						disabled={!!error}
+						disabled={!mock?.enabled || isConnecting}
 					/>
-					<Button
-						size="xs2"
-						color="red"
-						variant="contained"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							jsonView = false
-						}}
-					/>
-				{/if}
-			</div>
+					<svelte:fragment slot="text">
+						{'Enable mock to edit the output'}
+					</svelte:fragment>
+				</Tooltip>
+			{:else}
+				<Button
+					size="xs2"
+					color="green"
+					variant="contained"
+					startIcon={{ icon: Check }}
+					on:click={() => {
+						jsonView = false
+						mock = tmpMock
+						dispatch('updateMock', {
+							enabled: tmpMock?.enabled ?? false,
+							return_value: tmpMock?.return_value
+						})
+						jsonData = tmpMock?.return_value ?? {}
+					}}
+					disabled={!!error}
+				/>
+				<Button
+					size="xs2"
+					color="red"
+					variant="contained"
+					startIcon={{ icon: X }}
+					on:click={() => {
+						jsonView = false
+					}}
+				/>
+			{/if}
 		</div>
-	{/if}
+	</div>
+
 	{#if fullResult}
 		<slot />
 	{:else}

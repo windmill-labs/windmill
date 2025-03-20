@@ -30,6 +30,7 @@
 	export let closeOnOtherPopoverOpen: boolean = false
 	export let allowFullScreen: boolean = false
 	export let fullScreenWidthOffset: number = 0
+	export let extraProps: Record<string, any> = {}
 
 	let fullScreen = false
 
@@ -111,6 +112,7 @@
 	}}
 	data-popover
 	on:click
+	disabled={disablePopup}
 >
 	<slot name="trigger" {isOpen} />
 </button>
@@ -132,6 +134,7 @@
 			`z-[5001]`
 		)}
 		data-popover
+		{...extraProps}
 		style={fullScreen
 			? `width: calc(90vw - ${fullScreenWidthOffset}px); height: 90vh;`
 			: contentStyle}

@@ -17,6 +17,7 @@
 	})
 
 	export let pressed = false
+	export let disabled = false
 
 	const sync = createSync(states)
 	$: sync.pressed(pressed, (v) => (pressed = Boolean(v)))
@@ -27,6 +28,7 @@
 	aria-label="Toggle italic"
 	class=" items-center justify-center rounded-md
       data-[disabled]:cursor-not-allowed"
+	{disabled}
 >
 	<slot {pressed} />
 </button>

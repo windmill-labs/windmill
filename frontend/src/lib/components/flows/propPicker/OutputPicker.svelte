@@ -51,8 +51,8 @@
 	contentStyle={`width: calc(${MIN_WIDTH * zoom}px); min-width: calc(${
 		MIN_WIDTH * zoom
 	}px); height: calc(${MIN_HEIGHT * zoom}px); min-height: calc(${MIN_HEIGHT * zoom}px);`}
-	data-prop-picker
 	fullScreenWidthOffset={2 * MIN_WIDTH}
+	extraProps={{ 'data-prop-picker': true }}
 >
 	<svelte:fragment slot="trigger" let:isOpen>
 		<div
