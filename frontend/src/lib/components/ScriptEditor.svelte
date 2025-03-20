@@ -56,6 +56,8 @@
 	export let selectedTab: 'main' | 'preprocessor' = 'main'
 	export let hasPreprocessor = false
 	export let captureTable: CaptureTable | undefined = undefined
+	export let showCaptures: boolean = true
+	export let stablePathForCaptures: string = ''
 
 	let jobProgressReset: () => void
 
@@ -64,7 +66,7 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false,
+		shellcheck: false
 	}
 
 	const dispatch = createEventDispatcher()
@@ -495,7 +497,7 @@
 							{editor}
 							{diffEditor}
 							{args}
-							showCaptures={true}
+							{showCaptures}
 							customUi={customUi?.previewPanel}
 						>
 							{#if scriptProgress}
@@ -514,7 +516,7 @@
 										{hasPreprocessor}
 										canHavePreprocessor={lang === 'bun' || lang === 'deno' || lang === 'python3'}
 										isFlow={false}
-										path={path ?? ''}
+										path={stablePathForCaptures}
 										canEdit={true}
 										on:applyArgs
 										on:updateSchema

@@ -109,9 +109,9 @@
 	}
 
 	// used for new scripts for captures
-	let fakeInitialPath =
+	const fakeInitialPath =
 		'u/' +
-		($userStore?.username?.includes('@')
+		($userStore!.username?.includes('@')
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 			: $userStore!.username!) +
 		'/' +
@@ -1625,6 +1625,7 @@
 			bind:this={scriptEditor}
 			bind:schema={script.schema}
 			path={script.path}
+			stablePathForCaptures={initialPath || fakeInitialPath}
 			bind:code={script.content}
 			lang={script.language}
 			{initialArgs}

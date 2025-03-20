@@ -27,6 +27,7 @@
 	>
 		{#if inlineScript && inlineScript.language != 'frontend'}
 			<ScriptEditor
+				showCaptures={false}
 				noHistory
 				noSyncFromGithub
 				lang={inlineScript.language}
