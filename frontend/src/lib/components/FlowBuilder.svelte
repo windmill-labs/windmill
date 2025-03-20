@@ -391,6 +391,14 @@
 						deployment_message: deploymentMsg || undefined
 					}
 				})
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: $pathStore
+					},
+					runnableKind: 'flow'
+				})
 				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule($pathStore)
 				}
