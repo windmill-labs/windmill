@@ -197,6 +197,7 @@
 		{#if script}
 			{#key script.hash}
 				<ScriptEditor
+					showCaptures={false}
 					on:saveDraft={() => {
 						saveScript()
 					}}
