@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use std::collections::HashMap;
 
 use serde_json::Value;
-use windmill_common::{error, utils::not_found_if_none};
+use windmill_common::error;
 use windmill_parser::Arg;
 use windmill_parser_sql::{SANITIZED_ENUM_PREFIX, SANITIZED_RAW_STRING_STR};
 
