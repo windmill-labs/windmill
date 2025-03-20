@@ -120,6 +120,7 @@ quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
+winapi.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -135,8 +136,6 @@ serde.workspace = true
 windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
 
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "*", features = ["sysinfoapi"] }
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }
@@ -229,6 +228,8 @@ deno_permissions = "0.49.0"
 deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
+
+winapi = { version = "*", features = ["sysinfoapi"] }
 
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"

@@ -14212,6 +14212,7 @@ dependencies = [
  "tracing",
  "urlencoding",
  "uuid 1.16.0",
+ "winapi",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
