@@ -47,7 +47,7 @@ incremental = true
 lto = "thin"
 
 [features]
-default = [ "mysql", "bigquery", "oracledb", "mssql", "enterprise" ]
+default = []
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe", "enterprise"]
