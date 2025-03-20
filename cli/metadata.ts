@@ -450,12 +450,6 @@ export async function updateFlow(
   }
 }
 
-async function initParser(language: string, mod: any ) {
-    const url = new URL("./wasm/" + language +"/windmill_parser_wasm_bg.wasm", import.meta.url);
-    let bytes = await Deno.readFile(url.pathname);
-    await mod(bytes);
-  
-}
 ////////////////////////////////////////////////////////////////////////////////////////////
 // below functions copied from Windmill's FE inferArgs function. TODO: refactor           //
 ////////////////////////////////////////////////////////////////////////////////////////////
