@@ -1,12 +1,11 @@
 const getEnv = (key: string) => {
-  return Deno.env.get(key);
+  return Deno.env.get(key)
 };
 
-const baseUrl =
-  getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://localhost:8000";
-const baseUrlApi = (baseUrl ?? "") + "/api";
+const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://localhost:8000";
+const baseUrlApi = (baseUrl ?? '') + "/api";
 
-import type { ApiRequestOptions } from "./ApiRequestOptions.ts";
+import type { ApiRequestOptions } from './ApiRequestOptions.ts';
 
 type Headers = Record<string, string>;
 type Middleware<T> = (value: T) => T | Promise<T>;
@@ -32,33 +31,33 @@ export class Interceptors<T> {
 }
 
 export type OpenAPIConfig = {
-  BASE: string;
-  CREDENTIALS: "include" | "omit" | "same-origin";
-  ENCODE_PATH?: ((path: string) => string) | undefined;
-  HEADERS?: Headers | Resolver<Headers> | undefined;
-  PASSWORD?: string | Resolver<string> | undefined;
-  TOKEN?: string | Resolver<string> | undefined;
-  USERNAME?: string | Resolver<string> | undefined;
-  VERSION: string;
-  WITH_CREDENTIALS: boolean;
-  interceptors: {
-    request: Interceptors<RequestInit>;
-    response: Interceptors<Response>;
-  };
+	BASE: string;
+	CREDENTIALS: 'include' | 'omit' | 'same-origin';
+	ENCODE_PATH?: ((path: string) => string) | undefined;
+	HEADERS?: Headers | Resolver<Headers> | undefined;
+	PASSWORD?: string | Resolver<string> | undefined;
+	TOKEN?: string | Resolver<string> | undefined;
+	USERNAME?: string | Resolver<string> | undefined;
+	VERSION: string;
+	WITH_CREDENTIALS: boolean;
+	interceptors: {
+		request: Interceptors<RequestInit>;
+		response: Interceptors<Response>;
+	};
 };
 
 export const OpenAPI: OpenAPIConfig = {
-  BASE: baseUrlApi,
-  CREDENTIALS: "include",
-  ENCODE_PATH: undefined,
-  HEADERS: undefined,
-  PASSWORD: undefined,
-  TOKEN: getEnv("WM_TOKEN"),
-  USERNAME: undefined,
-  VERSION: "1.477.1",
-  WITH_CREDENTIALS: true,
-  interceptors: {
-    request: new Interceptors(),
-    response: new Interceptors(),
-  },
+	BASE: baseUrlApi,
+	CREDENTIALS: 'include',
+	ENCODE_PATH: undefined,
+	HEADERS: undefined,
+	PASSWORD: undefined,
+	TOKEN: getEnv("WM_TOKEN"),
+	USERNAME: undefined,
+	VERSION: '1.478.1',
+	WITH_CREDENTIALS: true,
+	interceptors: {
+		request: new Interceptors(),
+		response: new Interceptors(),
+	},
 };
