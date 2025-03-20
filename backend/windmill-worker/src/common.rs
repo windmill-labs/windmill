@@ -11,7 +11,7 @@ use sha2::Digest;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
-use tokio::sync::Semaphore;
+use tokio::sync::{RwLock, Semaphore};
 use tokio::{fs::File, io::AsyncReadExt};
 
 #[cfg(feature = "parquet")]
@@ -30,8 +30,9 @@ use windmill_common::{
     variables::ContextualVariable,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 
+use std::marker::PhantomData;
 use std::path::Path;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -998,6 +999,13 @@ pub struct RequiredDependency {
     /// If not specified will either use custom_name or top level directory of path.
     pub short_name: Option<String>,
 }
+
+pub enum InstallStrategy {
+    /// Will invoke callback to install single dependency
+    Single(Arc<dyn Fn(RequiredDependency) -> Result<Command, error::Error> + Send + Sync>),
+    /// Will try to pull S3 first and will invoke closure to install the rest
+    AllAtOnce(Arc<dyn Fn(Vec<RequiredDependency>) -> Result<Command, error::Error> + Send + Sync>),
+}
 /// # General
 /// There is two main types of workflows around which laguages are built.
 /// 1. Compilable languages
@@ -1029,21 +1037,19 @@ pub struct RequiredDependency {
 /// and if it does not work either, it will invoke `install_fn` closure.
 /// Closure arguments has dependency name as well as it`s expected path in cache.
 /// Closure should return Command that will install dependency to asked place.
-pub async fn par_install_language_dependencies<'a, F>(
+pub async fn par_install_language_dependencies<'a>(
     deps: Vec<RequiredDependency>,
     language_name: &'a str,
     installer_executable_name: &'a str,
     platform_agnostic: bool,
     concurrent_downloads: usize,
-    install_fn: F,
+    install_fn: InstallStrategy,
+    postinstall_cb: impl AsyncFn(Vec<RequiredDependency>) -> Result<(), error::Error>,
     job_id: &'a Uuid,
     w_id: &'a str,
     worker_name: &'a str,
     db: &sqlx::Pool<sqlx::Postgres>,
-) -> anyhow::Result<()>
-where
-    F: Fn(RequiredDependency) -> Result<Command, error::Error>,
-{
+) -> anyhow::Result<()> {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let _ = (platform_agnostic, language_name);
 
@@ -1156,7 +1162,7 @@ where
                     windmill_queue::append_logs(
                         job_id,
                         w_id,
-                        format!("\n--- INSTALLATION ---\n\nTo be installed:\n"),
+                        format!("\n--- INSTALLATION ---\n\nTo be installed:\n\n"),
                         db.clone(),
                     )
                     .await;
@@ -1165,7 +1171,7 @@ where
                 windmill_queue::append_logs(
                     job_id,
                     w_id,
-                    format!("\t{display_name}\n"),
+                    format!("- {display_name}\n"),
                     db.clone(),
                 )
                 .await;
@@ -1179,17 +1185,24 @@ where
         }
     }
     total_to_install = not_installed.len();
-    if total_to_install != 0 {
-        windmill_queue::append_logs(job_id, w_id, format!("\n---\n"), db.clone()).await;
-    } else {
+    if total_to_install == 0 {
         return Ok(());
     }
-
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(
         windmill_common::ee::get_license_plan().await,
         windmill_common::ee::LicensePlan::Pro
     );
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if is_not_pro && matches!(install_fn, InstallStrategy::AllAtOnce(_)) {
+        windmill_queue::append_logs(
+            job_id,
+            w_id,
+            format!("\nLooking for packages on S3:\n"),
+            db.clone(),
+        )
+        .await;
+    }
 
     // Parallelism level (N)
     let parallel_limit = // Semaphore will panic if value less then 1
@@ -1204,6 +1217,7 @@ where
 
     let mut handles = vec![];
     let semaphore = Arc::new(Semaphore::new(parallel_limit));
+    let not_pulled = Arc::new(RwLock::new(vec![]));
     // let mut handles = Vec::with_capacity(total_to_install);
     for NotInstalledDependency {
         //
@@ -1246,13 +1260,17 @@ where
             None
         };
         let child = {
-            let cmd = install_fn(RequiredDependency {
-                path: path.clone(),
-                custom_name: custom_name.clone(),
-                short_name: short_name.clone(),
-            })?;
-            tracing::debug!("{:?}", &cmd);
-            start_child_process(cmd, &installer_executable_name).await?
+            if let InstallStrategy::Single(ref callback, ..) = install_fn {
+                let cmd = callback(RequiredDependency {
+                    path: path.clone(),
+                    custom_name: custom_name.clone(),
+                    short_name: short_name.clone(),
+                })?;
+                tracing::debug!("{:?}", &cmd);
+                Some(start_child_process(cmd, &installer_executable_name).await?)
+            } else {
+                None
+            }
         };
 
         let (
@@ -1266,6 +1284,7 @@ where
             counter_arc,
             language_name,
             installer_executable_name,
+            not_pulled,
         ) = (
             worker_name.to_owned(),
             path.clone(),
@@ -1277,9 +1296,10 @@ where
             counter_arc.clone(),
             language_name.to_owned(),
             installer_executable_name.to_owned(),
+            not_pulled.clone(),
         );
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-        let _ = (custom_name, language_name);
+        let _ = language_name;
 
         let start = std::time::Instant::now();
         let handle = tokio::spawn(async move {
@@ -1324,6 +1344,15 @@ where
                 }
             }
 
+            let Some(child) = child else {
+                let mut lock = not_pulled.write().await;
+                lock.push(RequiredDependency {
+                    path: path_2.clone(),
+                    custom_name: custom_name.clone(),
+                    short_name: short_name.clone(),
+                });
+                return;
+            };
             if let Err(e) = crate::handle_child::handle_child(
                 &job_id_2,
                 &db_2,
@@ -1350,6 +1379,22 @@ where
                 )
                 .await;
             } else {
+                // if let Some(cb) = postinstall_cb {
+                //     if let Err(e) = cb(vec![RequiredDependency {
+                //         path: path_2.clone(),
+                //         custom_name: custom_name.clone(),
+                //         short_name: short_name.clone(),
+                //     }])
+                //     .await
+                //     {
+                //         tracing::error!(
+                //             workspace_id = %w_id_2,
+                //             job_id = %job_id_2,
+                //             "Postinstall callback failed!\n{e}\n
+                //                 This might affect execution",
+                //         );
+                //     }
+                // }
                 print_success(
                     false,
                     true,
@@ -1409,9 +1454,106 @@ where
         }
     }
     {
+        if let InstallStrategy::AllAtOnce(ref callback, ..) = install_fn {
+            let not_pulled_copy = not_pulled.read().await.clone();
+
+            if not_pulled_copy.len() > 0 {
+                windmill_queue::append_logs(
+                    job_id,
+                    w_id,
+                    format!("\n\nFetching {} packages...\n", not_pulled_copy.len()),
+                    db.clone(),
+                )
+                .await;
+            }
+
+            // if not_pulled_copy
+            let cmd = callback(not_pulled_copy.clone())?;
+            tracing::debug!("{:?}", &cmd);
+            let child = start_child_process(cmd, &installer_executable_name).await?;
+            if let Err(e) = crate::handle_child::handle_child(
+                // &job_id,
+                &Uuid::nil(),
+                &db,
+                // TODO: Return mem_peak
+                &mut 0,
+                // TODO: Return canceld_by_ref
+                &mut None,
+                child,
+                !*DISABLE_NSJAIL,
+                &worker_name,
+                &w_id,
+                &installer_executable_name,
+                None,
+                false,
+                &mut None,
+            )
+            .await
+            {
+                windmill_queue::append_logs(
+                    &job_id,
+                    &w_id,
+                    format!("error while installing dependencies: {e:?}"),
+                    db.clone(),
+                )
+                .await;
+            } else {
+                postinstall_cb(not_pulled_copy.clone()).await?;
+                for RequiredDependency { path, custom_name, short_name } in
+                    not_pulled_copy.into_iter()
+                {
+                    // Create a file to indicate that installation was successfull
+                    let valid_path = path.clone() + ".valid.windmill";
+                    // This is atomic operation, meaning, that it either completes and dependency is valid,
+                    // or it does not and dependency is invalid and will be reinstalled next run
+                    if let Err(e) = File::create(&valid_path).await {
+                        tracing::error!(
+                            workspace_id = %w_id,
+                            job_id = %job_id,
+                            "Failed to create {}!\n{e}\n
+                                This file needed for jobs to function",
+                            valid_path
+                        );
+                    };
+                    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                    {
+                        if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+                            .read()
+                            .await
+                            .clone()
+                        {
+                            let language_name = language_name.to_owned();
+                            tokio::spawn(async move {
+                                if let Err(e) = crate::global_cache::build_tar_and_push(
+                                    os,
+                                    path,
+                                    language_name,
+                                    custom_name,
+                                    platform_agnostic,
+                                )
+                                .await
+                                {
+                                    tracing::warn!("failed to build tar and push: {e:?}");
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    {
         let total_time = total_time.elapsed().as_millis();
-        windmill_queue::append_logs(&job_id, w_id, format!("\nEnv set in {}ms", total_time), db)
-            .await;
+        windmill_queue::append_logs(
+            &job_id,
+            w_id,
+            format!(
+                "\nDone. Time spent on installation phase: {}ms\n",
+                total_time
+            ),
+            db,
+        )
+        .await;
     }
     Ok(())
 }

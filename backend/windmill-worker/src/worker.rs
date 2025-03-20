@@ -280,8 +280,12 @@ pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
+
+// JAVA
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
-pub const MAVEN_PLUGINS_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "maven-plugins-repository");
+pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
+pub const COURSIER_FETCH_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-fetch");
+pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
 // KJQXZ
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
@@ -406,7 +410,11 @@ lazy_static::lazy_static! {
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-    pub static ref MAVEN_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));

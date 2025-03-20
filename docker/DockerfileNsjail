@@ -68,7 +68,15 @@ RUN wget https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.
 	&& unzip apache-maven-3.9.9-bin.zip \
 	&& rm -rf apache-maven-3.9.9-bin.zip \
 	&& mv apache-maven-3.9.9/ /opt/maven
-RUN /bin/mvn dependency:help -q -Dmaven.repo.local="/tmp/windmill/cache_nomount/maven-plugins-repository"
+RUN /opt/maven/bin/mvn dependency:help -q -Dmaven.repo.local="/tmp/windmill/cache_nomount/maven-plugins-repository"
+RUN curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > /usr/bin/cs \
+	&& chmod +x /usr/bin/cs 
+
+RUN curl -fLo coursier https://github.com/coursier/launchers/raw/master/coursier \
+	&& mv ./coursier /usr/bin/coursier \
+	&& chmod +x /usr/bin/coursier
+RUN /usr/bin/java -jar /usr/bin/coursier about
+
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 

@@ -36,7 +36,7 @@ use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
 
 #[cfg(feature = "java")]
-use crate::java_executor::resolve_dependencies;
+use crate::java_executor::resolve;
 
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
@@ -2030,18 +2030,7 @@ async fn capture_dependency_job(
             }
 
             #[cfg(feature = "java")]
-            resolve_dependencies(
-                job_id,
-                job_raw_code,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                worker_name,
-                w_id,
-                occupancy_metrics,
-            )
-            .await
+            resolve(job_id, job_raw_code, job_dir, db, w_id).await
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

@@ -304,14 +304,22 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Maven Settings',
-			description: 'Write a settings.xml file to configure custom servers and credentials',
-			key: 'mvn_settings',
-			fieldType: 'codearea',
-			codeAreaLang: 'xml',
+			label: 'Maven/Ivy repositories',
+			description: 'Add private Maven/Ivy repositories',
+			key: 'maven_repos',
+			fieldType: 'text',
+			placeholder: 'https://user:password@artifacts.foo.com/maven',
 			storage: 'setting',
 			ee_only: ''
-		}
+		},
+		{
+			label: 'Disable default Maven repository',
+			description: 'Do not use default Maven repository',
+			key: 'no_default_maven',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
 	],
 	Alerts: [
 		{
