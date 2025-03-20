@@ -1,3 +1,21 @@
--- Add up migration script here
+CREATE TYPE AUTHENTICATION_METHOD AS ENUM (
+    'none',
+    'windmill',
+    'api_key',
+    'basic',
+    'webhook',
+    'signature'
+);
+
 ALTER TABLE http_trigger
-  RENAME COLUMN requires_auth TO windmill_auth;
+    RENAME COLUMN requires_auth TO authentication_method;
+
+ALTER TABLE http_trigger
+    ALTER COLUMN authentication_method DROP DEFAULT,
+    ALTER COLUMN authentication_method TYPE AUTHENTICATION_METHOD
+    USING CASE
+        WHEN authentication_method = true THEN 'windmill'::AUTHENTICATION_METHOD
+        ELSE 'none'::AUTHENTICATION_METHOD
+    END,
+    ALTER COLUMN authentication_method SET NOT NULL,
+    ALTER COLUMN authentication_method SET DEFAULT 'none'::AUTHENTICATION_METHOD;

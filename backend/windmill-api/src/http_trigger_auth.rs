@@ -17,7 +17,6 @@ use sha2::{Sha256, Sha512};
 pub type HmacSha256 = Hmac<Sha256>;
 pub type HmacSha512 = Hmac<Sha512>;
 pub type HmacSha1 = Hmac<Sha1>;
-
 use constant_time_eq::constant_time_eq;
 use shopify::SHOPIFY_WEBHOOK_VALIDATOR;
 use slack::SLACK_WEBHOOK_VALIDATOR;
@@ -172,7 +171,7 @@ mod twitch {
         fn handle_challenge_request<'header>(
             &self,
             headers: &'header HeaderMap,
-            authentication_data: &WebhookProviders,
+            authentication_data: &WebhookAuthentication,
             raw_payload: &str,
         ) -> Result<Option<Response>, WebhookError> {
             TWITCH_WEBHOOK_VALIDATOR.validate_hmac_signature(
@@ -245,7 +244,7 @@ mod zoom {
         fn handle_challenge_request<'header>(
             &self,
             _: &'header HeaderMap,
-            authentication_data: &WebhookProviders,
+            authentication_data: &WebhookAuthentication,
             raw_payload: &str,
         ) -> Result<Option<Response>, WebhookError> {
             let Ok(zoom_request_body) = serde_json::from_str::<ZoomChallengeResponse>(raw_payload)
@@ -333,7 +332,7 @@ pub trait WebhookVerifier {
         headers: &HeaderMap,
         validation_data: &ValidationData,
         raw_payload: &str,
-    ) -> Result<WebhookRequestType, WebhookError>;
+    ) -> Result<(), WebhookError>;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -495,7 +494,7 @@ impl WebhookVerifier for WebhookHmacValidator {
         headers: &HeaderMap,
         validation_data: &ValidationData,
         raw_payload: &str,
-    ) -> Result<WebhookRequestType, WebhookError> {
+    ) -> Result<(), WebhookError> {
         let hmac = self.construct_payload(headers, raw_payload)?;
 
         let Some(secret) = validation_data.webhook_signing_secret.as_ref() else {
@@ -521,7 +520,7 @@ impl WebhookVerifier for WebhookHmacValidator {
             return Err(WebhookError::InvalidSignature);
         }
 
-        Ok(WebhookRequestType::Event)
+        Ok(())
     }
 }
 
@@ -529,7 +528,7 @@ pub trait WebhookHandler {
     fn handle_challenge_request<'header>(
         &self,
         headers: &'header HeaderMap,
-        authentication_data: &WebhookProviders,
+        authentication_data: &WebhookAuthentication,
         raw_payload: &str,
     ) -> Result<Option<Response>, WebhookError>;
 }
@@ -562,9 +561,10 @@ pub struct HmacAuthentication {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BasicAuthAuthentication {
-    pub username: String,
-    pub password: String,
+pub struct BasicAuthentication {
+    username: String,
+    password: String,
+    custom_header: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -574,19 +574,118 @@ pub struct ApiKeyAuthentication {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct WebhookProviders {
+pub struct WebhookAuthentication {
     webhook_type: WebhookType,
     #[serde(flatten)]
     validation_data: ValidationData,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum WebhookAuthenticationMethod {
+pub struct Jwt {
+    secret: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum AuthenticationMethod {
+    BasicAuthentication(BasicAuthentication),
     ApiKey(ApiKeyAuthentication),
-    BasicAuth(BasicAuthAuthentication),
-    PredefinedProviders(WebhookProviders),
-    HMAC(HmacAuthentication),
+    Webhook(WebhookAuthentication),
+    Signature(WebhookHmacValidator)
+}
+
+pub enum AuthenticateResponseType {
+    Challenge(Response),
+}
+
+impl AuthenticationMethod {
+    pub fn authenticate_incoming_request(
+        &self,
+        headers: &HeaderMap,
+        raw_payload: &str,
+    ) -> Result<Option<AuthenticateResponseType>, WebhookError> {
+        match self {
+            AuthenticationMethod::ApiKey(ApiKeyAuthentication { api_key_header, api_key }) => {
+                let api_key_to_cmp = headers.try_get_webhook_header(&api_key_header)?;
+                if api_key_to_cmp != api_key {
+                    return Err(WebhookError::InvalidApiKey);
+                }
+            }
+            AuthenticationMethod::BasicAuthentication(BasicAuthentication {
+                username,
+                password,
+                custom_header,
+            }) => {
+                let mut credentials_store = headers
+                    .try_get_webhook_header(custom_header.as_deref().unwrap_or("Authorization"))?
+                    .split(' ');
+
+                let _ = credentials_store
+                    .next()
+                    .filter(|r#type| *r#type == "Basic")
+                    .ok_or(WebhookError::InvalidAuthHeader(
+                        "missing `Basic` type".to_string(),
+                    ))?;
+
+                let credentials_as_base64 = credentials_store.next().ok_or(
+                    WebhookError::InvalidHeader("missing credentials".to_string()),
+                )?;
+
+                let credentials_from_base64_as_bytes = BASE64_STANDARD
+                    .decode(credentials_as_base64.as_bytes())
+                    .map_err(|_| {
+                        WebhookError::InvalidAuthHeader(
+                            "invalid encoding for username:password expected base64 encoding"
+                                .to_string(),
+                        )
+                    })?;
+
+                let credentials_separated_with_colon =
+                    String::from_utf8_lossy(&credentials_from_base64_as_bytes);
+
+                let credentials = credentials_separated_with_colon.split(':').collect_vec();
+
+                if credentials.len() != 2 {
+                    return Err(WebhookError::InvalidAuthHeader("basic auth format expected: `Basic username:password` (with username:password encoded in base64)".to_string()));
+                }
+
+                if credentials.get(0).unwrap() != username
+                    && credentials.get(1).unwrap() != password
+                {
+                    return Err(WebhookError::InvalidAuthHeader(
+                        "wrong credentials".to_string(),
+                    ));
+                }
+            }
+            AuthenticationMethod::Signature(signature) => {
+                todo!()
+            }
+            AuthenticationMethod::Webhook(provider) => {
+                let (challenge_response_handler, validator) =
+                    provider.webhook_type.get_webhook_handler();
+
+                let challenge_response = challenge_response_handler
+                    .map(|handler| {
+                        handler.handle_challenge_request(headers, &provider, raw_payload)
+                    })
+                    .transpose()?
+                    .flatten();
+
+                if let Some(challenge_response) = challenge_response {
+                    return Ok(Some(AuthenticateResponseType::Challenge(
+                        challenge_response,
+                    )));
+                }
+
+                validator.validate_hmac_signature(
+                    headers,
+                    &provider.validation_data,
+                    raw_payload,
+                )?;
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
@@ -646,106 +745,6 @@ pub fn encode_hmac_signature(encoding: Encoding, hmac_signature: &[u8]) -> Strin
         Encoding::Hex => hex::encode(hmac_signature),
         Encoding::Base64 => BASE64_STANDARD.encode(hmac_signature),
         Encoding::Base64Uri => BASE64_URL_SAFE.encode(hmac_signature),
-    }
-}
-
-pub enum WebhookRequestType {
-    Challenge(Response),
-    Event,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Webhook {
-    pub authentication_method: WebhookAuthenticationMethod,
-}
-
-impl Webhook {
-    pub fn verify_signatures(
-        &self,
-        headers: &HeaderMap,
-        raw_payload: &str,
-    ) -> Result<WebhookRequestType, WebhookError> {
-        match &self.authentication_method {
-            WebhookAuthenticationMethod::PredefinedProviders(provider) => {
-                let (challenge_response_handler, validator) =
-                    provider.webhook_type.get_webhook_handler();
-
-                let challenge_response = challenge_response_handler
-                    .map(|handler| {
-                        handler.handle_challenge_request(headers, &provider, raw_payload)
-                    })
-                    .transpose()?
-                    .flatten();
-
-                if let Some(challenge_response) = challenge_response {
-                    return Ok(WebhookRequestType::Challenge(challenge_response));
-                }
-
-                validator.validate_hmac_signature(
-                    headers,
-                    &provider.validation_data,
-                    raw_payload,
-                )?;
-            }
-            WebhookAuthenticationMethod::HMAC(HmacAuthentication { validation_data, config }) => {
-                config.validate_hmac_signature(headers, validation_data, raw_payload)?;
-            }
-            WebhookAuthenticationMethod::ApiKey(ApiKeyAuthentication {
-                api_key_header,
-                api_key,
-            }) => {
-                let api_key_to_cmp = headers.try_get_webhook_header(&api_key_header)?;
-                if api_key_to_cmp != api_key {
-                    return Err(WebhookError::InvalidApiKey);
-                }
-            }
-            WebhookAuthenticationMethod::BasicAuth(BasicAuthAuthentication {
-                username,
-                password,
-            }) => {
-                let mut credentials_store =
-                    headers.try_get_webhook_header("Authorization")?.split(' ');
-
-                let _ = credentials_store
-                    .next()
-                    .filter(|r#type| *r#type == "Basic")
-                    .ok_or(WebhookError::InvalidAuthHeader(
-                        "missing `Basic` type".to_string(),
-                    ))?;
-
-                let credentials_as_base64 = credentials_store.next().ok_or(
-                    WebhookError::InvalidHeader("missing credentials".to_string()),
-                )?;
-
-                let credentials_from_base64_as_bytes = BASE64_STANDARD
-                    .decode(credentials_as_base64.as_bytes())
-                    .map_err(|_| {
-                        WebhookError::InvalidAuthHeader(
-                            "invalid encoding for username:password expected base64 encoding"
-                                .to_string(),
-                        )
-                    })?;
-
-                let credentials_separated_with_colon =
-                    String::from_utf8_lossy(&credentials_from_base64_as_bytes);
-
-                let credentials = credentials_separated_with_colon.split(':').collect_vec();
-
-                if credentials.len() != 2 {
-                    return Err(WebhookError::InvalidAuthHeader("basic auth format expected: `Basic username:password` (with username:password encoded in base64)".to_string()));
-                }
-
-                if credentials.get(0).unwrap() != username
-                    && credentials.get(1).unwrap() != password
-                {
-                    return Err(WebhookError::InvalidAuthHeader(
-                        "wrong credentials".to_string(),
-                    ));
-                }
-            }
-        }
-
-        Ok(WebhookRequestType::Event)
     }
 }
 

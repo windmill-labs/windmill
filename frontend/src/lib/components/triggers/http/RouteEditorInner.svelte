@@ -5,7 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { HttpTriggerService } from '$lib/gen'
+	import { HttpTriggerService, type AuthenticationMethod } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -42,7 +42,7 @@
 	let isValid = false
 	let dirtyRoutePath = false
 	let is_async = false
-	let windmill_auth = false
+	let authentication_method: AuthenticationMethod = 'none'
 	let route_path = ''
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
@@ -55,8 +55,46 @@
 	let raw_string = false
 	let wrap_body = false
 	let drawerLoading = true
-	let custom_auth_resource_path: string = ''
-	let auth_type_selected: 'none' | 'windmill_auth' | 'custom_auth' = 'none'
+	let authentication_resource_path: string = ''
+
+	type AuthenticationOption = {
+		label: string
+		value: AuthenticationMethod
+		tooltip?: string
+		resource_type?: string
+	}
+
+	const authentication_options: AuthenticationOption[] = [
+		{
+			label: 'None',
+			value: 'none'
+		},
+		{
+			label: 'Windmill',
+			value: 'windmill',
+			tooltip: 'Requires authentication with read access on the route'
+		},
+		{
+			label: 'API key',
+			value: 'api_key',
+			resource_type: 'api_key_auth'
+		},
+		{
+			label: 'Basic',
+			value: 'basic',
+			resource_type: 'basic_http_auth'
+		},
+		{
+			label: 'Signature',
+			value: 'signature'
+		},
+		{
+			label: 'Webhook',
+			value: 'webhook',
+			resource_type: 'webhook_auth'
+		}
+	]
+
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
 		try {
@@ -86,7 +124,7 @@
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
 			is_async = false
-			windmill_auth = false
+			authentication_method = 'none'
 			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
 			http_method = defaultValues?.http_method ?? 'post'
@@ -100,8 +138,7 @@
 			dirtyPath = false
 			is_static_website = false
 			workspaced_route = false
-			custom_auth_resource_path = ''
-			auth_type_selected = 'none'
+			authentication_resource_path = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -123,16 +160,12 @@
 		route_path = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
-		windmill_auth = s.windmill_auth
+		authentication_method = s.authentication_method
 		workspaced_route = s.workspaced_route
 		wrap_body = s.wrap_body
 		raw_string = s.raw_string
-		custom_auth_resource_path = s.custom_auth_resource_path ?? ''
-		auth_type_selected = !emptyString(custom_auth_resource_path)
-			? 'custom_auth'
-			: windmill_auth
-			? 'windmill_auth'
-			: 'none'
+		authentication_resource_path = s.authentication_resource_path ?? ''
+
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config
@@ -152,13 +185,13 @@
 					script_path,
 					is_flow,
 					is_async,
-					windmill_auth,
+					authentication_method,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
-					custom_auth_resource_path,
+					authentication_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -172,13 +205,13 @@
 					script_path,
 					is_flow,
 					is_async,
-					windmill_auth,
+					authentication_method,
 					route_path,
 					http_method,
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
-					custom_auth_resource_path,
+					authentication_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -274,7 +307,7 @@
 									is_async = false
 									is_static_website = ev.detail === 'static_website'
 									if (is_static_website) {
-										windmill_auth = false
+										authentication_method = 'none'
 									}
 								} else if (ev.detail === 'runnable') {
 									static_asset_config = undefined
@@ -445,34 +478,30 @@
 								<svelte:fragment slot="action">
 									<ToggleButtonGroup
 										class="w-auto h-full"
-										bind:selected={auth_type_selected}
-										on:selected={({ detail }) => {
-											windmill_auth = detail === 'windmill_auth'
-											if (windmill_auth) {
-												custom_auth_resource_path = ''
-											}
-										}}
+										bind:selected={authentication_method}
 										disabled={!can_write}
 										let:item
 									>
-										<ToggleButton label="None" value="none" {item} />
-										<ToggleButton
-											label="Windmill auth"
-											value="windmill_auth"
-											tooltip="Requires authentication with read access on the route"
-											{item}
-										/>
-										<ToggleButton label="Custom auth" value="custom_auth" {item} />
+										{#each authentication_options as option}
+											<ToggleButton
+												label={option.label}
+												value={option.value}
+												tooltip={option.tooltip}
+												{item}
+											/>
+										{/each}
 									</ToggleButtonGroup>
 								</svelte:fragment>
 							</Label>
-							{#if auth_type_selected === 'custom_auth'}
-								<ResourcePicker
-									resourceType={'custom_authentication'}
-									bind:value={custom_auth_resource_path}
-								/>
-							{/if}
-							<Label label="Raw string" class="w-full">
+							{#each authentication_options as option}
+								{#if option.resource_type && authentication_method === option.value}
+									<ResourcePicker
+										bind:value={authentication_resource_path}
+										resourceType={option.resource_type}
+									/>
+								{/if}
+							{/each}
+							<Label label="Raw body" class="w-full">
 								<svelte:fragment slot="header">
 									<Tooltip
 										>Provides the raw JSON payload as a string under the 'raw_string' key, useful

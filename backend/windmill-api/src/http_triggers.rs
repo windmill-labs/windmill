@@ -1,3 +1,4 @@
+use crate::http_trigger_auth::{self, AuthenticateResponseType};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
@@ -6,7 +7,6 @@ use crate::{
     args::try_from_request_body,
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
-    http_trigger_auth::{Webhook, WebhookRequestType},
     jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
@@ -29,6 +29,7 @@ use std::borrow::Cow;
 use std::{collections::HashMap, sync::Arc};
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_common::error::Error;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -79,13 +80,6 @@ pub fn workspaced_service() -> Router {
         .route("/route_exists", post(exists_route))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-enum AuthenticationMethod {
-    None,
-    Windmill,
-    Custom,
-}
-
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
 #[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -111,6 +105,18 @@ impl TryFrom<&http::Method> for HttpMethod {
     }
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[sqlx(type_name = "AUTHENTICATION_METHOD", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "snake_case"))]
+pub enum AuthenticationMethod {
+    None,
+    Windmill,
+    ApiKey,
+    Basic,
+    Webhook,
+    Signature,
+}
+
 #[derive(Debug, Deserialize)]
 struct NewTrigger {
     path: String,
@@ -118,9 +124,8 @@ struct NewTrigger {
     script_path: String,
     is_flow: bool,
     is_async: bool,
-    windmill_auth: bool,
-    #[serde(deserialize_with = "non_empty_str")]
-    custom_auth_resource_path: Option<String>,
+    authentication_resource_path: Option<String>,
+    authentication_method: AuthenticationMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     http_method: HttpMethod,
     workspaced_route: Option<bool>,
@@ -142,12 +147,12 @@ pub struct HttpTrigger {
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: serde_json::Value,
     pub is_async: bool,
-    pub windmill_auth: bool,
+    pub authentication_method: AuthenticationMethod,
     pub http_method: HttpMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
-    pub custom_auth_resource_path: Option<String>,
+    pub authentication_resource_path: Option<String>,
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
@@ -160,9 +165,9 @@ struct EditTrigger {
     script_path: String,
     is_flow: bool,
     is_async: bool,
-    windmill_auth: bool,
+    authentication_method: AuthenticationMethod,
     #[serde(deserialize_with = "non_empty_str")]
-    custom_auth_resource_path: Option<String>,
+    authentication_resource_path: Option<String>,
     http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     workspaced_route: Option<bool>,
@@ -205,10 +210,10 @@ async fn list_triggers(
             "edited_at",
             "extra_perms",
             "is_async",
-            "windmill_auth",
+            "authentication_method",
             "static_asset_config",
             "is_static_website",
-            "custom_auth_resource_path",
+            "authentication_resource_path",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -259,10 +264,10 @@ async fn get_trigger(
             edited_at, 
             extra_perms, 
             is_async, 
-            windmill_auth, 
+            authentication_method as "authentication_method: _", 
             static_asset_config as "static_asset_config: _", 
             is_static_website,
-            custom_auth_resource_path,
+            authentication_resource_path,
             wrap_body,
             raw_string
         FROM 
@@ -294,12 +299,6 @@ async fn create_trigger(
 
     if !VALID_ROUTE_PATH_RE.is_match(&ct.route_path) {
         return Err(error::Error::BadRequest("Invalid route path".to_string()));
-    }
-
-    if ct.windmill_auth && ct.custom_auth_resource_path.is_some() {
-        return Err(error::Error::BadRequest(
-            "Authentication must either through windmill auth or custom auth".to_string(),
-        ));
     }
 
     // route path key is extracted from the route path to check for uniqueness
@@ -336,13 +335,13 @@ async fn create_trigger(
             route_path, 
             route_path_key,
             workspaced_route,
-            custom_auth_resource_path,
+            authentication_resource_path,
             wrap_body,
             raw_string,
             script_path, 
             is_flow, 
             is_async, 
-            windmill_auth, 
+            authentication_method, 
             http_method, 
             static_asset_config, 
             edited_by, 
@@ -359,13 +358,13 @@ async fn create_trigger(
         ct.route_path,
         &route_path_key,
         ct.workspaced_route,
-        ct.custom_auth_resource_path,
+        ct.authentication_resource_path,
         ct.wrap_body.unwrap_or(false),
         ct.raw_string.unwrap_or(false),
         ct.script_path,
         ct.is_flow,
         ct.is_async,
-        ct.windmill_auth,
+        ct.authentication_method as _,
         ct.http_method as _,
         ct.static_asset_config as _,
         &authed.username,
@@ -412,12 +411,6 @@ async fn update_trigger(
                 "route_path is required".to_string(),
             ));
         };
-        
-        if ct.windmill_auth && ct.custom_auth_resource_path.is_some() {
-            return Err(error::Error::BadRequest(
-                "Authentication must either through windmill auth or custom auth".to_string(),
-            ));
-        }
 
         if !VALID_ROUTE_PATH_RE.is_match(&route_path) {
             return Err(error::Error::BadRequest("Invalid route path".to_string()));
@@ -451,7 +444,7 @@ async fn update_trigger(
                 workspaced_route = $3,
                 wrap_body = $4,
                 raw_string = $5,
-                custom_auth_resource_path = $6,
+                authentication_resource_path = $6,
                 script_path = $7, 
                 path = $8, 
                 is_flow = $9, 
@@ -460,7 +453,7 @@ async fn update_trigger(
                 edited_by = $12, 
                 email = $13, 
                 is_async = $14, 
-                windmill_auth = $15, 
+                authentication_method = $15, 
                 edited_at = now(), 
                 is_static_website = $16
             WHERE 
@@ -472,7 +465,7 @@ async fn update_trigger(
             ct.workspaced_route,
             ct.wrap_body,
             ct.raw_string,
-            ct.custom_auth_resource_path,
+            ct.authentication_resource_path,
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -481,7 +474,7 @@ async fn update_trigger(
             &authed.username,
             &authed.email,
             ct.is_async,
-            ct.windmill_auth,
+            ct.authentication_method as _,
             ct.is_static_website,
             w_id,
             path,
@@ -503,7 +496,7 @@ async fn update_trigger(
                 edited_by = $6, 
                 email = $7, 
                 is_async = $8, 
-                windmill_auth = $9, 
+                authentication_method = $9, 
                 edited_at = now(), 
                 is_static_website = $10
             WHERE 
@@ -518,7 +511,7 @@ async fn update_trigger(
             &authed.username,
             &authed.email,
             ct.is_async,
-            ct.windmill_auth,
+            ct.authentication_method as _,
             ct.is_static_website,
             w_id,
             path,
@@ -693,12 +686,12 @@ struct TriggerRoute {
     route_path: String,
     workspace_id: String,
     is_async: bool,
-    windmill_auth: bool,
+    authentication_method: AuthenticationMethod,
     edited_by: String,
     email: String,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     is_static_website: bool,
-    custom_auth_resource_path: Option<String>,
+    authentication_resource_path: Option<String>,
     workspaced_route: bool,
     wrap_body: bool,
     raw_string: bool,
@@ -729,7 +722,7 @@ async fn get_http_route_trigger(
                 route_path, 
                 workspace_id, 
                 is_async, 
-                windmill_auth, 
+                authentication_method  AS "authentication_method: _", 
                 edited_by, 
                 email,
                 static_asset_config AS "static_asset_config: _",
@@ -737,7 +730,7 @@ async fn get_http_route_trigger(
                 raw_string,
                 workspaced_route,
                 is_static_website,
-                custom_auth_resource_path
+                authentication_resource_path
             FROM 
                 http_trigger 
             WHERE 
@@ -759,10 +752,10 @@ async fn get_http_route_trigger(
                 script_path, 
                 is_flow, 
                 route_path, 
-                custom_auth_resource_path,
+                authentication_resource_path,
                 workspace_id, 
                 is_async, 
-                windmill_auth, 
+                authentication_method  AS "authentication_method: _", 
                 edited_by, 
                 email, 
                 static_asset_config AS "static_asset_config: _",
@@ -824,7 +817,7 @@ async fn get_http_route_trigger(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let username_override = if trigger.windmill_auth {
+    let username_override = if let AuthenticationMethod::Windmill = trigger.authentication_method {
         let opt_authed = if let Some(token) = token {
             auth_cache
                 .get_authed(Some(trigger.workspace_id.clone()), token)
@@ -935,7 +928,7 @@ async fn route_job(
     let args = try_from_request_body(
         request,
         &db,
-        Some(trigger.custom_auth_resource_path.is_some() || trigger.raw_string),
+        Some(trigger.authentication_resource_path.is_some() || trigger.raw_string),
         Some(trigger.wrap_body),
     )
     .await;
@@ -953,47 +946,60 @@ async fn route_job(
         Err(e) => return e.into_response(),
     };
 
-    if let Some(custom_auth_resource_path) = &trigger.custom_auth_resource_path {
-        let webhook_auth = try_get_resource_from_db_as::<Webhook>(
-            authed.clone(),
-            Some(user_db.clone()),
-            &db,
-            &custom_auth_resource_path,
-            &trigger.workspace_id,
-        )
-        .await;
-        let webhook_auth = match webhook_auth {
-            Ok(webhook_auth) => webhook_auth,
-            Err(e) => return e.into_response(),
-        };
-
-        let raw_payload = serde_json::from_str::<String>(
-            &args
-                .extra
-                .as_ref()
-                .unwrap()
-                .get("raw_string")
-                .unwrap()
-                .to_string(),
-        );
-
-        let raw_payload = match raw_payload {
-            Ok(raw_payload) => raw_payload,
-            Err(e) => {
-                return windmill_common::error::Error::SerdeJson {
-                    location: e.to_string(),
-                    error: e,
+    match trigger.authentication_method {
+        AuthenticationMethod::None | AuthenticationMethod::Windmill => {}
+        _ => {
+            let resource_path = match trigger.authentication_resource_path {
+                Some(resource_path) => resource_path,
+                None => {
+                    return Error::BadRequest("Missing authentication resource path".to_string())
+                        .into_response()
                 }
-                .into_response();
-            }
-        };
+            };
 
-        match webhook_auth.verify_signatures(&headers, &raw_payload) {
-            Ok(WebhookRequestType::Challenge(response)) => {
-                return response;
+            let authentication_method =
+                try_get_resource_from_db_as::<http_trigger_auth::AuthenticationMethod>(
+                    authed.clone(),
+                    Some(user_db.clone()),
+                    &db,
+                    &resource_path,
+                    &trigger.workspace_id,
+                )
+                .await;
+
+            let authentication_method = match authentication_method {
+                Ok(authentication_method) => authentication_method,
+                Err(e) => return e.into_response(),
+            };
+
+            let raw_payload = serde_json::from_str::<String>(
+                &args
+                    .extra
+                    .as_ref()
+                    .unwrap()
+                    .get("raw_string")
+                    .unwrap()
+                    .to_string(),
+            );
+
+            let raw_payload = match raw_payload {
+                Ok(raw_payload) => raw_payload,
+                Err(e) => {
+                    return windmill_common::error::Error::SerdeJson {
+                        location: e.to_string(),
+                        error: e,
+                    }
+                    .into_response();
+                }
+            };
+
+            match authentication_method.authenticate_incoming_request(&headers, &raw_payload) {
+                Ok(Some(response)) => match response {
+                    AuthenticateResponseType::Challenge(response) => return response,
+                },
+                Err(e) => return e.into_response(),
+                _ => {}
             }
-            Err(e) => return e.into_response(),
-            _ => {}
         }
     }
 

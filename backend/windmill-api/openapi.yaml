@@ -13790,6 +13790,17 @@ components:
         - edited_at
         - is_flow
 
+
+    AuthenticationMethod:
+      type: string
+      enum:
+          - none
+          - windmill
+          - api_key
+          - basic
+          - signature
+          - webhook
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -13816,12 +13827,12 @@ components:
             - put
             - delete
             - patch
-        custom_auth_resource_path:
+        authentication_resource_path:
           type: string
         is_async:
           type: boolean
-        windmill_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         workspaced_route:
@@ -13834,7 +13845,7 @@ components:
       required:
         - route_path
         - is_async
-        - windmill_auth
+        - authentication_method
         - http_method
         - is_static_website
         - workspaced_route
@@ -13873,12 +13884,12 @@ components:
             - put
             - delete
             - patch
-        custom_auth_resource_path:
+        authentication_resource_path:
           type: string
         is_async:
           type: boolean
-        windmill_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -13892,7 +13903,7 @@ components:
         - route_path
         - is_flow
         - is_async
-        - windmill_auth
+        - authentication_method
         - http_method
         - is_static_website
 
@@ -13918,7 +13929,7 @@ components:
               type: string
           required:
             - s3
-        custom_auth_resource_path:
+        authentication_resource_path:
           type: string
         is_flow:
           type: boolean
@@ -13932,8 +13943,8 @@ components:
             - patch
         is_async:
           type: boolean
-        windmill_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -13946,7 +13957,7 @@ components:
         - is_flow
         - kind
         - is_async
-        - windmill_auth
+        - authentication_method
         - http_method
         - is_static_website
 
