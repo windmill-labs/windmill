@@ -140,7 +140,7 @@
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, UserService } from '$lib/gen'
+	import { type Preview, ResourceService, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeVscode } from '$lib/components/vscode'
 
@@ -174,6 +174,7 @@
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
+	import { formatResourceTypes } from './copilot/chat/core'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -203,7 +204,7 @@
 		ruff: false,
 		deno: false,
 		go: false,
-		shellcheck: false,
+		shellcheck: false
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -1122,7 +1123,7 @@
 		initialized = true
 
 		try {
-			model = meditor.createModel(code, (lang == 'nu') ? 'python' : lang, mUri.parse(uri))
+			model = meditor.createModel(code, lang == 'nu' ? 'python' : lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1208,6 +1209,7 @@
 		reloadWebsocket()
 
 		setTypescriptExtraLibs()
+		setTypescriptRTNamespace()
 		return () => {
 			console.log('disposing editor')
 			ata = undefined
@@ -1220,6 +1222,27 @@
 			} catch (err) {
 				console.log('error disposing editor', err)
 			}
+		}
+	}
+
+	async function setTypescriptRTNamespace() {
+		if (
+			scriptLang &&
+			(scriptLang === 'bun' ||
+				scriptLang === 'deno' ||
+				scriptLang === 'bunnative' ||
+				scriptLang === 'nativets')
+		) {
+			const resourceTypes = await ResourceService.listResourceType({
+				workspace: $workspaceStore ?? ''
+			})
+
+			const namespace = formatResourceTypes(
+				resourceTypes,
+				scriptLang === 'bunnative' ? 'bun' : scriptLang
+			)
+
+			languages.typescript.typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
 		}
 	}
 

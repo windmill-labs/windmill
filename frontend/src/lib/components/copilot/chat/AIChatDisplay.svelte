@@ -13,8 +13,14 @@
 		type ContextElement,
 		type SelectedContext
 	} from './core'
-	import { copilotInfo, copilotSessionModel } from '$lib/stores'
+	import {
+		COPILOT_SESSION_MODEL_SETTING_NAME,
+		COPILOT_SESSION_PROVIDER_SETTING_NAME,
+		copilotInfo,
+		copilotSessionModel
+	} from '$lib/stores'
 	import ContextElementBadge from './ContextElementBadge.svelte'
+	import { storeLocalSetting } from '$lib/utils'
 
 	export let pastChats: { id: string; title: string }[]
 	export let messages: DisplayMessage[]
@@ -257,6 +263,8 @@
 									class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
 									on:click={() => {
 										$copilotSessionModel = providerModel
+										storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
+										storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
 										close()
 									}}
 								>

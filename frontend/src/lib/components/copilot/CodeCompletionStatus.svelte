@@ -2,13 +2,13 @@
 	import {
 		codeCompletionSessionEnabled,
 		copilotInfo,
-		FORMAT_ON_SAVE_SETTING_NAME
+		CODE_COMPLETION_SETTING_NAME
 	} from '$lib/stores'
 	import { storeLocalSetting } from '$lib/utils'
 	import Toggle from '../Toggle.svelte'
 
 	function storeSetting() {
-		storeLocalSetting(FORMAT_ON_SAVE_SETTING_NAME, $codeCompletionSessionEnabled.toString())
+		storeLocalSetting(CODE_COMPLETION_SETTING_NAME, $codeCompletionSessionEnabled.toString())
 	}
 </script>
 

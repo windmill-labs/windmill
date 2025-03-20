@@ -86,14 +86,14 @@ export class AIChatEditorHandler {
 		const currentCode = this.editor.getValue()
 		const changedLines = diffLines(currentCode, newCode)
 
-		const groups: VisualChangeWithDiffIndex[][] = []
+		this.groupChanges = []
 		let visualChanges: VisualChangeWithDiffIndex[] = []
 
 		let lineNumber = 1
 		for (const [idx, change] of changedLines.entries()) {
 			const nbOfNewLines = change.count || 1
 			if (idx > 0 && changedLines[idx - 1].removed && !change.added) {
-				groups.push(visualChanges)
+				this.groupChanges.push(visualChanges)
 				visualChanges = []
 			}
 			if (change.added) {
@@ -109,7 +109,7 @@ export class AIChatEditorHandler {
 					},
 					diffIndex: idx
 				})
-				groups.push(visualChanges)
+				this.groupChanges.push(visualChanges)
 				visualChanges = []
 			} else if (change.removed) {
 				visualChanges = []
@@ -133,20 +133,17 @@ export class AIChatEditorHandler {
 			}
 		}
 		if (visualChanges.length > 0) {
-			groups.push(visualChanges)
+			this.groupChanges.push(visualChanges)
 		}
 
-		if (groups.length === 0) {
+		if (this.groupChanges.length === 0) {
 			this.finish()
 			return
 		}
 
-		let rejectedChanges: number[] = []
-		let rejectedGroupIndices: number[] = []
+		let indicesOfRejectedLineChanges: number[] = []
 
-		this.groupChanges = groups
-
-		for (const [groupIndex, group] of groups.entries()) {
+		for (const [groupIndex, group] of this.groupChanges.entries()) {
 			let collection: meditor.IEditorDecorationsCollection | undefined = undefined
 			let ids: string[] = []
 			const acceptFn = () => {
@@ -159,24 +156,24 @@ export class AIChatEditorHandler {
 				for (const [idx, change] of changedLines.entries()) {
 					if (!change.added && !change.removed) {
 						newCodeWithRejects += change.value
-					} else if (change.added && !rejectedChanges.includes(idx)) {
+					} else if (change.added && !indicesOfRejectedLineChanges.includes(idx)) {
 						newCodeWithRejects += change.value
-					} else if (change.removed && rejectedChanges.includes(idx)) {
+					} else if (change.removed && indicesOfRejectedLineChanges.includes(idx)) {
 						newCodeWithRejects += change.value
 					}
 				}
 				this.reviewAndApply(newCodeWithRejects)
 			}
 			const rejectFn = () => {
-				rejectedChanges.push(...group.map((c) => c.diffIndex))
+				indicesOfRejectedLineChanges.push(...group.map((c) => c.diffIndex))
 				collection?.clear()
 				this.editor.changeViewZones((acc) => {
 					for (const id of ids) {
 						acc.removeZone(id)
 					}
 				})
-				rejectedGroupIndices.push(groupIndex)
-				if (rejectedGroupIndices.length === groups.length) {
+				this.groupChanges.splice(groupIndex, 1)
+				if (this.groupChanges.length === 0) {
 					this.finish()
 				}
 			}

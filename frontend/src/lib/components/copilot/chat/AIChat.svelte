@@ -1,11 +1,5 @@
 <script lang="ts">
-	import {
-		copilotInfo,
-		copilotSessionModel,
-		dbSchemas,
-		type DBSchema,
-		type DBSchemas
-	} from '$lib/stores'
+	import { dbSchemas, type DBSchema, type DBSchemas } from '$lib/stores'
 	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import {
@@ -162,16 +156,6 @@
 	]
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
-
-	function checkForInvalidModel() {
-		if (
-			!$copilotSessionModel ||
-			($copilotSessionModel && !$copilotInfo.aiModels.includes($copilotSessionModel))
-		) {
-			$copilotSessionModel = $copilotInfo.aiModels[0]
-		}
-	}
-	$: $copilotInfo && checkForInvalidModel()
 
 	async function sendRequest() {
 		if (!instructions.trim()) {

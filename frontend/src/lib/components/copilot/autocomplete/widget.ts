@@ -58,10 +58,6 @@ export class DiffEditorWidget {
 			modified: modifiedModel
 		})
 
-		// const maxCol1 = this.diffEditor.getModel()?.modified.get
-		// const maxCol2 = this.diffEditor.getModel()?.original.column
-		// const maxCol = Math.max(maxCol1, maxCol2)
-		// console.log('maxCol', maxCol)
 		function getMaxColumn(model: meditor.ITextModel) {
 			if (!model) return 0
 

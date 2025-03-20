@@ -1,4 +1,5 @@
-import { codeCompletionLoading } from '$lib/stores'
+import { codeCompletionLoading, copilotInfo } from '$lib/stores'
+import { get } from 'svelte/store'
 
 import { getNonStreamingCompletion } from '../lib'
 
@@ -32,10 +33,10 @@ Follow the following criteria.
 
 - Fix any syntax errors or inconsistencies in the code
 - Maintain the code style and formatting conventions of the language used in the file
-- Add missing syntactic elements, such as closing parentheses or semicolons
-- Remove the complete <EDITABLE_CODE> section with your edits.
+- ALWAYS ADD missing syntactic elements, such as closing parentheses/brackets/braces.
+- Return the complete <EDITABLE_CODE> section with your edits. DO NOT return any code after the <EDITABLE_CODE> tag.
 
-- If there are no useful edits to make, return the code unmodified.
+- If there are no useful edits to make, return the the <EDITABLE_CODE> section unmodified, without the <CURSOR> tag.
 - Don't explain the code, just rewrite it to include the next, most probable change.
 - Never include the <CURSOR> tag in the response.`
 
@@ -62,9 +63,11 @@ const AUTOCOMPLETE_USER_PROMPT = `
 
 Return the EDITABLE_CODE section in the form \`\`\`{language}
 <EDITABLE_CODE>
-...complete editable code section with your modifications, including balancing braces/parentheses/brackets/indentation
+...complete editable code section with your modifications
 </EDITABLE_CODE>
-\`\`\`).`
+\`\`\`
+
+Don't forget about closing braces/parentheses/brackets/indentation!`
 
 function postProcessing(response: string) {
 	const code = response.match(/<EDITABLE_CODE>\n?(.*?)\n?<\/EDITABLE_CODE>/s)?.[1]
@@ -97,13 +100,24 @@ export async function autocompleteRequest(
 		.replace('{events}', context.events.join('\n\n'))
 	console.log('events', context.events)
 
+	const info = get(copilotInfo)
+
+	const providerModel = info.codeCompletionModel
+
+	if (!providerModel) {
+		throw new Error('No code completion model selected')
+	}
+
 	try {
 		const completion = await getNonStreamingCompletion(
 			[
 				{ role: 'system', content: systemPrompt },
 				{ role: 'user', content: userPrompt }
 			],
-			abortController
+			abortController,
+			{
+				forceModelProvider: providerModel
+			}
 		)
 
 		return postProcessing(completion)
