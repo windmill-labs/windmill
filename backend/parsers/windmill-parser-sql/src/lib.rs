@@ -16,9 +16,8 @@ use std::{
 };
 pub use windmill_parser::{Arg, MainArgSignature, Typ};
 
-pub const SANITIZED_ENUM_STR: &str = "sanitized_enum";
-pub const SANITIZED_ENUM_PREFIX: &str = "sanitized_enum(";
-pub const SANITIZED_RAW_STRING_STR: &str = "sanitized_raw_string";
+pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
+pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
 
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
@@ -165,7 +164,7 @@ lazy_static::lazy_static! {
 
     // used for `unsafe` sql interpolation
     // -- %%name%% (type) = default
-    static ref RE_ARG_SQL_INTERPOLATION: Regex = Regex::new(r#"(?m)^-- %%([a-z_][a-z0-9_]*)%% \((\w+(?:\([\w, ]+\))?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_SQL_INTERPOLATION: Regex = Regex::new(r#"(?m)^--\s*%%([a-z_][a-z0-9_]*)%%\s*([\s\w\/]+)?(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 }
 
 fn parsed_default(parsed_typ: &Typ, default: String) -> Option<serde_json::Value> {
@@ -241,20 +240,17 @@ fn parse_sql_sanitized_interpolation(code: &str) -> Vec<Arg> {
 
     for cap in RE_ARG_SQL_INTERPOLATION.captures_iter(code) {
         let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
-        let typ = cap
-            .get(2)
-            .map(|x| x.as_str().to_string().to_lowercase())
-            .unwrap();
+        let typ = cap.get(2).map(|x| x.as_str());
         let default = cap.get(3).map(|x| x.as_str().to_string());
         let has_default = default.is_some();
-        let parsed_typ = parse_unsafe_typ(typ.as_str());
+        let (parsed_typ, otyp) = parse_unsafe_typ(typ);
 
         let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
         args.push(Arg {
             name,
             typ: parsed_typ,
             default: parsed_default,
-            otyp: Some(typ),
+            otyp: Some(otyp.to_string()),
             has_default,
             oidx: None,
         });
@@ -584,28 +580,18 @@ fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     Ok(Some(args))
 }
 
-fn parse_unsafe_typ(typ: &str) -> Typ {
+fn parse_unsafe_typ(typ: Option<&str>) -> (Typ, &'static str) {
     match typ {
-        typ if typ.starts_with(SANITIZED_ENUM_PREFIX) => {
-            if let Some(raw_possibles) = typ
-                .strip_prefix(SANITIZED_ENUM_STR)
-                .and_then(|s| s.strip_prefix("("))
-                .and_then(|s| s.strip_suffix(")"))
-            {
-                let variants = raw_possibles
-                    .split(",")
-                    .map(|x| x.trim().to_string())
-                    .filter(|x| !x.is_empty())
-                    .collect();
+        Some(s) => {
+            let variants = s
+                .split("/")
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect();
 
-                Typ::Str(Some(variants))
-            } else {
-                Typ::Unknown
-            }
-
+            (Typ::Str(Some(variants)), SANITIZED_ENUM_STR)
         }
-        SANITIZED_RAW_STRING_STR => Typ::Str(None),
-        _ => Typ::Unknown,
+        None => (Typ::Str(None), SANITIZED_RAW_STRING_STR),
     }
 }
 

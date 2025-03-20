@@ -4,11 +4,14 @@ use std::collections::HashMap;
 use serde_json::Value;
 use windmill_common::error;
 use windmill_parser::Arg;
-use windmill_parser_sql::{SANITIZED_ENUM_PREFIX, SANITIZED_RAW_STRING_STR};
+use windmill_parser_sql::{SANITIZED_ENUM_STR, SANITIZED_RAW_STRING_STR};
 
 /// Identifier must be a continuous ASCII alphanumeric word, not starting with
 /// a number, that can contain underscores
 fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
+    if input.is_empty() {
+        return Err(error::Error::BadRequest(format!("Interpolated argument `{}` cannot be empty", arg.name)));
+    }
     if input
         .chars()
         .next()
@@ -18,7 +21,7 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     {
         Ok(())
     } else {
-        Err(error::Error::BadRequest(format!("Argument `{}` contained forbidden characters. Received `{}` but should only contain alphanumerical characters and `_`.", arg.name, input)))
+        Err(error::Error::BadRequest(format!("Interpolated argument `{}` contained forbidden characters. Received `{}` but should only contain alphanumerical characters and `_`.", arg.name, input)))
     }
 }
 
@@ -34,7 +37,7 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
         if let Some(typ) = &arg.otyp {
             let pattern = format!("%%{}%%", arg.name);
             match typ.as_str() {
-                typ if typ.starts_with(SANITIZED_ENUM_PREFIX) => {
+                SANITIZED_ENUM_STR => {
                     let replace =
                         args_map
                             .get(&arg.name)
@@ -66,7 +69,7 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
                     ret = ret.replace(&pattern, replace);
                     args_to_skip.push(arg.name.to_string());
                 }
-                typ if typ == SANITIZED_RAW_STRING_STR => {
+                SANITIZED_RAW_STRING_STR => {
                     let replace =
                         args_map
                             .get(&arg.name)
