@@ -21,7 +21,7 @@
 
 	export let noEditor: boolean
 
-	const { flowStore, initialPath, previewArgs, pathStore, customUi } =
+	const { flowStore, initialPathStore, previewArgs, pathStore, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function asSchema(x: any) {
@@ -67,7 +67,7 @@
 						promptConfigName="flowSummary"
 						flow={$flowStore.value}
 						on:change={() => {
-							if (initialPath == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
+							if ($initialPathStore == '' && $flowStore.summary?.length > 0 && !dirtyPath) {
 								path?.setName(
 									$flowStore.summary
 										.toLowerCase()
@@ -92,7 +92,7 @@
 							bind:this={path}
 							bind:dirty={dirtyPath}
 							bind:path={$pathStore}
-							{initialPath}
+							initialPath={$initialPathStore}
 							namePlaceholder="flow"
 							kind="flow"
 						/>

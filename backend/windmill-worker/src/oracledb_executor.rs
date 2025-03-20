@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::{
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
     worker::to_raw_value,
 };
+use windmill_queue::MiniPulledJob;
+
 use windmill_parser_sql::{
     parse_db_resource, parse_oracledb_sig, parse_sql_blocks, parse_sql_statement_named_params,
 };
@@ -291,7 +292,7 @@ fn get_statement_values(
 }
 
 pub async fn do_oracledb(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,

@@ -26,7 +26,6 @@ use windmill_common::{
         self,
         Error::{self},
     },
-    jobs::QueuedJob,
     utils::calculate_hash,
     worker::{write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
@@ -709,7 +708,7 @@ pub async fn uv_pip_compile(
 async fn postinstall(
     additional_python_paths: &mut Vec<String>,
     job_dir: &str,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<()> {
     // It is guranteed that additional_python_paths only contains paths within windmill/cache/
@@ -836,7 +835,7 @@ pub async fn handle_python_job(
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -848,7 +847,7 @@ pub async fn handle_python_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let script_path = crate::common::use_flow_root_path(job.script_path());
+    let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
@@ -911,7 +910,7 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
-        job.is_flow_step,
+        job.is_flow_step(),
         job.preprocessed,
         job.script_entrypoint_override.as_deref(),
         inner_content,
@@ -2298,6 +2297,8 @@ use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
 #[cfg(feature = "enterprise")]
 use windmill_common::variables;
 
+use windmill_queue::MiniPulledJob;
+
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<&String>,
@@ -2311,7 +2312,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
     let mut mem_peak: i32 = 0;

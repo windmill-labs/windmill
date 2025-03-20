@@ -7,9 +7,10 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
-    jobs::QueuedJob,
     worker::write_file,
 };
+use windmill_queue::MiniPulledJob;
+
 use windmill_parser::Typ;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -136,7 +137,7 @@ pub async fn handle_php_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
     job_dir: &str,

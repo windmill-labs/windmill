@@ -123,7 +123,7 @@
 		if (
 			oneOf &&
 			oneOf.length >= 2 &&
-			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected) || !value)
 		) {
 			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
 				const existingValue = JSON.parse(JSON.stringify(value))
@@ -131,7 +131,9 @@
 				await tick()
 				value = existingValue
 			} else {
-				oneOfSelected = oneOf[0]['title']
+				const label = oneOf[0]['title']
+				oneOfSelected = label
+				value = { ...(typeof value === 'object' ? value ?? {} : {}), label }
 			}
 		}
 	}
@@ -273,11 +275,13 @@
 			rawValue = newRawValue
 			rawValue != undefined && editor?.getCode() != rawValue && editor?.setCode(rawValue)
 		}
-		// console.log('evalValueToRaw', value, rawValue, inputCat, label)
 	}
 
 	let setCodeDisabled = false
-	$: (inputCat && (isObjectCat(inputCat) || isRawStringEditor(inputCat)) && evalValueToRaw()) ||
+	$: (inputCat &&
+		(isObjectCat(inputCat) || isRawStringEditor(inputCat)) &&
+		!oneOf &&
+		evalValueToRaw()) ||
 		value
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -294,7 +298,6 @@
 
 	onMount(() => {
 		computeDefaultValue()
-		// console.log('onMount', value, rawValue, inputCat)
 		evalValueToRaw()
 	})
 
@@ -796,7 +799,7 @@
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const prevValueKeys = Object.keys(
-									oneOf.find((o) => o.title == detail)?.properties ?? {}
+									oneOf?.find((o) => o.title == detail)?.properties ?? {}
 								)
 								const toKeep = {}
 								for (const key of prevValueKeys) {

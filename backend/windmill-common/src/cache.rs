@@ -311,7 +311,7 @@ pub struct ScriptMetadata {
     pub language: Option<ScriptLang>,
     pub envs: Option<Vec<String>>,
     pub codebase: Option<String>,
-    pub validate_schema: bool,
+    pub schema: Option<String>,
     pub schema_validator: Option<SchemaValidator>,
 }
 
@@ -562,16 +562,17 @@ pub mod script {
                         } else {
                             None
                         },
-                        validate_schema: r.schema_validation,
                         schema_validator: if r.schema_validation {
                             r.schema
+                                .as_ref()
                                 .map(|schema_str| {
-                                    SchemaValidator::from_schema(&schema_str).map_err(|e| anyhow!("Couldn't create schema validator for script requiring schema validation: {e}"))
+                                    SchemaValidator::from_schema(schema_str).map_err(|e| anyhow!("Couldn't create schema validator for script requiring schema validation: {e}"))
                                 })
                                 .transpose()?
                         } else {
                             None
                         },
+                        schema: r.schema,
                     }),
                 })
             })
