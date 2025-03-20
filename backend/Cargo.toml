@@ -120,7 +120,6 @@ quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
-winapi.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -229,7 +228,9 @@ deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
 
-winapi = { version = "*", features = ["sysinfoapi"] }
+# TODO: remove once deno fixes the issue on their end
+# https://github.com/denoland/deno/issues/28557
+winapi = { version = "0.3.9", features = ["sysinfoapi"] }
 
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"
