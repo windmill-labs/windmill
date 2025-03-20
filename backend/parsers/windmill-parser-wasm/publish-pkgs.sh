@@ -27,3 +27,6 @@ popd
 
 pushd "pkg-csharp" && npm publish ${args}
 popd
+
+pushd "pkg-nu" && npm publish ${args}
+popd
