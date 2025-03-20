@@ -13,25 +13,6 @@ import {
   defaultScriptMetadata,
 } from "./bootstrap/script_bootstrap.ts";
 
-import { parse_deno } from './wasm/ts/windmill_parser_wasm.js'
-import {
-	parse_sql,
-	parse_mysql,
-	parse_oracledb,
-	parse_bigquery,
-	parse_snowflake,
-	parse_graphql,
-	parse_mssql,
-	parse_bash,
-	parse_powershell
-} from './wasm/regex/windmill_parser_wasm.js'
-import { parse_python } from './wasm/python/windmill_parser_wasm.js'
-import { parse_go } from './wasm/go/windmill_parser_wasm.js'
-import { parse_php } from './wasm/php/windmill_parser_wasm.js'
-import { parse_rust } from './wasm/rust/windmill_parser_wasm.js'
-import { parse_ansible } from './wasm/yaml/windmill_parser_wasm.js'
-import { parse_csharp } from './wasm/csharp/windmill_parser_wasm.js'
-import { parse_nu } from "./wasm/nu/windmill_parser_wasm.js";
 
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
@@ -490,16 +471,22 @@ export async function inferSchema(
 }> {
   let inferedSchema: any;
   if (language === "python3") {
+    const { parse_python } = await import('./wasm/python/windmill_parser_wasm.js')
     inferedSchema = JSON.parse(parse_python(content));
   } else if (language === "nativets") {
+    const { parse_deno } = await import('./wasm/ts/windmill_parser_wasm.js')
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "bun") {
+    const { parse_deno } = await import('./wasm/ts/windmill_parser_wasm.js')
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "deno") {
+    const { parse_deno } = await import('./wasm/ts/windmill_parser_wasm.js')
     inferedSchema = JSON.parse(parse_deno(content));
   } else if (language === "go") {
+    const { parse_go } = await import("./wasm/go/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_go(content));
   } else if (language === "mysql") {
+    const { parse_mysql } = await import("./wasm/regex/windmill_parser_wasm.js");
 
     inferedSchema = JSON.parse(parse_mysql(content));
     inferedSchema.args = [
@@ -507,54 +494,67 @@ export async function inferSchema(
       ...inferedSchema.args,
     ];
   } else if (language === "bigquery") {
+    const { parse_bigquery } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_bigquery(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "bigquery" } },
       ...inferedSchema.args,
     ];
   } else if (language === "oracledb") {
+    const { parse_oracledb } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_oracledb(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "oracledb" } },
       ...inferedSchema.args,
     ];
   } else if (language === "snowflake") {
+    const { parse_snowflake } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_snowflake(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "snowflake" } },
       ...inferedSchema.args,
     ];
   } else if (language === "mssql") {
+    const { parse_mssql } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_mssql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "ms_sql_server" } },
       ...inferedSchema.args,
     ];
   } else if (language === "postgresql") {
+    const { parse_sql } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_sql(content));
     inferedSchema.args = [
       { name: "database", typ: { resource: "postgresql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "graphql") {
+    const { parse_graphql } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_graphql(content));
     inferedSchema.args = [
       { name: "api", typ: { resource: "graphql" } },
       ...inferedSchema.args,
     ];
   } else if (language === "bash") {
+    const { parse_bash } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_bash(content));
   } else if (language === "powershell") {
+    const { parse_powershell } = await import("./wasm/regex/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_powershell(content));
   } else if (language === "php") {
+    const { parse_php } = await import("./wasm/php/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_php(content));
   } else if (language === "rust") {
+    const { parse_rust } = await import("./wasm/rust/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_rust(content));
   } else if (language === "csharp") {
+    const { parse_csharp } = await import("./wasm/csharp/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_csharp(content));
   } else if (language === "nu") {
+    const { parse_nu } = await import("./wasm/nu/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_nu(content));
   } else if (language === "ansible") {
+    const { parse_ansible } = await import("./wasm/yaml/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_ansible(content));
   } else {
     throw new Error("Invalid language: " + language);
