@@ -1,9 +1,8 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
 
-use serde_json::{value::RawValue, Value};
-use sqlx::types::Json;
-use windmill_common::{error, schema::SchemaValidator, utils::not_found_if_none};
+use serde_json::Value;
+use windmill_common::{error, utils::not_found_if_none};
 use windmill_parser::Arg;
 use windmill_parser_sql::{SANITIZED_ENUM_PREFIX, SANITIZED_RAW_STRING_STR};
 
@@ -34,17 +33,21 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
     for arg in args {
         if let Some(typ) = &arg.otyp {
             let pattern = format!("%%{}%%", arg.name);
-            let replace = not_found_if_none(
-                args_map.get(&arg.name).and_then(|rv| rv.as_str()),
-                typ,
-                &arg.name,
-            )?;
             match typ.as_str() {
                 typ if typ.starts_with(SANITIZED_ENUM_PREFIX) => {
+                    let replace =
+                        args_map
+                            .get(&arg.name)
+                            .and_then(|rv| rv.as_str())
+                            .ok_or(anyhow!(
+                                "Sanitized enum `{}` needs to receive a string",
+                                arg.name
+                            ))?;
                     let windmill_parser::Typ::Str(Some(variants)) = &arg.typ else {
-                        return Err(error::Error::ArgumentErr(
-                            format!("Wrong type of argument for sanitized enum `{}`", arg.name)
-                        ));
+                        return Err(error::Error::ArgumentErr(format!(
+                            "Wrong type of argument for sanitized enum `{}`",
+                            arg.name
+                        )));
                     };
                     if variants.iter().all(|v| v != replace) {
                         return Err(error::Error::ArgumentErr(format!(
@@ -64,10 +67,19 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
                     args_to_skip.push(arg.name.to_string());
                 }
                 typ if typ == SANITIZED_RAW_STRING_STR => {
+                    let replace =
+                        args_map
+                            .get(&arg.name)
+                            .and_then(|rv| rv.as_str())
+                            .ok_or(anyhow!(
+                                "Sanitized raw string `{}` needs to receive a string",
+                                arg.name
+                            ))?;
                     let windmill_parser::Typ::Str(_) = &arg.typ else {
-                        return Err(error::Error::ArgumentErr(
-                            format!("Wrong type of argument for sanitized raw string `{}`", arg.name)
-                        ));
+                        return Err(error::Error::ArgumentErr(format!(
+                            "Wrong type of argument for sanitized raw string `{}`",
+                            arg.name
+                        )));
                     };
                     sanitize_identifier(&arg, replace)?;
                     ret = ret.replace(&pattern, &replace);

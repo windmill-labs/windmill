@@ -8,7 +8,6 @@ use mysql_async::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
-use sqlx::types::Json;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},

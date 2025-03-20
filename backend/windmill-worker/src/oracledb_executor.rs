@@ -8,7 +8,6 @@ use itertools::Itertools;
 use oracle::sql_type::{InnerValue, OracleType, ToSql};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
-use sqlx::types::Json;
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
@@ -20,7 +19,7 @@ use windmill_parser_sql::{
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, build_args_values, check_executor_binary_exists, OccupancyMetrics},
+    common::{build_args_values, check_executor_binary_exists, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
     santized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
     AuthedClientBackgroundTask,
@@ -222,11 +221,15 @@ fn convert_oracledb_value_to_json(v: &oracle::SqlValue, c: &OracleType) -> serde
 fn get_statement_values(
     sig: Vec<Arg>,
     job_args: &HashMap<String, Value>,
+    args_to_skip: &Vec<String>,
 ) -> (Vec<(String, Box<dyn ToSql + Send + Sync>)>, Vec<String>) {
     let mut statement_values = vec![];
     let mut errors = vec![];
 
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
         let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args.get(arg.name.as_str())
@@ -336,9 +339,9 @@ pub async fn do_oracledb(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (query, _) = sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+    let (query, args_to_skip) = sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
 
-    let (statement_values, errors) = get_statement_values(sig.clone(), &job_args);
+    let (statement_values, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 
     if !errors.is_empty() {
         return Err(Error::ExecutionErr(errors.join("\n")));
@@ -366,7 +369,7 @@ pub async fn do_oracledb(
         let f = async {
             let mut res: Vec<Box<RawValue>> = vec![];
             for (i, q) in queries.iter().enumerate() {
-                let (vals, _) = get_statement_values(sig.clone(), &job_args);
+                let (vals, _) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
                 let r = do_oracledb_inner(
                     q,
                     vals,

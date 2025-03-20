@@ -17,7 +17,6 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
-use sqlx::types::Json;
 use tokio::sync::Mutex;
 use tokio_postgres::Client;
 use tokio_postgres::{types::ToSql, NoTls, Row};

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::santized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 #[derive(Serialize)]
@@ -124,15 +125,21 @@ fn do_snowflake_inner<'a>(
     skip_collect: bool,
     http_client: &'a Client,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
-    body.insert("statement".to_string(), json!(query));
-
-    let mut bindings = serde_json::Map::new();
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+
+    body.insert("statement".to_string(), json!(query));
+
+    let mut bindings = serde_json::Map::new();
+
     let mut i = 1;
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_v = job_args.get(&arg.name).cloned().unwrap_or(json!(""));
         let snowflake_v = convert_typ_val(arg_t, arg_v);
