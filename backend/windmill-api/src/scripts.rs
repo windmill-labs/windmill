@@ -44,20 +44,12 @@ use windmill_audit::ActionKind;
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
-    db::UserDB,
-    error::{Error, JsonResult, Result},
-    jobs::JobPayload,
-    schedule::Schedule,
-    scripts::{
+    db::UserDB, error::{Error, JsonResult, Result}, jobs::JobPayload, schedule::Schedule, schema::should_validate_schema, scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
-    },
-    users::username_to_permissioned_as,
-    utils::{
+    }, users::username_to_permissioned_as, utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
-    },
-    worker::to_raw_value,
-    HUB_BASE_URL,
+    }, worker::to_raw_value, HUB_BASE_URL
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
@@ -646,6 +638,8 @@ async fn create_script_internal<'c>(
         ns.language.clone()
     };
 
+    let validate_schema = should_validate_schema(&ns.content, &ns.language);
+
     let (no_main_func, has_preprocessor) = match lang {
         ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
             let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None)?;
@@ -663,8 +657,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)",
         &w_id,
         &hash.0,
         ns.path,
@@ -700,7 +694,8 @@ async fn create_script_internal<'c>(
             Some(&authed.email)
         } else {
             None
-        }
+        },
+        validate_schema,
     )
     .execute(&mut *tx)
     .await?;

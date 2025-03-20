@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.477.1"
+version = "1.478.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -31,7 +31,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.477.1"
+version = "1.478.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -239,7 +239,8 @@ swc_ecma_visit = "=0.104.8"
 
 
 async-recursion = "^1"
-
+# remove when async-strip is removed, needed to pin rand
+half = "=2.4.1"
 base64 = "^0"
 base32 = "^0"
 hmac = "0.12.1"

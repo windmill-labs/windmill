@@ -64,7 +64,9 @@
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width
-
+				if (width === 0) {
+					width = 1
+				}
 				if (width === containerWidth) return
 				if ($app.mobileViewOnSmallerScreens != false || !getComputedCols) {
 					getComputedCols = getColumn(parentWidth ?? width, cols)
