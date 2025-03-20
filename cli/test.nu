@@ -1,4 +1,11 @@
 #!/usr/bin/env nu
+# NOTE: Not polished yet
+# This script supposed to test wasm parsers in cli
+# Currently you would need to create local dir in repo root (it is ignored by git)
+# In there init windmill workspace
+#
+# Start instance with languages features on
+# Invoke this script from local: ../cli/test.nu test deno
 
 const languages = [
   "python3",
