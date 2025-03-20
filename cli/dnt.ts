@@ -12,10 +12,51 @@ await build({
       path: "./main.ts",
     },
   ],
+  // mappings: {
+  //   "npm:windmill-parser-wasm-regex": {
+  //     name: "./windmill-parser-wasm-regex/wasm.js",
+  //     version: "^",
+  //     // subPath: "sub_path.js", // note this
+  //   },
+  // },
   outDir: "./npm",
-  shims: {
+    shims: {
     // see JS docs for overview and more options
     deno: true,
+    // custom: [{
+    //   module: "./custom-fetch.ts",
+    //   globalNames: [{
+    //     name: "fetch",
+    //     exportName: "default"
+    //   }],
+    //   // exportName: "default",
+    // }],
+    
+
+    // custom: [{
+    //   package: {
+    //     name: "@whatwg-node/fetch",
+    //     version: "0.10.5",
+    //   },
+    //   globalNames: [{
+    //     // for the `fetch` global...
+    //     name: "fetch",
+    //     // use the default export of node-fetch
+    //     exportName: "default",
+    //   }, {
+    //     name: "RequestInit",
+    //     typeOnly: true, // only used in type declarations
+    //   }],
+    // }],
+    // shims to only use in the tests
+    customDev: [{
+      // this is what `timers: "dev"` does internally
+      package: {
+        name: "@deno/shim-timers",
+        version: "~0.1.0",
+      },
+      globalNames: ["setTimeout", "setInterval"],
+    }],
   },
   scriptModule: false,
   filterDiagnostic(diagnostic) {
@@ -50,12 +91,26 @@ await build({
   postBuild() {
     // steps to run after building and before running the tests
     // add shebang to npm/esm/main.js
+    const dirs = [
+      "nu",
+      "ts",
+      "regex",
+      "python",
+      "go",
+      "php",
+      "rust",
+      "yaml",
+      "csharp",
+    ];
+
+    for (const l of dirs) {
+      Deno.copyFileSync(
+        "wasm/" + l + "/windmill_parser_wasm_bg.wasm",
+        "npm/esm/wasm/" + l + "/windmill_parser_wasm_bg.wasm"
+      );
+    }
 
     Deno.copyFileSync("../LICENSE", "npm/LICENSE");
     Deno.copyFileSync("README.md", "npm/README.md");
-    // Deno.copyFileSync(
-    //   "wasm/windmill_parser_wasm.wasm",
-    //   "npm/esm/wasm/windmill_parser_wasm.wasm"
-    // );
   },
 });

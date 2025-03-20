@@ -42,9 +42,9 @@ def 'main test node' [] {
   main clean;
   $languages | each { |l|
     print $"+ ($l)"
-    deno run --unstable-sloppy-imports -A ../cli/npm/src/main.ts script bootstrap $"f/tests/(random uuid)" $l
+    node ../cli/npm/esm/main.js script bootstrap $"f/tests/(random uuid)" $l
   }
-  deno run --unstable-sloppy-imports -A ../cli/npm/src/main.ts script generate-metadata
+  node ../cli/npm/esm/main.js script generate-metadata
 }
 
 def 'main clean' [] {
