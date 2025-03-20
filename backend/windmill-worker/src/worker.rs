@@ -3117,6 +3117,10 @@ fn parse_sig_of_lang(
             ScriptLang::CSharp => Some(windmill_parser_csharp::parse_csharp_signature(code)?),
             #[cfg(not(feature = "csharp"))]
             ScriptLang::CSharp => None,
+            #[cfg(feature = "nu")]
+            ScriptLang::Nu => Some(windmill_parser_nu::parse_nu_signature(code)?),
+            #[cfg(not(feature = "nu"))]
+            ScriptLang::Nu => None,
         }
     } else {
         None
