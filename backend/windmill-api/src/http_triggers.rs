@@ -1,16 +1,17 @@
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
+use crate::utils::non_empty_str;
 use crate::{
     args::try_from_request_body,
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
+    http_trigger_auth::{Webhook, WebhookRequestType},
     jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_flow_by_path_internal,
         run_wait_result_script_by_path_internal, RunJobQuery,
     },
     users::fetch_api_authed,
-    webhook_auth::{Webhook, WebhookRequestType},
 };
 use axum::{
     extract::{Path, Query, Request},
@@ -78,6 +79,13 @@ pub fn workspaced_service() -> Router {
         .route("/route_exists", post(exists_route))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+enum AuthenticationMethod {
+    None,
+    Windmill,
+    Custom,
+}
+
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
 #[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -110,8 +118,9 @@ struct NewTrigger {
     script_path: String,
     is_flow: bool,
     is_async: bool,
-    requires_auth: bool,
-    webhook_auth_resource_path: Option<String>,
+    windmill_auth: bool,
+    #[serde(deserialize_with = "non_empty_str")]
+    custom_auth_resource_path: Option<String>,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     http_method: HttpMethod,
     workspaced_route: Option<bool>,
@@ -133,12 +142,12 @@ pub struct HttpTrigger {
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: serde_json::Value,
     pub is_async: bool,
-    pub requires_auth: bool,
+    pub windmill_auth: bool,
     pub http_method: HttpMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
-    pub webhook_auth_resource_path: Option<String>,
+    pub custom_auth_resource_path: Option<String>,
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
@@ -151,8 +160,9 @@ struct EditTrigger {
     script_path: String,
     is_flow: bool,
     is_async: bool,
-    requires_auth: bool,
-    webhook_auth_resource_path: Option<String>,
+    windmill_auth: bool,
+    #[serde(deserialize_with = "non_empty_str")]
+    custom_auth_resource_path: Option<String>,
     http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     workspaced_route: Option<bool>,
@@ -195,10 +205,10 @@ async fn list_triggers(
             "edited_at",
             "extra_perms",
             "is_async",
-            "requires_auth",
+            "windmill_auth",
             "static_asset_config",
             "is_static_website",
-            "webhook_auth_resource_path",
+            "custom_auth_resource_path",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -249,10 +259,10 @@ async fn get_trigger(
             edited_at, 
             extra_perms, 
             is_async, 
-            requires_auth, 
+            windmill_auth, 
             static_asset_config as "static_asset_config: _", 
             is_static_website,
-            webhook_auth_resource_path,
+            custom_auth_resource_path,
             wrap_body,
             raw_string
         FROM 
@@ -284,6 +294,12 @@ async fn create_trigger(
 
     if !VALID_ROUTE_PATH_RE.is_match(&ct.route_path) {
         return Err(error::Error::BadRequest("Invalid route path".to_string()));
+    }
+
+    if ct.windmill_auth && ct.custom_auth_resource_path.is_some() {
+        return Err(error::Error::BadRequest(
+            "Authentication must either through windmill auth or custom auth".to_string(),
+        ));
     }
 
     // route path key is extracted from the route path to check for uniqueness
@@ -320,13 +336,13 @@ async fn create_trigger(
             route_path, 
             route_path_key,
             workspaced_route,
-            webhook_auth_resource_path,
+            custom_auth_resource_path,
             wrap_body,
             raw_string,
             script_path, 
             is_flow, 
             is_async, 
-            requires_auth, 
+            windmill_auth, 
             http_method, 
             static_asset_config, 
             edited_by, 
@@ -343,13 +359,13 @@ async fn create_trigger(
         ct.route_path,
         &route_path_key,
         ct.workspaced_route,
-        ct.webhook_auth_resource_path,
+        ct.custom_auth_resource_path,
         ct.wrap_body.unwrap_or(false),
         ct.raw_string.unwrap_or(false),
         ct.script_path,
         ct.is_flow,
         ct.is_async,
-        ct.requires_auth,
+        ct.windmill_auth,
         ct.http_method as _,
         ct.static_asset_config as _,
         &authed.username,
@@ -396,6 +412,12 @@ async fn update_trigger(
                 "route_path is required".to_string(),
             ));
         };
+        
+        if ct.windmill_auth && ct.custom_auth_resource_path.is_some() {
+            return Err(error::Error::BadRequest(
+                "Authentication must either through windmill auth or custom auth".to_string(),
+            ));
+        }
 
         if !VALID_ROUTE_PATH_RE.is_match(&route_path) {
             return Err(error::Error::BadRequest("Invalid route path".to_string()));
@@ -429,7 +451,7 @@ async fn update_trigger(
                 workspaced_route = $3,
                 wrap_body = $4,
                 raw_string = $5,
-                webhook_auth_resource_path = $6,
+                custom_auth_resource_path = $6,
                 script_path = $7, 
                 path = $8, 
                 is_flow = $9, 
@@ -438,7 +460,7 @@ async fn update_trigger(
                 edited_by = $12, 
                 email = $13, 
                 is_async = $14, 
-                requires_auth = $15, 
+                windmill_auth = $15, 
                 edited_at = now(), 
                 is_static_website = $16
             WHERE 
@@ -450,7 +472,7 @@ async fn update_trigger(
             ct.workspaced_route,
             ct.wrap_body,
             ct.raw_string,
-            ct.webhook_auth_resource_path,
+            ct.custom_auth_resource_path,
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -459,7 +481,7 @@ async fn update_trigger(
             &authed.username,
             &authed.email,
             ct.is_async,
-            ct.requires_auth,
+            ct.windmill_auth,
             ct.is_static_website,
             w_id,
             path,
@@ -481,7 +503,7 @@ async fn update_trigger(
                 edited_by = $6, 
                 email = $7, 
                 is_async = $8, 
-                requires_auth = $9, 
+                windmill_auth = $9, 
                 edited_at = now(), 
                 is_static_website = $10
             WHERE 
@@ -496,7 +518,7 @@ async fn update_trigger(
             &authed.username,
             &authed.email,
             ct.is_async,
-            ct.requires_auth,
+            ct.windmill_auth,
             ct.is_static_website,
             w_id,
             path,
@@ -671,12 +693,12 @@ struct TriggerRoute {
     route_path: String,
     workspace_id: String,
     is_async: bool,
-    requires_auth: bool,
+    windmill_auth: bool,
     edited_by: String,
     email: String,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     is_static_website: bool,
-    webhook_auth_resource_path: Option<String>,
+    custom_auth_resource_path: Option<String>,
     workspaced_route: bool,
     wrap_body: bool,
     raw_string: bool,
@@ -707,7 +729,7 @@ async fn get_http_route_trigger(
                 route_path, 
                 workspace_id, 
                 is_async, 
-                requires_auth, 
+                windmill_auth, 
                 edited_by, 
                 email,
                 static_asset_config AS "static_asset_config: _",
@@ -715,7 +737,7 @@ async fn get_http_route_trigger(
                 raw_string,
                 workspaced_route,
                 is_static_website,
-                webhook_auth_resource_path
+                custom_auth_resource_path
             FROM 
                 http_trigger 
             WHERE 
@@ -737,10 +759,10 @@ async fn get_http_route_trigger(
                 script_path, 
                 is_flow, 
                 route_path, 
-                webhook_auth_resource_path,
+                custom_auth_resource_path,
                 workspace_id, 
                 is_async, 
-                requires_auth, 
+                windmill_auth, 
                 edited_by, 
                 email, 
                 static_asset_config AS "static_asset_config: _",
@@ -802,7 +824,7 @@ async fn get_http_route_trigger(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let username_override = if trigger.requires_auth {
+    let username_override = if trigger.windmill_auth {
         let opt_authed = if let Some(token) = token {
             auth_cache
                 .get_authed(Some(trigger.workspace_id.clone()), token)
@@ -913,7 +935,7 @@ async fn route_job(
     let args = try_from_request_body(
         request,
         &db,
-        Some(trigger.webhook_auth_resource_path.is_some() || trigger.raw_string),
+        Some(trigger.custom_auth_resource_path.is_some() || trigger.raw_string),
         Some(trigger.wrap_body),
     )
     .await;
@@ -931,16 +953,15 @@ async fn route_job(
         Err(e) => return e.into_response(),
     };
 
-    if let Some(webhook_auth_resource_path) = &trigger.webhook_auth_resource_path {
+    if let Some(custom_auth_resource_path) = &trigger.custom_auth_resource_path {
         let webhook_auth = try_get_resource_from_db_as::<Webhook>(
             authed.clone(),
             Some(user_db.clone()),
             &db,
-            &webhook_auth_resource_path,
+            &custom_auth_resource_path,
             &trigger.workspace_id,
         )
         .await;
-        println!("{:#?}", &webhook_auth);
         let webhook_auth = match webhook_auth {
             Ok(webhook_auth) => webhook_auth,
             Err(e) => return e.into_response(),
@@ -969,7 +990,6 @@ async fn route_job(
 
         match webhook_auth.verify_signatures(&headers, &raw_payload) {
             Ok(WebhookRequestType::Challenge(response)) => {
-                println!("Response");
                 return response;
             }
             Err(e) => return e.into_response(),

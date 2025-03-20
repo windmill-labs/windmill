@@ -1,3 +1,3 @@
 -- Add down migration script here
 ALTER TABLE http_trigger
-DROP COLUMN custom_auth_resource_path;
+  RENAME COLUMN windmill_auth TO requires_auth;

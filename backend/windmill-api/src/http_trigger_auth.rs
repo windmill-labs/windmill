@@ -160,12 +160,10 @@ mod twitch {
     }
 
     #[derive(Debug, Deserialize)]
-    #[allow(unused)]
     struct TwitchCrcBody {
         challenge: String,
+        #[allow(unused)]
         subscription: Box<RawValue>,
-        transport: Box<RawValue>,
-        created_at: String,
     }
 
     pub struct Twitch;
@@ -515,10 +513,7 @@ impl WebhookVerifier for WebhookHmacValidator {
         } else {
             encoded_signature
         };
-        println!(
-            "GITHUB: SIGNATURE TO VERIFY: {}, FINAL EXPECTED SIGNATURE: {}",
-            &hmac.signature_to_verify, &final_expected_signature
-        );
+
         if !constant_time_eq(
             final_expected_signature.as_bytes(),
             hmac.signature_to_verify.as_bytes(),
@@ -597,28 +592,12 @@ pub enum WebhookAuthenticationMethod {
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum WebhookType {
-    //Adyen,
-    //Discord,
-    //Ebay,
-    //Facebook,
     Github,
-    //GitLab,
-    //LinkedIn,
-    //Linear,
-    //MailChimp,
-    //Mailgun,
-    //Persona,
-    //Paypal,
     Shopify,
     Slack,
     Stripe,
-    //Twillio,
-    //Trello,
-    //Treezor,
     TikTok,
     Twitch,
-    //WhatsApp,
-    //X,
     Zoom,
 }
 
@@ -634,7 +613,6 @@ impl WebhookType {
             WebhookType::TikTok => (None, &TIKTOK_WEBHOOK_VALIDATOR),
             WebhookType::Twitch => (Some(&Twitch), &TWITCH_WEBHOOK_VALIDATOR),
             WebhookType::Zoom => (Some(&Zoom), &ZOOM_WEBHOOK_VALIDATOR),
-            //WebhookType::Paypal => (&Zoom, &PAYPAL_WEBHOOK_VALIDATOR),
         };
         handler
     }
@@ -843,5 +821,38 @@ impl IntoResponse for WebhookError {
         headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 
         (status, headers, body.to_string()).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_shopify_auth() {
+        todo!()
+    }
+
+    #[test]
+    fn test_github_auth() {
+        todo!()
+    }
+
+    #[test]
+    fn test_twitch_auth() {
+        todo!()
+    }
+
+    #[test]
+    fn test_stripe_auth() {
+        todo!()
+    }
+
+    #[test]
+    fn test_tiktok_auth() {
+        todo!()
+    }
+
+    #[test]
+    fn test_slack_auth() {
+        todo!()
     }
 }

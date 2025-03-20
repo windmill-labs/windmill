@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            workspace_id, \n            path, \n            route_path, \n            route_path_key,\n            workspaced_route,\n            script_path, \n            is_flow, \n            http_method as \"http_method: _\", \n            edited_by, \n            email, \n            edited_at, \n            extra_perms, \n            is_async, \n            requires_auth, \n            static_asset_config as \"static_asset_config: _\", \n            is_static_website,\n            webhook_auth_resource_path,\n            wrap_body,\n            raw_string\n        FROM \n            http_trigger\n        WHERE \n            workspace_id = $1 AND \n            path = $2\n        ",
+  "query": "\n        SELECT \n            workspace_id, \n            path, \n            route_path, \n            route_path_key,\n            workspaced_route,\n            script_path, \n            is_flow, \n            http_method as \"http_method: _\", \n            edited_by, \n            email, \n            edited_at, \n            extra_perms, \n            is_async, \n            requires_auth, \n            static_asset_config as \"static_asset_config: _\", \n            is_static_website,\n            custom_auth_resource_path,\n            wrap_body,\n            raw_string\n        FROM \n            http_trigger\n        WHERE \n            workspace_id = $1 AND \n            path = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -98,7 +98,7 @@
       },
       {
         "ordinal": 16,
-        "name": "webhook_auth_resource_path",
+        "name": "custom_auth_resource_path",
         "type_info": "Varchar"
       },
       {

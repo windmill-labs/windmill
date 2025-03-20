@@ -42,7 +42,7 @@
 	let isValid = false
 	let dirtyRoutePath = false
 	let is_async = false
-	let requires_auth = false
+	let windmill_auth = false
 	let route_path = ''
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
@@ -55,7 +55,8 @@
 	let raw_string = false
 	let wrap_body = false
 	let drawerLoading = true
-	let webhook_auth_resource_path: string = ''
+	let custom_auth_resource_path: string = ''
+	let auth_type_selected: 'none' | 'windmill_auth' | 'custom_auth' = 'none'
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
 		try {
@@ -85,7 +86,7 @@
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
 			is_async = false
-			requires_auth = false
+			windmill_auth = false
 			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
 			http_method = defaultValues?.http_method ?? 'post'
@@ -99,7 +100,8 @@
 			dirtyPath = false
 			is_static_website = false
 			workspaced_route = false
-			webhook_auth_resource_path = ''
+			custom_auth_resource_path = ''
+			auth_type_selected = 'none'
 		} finally {
 			drawerLoading = false
 		}
@@ -121,11 +123,16 @@
 		route_path = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
-		requires_auth = s.requires_auth
+		windmill_auth = s.windmill_auth
 		workspaced_route = s.workspaced_route
 		wrap_body = s.wrap_body
 		raw_string = s.raw_string
-		webhook_auth_resource_path = s.webhook_auth_resource_path ?? ''
+		custom_auth_resource_path = s.custom_auth_resource_path ?? ''
+		auth_type_selected = !emptyString(custom_auth_resource_path)
+			? 'custom_auth'
+			: windmill_auth
+			? 'windmill_auth'
+			: 'none'
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config
@@ -145,13 +152,13 @@
 					script_path,
 					is_flow,
 					is_async,
-					requires_auth,
+					windmill_auth,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
-					webhook_auth_resource_path,
+					custom_auth_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -165,13 +172,13 @@
 					script_path,
 					is_flow,
 					is_async,
-					requires_auth,
+					windmill_auth,
 					route_path,
 					http_method,
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
-					webhook_auth_resource_path,
+					custom_auth_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -267,7 +274,7 @@
 									is_async = false
 									is_static_website = ev.detail === 'static_website'
 									if (is_static_website) {
-										requires_auth = false
+										windmill_auth = false
 									}
 								} else if (ev.detail === 'runnable') {
 									static_asset_config = undefined
@@ -435,27 +442,36 @@
 								</div>
 							{/if}
 							<Label label="Authentication" class="w-full">
-								<ResourcePicker resourceType={'webhook_authentication'} bind:value={webhook_auth_resource_path}/>
 								<svelte:fragment slot="action">
 									<ToggleButtonGroup
 										class="w-auto h-full"
-										selected={requires_auth ? 'required' : 'none'}
+										bind:selected={auth_type_selected}
 										on:selected={({ detail }) => {
-											requires_auth = detail === 'required'
+											windmill_auth = detail === 'windmill_auth'
+											if (windmill_auth) {
+												custom_auth_resource_path = ''
+											}
 										}}
 										disabled={!can_write}
 										let:item
 									>
 										<ToggleButton label="None" value="none" {item} />
 										<ToggleButton
-											label="Required"
-											value="required"
+											label="Windmill auth"
+											value="windmill_auth"
 											tooltip="Requires authentication with read access on the route"
 											{item}
 										/>
+										<ToggleButton label="Custom auth" value="custom_auth" {item} />
 									</ToggleButtonGroup>
 								</svelte:fragment>
 							</Label>
+							{#if auth_type_selected === 'custom_auth'}
+								<ResourcePicker
+									resourceType={'custom_authentication'}
+									bind:value={custom_auth_resource_path}
+								/>
+							{/if}
 							<Label label="Raw string" class="w-full">
 								<svelte:fragment slot="header">
 									<Tooltip

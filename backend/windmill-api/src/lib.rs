@@ -76,7 +76,7 @@ mod groups;
 #[cfg(feature = "http_trigger")]
 mod http_triggers;
 #[cfg(feature = "http_trigger")]
-mod webhook_auth;
+mod http_trigger_auth;
 mod indexer_ee;
 mod inputs;
 mod integration;
