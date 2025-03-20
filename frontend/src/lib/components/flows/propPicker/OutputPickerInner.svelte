@@ -33,7 +33,7 @@
 	let jsonView = false
 	let clientHeight: number = 0
 	let savedJsonData: any = {}
-	let tmpMock = mock
+	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = undefined
 	let error = ''
 </script>
 
@@ -129,7 +129,6 @@
 						startIcon={{ icon: Pen }}
 						on:click={() => {
 							jsonView = true
-							tmpMock = { ...mock }
 						}}
 						disabled={!mock?.enabled || isConnecting}
 					/>
@@ -144,6 +143,9 @@
 					variant="contained"
 					startIcon={{ icon: Check }}
 					on:click={() => {
+						if (!tmpMock) {
+							return
+						}
 						jsonView = false
 						mock = tmpMock
 						dispatch('updateMock', {
@@ -151,8 +153,9 @@
 							return_value: tmpMock?.return_value
 						})
 						jsonData = tmpMock?.return_value ?? {}
+						tmpMock = undefined
 					}}
-					disabled={!!error}
+					disabled={!!error || !tmpMock}
 				/>
 				<Button
 					size="xs2"
