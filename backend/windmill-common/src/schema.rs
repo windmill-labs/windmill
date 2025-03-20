@@ -364,6 +364,7 @@ pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
         ScriptLang::Rust => find_annotation("//!", annotation, code),
         ScriptLang::Ansible => find_annotation("#", annotation, code),
         ScriptLang::CSharp => find_annotation("//", annotation, code),
+        ScriptLang::Nu => find_annotation("#", annotation, code),
     }
 }
 
@@ -650,4 +651,3 @@ mod tests {
             .expect("Validation should work for this");
     }
 }
-

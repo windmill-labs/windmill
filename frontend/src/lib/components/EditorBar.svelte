@@ -92,7 +92,8 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu'
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -105,7 +106,8 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu'
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -118,7 +120,8 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu'
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -368,6 +371,8 @@
 			editor.insertAtCursor(`std::env::var("${name}").unwrap();`)
 		} else if (lang == 'csharp') {
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`$env.${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -433,6 +438,8 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_variable ${path}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -515,6 +522,8 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetStringAsync(uri));
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_resource ${path}`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
@@ -639,7 +648,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
 						btnClasses="!font-medium text-tertiary"
 						size="xs"

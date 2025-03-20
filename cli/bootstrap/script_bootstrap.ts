@@ -94,6 +94,11 @@ function main() {
     }
 }
   `,
+  nu: `
+def main [] {
+  print "Hello World"
+}
+  `,
 
   rust: `fn main() -> Result<(), String> {
   println!("Hello World");
