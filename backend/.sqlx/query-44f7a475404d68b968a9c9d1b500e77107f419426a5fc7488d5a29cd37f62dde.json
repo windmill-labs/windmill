@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                requires_auth, \n                edited_by, \n                email,\n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website,\n                custom_auth_resource_path\n            FROM \n                http_trigger \n            WHERE \n                workspace_id = $1 AND \n                http_method = $2\n            ",
+  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                windmill_auth, \n                edited_by, \n                email,\n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website,\n                custom_auth_resource_path\n            FROM \n                http_trigger \n            WHERE \n                workspace_id = $1 AND \n                http_method = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -35,7 +35,7 @@
       },
       {
         "ordinal": 6,
-        "name": "requires_auth",
+        "name": "windmill_auth",
         "type_info": "Bool"
       },
       {
@@ -116,5 +116,5 @@
       true
     ]
   },
-  "hash": "3031287c03129bc472d29f468942e687ac6d83a8d4d026be041058b5360535f6"
+  "hash": "44f7a475404d68b968a9c9d1b500e77107f419426a5fc7488d5a29cd37f62dde"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT \n                    workspace_id, \n                    workspaced_route,\n                    path, \n                    route_path, \n                    route_path_key, \n                    custom_auth_resource_path,\n                    script_path, \n                    is_flow, \n                    edited_by, \n                    edited_at, \n                    email, \n                    extra_perms, \n                    is_async, \n                    requires_auth, \n                    http_method AS \"http_method: _\", \n                    static_asset_config AS \"static_asset_config: _\", \n                    is_static_website,\n                    wrap_body,\n                    raw_string\n                FROM http_trigger\n                WHERE workspace_id = $1\n                ",
+  "query": "\n                SELECT \n                    workspace_id, \n                    workspaced_route,\n                    path, \n                    route_path, \n                    route_path_key, \n                    custom_auth_resource_path,\n                    script_path, \n                    is_flow, \n                    edited_by, \n                    edited_at, \n                    email, \n                    extra_perms, \n                    is_async, \n                    windmill_auth, \n                    http_method AS \"http_method: _\", \n                    static_asset_config AS \"static_asset_config: _\", \n                    is_static_website,\n                    wrap_body,\n                    raw_string\n                FROM http_trigger\n                WHERE workspace_id = $1\n                ",
   "describe": {
     "columns": [
       {
@@ -70,7 +70,7 @@
       },
       {
         "ordinal": 13,
-        "name": "requires_auth",
+        "name": "windmill_auth",
         "type_info": "Bool"
       },
       {
@@ -139,5 +139,5 @@
       false
     ]
   },
-  "hash": "acc9aa93334dbc0e4adfc05a69ba8b6ec0fc1332815fc8ce9b4b40474b6b3ff2"
+  "hash": "bae39ded2e627d84f7c8714c57fc062a95bb5c15edc5048a8053dff3c038450e"
 }
