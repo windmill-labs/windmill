@@ -96,7 +96,7 @@
 		if (!id) return
 		jsonData =
 			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
-				? { [id]: pickableIds[id] }
+				? pickableIds[id]
 				: flowStateStore?.[id]?.previewResult ?? {}
 	}
 	$: updateJsonData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
