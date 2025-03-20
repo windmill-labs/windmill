@@ -156,6 +156,10 @@ pub fn workspaced_service() -> Router {
         .route("/history/p/*path", get(get_script_history))
         .route("/get_latest_version/*path", get(get_latest_version))
         .route(
+            "/list_paths_from_workspace_runnable/*path",
+            get(list_paths_from_workspace_runnable),
+        )
+        .route(
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
         )
@@ -453,6 +457,24 @@ async fn create_snapshot_script(
 
     tx.unwrap().commit().await?;
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT importer_path FROM dependency_map 
+            WHERE workspace_id = $1 AND imported_path = $2"#,
+        w_id,
+        path.to_path(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
 }
 
 async fn create_script(

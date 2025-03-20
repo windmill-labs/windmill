@@ -355,6 +355,15 @@
 			path: initialPath,
 			runnableKind: kind
 		})
+
+	$: pathUsageInScriptsPromise =
+		displayPathChangedWarning &&
+		kind == 'script' &&
+		!!$workspaceStore &&
+		ScriptService.listScriptPathsFromWorkspaceRunnable({
+			workspace: $workspaceStore,
+			path: initialPath
+		})
 </script>
 
 <Drawer bind:this={newFolder}>
@@ -528,11 +537,30 @@
 		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 	</div>
 
-	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise}
-		{#await Promise.all([pathUsageInAppsPromise, pathUsageInFlowsPromise])}
+	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
+		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
 			<Alert type="warning" class="mt-4" title="Looking for references ...">
 				<Loader2 class="animate-spin" />
 			</Alert>
+		{/await}
+		{#await pathUsageInScriptsPromise then pathUsageInScripts}
+			{#if pathUsageInScripts && pathUsageInScripts.length}
+				<Alert
+					type="warning"
+					class="mt-4"
+					title="Moving this item will break the following scripts referencing it:"
+				>
+					<ul class="list-disc">
+						{#each pathUsageInScripts as scriptPath}
+							<li>
+								<a href={`/scripts/edit/${scriptPath}`} class="text-blue-400" target="_blank">
+									{scriptPath}
+								</a>
+							</li>
+						{/each}
+					</ul>
+				</Alert>
+			{/if}
 		{/await}
 		{#await pathUsageInFlowsPromise then pathUsageInFlows}
 			{#if pathUsageInFlows && pathUsageInFlows.length}

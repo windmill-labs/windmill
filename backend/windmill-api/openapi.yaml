@@ -4774,6 +4774,25 @@ paths:
                 items:
                   $ref: "#/components/schemas/ScriptHistory"
 
+  /w/{workspace}/scripts/list_paths_from_workspace_runnable/{path}:
+    get:
+      summary: list script paths using provided script as a relative import
+      operationId: listScriptPathsFromWorkspaceRunnable
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: list of script paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/scripts/get_latest_version/{path}:
     get:
       summary: get scripts's latest version (hash)
