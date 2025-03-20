@@ -197,7 +197,7 @@
 				/>
 			{:else}
 				<ObjectViewer
-					json={mock?.enabled && mock.return_value ? mock.return_value : jsonData}
+					json={mock?.enabled && mock.return_value && !isConnecting ? mock.return_value : jsonData}
 					topBrackets={false}
 					pureViewer={false}
 					{prefix}
