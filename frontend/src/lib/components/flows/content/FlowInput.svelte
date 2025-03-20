@@ -47,7 +47,7 @@
 	export let noEditor: boolean
 	export let disabled: boolean
 
-	const { flowStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
+	const { flowStore, previewArgs, pathStore, initialPathStore, flowInputEditorState } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let addProperty: AddPropertyV2 | undefined = undefined
@@ -483,7 +483,7 @@
 						>
 							<HistoricInputs
 								bind:this={historicInputs}
-								runnableId={initialPath ?? undefined}
+								runnableId={$initialPathStore ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
@@ -525,7 +525,7 @@
 							title="Saved inputs"
 						>
 							<SavedInputsPicker
-								runnableId={initialPath ?? undefined}
+								runnableId={$initialPathStore ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)

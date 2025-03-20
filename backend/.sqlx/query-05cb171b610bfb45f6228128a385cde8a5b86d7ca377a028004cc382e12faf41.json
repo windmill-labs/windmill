@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_counter(concurrency_id, job_uuids) \n             VALUES ($1, '{}'::jsonb)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "05cb171b610bfb45f6228128a385cde8a5b86d7ca377a028004cc382e12faf41"
+}

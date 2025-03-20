@@ -23,6 +23,7 @@
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -34,7 +35,24 @@
 	let script_path = ''
 	let initialScriptPath = ''
 	let fixedScriptPath = ''
+	let path: string = ''
+	let pathError = ''
+	let isValid = false
+	let dirtyRoutePath = false
+	let is_async = false
+	let requires_auth = false
+	let route_path = ''
+	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
+	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
+		undefined
+	let is_static_website = false
 
+	let s3FilePicker: S3FilePicker
+	let s3FileUploadRawMode = false
+	let s3Editor: SimpleEditor | undefined = undefined
+	let workspaced_route: boolean = false
+	let raw_string = false
+	let wrap_body = false
 	let drawerLoading = true
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -78,26 +96,11 @@
 			initialPath = ''
 			dirtyPath = false
 			is_static_website = false
+			workspaced_route = false
 		} finally {
 			drawerLoading = false
 		}
 	}
-
-	let path: string = ''
-	let pathError = ''
-	let isValid = false
-	let dirtyRoutePath = false
-	let is_async = false
-	let requires_auth = false
-	let route_path = ''
-	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
-	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
-		undefined
-	let is_static_website = false
-
-	let s3FilePicker: S3FilePicker
-	let s3FileUploadRawMode = false
-	let s3Editor: SimpleEditor | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -107,15 +110,19 @@
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
+
 		script_path = s.script_path
 		initialScriptPath = s.script_path
-
 		is_flow = s.is_flow
 		path = s.path
 		route_path = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
 		requires_auth = s.requires_auth
+		workspaced_route = s.workspaced_route
+		wrap_body = s.wrap_body
+		raw_string = s.raw_string
+
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config
@@ -139,7 +146,10 @@
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
 					static_asset_config,
-					is_static_website
+					is_static_website,
+					workspaced_route,
+					wrap_body,
+					raw_string
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -155,7 +165,10 @@
 					route_path,
 					http_method,
 					static_asset_config,
-					is_static_website
+					is_static_website,
+					workspaced_route,
+					wrap_body,
+					raw_string
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -357,9 +370,7 @@
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
-									href={itemKind === 'flow'
-										? '/flows/add?hub=62'
-										: '/scripts/add?hub=hub%2F11627'}
+									href={itemKind === 'flow' ? '/flows/add?hub=62' : '/scripts/add?hub=hub%2F11627'}
 									target="_blank">Create from template</Button
 								>
 							{/if}
@@ -373,6 +384,7 @@
 					bind:isValid
 					bind:dirtyRoutePath
 					bind:http_method
+					bind:workspaced_route
 					{can_write}
 					bind:static_asset_config
 				/>
@@ -429,6 +441,38 @@
 											{item}
 										/>
 									</ToggleButtonGroup>
+								</svelte:fragment>
+							</Label>
+							<Label label="Raw string" class="w-full">
+								<svelte:fragment slot="header">
+									<Tooltip
+										>Provides the raw JSON payload as a string under the 'raw_string' key, useful for
+										signature verification and other use cases.</Tooltip
+									>
+								</svelte:fragment>
+								<svelte:fragment slot="action">
+									<Toggle
+										checked={raw_string}
+										on:change={() => {
+											raw_string = !raw_string
+										}}
+									/>
+								</svelte:fragment>
+							</Label>
+							<Label label="Wrap body" class="w-full">
+								<svelte:fragment slot="header">
+									<Tooltip
+										>Wraps the payload in an object under the 'body' key, useful for handling
+										unknown payloads.</Tooltip
+									>
+								</svelte:fragment>
+								<svelte:fragment slot="action">
+									<Toggle
+										checked={wrap_body}
+										on:change={() => {
+											wrap_body = !wrap_body
+										}}
+									/>
 								</svelte:fragment>
 							</Label>
 						</div>

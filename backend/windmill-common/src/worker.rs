@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use bytes::Bytes;
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
@@ -18,7 +19,8 @@ use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
 use crate::{
-    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, DB,
+    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp,
+    KillpillSender, DB,
 };
 
 lazy_static::lazy_static! {
@@ -48,6 +50,7 @@ lazy_static::lazy_static! {
         "rust".to_string(),
         "ansible".to_string(),
         "csharp".to_string(),
+        "nu".to_string(),
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
@@ -122,31 +125,29 @@ fn format_pull_query(peek: String) -> String {
                 worker = $1
             WHERE id = (SELECT id FROM peek)
             RETURNING
-                started_at, scheduled_for, running,
-                canceled_by, canceled_reason, canceled_by IS NOT NULL AS canceled,
-                suspend, suspend_until
+                started_at, scheduled_for,
+                canceled_by, canceled_reason, worker
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
         ), j AS NOT MATERIALIZED (
             SELECT
-                id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
-                runnable_path AS script_path, args, kind AS job_kind,
-                CASE WHEN trigger_kind = 'schedule' THEN trigger END AS schedule_path,
-                permissioned_as, permissioned_as_email AS email, script_lang AS language,
-                flow_innermost_root_job AS root_job, flow_step_id, flow_step_id IS NOT NULL AS is_flow_step,
+                id, workspace_id, parent_job, created_by, created_at, runnable_id,
+                runnable_path, args, kind, trigger, trigger_kind,
+                permissioned_as, permissioned_as_email, script_lang,
+                flow_innermost_root_job, flow_step_id, 
                 same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
                 concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
-            running, script_hash, script_path, args, null as logs, canceled, canceled_by,
-            canceled_reason, null as last_ping, job_kind, schedule_path, permissioned_as,
-            flow_status, is_flow_step, language, suspend,  suspend_until,
-            same_worker, pre_run_error, email,  visible_to_owner, null as mem_peak,
-            root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
+        ) SELECT id, workspace_id, parent_job, created_by, started_at, scheduled_for,
+            runnable_id, runnable_path, args, canceled_by,
+            canceled_reason, kind, trigger, trigger_kind, permissioned_as, permissioned_as_email,
+            flow_status, script_lang,
+            same_worker, pre_run_error, visible_to_owner, 
+            tag, concurrent_limit, concurrency_time_window_s, flow_innermost_root_job,
             timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
             script_entrypoint_override, preprocessed
         FROM q, j
@@ -212,6 +213,13 @@ pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     Ok(file)
 }
 
+pub fn write_file_bytes(dir: &str, path: &str, content: &Bytes) -> error::Result<File> {
+    let path = format!("{}/{}", dir, path);
+    let mut file = File::create(&path)?;
+    file.write_all(content)?;
+    file.flush()?;
+    Ok(file)
+}
 /// from : https://github.com/rust-lang/cargo/blob/fede83ccf973457de319ba6fa0e36ead454d2e20/src/cargo/util/paths.rs#L61
 fn normalize_path(path: &Path) -> PathBuf {
     let mut components = path.components().peekable();
@@ -708,7 +716,7 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
 
 pub async fn load_worker_config(
     db: &DB,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
 ) -> error::Result<WorkerConfig> {
     tracing::info!("Loading config from WORKER_GROUP: {}", *WORKER_GROUP);
     let mut config: WorkerConfigOpt = sqlx::query_scalar!(
@@ -742,7 +750,7 @@ pub async fn load_worker_config(
         .map(|x| {
             let splitted = x.split(':').to_owned().collect_vec();
             if splitted.len() != 2 {
-                killpill_tx.send(()).expect("send");
+                killpill_tx.send();
                 return Err(anyhow::anyhow!(
                     "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
                 ));

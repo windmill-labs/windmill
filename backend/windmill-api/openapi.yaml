@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.475.0
+  version: 1.478.1
   title: Windmill API
 
   contact:
@@ -4637,6 +4637,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: keep_captures
+          description: keep captures
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script path
@@ -5582,6 +5587,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: keep_captures
+          description: keep captures
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow delete
@@ -6608,6 +6618,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/SchedulePath"
@@ -6815,6 +6826,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -6869,6 +6881,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -8085,6 +8098,8 @@ paths:
                   enum: ["get", "post", "put", "delete", "patch"]
                 trigger_path:
                   type: string
+                workspaced_route:
+                  type: boolean
               required:
                 - route_path
                 - http_method
@@ -10002,6 +10017,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Folder"
+  
+  /w/{workspace}/folders/exists/{name}:
+    get:
+      summary: exists folder
+      operationId: existsFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: folder exists
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/folders/getusage/{name}:
     get:
@@ -10552,6 +10584,35 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Capture"
+  
+
+  /w/{workspace}/capture/move/{runnable_kind}/{path}:
+    post:
+      summary: move captures and configs for a script or flow
+      operationId: moveCapturesAndConfigs
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: move captures and configs to a new path
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_path:
+                  type: string
+      responses:
+        "200":
+          description: captures and configs moved
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/capture/{id}:
     get:
@@ -10647,6 +10708,7 @@ paths:
         - $ref: "#/components/parameters/RunnableTypeQuery"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/ArgsFilter"
         - name: include_preview
           in: query
           schema:
@@ -12007,6 +12069,12 @@ components:
       in: query
       schema:
         type: string
+    Worker:
+      name: worker
+      description: worker this job was ran on
+      in: query
+      schema:
+        type: string
     ParentJob:
       name: parent_job
       description:
@@ -12667,6 +12735,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        worker:
+          type: string
       required:
         - id
         - running
@@ -12776,6 +12846,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        worker:
+          type: string
       required:
         - id
         - created_by
@@ -13302,7 +13374,8 @@ components:
           php,
           rust,
           ansible,
-          csharp
+          csharp,
+          nu
         ]
 
     Preview:
@@ -13744,6 +13817,12 @@ components:
           type: boolean
         is_static_website:
           type: boolean
+        workspaced_route:
+          type: boolean
+        wrap_body:
+          type: boolean
+        raw_string:
+          type: boolean
 
       required:
         - route_path
@@ -13751,6 +13830,9 @@ components:
         - requires_auth
         - http_method
         - is_static_website
+        - workspaced_route
+        - wrap_body
+        - raw_string
 
     NewHttpTrigger:
       type: object
@@ -13761,6 +13843,8 @@ components:
           type: string
         route_path:
           type: string
+        workspaced_route:
+          type: boolean
         static_asset_config:
           type: object
           properties:
@@ -13788,6 +13872,10 @@ components:
           type: boolean
         is_static_website:
           type: boolean
+        wrap_body:
+          type: boolean
+        raw_string:
+          type: boolean 
 
       required:
         - path
@@ -13808,6 +13896,8 @@ components:
           type: string
         route_path:
           type: string
+        workspaced_route:
+          type: boolean
         static_asset_config:
           type: object
           properties:
@@ -13834,6 +13924,10 @@ components:
         requires_auth:
           type: boolean
         is_static_website:
+          type: boolean
+        wrap_body:
+          type: boolean
+        raw_string:
           type: boolean
       required:
         - path

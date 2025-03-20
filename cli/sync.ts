@@ -94,7 +94,8 @@ export function findCodebase(
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  ignoreCodebaseChanges: boolean
 ): Promise<string> {
   const isScript = path.endsWith(".script.yaml");
   if (!isScript) {
@@ -115,7 +116,11 @@ async function addCodebaseDigestIfRelevant(
     if (c) {
       const parsed: any = yamlParseContent(path, content);
       if (parsed && typeof parsed == "object") {
-        parsed["codebase"] = c.digest;
+        if (ignoreCodebaseChanges) {
+          parsed["codebase"] = undefined
+        } else {
+          parsed["codebase"] = await c.getDigest();
+        }
         parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
       } else {
@@ -130,7 +135,8 @@ async function addCodebaseDigestIfRelevant(
 
 export async function FSFSElement(
   p: string,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  ignoreCodebaseChanges: boolean
 ): Promise<DynFSElement> {
   function _internal_element(
     localP: string,
@@ -163,7 +169,8 @@ export async function FSFSElement(
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
           content,
-          codebases
+          codebases,
+          ignoreCodebaseChanges
         );
         return r;
       },
@@ -333,6 +340,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "php") ext = "php";
     else if (language == "rust") ext = "rs";
     else if (language == "csharp") ext = "cs";
+    else if (language == "nu") ext = "nu";
     else if (language == "ansible") ext = "playbook.yml";
     else ext = "no_ext";
 
@@ -345,7 +353,8 @@ function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
   defaultTs: "bun" | "deno",
-  resourceTypeToFormatExtension: Record<string, string>
+  resourceTypeToFormatExtension: Record<string, string>,
+  ignoreCodebaseChanges: boolean
 ): DynFSElement {
   async function _internal_file(
     p: string,
@@ -356,12 +365,12 @@ function ZipFSElement(
     )
       ? "flow"
       : p.endsWith("app.json")
-      ? "app"
-      : p.endsWith("script.json")
-      ? "script"
-      : p.endsWith("resource.json")
-      ? "resource"
-      : "other";
+        ? "app"
+        : p.endsWith("script.json")
+          ? "script"
+          : p.endsWith("resource.json")
+            ? "resource"
+            : "other";
 
     const isJson = p.endsWith(".json");
 
@@ -391,7 +400,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() {},
+                async *getChildren() { },
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -402,7 +411,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "flow.yaml"),
-              async *getChildren() {},
+              async *getChildren() { },
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(flow, yamlOptions);
@@ -418,7 +427,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() {},
+                async *getChildren() { },
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -429,7 +438,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
-              async *getChildren() {},
+              async *getChildren() { },
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
@@ -456,6 +465,9 @@ function ZipFSElement(
               parsed["lock"] = "";
             } else {
               parsed["lock"] = undefined;
+            }
+            if (ignoreCodebaseChanges && parsed["codebase"]) {
+              parsed["codebase"] = undefined;
             }
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -494,7 +506,7 @@ function ZipFSElement(
         r.push({
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
-          async *getChildren() {},
+          async *getChildren() { },
           // deno-lint-ignore require-await
           async getContentText() {
             return lock;
@@ -517,7 +529,7 @@ function ZipFSElement(
               removeSuffix(finalPath, ".resource.json") +
               ".resource.file." +
               formatExtension,
-            async *getChildren() {},
+            async *getChildren() { },
             // deno-lint-ignore require-await
             async getContentText() {
               return fileContent;
@@ -578,19 +590,19 @@ export async function* readDirRecursiveWithIgnore(
     // getContentBytes(): Promise<Uint8Array>;
     getContentText(): Promise<string>;
   }[] = [
-    {
-      path: root.path,
-      ignored: ignore(root.path, root.isDirectory),
-      isDirectory: root.isDirectory,
-      c: root.getChildren,
-      // getContentBytes(): Promise<Uint8Array> {
-      //   throw undefined;
-      // },
-      getContentText(): Promise<string> {
-        throw undefined;
+      {
+        path: root.path,
+        ignored: ignore(root.path, root.isDirectory),
+        isDirectory: root.isDirectory,
+        c: root.getChildren,
+        // getContentBytes(): Promise<Uint8Array> {
+        //   throw undefined;
+        // },
+        getContentText(): Promise<string> {
+          throw undefined;
+        },
       },
-    },
-  ];
+    ];
 
   while (stack.length > 0) {
     const e = stack.pop()!;
@@ -653,9 +665,10 @@ export async function elementsToMap(
     if (!skips.includeSettings && path === "settings" + ext) continue;
     if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
+    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext)) continue;
+
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
-    if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipResources && isFileResource(path)) continue;
 
     if (
@@ -675,6 +688,7 @@ export async function elementsToMap(
         "rs",
         "cs",
         "yml",
+        "nu",
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )
@@ -704,6 +718,7 @@ export async function elementsToMap(
 export interface Skips {
   skipVariables?: boolean | undefined;
   skipResources?: boolean | undefined;
+  skipResourceTypes?: boolean | undefined;
   skipSecrets?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
@@ -721,13 +736,14 @@ async function compareDynFSElement(
   json: boolean,
   skips: Skips,
   ignoreMetadataDeletion: boolean,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  ignoreCodebaseChanges: boolean
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips),
-        elementsToMap(els2, ignore, json, skips),
-      ])
+      elementsToMap(els1, ignore, json, skips),
+      elementsToMap(els2, ignore, json, skips),
+    ])
     : [await elementsToMap(els1, ignore, json, skips), {}];
 
   const changes: Change[] = [];
@@ -761,7 +777,9 @@ async function compareDynFSElement(
       return yamlParseContent(k, v);
     }
   }
+
   const codebaseChanges: Record<string, string> = {};
+
   for (let [k, v] of Object.entries(m1)) {
     const isScriptMetadata =
       k.endsWith(".script.yaml") || k.endsWith(".script.json");
@@ -785,16 +803,19 @@ async function compareDynFSElement(
         if (deepEqual(before, after)) {
           continue;
         }
-        if (before.codebase != undefined) {
-          delete before.codebase;
-          m2[k] = yamlStringify(before, yamlOptions);
-        }
-        if (after.codebase != undefined) {
-          if (before.codebase != after.codebase) {
-            codebaseChanges[k] = after.codebase;
+        if (!ignoreCodebaseChanges) {
+
+          if (before.codebase != undefined) {
+            delete before.codebase;
+            m2[k] = yamlStringify(before, yamlOptions);
           }
-          delete after.codebase;
-          v = yamlStringify(after, yamlOptions);
+          if (after.codebase != undefined) {
+            if (before.codebase != after.codebase) {
+              codebaseChanges[k] = after.codebase;
+            }
+            delete after.codebase;
+            v = yamlStringify(after, yamlOptions);
+          }
         }
         if (skipMetadata) {
           continue;
@@ -809,6 +830,7 @@ async function compareDynFSElement(
       });
     }
   }
+
 
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
@@ -827,34 +849,38 @@ async function compareDynFSElement(
     }
   }
 
-  for (const [k, v] of Object.entries(remoteCodebase)) {
-    const tsFile = k.replace(".script.yaml", ".ts");
-    if (
-      changes.find(
-        (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
-      )
-    ) {
-      continue;
-    }
-    let c = findCodebase(tsFile, codebases);
-    if (c?.digest != v) {
-      changes.push({
-        name: "edited",
-        path: tsFile,
-        codebase: v,
-        before: m1[tsFile],
-        after: m2[tsFile],
-      });
+  if (!ignoreCodebaseChanges) {
+    for (const [k, v] of Object.entries(remoteCodebase)) {
+      const tsFile = k.replace(".script.yaml", ".ts");
+      if (
+        changes.find(
+          (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
+        )
+      ) {
+        continue;
+      }
+      const c = findCodebase(tsFile, codebases);
+      if (await c?.getDigest() != v) {
+        changes.push({
+          name: "edited",
+          path: tsFile,
+          codebase: v,
+          before: m1[tsFile],
+          after: m2[tsFile],
+        });
+      }
     }
   }
 
-  for (const change of changes) {
-    const codebase = codebaseChanges[change.path];
-    if (!codebase) continue;
+  if (!ignoreCodebaseChanges) {
+    for (const change of changes) {
+      const codebase = codebaseChanges[change.path];
+      if (!codebase) continue;
 
-    const tsFile = change.path.replace(".script.yaml", ".ts");
-    if (change.name == "edited" && change.path == tsFile) {
-      change.codebase = codebase;
+      const tsFile = change.path.replace(".script.yaml", ".ts");
+      if (change.name == "edited" && change.path == tsFile) {
+        change.codebase = codebase;
+      }
     }
   }
 
@@ -960,6 +986,8 @@ export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
   extraIncludes?: string[];
+  skipResourceTypes?: boolean;
+  json?: boolean;
 }): Promise<(p: string, isDirectory: boolean) => boolean> {
   let whitelist: { approve(file: string): boolean } | undefined = undefined;
 
@@ -991,6 +1019,10 @@ export async function ignoreF(wmillconf: {
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
 
   return (p: string, isDirectory: boolean) => {
+    const ext = wmillconf.json ? ".json" : ".yaml";
+    if (!isDirectory && p.endsWith(".resource-type" + ext)) {
+      return wmillconf.skipResourceTypes ?? false;
+    }
     return (
       !isWhitelisted(p) &&
       (isNotWmillFile(p, isDirectory) ||
@@ -1082,6 +1114,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.plainSecrets,
       opts.skipVariables,
       opts.skipResources,
+      opts.skipResourceTypes,
       opts.skipSecrets,
       opts.includeSchedules,
       opts.includeTriggers,
@@ -1089,15 +1122,16 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs
+      opts.defaultTs,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension
+    resourceTypeToFormatExtension,
+    true
   );
   const local = !opts.stateful
-    ? await FSFSElement(Deno.cwd(), codebases)
-    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), []);
+    ? await FSFSElement(Deno.cwd(), codebases, true)
+    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
   const changes = await compareDynFSElement(
     remote,
     local,
@@ -1105,7 +1139,8 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     opts.json ?? false,
     opts,
     false,
-    codebases
+    codebases,
+    true
   );
 
   log.info(
@@ -1278,8 +1313,8 @@ function prettyChanges(changes: Change[]) {
       log.info(
         colors.yellow(
           `~ ${getTypeStrFromPath(change.path)} ` +
-            change.path +
-            (change.codebase ? ` (codebase changed)` : "")
+          change.path +
+          (change.codebase ? ` (codebase changed)` : "")
         )
       );
       if (change.before != change.after) {
@@ -1354,6 +1389,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.plainSecrets,
       opts.skipVariables,
       opts.skipResources,
+      opts.skipResourceTypes,
       opts.skipSecrets,
       opts.includeSchedules,
       opts.includeTriggers,
@@ -1361,14 +1397,15 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs
+      opts.defaultTs,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
-    resourceTypeToFormatExtension
+    resourceTypeToFormatExtension,
+    false
   );
 
-  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);
+  const local = await FSFSElement(path.join(Deno.cwd(), "",), codebases, false);
   const changes = await compareDynFSElement(
     local,
     remote,
@@ -1376,12 +1413,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     opts.json ?? false,
     opts,
     true,
-    codebases
+    codebases,
+    false
   );
 
   const globalDeps = await findGlobalDeps();
 
-  console.log("globalDeps", globalDeps);
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
@@ -1486,8 +1523,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     }
     const groupedChangesArray = Array.from(groupedChanges.entries());
     log.info(
-      `found changes for ${
-        groupedChangesArray.length
+      `found changes for ${groupedChangesArray.length
       } items with a total of ${groupedChangesArray.reduce(
         (acc, [_, changes]) => acc + changes.length,
         0
@@ -1729,11 +1765,11 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   });
                   break;
                 case "mqtt_trigger":
-                    await wmill.deleteMqttTrigger({
-                      workspace: workspaceId,
-                      path: removeSuffix(target, ".mqtt_trigger.json"),
-                    });
-                    break;
+                  await wmill.deleteMqttTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".mqtt_trigger.json"),
+                  });
+                  break;
                 case "sqs_trigger":
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
@@ -1800,8 +1836,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     }
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes pushed to the remote workspace ${
-          workspace.workspaceId
+        `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId
         } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
       )
     );
@@ -1824,6 +1859,7 @@ const command = new Command()
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--skip-resource-types", "Skip syncing  resource types")
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -1853,6 +1889,8 @@ const command = new Command()
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option("--skip-resources", "Skip syncing  resources")
+  .option("--skip-resource-types", "Skip syncing  resource types")
+
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")

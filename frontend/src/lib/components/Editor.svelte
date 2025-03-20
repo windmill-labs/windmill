@@ -193,6 +193,7 @@
 		| 'rust'
 		| 'yaml'
 		| 'csharp'
+		| 'nu'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -202,7 +203,7 @@
 		ruff: false,
 		deno: false,
 		go: false,
-		shellcheck: false
+		shellcheck: false,
 	}
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
@@ -247,7 +248,7 @@
 
 	let destroyed = false
 	const uri =
-		lang != 'go' && lang != 'typescript' && lang != 'python'
+		lang != 'go' && lang != 'typescript' && lang != 'python' && lang != 'nu'
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -370,7 +371,7 @@
 	export async function format() {
 		if (editor) {
 			code = getCode()
-			if (lang != 'shell') {
+			if (lang != 'shell' && lang != 'nu') {
 				if ($formatOnSave != false) {
 					if (scriptLang == 'deno' && languageClients.length > 0) {
 						languageClients.forEach(async (x) => {
@@ -1121,7 +1122,7 @@
 		initialized = true
 
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code, (lang == 'nu') ? 'python' : lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))

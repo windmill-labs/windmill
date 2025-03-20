@@ -41,6 +41,8 @@ COPY /typescript-client/docs/ /frontend/static/tsdocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# Read more about macro in docker/dev.nu
+# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- # 
 RUN npm run build
 
 
@@ -83,8 +85,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
-ARG POWERSHELL_VERSION=7.3.5
-ARG POWERSHELL_DEB_VERSION=7.3.5-1
+ARG POWERSHELL_VERSION=7.5.0
+ARG POWERSHELL_DEB_VERSION=7.5.0-1
 ARG KUBECTL_VERSION=1.28.7
 ARG HELM_VERSION=3.14.3
 ARG GO_VERSION=1.22.5
@@ -191,7 +193,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.2.3 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.2.4 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer

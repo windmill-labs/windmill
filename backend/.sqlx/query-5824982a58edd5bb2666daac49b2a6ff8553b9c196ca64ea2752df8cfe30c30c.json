@@ -1,0 +1,137 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT \n                    workspace_id, \n                    workspaced_route,\n                    path, \n                    route_path, \n                    route_path_key, \n                    script_path, \n                    is_flow, \n                    edited_by, \n                    edited_at, \n                    email, \n                    extra_perms, \n                    is_async, \n                    requires_auth, \n                    http_method AS \"http_method: _\", \n                    static_asset_config AS \"static_asset_config: _\", \n                    is_static_website,\n                    wrap_body,\n                    raw_string\n                FROM http_trigger\n                WHERE workspace_id = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspaced_route",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "route_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "route_path_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_async",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "requires_auth",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "http_method: _",
+        "type_info": {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "static_asset_config: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "is_static_website",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "wrap_body",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "raw_string",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5824982a58edd5bb2666daac49b2a6ff8553b9c196ca64ea2752df8cfe30c30c"
+}

@@ -112,7 +112,7 @@
 				popover: {
 					title: 'Component input',
 					description:
-						'They are several ways to set the input of a component. It can be static, the result of a JS expression, connected to the output of another component, or the result of a inline runnable. Here we will create an inline runnable that will convert the text to uppercase.',
+						'There are several ways to set the input of a component. It can be static, the result of a JS expression, connected to the output of another component, or the result of a inline runnable. Here we will create an inline runnable that will convert the text to uppercase.',
 					onNextClick: () => {
 						clickFirstButtonBySelector('#component-input')
 						setTimeout(() => {
@@ -128,7 +128,7 @@
 					title: 'Compute',
 					description: 'Click on the compute button to create a new inline runnable.',
 					onNextClick: () => {
-						clickFirstButtonBySelector('#data-source-compute')
+						clickButtonBySelector('#data-source-compute')
 						setTimeout(() => {
 							driver.moveNext()
 						})

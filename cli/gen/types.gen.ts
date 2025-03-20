@@ -182,6 +182,7 @@ export type QueuedJob = {
     aggregate_wait_time_ms?: number;
     suspend?: number;
     preprocessed?: boolean;
+    worker?: string;
 };
 
 export type job_kind = 'script' | 'preview' | 'dependencies' | 'flowdependencies' | 'appdependencies' | 'flow' | 'flowpreview' | 'script_hub' | 'identity' | 'deploymentcallback' | 'singlescriptflow' | 'flowscript' | 'flownode' | 'appscript';
@@ -227,6 +228,7 @@ export type CompletedJob = {
     self_wait_time_ms?: number;
     aggregate_wait_time_ms?: number;
     preprocessed?: boolean;
+    worker?: string;
 };
 
 export type ObscuredJob = {
@@ -387,7 +389,7 @@ export type MainArgSignature = {
 
 export type type2 = 'Valid' | 'Invalid';
 
-export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp';
+export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp' | 'nu';
 
 export type Preview = {
     content?: string;
@@ -591,6 +593,9 @@ export type HttpTrigger = TriggerExtraProperty & {
     is_async: boolean;
     requires_auth: boolean;
     is_static_website: boolean;
+    workspaced_route: boolean;
+    wrap_body: boolean;
+    raw_string: boolean;
 };
 
 export type http_method = 'get' | 'post' | 'put' | 'delete' | 'patch';
@@ -599,6 +604,7 @@ export type NewHttpTrigger = {
     path: string;
     script_path: string;
     route_path: string;
+    workspaced_route?: boolean;
     static_asset_config?: {
         s3: string;
         storage?: string;
@@ -609,12 +615,15 @@ export type NewHttpTrigger = {
     is_async: boolean;
     requires_auth: boolean;
     is_static_website: boolean;
+    wrap_body?: boolean;
+    raw_string?: boolean;
 };
 
 export type EditHttpTrigger = {
     path: string;
     script_path: string;
     route_path?: string;
+    workspaced_route?: boolean;
     static_asset_config?: {
         s3: string;
         storage?: string;
@@ -625,6 +634,8 @@ export type EditHttpTrigger = {
     is_async: boolean;
     requires_auth: boolean;
     is_static_website: boolean;
+    wrap_body?: boolean;
+    raw_string?: boolean;
 };
 
 export type TriggersCount = {
@@ -1729,6 +1740,11 @@ export type ParameterCreatedBy = string;
  * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
  */
 export type ParameterLabel = string;
+
+/**
+ * worker this job was ran on
+ */
+export type ParameterWorker = string;
 
 /**
  * The parent job that is at the origin and responsible for the execution of this script if any
@@ -3772,6 +3788,10 @@ export type DeleteScriptByHashData = {
 export type DeleteScriptByHashResponse = (Script);
 
 export type DeleteScriptByPathData = {
+    /**
+     * keep captures
+     */
+    keepCaptures?: boolean;
     path: string;
     workspace: string;
 };
@@ -4311,6 +4331,10 @@ export type ArchiveFlowByPathData = {
 export type ArchiveFlowByPathResponse = (string);
 
 export type DeleteFlowByPathData = {
+    /**
+     * keep captures
+     */
+    keepCaptures?: boolean;
     path: string;
     workspace: string;
 };
@@ -4960,6 +4984,10 @@ export type ListQueueData = {
      * filter on jobs with a given tag/worker group
      */
     tag?: string;
+    /**
+     * worker this job was ran on
+     */
+    worker?: string;
     workspace: string;
 };
 
@@ -5182,6 +5210,10 @@ export type ListCompletedJobsData = {
      * filter on jobs with a given tag/worker group
      */
     tag?: string;
+    /**
+     * worker this job was ran on
+     */
+    worker?: string;
     workspace: string;
 };
 
@@ -5304,6 +5336,10 @@ export type ListJobsData = {
      * filter on jobs with a given tag/worker group
      */
     tag?: string;
+    /**
+     * worker this job was ran on
+     */
+    worker?: string;
     workspace: string;
 };
 
@@ -5795,6 +5831,7 @@ export type ExistsRouteData = {
         route_path: string;
         http_method: 'get' | 'post' | 'put' | 'delete' | 'patch';
         trigger_path?: string;
+        workspaced_route?: boolean;
     };
     workspace: string;
 };
@@ -6668,6 +6705,13 @@ export type GetFolderData = {
 
 export type GetFolderResponse = (Folder);
 
+export type ExistsFolderData = {
+    name: string;
+    workspace: string;
+};
+
+export type ExistsFolderResponse = (boolean);
+
 export type GetFolderUsageData = {
     name: string;
     workspace: string;
@@ -6869,6 +6913,20 @@ export type ListCapturesData = {
 
 export type ListCapturesResponse = (Array<Capture>);
 
+export type MoveCapturesAndConfigsData = {
+    path: string;
+    /**
+     * move captures and configs to a new path
+     */
+    requestBody: {
+        new_path?: string;
+    };
+    runnableKind: 'script' | 'flow';
+    workspace: string;
+};
+
+export type MoveCapturesAndConfigsResponse = (string);
+
 export type GetCaptureData = {
     id: number;
     workspace: string;
@@ -6904,6 +6962,10 @@ export type UnstarData = {
 export type UnstarResponse = (unknown);
 
 export type GetInputHistoryData = {
+    /**
+     * filter on jobs containing those args as a json subset (@> in postgres)
+     */
+    args?: string;
     includePreview?: boolean;
     /**
      * which page to return (start at 1, default 1)

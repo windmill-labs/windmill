@@ -19,7 +19,7 @@ use std::{
     collections::HashMap,
     fs::{create_dir_all, DirBuilder},
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
@@ -29,6 +29,7 @@ use windmill_api::HTTP_CLIENT;
 use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
 use windmill_common::{
+    get_database_url,
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
@@ -46,7 +47,7 @@ use windmill_common::{
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP},
-    DB, METRICS_ENABLED,
+    KillpillSender, METRICS_ENABLED,
 };
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -65,8 +66,8 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
+    NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR,
+    PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
     TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
@@ -112,6 +113,13 @@ where
     let future = Box::pin(future);
 
     rt.block_on(future)
+}
+
+lazy_static::lazy_static! {
+    static ref PG_LISTENER_REFRESH_PERIOD_SECS: u64 = std::env::var("PG_LISTENER_REFRESH_PERIOD_SECS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(3600 * 12);
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -234,6 +242,10 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info")
+    }
+
+    if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
+        tracing::error!("Failed to install rustls crypto provider");
     }
 
     let hostname = hostname();
@@ -361,7 +373,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
 
-    let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
     let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
     let server_killpill_rx = killpill_phase2_tx.subscribe();
@@ -619,7 +631,7 @@ Windmill Community Edition {GIT_VERSION}
                     )
                     .await?;
                     tracing::info!("All workers exited.");
-                    killpill_tx.send(())?;
+                    killpill_tx.send();
                 } else {
                     rx.recv().await?;
                 }
@@ -641,9 +653,11 @@ Windmill Community Edition {GIT_VERSION}
             let tx = killpill_tx.clone();
 
             let base_internal_url = base_internal_url.to_string();
-            let h = tokio::spawn(async move {
-                let mut listener = retry_listen_pg(&db).await;
+            let db_url: String = get_database_url().await?;
 
+            let h = tokio::spawn(async move {
+                let mut listener = retry_listen_pg(&db_url).await;
+                let mut last_listener_refresh = Instant::now();
                 loop {
                     tokio::select! {
                         biased;
@@ -659,20 +673,14 @@ Windmill Community Edition {GIT_VERSION}
                             tracing::info!("received killpill for monitor job");
                             break;
                         },
-                        _ = tokio::time::sleep(Duration::from_secs(30))    => {
-                            monitor_db(
-                                &db,
-                                &base_internal_url,
-                                server_mode,
-                                worker_mode,
-                                false,
-                                tx.clone(),
-                            )
-                            .await;
-                        },
-                        notification = listener.recv() => {
+                        notification = listener.try_recv() => {
                             match notification {
                                 Ok(n) => {
+                                    if n.is_none() {
+                                        tracing::error!("Could not receive notification, attempting to reconnect to pg listener");
+                                        continue;
+                                    }
+                                    let n = n.unwrap();
                                     tracing::info!("Received new pg notification: {n:?}");
                                     match n.channel() {
                                         "notify_config_change" => {
@@ -850,14 +858,49 @@ Windmill Community Edition {GIT_VERSION}
                                             tracing::info!("received killpill for monitor job");
                                             break;
                                         },
-                                        new_listener = retry_listen_pg(&db) => {
+                                        new_listener = retry_listen_pg(&db_url) => {
                                             listener = new_listener;
                                             continue;
                                         }
                                     }
                                 }
                             };
-                        }
+                        },
+                        _ = tokio::time::sleep(Duration::from_secs(30))    => {
+                            if last_listener_refresh.elapsed() > Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS) {
+                                tracing::info!("Refreshing pg listeners, settings and license key after {}s", Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS).as_secs());
+                                if let Err(e) = listener.unlisten_all().await {
+                                    tracing::error!(error = %e, "Could not unlisten to database");
+                                }
+                                listener = retry_listen_pg(&db_url).await;
+                                initial_load(
+                                    &db,
+                                    tx.clone(),
+                                    worker_mode,
+                                    server_mode,
+                                    #[cfg(feature = "parquet")]
+                                    disable_s3_store,
+                                )
+                                .await;
+                                #[cfg(feature = "enterprise")]
+                                if let Err(err) = reload_license_key(&db).await {
+                                    tracing::error!("Failed to reload license key: {err:#}");
+                                }
+                                last_listener_refresh = Instant::now();
+                            }
+
+                            tracing::info!("monitor task started");
+                            monitor_db(
+                                &db,
+                                &base_internal_url,
+                                server_mode,
+                                worker_mode,
+                                false,
+                                tx.clone(),
+                            )
+                            .await;
+                            tracing::info!("monitor task finished");
+                        },
                     }
                 }
             });
@@ -866,6 +909,7 @@ Windmill Community Edition {GIT_VERSION}
                 tracing::error!("Error waiting for monitor handle: {e:#}")
             }
             tracing::info!("Monitor exited");
+            killpill_tx.send();
             Ok(()) as anyhow::Result<()>
         };
 
@@ -922,8 +966,8 @@ Windmill Community Edition {GIT_VERSION}
     Ok(())
 }
 
-async fn listen_pg(db: &DB) -> Option<PgListener> {
-    let mut listener = match PgListener::connect_with(&db).await {
+async fn listen_pg(url: &str) -> Option<PgListener> {
+    let mut listener = match PgListener::connect(url).await {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(error = %e, "Could not connect to database");
@@ -946,13 +990,13 @@ async fn listen_pg(db: &DB) -> Option<PgListener> {
     return Some(listener);
 }
 
-async fn retry_listen_pg(db: &DB) -> PgListener {
-    let mut listener = listen_pg(db).await;
+async fn retry_listen_pg(url: &str) -> PgListener {
+    let mut listener = listen_pg(url).await;
     loop {
         if listener.is_none() {
             tracing::info!("Retrying listening to pg listen in 5 seconds");
             tokio::time::sleep(Duration::from_secs(5)).await;
-            listener = listen_pg(db).await;
+            listener = listen_pg(url).await;
         } else {
             tracing::info!("Successfully connected to pg listen");
             return listener.unwrap();
@@ -980,7 +1024,7 @@ fn display_config(envs: &[&str]) {
 pub async fn run_workers(
     db: Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
-    tx: tokio::sync::broadcast::Sender<()>,
+    tx: KillpillSender,
     num_workers: i32,
     base_internal_url: String,
     agent_mode: bool,
@@ -1036,6 +1080,7 @@ pub async fn run_workers(
         GO_BIN_CACHE_DIR,
         RUST_CACHE_DIR,
         CSHARP_CACHE_DIR,
+        NU_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
     ] {
@@ -1093,11 +1138,7 @@ pub async fn run_workers(
     Ok(())
 }
 
-async fn send_delayed_killpill(
-    tx: &tokio::sync::broadcast::Sender<()>,
-    mut max_delay_secs: u64,
-    context: &str,
-) {
+async fn send_delayed_killpill(tx: &KillpillSender, mut max_delay_secs: u64, context: &str) {
     if max_delay_secs == 0 {
         max_delay_secs = 1;
     }
@@ -1106,7 +1147,5 @@ async fn send_delayed_killpill(
     tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
     tokio::time::sleep(Duration::from_secs(rd_delay)).await;
 
-    if let Err(e) = tx.send(()) {
-        tracing::error!(error = %e, "Could not send killpill for {context}");
-    }
+    tx.send();
 }

@@ -2,6 +2,7 @@ use serde::de::DeserializeOwned;
 use std::future::Future;
 use std::{str::FromStr, sync::Arc};
 use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
+use windmill_common::KillpillSender;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -999,7 +1000,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     };
 
     /* ensure the worker quits before we return */
-    quit.send(()).expect("send");
+    quit.send();
 
     let _: () = worker
         .await
@@ -1011,16 +1012,13 @@ async fn in_test_worker<Fut: std::future::Future>(
 fn spawn_test_worker(
     db: &Pool<Postgres>,
     port: u16,
-) -> (
-    tokio::sync::broadcast::Sender<()>,
-    tokio::task::JoinHandle<()>,
-) {
+) -> (KillpillSender, tokio::task::JoinHandle<()>) {
     std::fs::DirBuilder::new()
         .recursive(true)
         .create(windmill_worker::GO_BIN_CACHE_DIR)
         .expect("could not create initial worker dir");
 
-    let (tx, rx) = tokio::sync::broadcast::channel(1);
+    let (tx, rx) = KillpillSender::new(1);
     let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
@@ -1886,6 +1884,109 @@ echo "hello $msg"
     .run_until_complete(&db, port)
     .await;
     assert_eq!(job.json_result(), Some(json!("hello world")));
+}
+
+#[cfg(feature = "nu")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nu_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+def main [ msg: string ] {
+    "hello " + $msg
+}
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nu,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("msg", json!("world"))
+    .run_until_complete(&db, port)
+    .await;
+    assert_eq!(job.json_result(), Some(json!("hello world")));
+}
+
+#[cfg(feature = "nu")]
+#[sqlx::test(fixtures("base"))]
+async fn test_nu_job_full(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+def main [ 
+  # Required
+  ## Primitive
+  a
+  b: any
+  c: bool
+  d: float
+  e: datetime
+  f: string
+  j: nothing
+  ## Nesting
+  g: record
+  h: list<string>
+  i: table
+  # Optional
+  m?
+  n = "foo"
+  o: any = "foo"
+  p?: any
+  # TODO: ...x
+ ] {
+    0
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Nu,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("a", json!("3"))
+    .arg("b", json!("null"))
+    .arg("c", json!(true))
+    .arg("d", json!(3.0))
+    .arg("e", json!("2024-09-24T10:00:00.000Z"))
+    .arg("f", json!("str"))
+    .arg("j", json!(null))
+    .arg("g", json!({"a": 32}))
+    .arg("h", json!(["foo"]))
+    .arg(
+        "i",
+        json!([
+            {"a": 1, "b": "foo", "c": true},
+            {"a": 2, "b": "baz", "c": false}
+        ]),
+    )
+    .arg("n", json!("baz"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!(0));
 }
 
 #[sqlx::test(fixtures("base"))]

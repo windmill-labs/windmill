@@ -47,13 +47,13 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
-use std::fmt;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
+use windmill_queue::TriggerKind;
 use windmill_queue::{PushArgs, PushArgsOwned};
 
 const KEEP_LAST: i64 = 20;
@@ -67,6 +67,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/get_configs/:runnable_kind/*path", get(get_configs))
         .route("/list/:runnable_kind/*path", get(list_captures))
+        .route(
+            "/move/:runnable_kind/*path",
+            post(move_captures_and_configs),
+        )
         .route("/:id", delete(delete_capture))
         .route("/:id", get(get_capture))
 }
@@ -87,38 +91,6 @@ pub fn workspaced_unauthed_service() -> Router {
     #[cfg(not(feature = "http_trigger"))]
     {
         router
-    }
-}
-
-#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
-#[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerKind {
-    Webhook,
-    Http,
-    Websocket,
-    Kafka,
-    Email,
-    Nats,
-    Mqtt,
-    Sqs,
-    Postgres,
-}
-
-impl fmt::Display for TriggerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            TriggerKind::Webhook => "webhook",
-            TriggerKind::Http => "http",
-            TriggerKind::Websocket => "websocket",
-            TriggerKind::Kafka => "kafka",
-            TriggerKind::Email => "email",
-            TriggerKind::Nats => "nats",
-            TriggerKind::Mqtt => "mqtt",
-            TriggerKind::Sqs => "sqs",
-            TriggerKind::Postgres => "postgres",
-        };
-        write!(f, "{}", s)
     }
 }
 
@@ -446,6 +418,41 @@ async fn delete_capture(
     sqlx::query!("DELETE FROM capture WHERE id = $1", id)
         .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct MoveCapturesAndConfigsBody {
+    new_path: String,
+}
+
+async fn move_captures_and_configs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, old_path)): Path<(String, RunnableKind, StripPath)>,
+    Json(body): Json<MoveCapturesAndConfigsBody>,
+) -> Result<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    let old_path = old_path.to_path();
+    sqlx::query!(
+        "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        body.new_path,
+        old_path,
+        &w_id,
+        matches!(runnable_kind, RunnableKind::Flow),
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE capture SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        body.new_path,
+        old_path,
+        &w_id,
+        matches!(runnable_kind, RunnableKind::Flow),
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }

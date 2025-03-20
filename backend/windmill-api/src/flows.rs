@@ -1183,12 +1183,18 @@ async fn archive_flow_by_path(
     Ok(format!("Flow {path} archived"))
 }
 
+#[derive(Deserialize)]
+struct DeleteFlowQuery {
+    keep_captures: Option<bool>,
+}
+
 async fn delete_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -1209,21 +1215,23 @@ async fn delete_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    if !query.keep_captures.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+        sqlx::query!(
+            "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
