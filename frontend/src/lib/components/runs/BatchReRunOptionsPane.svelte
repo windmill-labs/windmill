@@ -47,6 +47,10 @@
 		a?.kind === b?.kind && a?.script_path === b?.script_path
 
 	let selected: { script_path: string; kind: 'script' | 'flow' } | undefined = $state()
+	$effect(() => {
+		if (groupedJobs.every((g) => !eq(g, selected))) selected = undefined
+		if (selected === undefined && groupedJobs.length) selected = groupedJobs[0]
+	})
 	// const allSchemas = $derived.by(async () => {
 	// 	const schemas = []
 	// 	if (!selectedJob || !selectedPath || !$workspaceStore) return undefined
