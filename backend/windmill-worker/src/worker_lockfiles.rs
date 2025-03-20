@@ -177,7 +177,7 @@ fn try_normalize(path: &Path) -> Option<PathBuf> {
     Some(ret)
 }
 
-fn parse_bun_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
+fn parse_ts_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
     let mut relative_imports = vec![];
     let r = parse_expr_for_imports(raw_code)?;
     for import in r {
@@ -209,8 +209,8 @@ pub fn extract_relative_imports(
     match language {
         #[cfg(feature = "python")]
         Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
-        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
-            parse_bun_relative_imports(&raw_code, script_path).ok()
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) | Some(ScriptLang::Deno) => {
+            parse_ts_relative_imports(&raw_code, script_path).ok()
         }
         _ => None,
     }
