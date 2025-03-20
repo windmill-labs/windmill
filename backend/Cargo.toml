@@ -138,7 +138,6 @@ windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
 
 
-
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
@@ -231,6 +230,10 @@ deno_permissions = "0.49.0"
 deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
+
+# TODO: remove once deno fixes the issue on their end
+# https://github.com/denoland/deno/issues/28557
+winapi = { version = "0.3.9", features = ["sysinfoapi"] }
 
 swc_common = "=0.37.5"
 swc_ecma_parser = "=0.149.1"
