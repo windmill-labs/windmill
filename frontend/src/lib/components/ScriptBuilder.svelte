@@ -471,6 +471,17 @@
 				}
 			})
 
+			if (!initialPath) {
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: script.path
+					},
+					runnableKind: 'script'
+				})
+			}
+
 			const scheduleExists =
 				initialPath != '' &&
 				(await ScheduleService.existsSchedule({
