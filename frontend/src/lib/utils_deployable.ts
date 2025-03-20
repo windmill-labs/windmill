@@ -318,8 +318,9 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			route_path,
 			static_asset_config,
 			is_async,
-			requires_auth,
-			is_static_website
+			windmill_auth,
+			is_static_website,
+			custom_auth_resource_path
 		} = await HttpTriggerService.getHttpTrigger({
 			workspace: workspace!,
 			path: path
@@ -332,8 +333,9 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			route_path,
 			static_asset_config,
 			is_async,
-			requires_auth,
-			is_static_website
+			windmill_auth,
+			is_static_website,
+			custom_auth_resource_path
 		}
 	} else if (kind === 'schedules') {
 		const {
@@ -479,12 +481,12 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 			}
 		})
 	} else if (kind === 'routes') {
-		const { script_path, is_flow } = await HttpTriggerService.getHttpTrigger({
+		const { script_path, is_flow, custom_auth_resource_path } = await HttpTriggerService.getHttpTrigger({
 			workspace: workspace!,
 			path: path
 		})
 
-		result = retrieveKindsValues({ script_path, is_flow })
+		result = retrieveKindsValues({ script_path, is_flow, resource_path: custom_auth_resource_path })
 	} else if (kind === 'schedules') {
 		const { script_path, is_flow } = await ScheduleService.getSchedule({
 			workspace: workspace!,
