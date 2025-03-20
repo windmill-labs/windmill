@@ -135,7 +135,8 @@ serde.workspace = true
 windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
 
-
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "*", features = ["sysinfoapi"] }
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api", default-features = false  }

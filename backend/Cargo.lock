@@ -13663,6 +13663,7 @@ dependencies = [
  "url",
  "uuid 1.16.0",
  "v8",
+ "winapi",
  "windmill-api",
  "windmill-api-client",
  "windmill-autoscaling",
