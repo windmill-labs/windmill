@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.478.1](https://github.com/windmill-labs/windmill/compare/v1.478.0...v1.478.1) (2025-03-20)
+
+
+### Bug Fixes
+
+* update deps versions ([0463c10](https://github.com/windmill-labs/windmill/commit/0463c10a84ab09f66b99c331d3860fa750606f51))
+
 ## [1.478.0](https://github.com/windmill-labs/windmill/compare/v1.477.1...v1.478.0) (2025-03-20)
 
 
