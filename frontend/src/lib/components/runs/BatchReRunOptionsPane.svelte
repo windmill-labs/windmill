@@ -1,15 +1,42 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import type { Job } from '$lib/gen'
+	import { FlowService, ScriptService, type Job } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
 	const scriptPaths = $derived(new Set(selectedJobs.flatMap((j) => j.script_path ?? [])))
+
 	let selectedPath: string | undefined = $state(undefined)
 	$effect(() => {
 		if (selectedPath && !scriptPaths.has(selectedPath)) selectedPath = undefined
 		const firstScript = scriptPaths.values().next().value
 		if (!selectedPath && firstScript) selectedPath = firstScript
+	})
+	const selectedJob = $derived(selectedJobs.find((j) => j.script_path === selectedPath))
+
+	const jobDataPromise = $derived.by(async () => {
+		if (!selectedJob || !selectedPath || !$workspaceStore) return undefined
+		if (selectedJob.job_kind === 'flow') {
+			// TODO : why only getFlowByPath; how to get by version too
+			const flow = await FlowService.getFlowByPath({
+				path: selectedPath,
+				workspace: $workspaceStore
+			})
+			return { schema: flow.schema }
+		}
+		if (selectedJob.job_kind === 'script') {
+			const script = selectedJob.script_hash
+				? await ScriptService.getScriptByHash({
+						hash: selectedJob.script_hash,
+						workspace: $workspaceStore
+					})
+				: await ScriptService.getScriptByPath({
+						path: selectedJob.script_path ?? '',
+						workspace: $workspaceStore
+					})
+			return { schema: script.schema }
+		}
 	})
 </script>
 
