@@ -170,7 +170,7 @@
 		</div>
 	</div>
 
-	{#if fullResult}
+	{#if fullResult && !jsonView}
 		<slot />
 	{:else}
 		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">

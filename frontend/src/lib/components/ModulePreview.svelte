@@ -102,10 +102,9 @@
 		}
 	}
 
-	function selectJob(job: Job) {
+	function selectJob(job: Job | undefined) {
 		selectedJob = job
 	}
-	$: testJob && selectJob(testJob)
 
 	async function getLastJob(noLogs: boolean) {
 		const previousJobs = await JobService.listJobs({
@@ -124,7 +123,9 @@
 			job && selectJob(job)
 		}
 	}
-	$: !selectedJob && getLastJob(true)
+
+	$: testJob && selectJob(testJob)
+	$: !selectedJob && !mod.mock?.enabled && getLastJob(true)
 
 	let forceJson = false
 </script>
@@ -179,6 +180,11 @@
 						selectJob(detail)
 					}}
 					getLogs
+					on:updateMock={({ detail }) => {
+						mod.mock = detail
+						$flowStore = $flowStore
+					}}
+					mock={mod.mock}
 				>
 					{#if scriptProgress}
 						<JobProgressBar
@@ -188,7 +194,16 @@
 							compact={true}
 						/>
 					{/if}
-					{#if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
+					{#if mod.mock?.enabled}
+						<div class="break-words relative h-full p-2">
+							<DisplayResult
+								bind:forceJson
+								workspaceId={selectedJob?.workspace_id}
+								jobId={selectedJob?.id}
+								result={mod.mock.return_value}
+							/>
+						</div>
+					{:else if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
 						<div class="break-words relative h-full p-2">
 							{#key selectedJob}
 								<DisplayResult
@@ -225,15 +240,25 @@
 				</OutputPickerInner>
 			</Pane>
 			<Pane size={50} minSize={10}>
-				<LogViewer
-					small
-					jobId={selectedJob?.id}
-					duration={selectedJob?.['duration_ms']}
-					mem={selectedJob?.['mem_peak']}
-					content={selectedJob?.logs}
-					isLoading={testIsLoading && selectedJob?.['running'] == false}
-					tag={selectedJob?.tag}
-				/>
+				{#if mod.mock?.enabled}
+					<LogViewer
+						small
+						content={undefined}
+						isLoading={false}
+						tag={undefined}
+						customEmptyMessage="Using mock value"
+					/>
+				{:else}
+					<LogViewer
+						small
+						jobId={selectedJob?.id}
+						duration={selectedJob?.['duration_ms']}
+						mem={selectedJob?.['mem_peak']}
+						content={selectedJob?.logs}
+						isLoading={testIsLoading && selectedJob?.['running'] == false}
+						tag={selectedJob?.tag}
+					/>
+				{/if}
 			</Pane>
 		</Splitpanes>
 	</Pane>
