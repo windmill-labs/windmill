@@ -21,7 +21,7 @@ use windmill_queue::CanceledBy;
 use windmill_queue::MiniPulledJob;
 
 use crate::{
-    common::{build_args_values, OccupancyMetrics}, handle_child::run_future_with_polling_update_job_poller, santized_sql_params::sanitize_and_interpolate_unsafe_sql_args, AuthedClientBackgroundTask
+    common::{build_args_values, OccupancyMetrics}, handle_child::run_future_with_polling_update_job_poller, sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args, AuthedClientBackgroundTask
 };
 
 #[derive(Deserialize)]

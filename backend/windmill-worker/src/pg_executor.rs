@@ -36,7 +36,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::santized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{AuthedClientBackgroundTask, MAX_RESULT_SIZE};
 use bytes::Buf;
 use lazy_static::lazy_static;

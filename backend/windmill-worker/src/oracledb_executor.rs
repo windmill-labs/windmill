@@ -22,7 +22,7 @@ use windmill_queue::CanceledBy;
 use crate::{
     common::{build_args_values, check_executor_binary_exists, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
-    santized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
     AuthedClientBackgroundTask,
 };
 

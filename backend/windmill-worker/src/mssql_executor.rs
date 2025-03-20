@@ -17,7 +17,7 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::santized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClientBackgroundTask;
 
 #[derive(Deserialize)]
