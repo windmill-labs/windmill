@@ -43,6 +43,7 @@ mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
+mod sanitized_sql_params;
 mod schema;
 
 pub use worker::*;
