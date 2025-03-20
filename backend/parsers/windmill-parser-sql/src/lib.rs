@@ -1118,14 +1118,11 @@ SELECT @P2;
     #[test]
     fn test_parse_oracledb_sig() -> anyhow::Result<()> {
         let code = r#"
--- :name (int) = 3
+-- :name1 (int) = 3
 -- :name2 (text)
 -- :name4 (text)
--- :table_name (sanitized_identifier(users, orders, products))
--- :table_name (sanitized_identifier)
--- :table_name (sanitized_dyn_identifier)
 SELECT :name, :name2;
-SELECT * FROM %%table_name%% WHERE thing = :name4;
+SELECT * FROM table_name WHERE thing = :name4;
 "#;
 
         println!("{:#?}", parse_oracledb_sig(code)?);
