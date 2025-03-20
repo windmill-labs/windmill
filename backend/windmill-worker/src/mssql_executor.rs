@@ -17,6 +17,7 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClientBackgroundTask;
 
 #[derive(Deserialize)]
@@ -132,8 +133,13 @@ pub async fn do_mssql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &mssql_args)?;
+
     let mut prepared_query = Query::new(query.to_owned());
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_v = mssql_args
             .get(&arg.name)
