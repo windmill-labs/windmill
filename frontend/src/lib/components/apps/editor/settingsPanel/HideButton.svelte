@@ -18,11 +18,14 @@
 	export let btnClasses: string | undefined = undefined
 	export let size: ButtonType.Size = 'xs'
 
+	export let variant: ButtonType.Variant = 'contained'
+	export let color: ButtonType.Color = 'light'
 	export let direction: 'left' | 'right' | 'bottom' = 'right'
 	export let hidden: boolean = false
 	export let shortcut: string | undefined = undefined
 	export let panelName: string | undefined = undefined
 	export let customHiddenIcon: ComponentType<Icon> | undefined = undefined
+	export let usePopoverOverride: boolean = false
 
 	const OpenIconMap = {
 		left: PanelLeftOpen,
@@ -44,13 +47,17 @@
 
 <Popover>
 	<svelte:fragment slot="text">
-		<div class="flex flex-row gap-1">
-			{hidden ? 'Show' : 'Hide '} the {panelName ?? direction} panel.
+		{#if usePopoverOverride && $$slots.popoverOverride}
+			<slot name="popoverOverride" />
+		{:else}
+			<div class="flex flex-row gap-1">
+				{hidden ? 'Show' : 'Hide '} the {panelName ?? direction} panel.
 
-			<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
-				{getModifierKey()}{shortcut ?? shortcuts[direction]}
+				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+					{getModifierKey()}{shortcut ?? shortcuts[direction]}
+				</div>
 			</div>
-		</div>
+		{/if}
 	</svelte:fragment>
 	<Button
 		iconOnly
@@ -64,6 +71,7 @@
 			btnClasses
 		)}
 		on:click
-		color="light"
+		{variant}
+		{color}
 	/>
 </Popover>

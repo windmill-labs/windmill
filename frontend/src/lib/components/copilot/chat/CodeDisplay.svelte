@@ -5,21 +5,92 @@
 	import { getContext } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { initializeVscode } from '$lib/components/vscode'
-	import type { AIChatContext } from './core'
+	import type { AIChatContext, DisplayMessage } from './core'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import {
+		csharp,
+		go,
+		graphql,
+		javascript,
+		php,
+		python,
+		rust,
+		shell,
+		sql,
+		typescript,
+		yaml
+	} from 'svelte-highlight/languages'
 
 	const astNode = getAstNode()
 
 	const {
-		originalCode,
 		loading: loadingContext,
 		currentReply,
 		applyCode
 	} = getContext<AIChatContext>('AIChatContext')
 
+	const { message } = getContext<{ message: DisplayMessage }>('AssistantMessageContext')
+
+	function getSmartLang(lang: string) {
+		switch (lang) {
+			case 'python':
+			case 'python3':
+				return 'python'
+			case 'deno':
+			case 'nativets':
+			case 'bun':
+			case 'bunnative':
+			case 'typescript':
+				return 'typescript'
+			case 'go':
+				return 'go'
+			case 'shell':
+			case 'bash':
+				return 'shell'
+			case 'frontend':
+			case 'javascript':
+				return 'javascript'
+			case 'graphql':
+				return 'graphql'
+			case 'mysql':
+			case 'snowflake':
+			case 'bigquery':
+			case 'oracledb':
+			case 'powershell':
+			case 'postgresql':
+			case 'sql':
+				return 'sql'
+			case 'php':
+				return 'php'
+			case 'rust':
+				return 'rust'
+			case 'csharp':
+				return 'csharp'
+			case 'ansible':
+			case 'yaml':
+				return 'yaml'
+			default:
+				return 'typescript'
+		}
+	}
+
+	const SMART_LANG_TO_HIGHLIGHT_LANG = {
+		python: python,
+		typescript: typescript,
+		go: go,
+		shell: shell,
+		javascript: javascript,
+		graphql: graphql,
+		sql: sql,
+		php: php,
+		rust: rust,
+		csharp: csharp,
+		yaml: yaml
+	}
+
 	$: code = $astNode.children?.[0]?.children?.[0]?.value
 
-	$: language =
-		($astNode.children?.[0]?.properties?.class as string | undefined)?.split('-')[1] ?? 'typescript'
+	$: language = ($astNode.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
 
 	let loading = true
 	function shouldStopLoading(astNode: HastNode, replying: boolean) {
@@ -56,7 +127,7 @@
 		})
 
 		diffEditor.setModel({
-			original: meditor.createModel($originalCode, language),
+			original: meditor.createModel(message.code, language),
 			modified: meditor.createModel(code ?? '', language)
 		})
 
@@ -71,10 +142,10 @@
 			diffEl.style.height = `${e.contentHeight}px`
 		})
 
-		updateCode(code ?? '')
+		updateModifiedModel(code ?? '')
 	}
 
-	function updateCode(code: string) {
+	function updateModifiedModel(code: string) {
 		const modified = diffEditor?.getModifiedEditor()
 
 		if (!modified) return
@@ -84,13 +155,16 @@
 			modifiedModel.setValue(code ?? '')
 		}
 	}
-	$: updateCode(code ?? '')
+	$: updateModifiedModel(code ?? '')
 
-	$: diffEl && setDiffEditor(diffEl)
+	$: diffEl &&
+		language &&
+		getSmartLang(message.language) === getSmartLang(language) &&
+		setDiffEditor(diffEl)
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	<div class="flex justify-end">
+	<div class="flex justify-end items-end">
 		<Button
 			color="dark"
 			size="xs2"
@@ -105,12 +179,19 @@
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		{#if loading}
+		{#if loading || !language}
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>
-		{:else}
+		{:else if getSmartLang(language) === getSmartLang(message.language)}
 			<div bind:this={diffEl} class="w-full h-full" />
+		{:else}
+			<HighlightCode
+				class="p-1"
+				code={code ?? ''}
+				highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language)]}
+				language={undefined}
+			/>
 		{/if}
 	</div>
 </div>

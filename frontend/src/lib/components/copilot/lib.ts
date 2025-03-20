@@ -1,4 +1,4 @@
-import type { AIProvider } from '$lib/gen'
+import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
 	copilotInfo,
 	copilotSessionModel,
@@ -148,14 +148,14 @@ export async function testKey({
 		throw new Error('Missing a model to test')
 	}
 
-	await getNonStreamingCompletion(
-		messages,
-		abortController,
-		aiProvider,
+	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
 		resourcePath,
-		modelToTest
-	)
+		forceModelProvider: {
+			model: modelToTest,
+			provider: aiProvider
+		}
+	})
 }
 
 interface BaseOptions {
@@ -334,94 +334,97 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
-function getCompletionConfig<K extends boolean>({
-	aiProvider,
+function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
 	tools,
-	forceModel
+	forceModelProvider
 }: {
-	aiProvider: AIProvider
 	messages: ChatCompletionMessageParam[]
 	stream: K
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-	forceModel?: string
-}): K extends true ? ChatCompletionCreateParamsStreaming : ChatCompletionCreateParamsNonStreaming {
-	let model = forceModel
+	forceModelProvider?: AIProviderModel
+}): {
+	provider: AIProvider
+	config: K extends true
+		? ChatCompletionCreateParamsStreaming
+		: ChatCompletionCreateParamsNonStreaming
+} {
+	let info = get(copilotInfo)
+	const modelProvider = forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel
 
-	if (!model) {
-		model = get(copilotSessionModel)
-		let info = get(copilotInfo)
-		const { ai_models: aiModels } = info
-
-		if (!model || !aiModels.includes(model)) {
-			console.warn('Invalid model, using default model:', aiModels[0])
-			model = aiModels[0]
-		}
+	if (!modelProvider) {
+		throw new Error('No model selected')
 	}
 
-	if (!model) {
-		throw new Error('No model found')
-	}
+	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
 
-	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[aiProvider]
-
-	const processedMessages = prepareMessages(aiProvider, messages)
+	const processedMessages = prepareMessages(modelProvider.provider, messages)
 
 	return {
-		...providerConfig,
-		...(model.endsWith('/thinking')
-			? {
-					thinking: {
-						type: 'enabled',
-						budget_tokens: 1024
-					},
-					model: model.slice(0, -9)
-			  }
-			: {
-					model,
-					temperature: 0
-			  }),
-		tools,
-		messages: processedMessages,
-		stream
-	} as any
+		provider: modelProvider.provider,
+		config: {
+			...providerConfig,
+			...(modelProvider.model.endsWith('/thinking')
+				? {
+						thinking: {
+							type: 'enabled',
+							budget_tokens: 1024
+						},
+						model: modelProvider.model.slice(0, -9)
+				  }
+				: {
+						model: modelProvider.model,
+						temperature: 0
+				  }),
+			tools,
+			messages: processedMessages,
+			stream
+		} as any
+	}
 }
 
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	aiProvider: AIProvider,
-	apiKey?: string, // testing API KEY directly from the frontend
-	resourcePath?: string, // testing resource path passed as a header to the backend proxy
-	forceModel?: string
+	testOptions?: {
+		apiKey?: string // testing API KEY directly from the frontend
+		resourcePath?: string // testing resource path passed as a header to the backend proxy
+		forceModelProvider: AIProviderModel
+	}
 ) {
 	let response: string | undefined = ''
-	const config = getCompletionConfig({ aiProvider, messages, stream: false, forceModel })
+	const { provider, config } = getProviderAndCompletionConfig({
+		messages,
+		stream: false,
+		forceModelProvider: testOptions?.forceModelProvider
+	})
 
 	const fetchOptions: {
 		signal: AbortSignal
-		headers?: Record<string, string>
+		headers: Record<string, string>
 	} = {
-		signal: abortController.signal
-	}
-	if (resourcePath) {
-		fetchOptions.headers = {
-			'X-Resource-Path': resourcePath
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': provider
 		}
 	}
-
-	if (apiKey) {
-		if (aiProvider === 'customai') {
+	if (testOptions?.resourcePath) {
+		fetchOptions.headers = {
+			...fetchOptions.headers,
+			'X-Resource-Path': testOptions.resourcePath
+		}
+	} else if (testOptions?.apiKey) {
+		if (provider === 'customai') {
 			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
 		}
 
 		fetchOptions.headers = {
-			'X-API-Key': apiKey,
-			'X-Provider': aiProvider
+			...fetchOptions.headers,
+			'X-API-Key': testOptions.apiKey
 		}
 	}
-	const openaiClient = apiKey
+	const openaiClient = testOptions?.apiKey
 		? new OpenAI({
 				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
 				apiKey: 'fake-key',
@@ -439,13 +442,15 @@ export async function getNonStreamingCompletion(
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	aiProvider: AIProvider,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
-	const config = getCompletionConfig({ aiProvider, messages, stream: true, tools })
+	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 	const openaiClient = workspaceAIClients.getOpenaiClient()
 	const completion = await openaiClient.chat.completions.create(config, {
-		signal: abortController.signal
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': provider
+		}
 	})
 	return completion
 }
@@ -458,7 +463,6 @@ export async function copilot(
 	scriptOptions: CopilotOptions,
 	generatedCode: Writable<string>,
 	abortController: AbortController,
-	aiProvider: AIProvider,
 	generatedExplanation?: Writable<string>
 ) {
 	const { prompt, systemPrompt } = await getPrompts(scriptOptions)
@@ -474,8 +478,7 @@ export async function copilot(
 				content: prompt
 			}
 		],
-		abortController,
-		aiProvider
+		abortController
 	)
 
 	let response = ''
@@ -547,10 +550,9 @@ function getStringEndDelta(prev: string, now: string) {
 export async function deltaCodeCompletion(
 	messages: ChatCompletionMessageParam[],
 	generatedCodeDelta: Writable<string>,
-	abortController: AbortController,
-	aiProvider: AIProvider
+	abortController: AbortController
 ) {
-	const completion = await getCompletion(messages, abortController, aiProvider)
+	const completion = await getCompletion(messages, abortController)
 
 	let response = ''
 	let code = ''

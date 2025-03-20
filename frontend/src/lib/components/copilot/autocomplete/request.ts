@@ -1,4 +1,3 @@
-import type { AIProvider } from '$lib/gen'
 import { codeCompletionLoading } from '$lib/stores'
 
 import { getNonStreamingCompletion } from '../lib'
@@ -55,10 +54,6 @@ Follow the following criteria.
 // `
 
 const AUTOCOMPLETE_USER_PROMPT = `
-<EVENTS>
-{events}
-</EVENTS>
-
 <CODE>
 {prefix}<EDITABLE_CODE>
 {modifiablePrefix}<CURSOR>{modifiableSuffix}
@@ -90,8 +85,7 @@ export async function autocompleteRequest(
 		language: string
 		events: string[]
 	},
-	abortController: AbortController,
-	aiProvider: AIProvider
+	abortController: AbortController
 ) {
 	codeCompletionLoading.set(true)
 	const systemPrompt = AUTOCOMPLETE_SYSTEM_PROMPT
@@ -109,8 +103,7 @@ export async function autocompleteRequest(
 				{ role: 'system', content: systemPrompt },
 				{ role: 'user', content: userPrompt }
 			],
-			abortController,
-			aiProvider
+			abortController
 		)
 
 		return postProcessing(completion)

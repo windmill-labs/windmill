@@ -1,7 +1,6 @@
 import { type Change, createTwoFilesPatch, diffLines, diffWordsWithSpace } from 'diff'
 import { type editor as meditor } from 'monaco-editor'
 import { autocompleteRequest } from './request'
-import type { AIProvider } from '$lib/gen'
 import { sleep } from '$lib/utils'
 
 function applyMonacoStyles(targetEl: HTMLElement, greenHighlight?: boolean) {
@@ -111,7 +110,7 @@ function getReviewButtons(
 	acceptButton.innerHTML = 'Accept'
 	acceptButton.style.color = 'black'
 	acceptButton.style.padding = '0.1rem 0.2rem'
-	acceptButton.style.backgroundColor = 'rgb(100, 255, 100)'
+	acceptButton.style.backgroundColor = 'rgb(160, 230, 160)'
 	acceptButton.classList.add('text-xs', 'font-normal', 'rounded-bl')
 	acceptButton.addEventListener('click', () => {
 		acceptFn()
@@ -122,7 +121,7 @@ function getReviewButtons(
 	rejectButton.innerHTML = 'Reject'
 	rejectButton.style.color = 'black'
 	rejectButton.style.padding = '0.1rem 0.2rem'
-	rejectButton.style.backgroundColor = 'rgb(255, 100, 100)'
+	rejectButton.style.backgroundColor = 'rgb(230, 160, 160)'
 	rejectButton.classList.add('text-xs', 'font-normal', 'rounded-br')
 	rejectButton.addEventListener('click', () => {
 		rejectFn()
@@ -415,7 +414,6 @@ const MAX_PATCHES = 4
 
 export class Autocompletor {
 	editor: meditor.IStandaloneCodeEditor
-	aiProvider: AIProvider
 	language: string
 
 	viewZoneIds: string[] = []
@@ -448,9 +446,8 @@ export class Autocompletor {
 	lastCodeValue: string
 	patches: string[] = []
 
-	constructor(editor: meditor.IStandaloneCodeEditor, aiProvider: AIProvider, language: string) {
+	constructor(editor: meditor.IStandaloneCodeEditor, language: string) {
 		this.editor = editor
-		this.aiProvider = aiProvider
 		this.language = language
 		this.lastCodeValue = editor.getModel()?.getValue() || ''
 	}
@@ -497,6 +494,10 @@ export class Autocompletor {
 		this.lastTs = thisTs
 
 		await sleep(200)
+
+		if (model.isDisposed()) {
+			return
+		}
 
 		if (thisTs !== this.lastTs) {
 			return
@@ -571,8 +572,7 @@ export class Autocompletor {
 				language: this.language,
 				events: this.patches
 			},
-			this.abortController,
-			this.aiProvider
+			this.abortController
 		)
 
 		if (!returnedCode) {
@@ -604,7 +604,7 @@ export class Autocompletor {
 						lineNumber: lastAddChange.position.line,
 						column: lastAddChange.position.column + lastAddChange.value.length
 					}
-				} else {
+				} else if (lastAddChange.type === 'added_block') {
 					this.lastChangePosition = {
 						lineNumber:
 							lastAddChange.position.afterLineNumber + lastAddChange.value.split('\n').length,

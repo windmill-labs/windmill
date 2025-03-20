@@ -12,7 +12,7 @@
 	}
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $copilotInfo.code_completion_model}
+{#if $copilotInfo.enabled && $copilotInfo.codeCompletionModel}
 	<Toggle
 		size="xs"
 		bind:checked={$codeCompletionSessionEnabled}

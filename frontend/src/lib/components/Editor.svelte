@@ -172,6 +172,8 @@
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
+	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
+	import { writable } from 'svelte/store'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -599,13 +601,15 @@
 		}
 	}
 
+	let reviewingChanges = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
 	export function reviewAndApplyCode(code: string) {
-		aiChatEditorHandler?.showDiffs(code)
+		aiChatEditorHandler?.reviewAndApply(code)
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
 		aiChatEditorHandler = new AIChatEditorHandler(editor)
+		reviewingChanges = aiChatEditorHandler.reviewingChanges
 	}
 
 	let completorDisposable: Disposable | undefined = undefined
@@ -614,7 +618,7 @@
 		if (completorDisposable) {
 			completorDisposable.dispose()
 		}
-		const autocompletor = new Autocompletor(editor, $copilotInfo.ai_provider, lang)
+		const autocompletor = new Autocompletor(editor, lang)
 
 		let lastTs = Date.now()
 		editor.onDidChangeModelContent((e) => {
@@ -629,7 +633,6 @@
 
 		completorDisposable = editor.onDidChangeModelContent((e) => {
 			autocompletor.reject()
-
 			const position = editor.getPosition()
 			if (!position) {
 				return
@@ -640,7 +643,6 @@
 				endLineNumber: position.lineNumber,
 				endColumn: position.column
 			})
-
 			const lastChar = upToText ? upToText[upToText.length - 1] : ''
 			if (!lastChar || lastChar.match(/[\(\{\s:="',]/)) {
 				autocompletor.autocomplete()
@@ -662,14 +664,14 @@
 		})
 	}
 
-	$: $copilotInfo.exists_ai_resource &&
-		$copilotInfo.code_completion_model &&
+	$: $copilotInfo.enabled &&
+		$copilotInfo.codeCompletionModel &&
 		$codeCompletionSessionEnabled &&
 		initialized &&
 		editor &&
 		addSuperCompletor(editor)
 
-	$: initialized && editor && addChatHandler(editor)
+	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
 
 	$: !$codeCompletionSessionEnabled && completorDisposable && completorDisposable.dispose()
 
@@ -1345,6 +1347,17 @@
 <div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}" />
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+{/if}
+
+{#if $reviewingChanges}
+	<GlobalReviewButtons
+		on:acceptAll={() => {
+			aiChatEditorHandler?.acceptAll()
+		}}
+		on:rejectAll={() => {
+			aiChatEditorHandler?.rejectAll()
+		}}
+	/>
 {/if}
 
 <style global lang="postcss">

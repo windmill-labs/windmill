@@ -2,9 +2,22 @@
 
 export type AIProvider = 'openai' | 'anthropic' | 'mistral' | 'deepseek' | 'googleai' | 'groq' | 'openrouter' | 'customai';
 
-export type AIResource = {
-    path: string;
+export type AIProviderModel = {
+    model: string;
     provider: AIProvider;
+};
+
+export type AIProviderConfig = {
+    resource_path: string;
+    models: Array<(string)>;
+};
+
+export type AIConfig = {
+    providers?: {
+        [key: string]: AIProviderConfig;
+    };
+    default_model?: AIProviderModel;
+    code_completion_model?: AIProviderModel;
 };
 
 export type Script = {
@@ -684,31 +697,20 @@ export type WebsocketTriggerInitialMessage = {
     };
 };
 
-export type QoS = 0 | 1 | 2;
+export type MqttQoS = 'qos0' | 'qos1' | 'qos2';
 
-export type CommonMqttConfig = {
-    will?: {
-        topic?: string;
-        message?: Array<(number)>;
-        qos?: QoS;
-        retain?: boolean;
-    };
-};
-
-export type MqttV3Config = CommonMqttConfig & {
+export type MqttV3Config = {
     clean_session?: boolean;
 };
 
-export type MqttV5Config = CommonMqttConfig & {
+export type MqttV5Config = {
     clean_start?: boolean;
-    keep_alive?: number;
-    session_expiration?: number;
-    receive_maximum?: number;
-    maximum_packet_size?: number;
+    topic_alias?: number;
+    session_expiry_interval?: number;
 };
 
-export type SubscribeTopic = {
-    qos: QoS;
+export type MqttSubscribeTopic = {
+    qos: MqttQoS;
     topic: string;
 };
 
@@ -716,7 +718,7 @@ export type MqttClientVersion = 'v3' | 'v5';
 
 export type MqttTrigger = TriggerExtraProperty & {
     mqtt_resource_path: string;
-    subscribe_topics: Array<SubscribeTopic>;
+    subscribe_topics: Array<MqttSubscribeTopic>;
     v3_config?: MqttV3Config;
     v5_config?: MqttV5Config;
     client_id?: string;
@@ -729,7 +731,7 @@ export type MqttTrigger = TriggerExtraProperty & {
 
 export type NewMqttTrigger = {
     mqtt_resource_path: string;
-    subscribe_topics: Array<SubscribeTopic>;
+    subscribe_topics: Array<MqttSubscribeTopic>;
     client_id?: string;
     v3_config?: MqttV3Config;
     v5_config?: MqttV5Config;
@@ -742,7 +744,7 @@ export type NewMqttTrigger = {
 
 export type EditMqttTrigger = {
     mqtt_resource_path: string;
-    subscribe_topics: Array<SubscribeTopic>;
+    subscribe_topics: Array<MqttSubscribeTopic>;
     client_id?: string;
     v3_config?: MqttV3Config;
     v5_config?: MqttV5Config;
@@ -1007,7 +1009,9 @@ export type GlobalUserInfo = {
 
 export type login_type = 'password' | 'github';
 
-export type Flow = OpenFlow & FlowMetadata;
+export type Flow = OpenFlow & FlowMetadata & {
+    lock_error_logs?: string;
+};
 
 export type ExtraPerms = {
     [key: string]: (boolean);
@@ -1069,6 +1073,10 @@ export type Policy = {
     };
     s3_inputs?: Array<{
         [key: string]: unknown;
+    }>;
+    allowed_s3_keys?: Array<{
+        s3_path?: string;
+        resource?: string;
     }>;
     execution_mode?: 'viewer' | 'publisher' | 'anonymous';
     on_behalf_of?: string;
@@ -1215,7 +1223,7 @@ export type WorkspaceGitSyncSettings = {
 
 export type WorkspaceDeployUISettings = {
     include_path?: Array<(string)>;
-    include_type?: Array<('script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret')>;
+    include_type?: Array<('script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger')>;
 };
 
 export type WorkspaceDefaultScripts = {
@@ -1924,6 +1932,10 @@ export type ListAuditLogsData = {
      */
     after?: string;
     /**
+     * get audit logs for all workspaces
+     */
+    allWorkspaces?: boolean;
+    /**
      * filter on started before (inclusive) timestamp
      */
     before?: string;
@@ -2523,9 +2535,7 @@ export type GetSettingsResponse = ({
     customer_id?: string;
     webhook?: string;
     deploy_to?: string;
-    ai_resource?: AIResource;
-    code_completion_model?: string;
-    ai_models: Array<(string)>;
+    ai_config?: AIConfig;
     error_handler?: string;
     error_handler_extra_args?: ScriptArgs;
     error_handler_muted_on_cancel: boolean;
@@ -2727,11 +2737,7 @@ export type EditCopilotConfigData = {
     /**
      * WorkspaceCopilotConfig
      */
-    requestBody: {
-        ai_resource?: AIResource;
-        code_completion_model?: string;
-        ai_models: Array<(string)>;
-    };
+    requestBody: AIConfig;
     workspace: string;
 };
 
@@ -2741,12 +2747,7 @@ export type GetCopilotInfoData = {
     workspace: string;
 };
 
-export type GetCopilotInfoResponse = ({
-    ai_provider?: AIProvider;
-    exists_ai_resource: boolean;
-    code_completion_model?: string;
-    ai_models: Array<(string)>;
-});
+export type GetCopilotInfoResponse = (AIConfig);
 
 export type EditErrorHandlerData = {
     /**
@@ -4180,6 +4181,14 @@ export type GetFlowLatestVersionData = {
 
 export type GetFlowLatestVersionResponse = (FlowVersion);
 
+export type ListFlowPathsFromWorkspaceRunnableData = {
+    path: string;
+    runnableKind: 'script' | 'flow';
+    workspace: string;
+};
+
+export type ListFlowPathsFromWorkspaceRunnableResponse = (Array<(string)>);
+
 export type GetFlowVersionData = {
     path: string;
     version: number;
@@ -4209,6 +4218,15 @@ export type GetFlowByPathData = {
 };
 
 export type GetFlowByPathResponse = (Flow);
+
+export type GetFlowDeploymentStatusData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetFlowDeploymentStatusResponse = ({
+    lock_error_logs?: string;
+});
 
 export type GetTriggersCountOfFlowData = {
     path: string;
@@ -4608,6 +4626,34 @@ export type ExecuteComponentData = {
 };
 
 export type ExecuteComponentResponse = (string);
+
+export type UploadS3FileFromAppData = {
+    contentDisposition?: string;
+    contentType?: string;
+    fileExtension?: string;
+    fileKey?: string;
+    path: string;
+    /**
+     * File content
+     */
+    requestBody: (Blob | File);
+    resourceType?: string;
+    s3ResourcePath?: string;
+    storage?: string;
+    workspace: string;
+};
+
+export type UploadS3FileFromAppResponse = ({
+    file_key: string;
+    delete_token: string;
+});
+
+export type DeleteS3FileFromAppData = {
+    deleteToken: string;
+    workspace: string;
+};
+
+export type DeleteS3FileFromAppResponse = (string);
 
 export type RunFlowByPathData = {
     /**

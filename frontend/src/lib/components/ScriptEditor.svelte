@@ -3,7 +3,7 @@
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -22,7 +22,15 @@
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
-	import { Clipboard, CornerDownLeft, Github, Play, PlayIcon, WandSparkles } from 'lucide-svelte'
+	import {
+		Clipboard,
+		CornerDownLeft,
+		ExternalLink,
+		Github,
+		Play,
+		PlayIcon,
+		WandSparkles
+	} from 'lucide-svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -33,6 +41,7 @@
 	import AIChat from './copilot/chat/AIChat.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
+	import { base } from '$lib/base'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -275,19 +284,23 @@
 
 	setContext('disableTooltips', customUi?.disableTooltips === true)
 
-	let codePanelSize = 40
-	let aiPanelSize = 30
-	let storedAiPanelSize = aiPanelSize
+	let aiPanelSize =
+		!$copilotInfo.enabled || localStorage.getItem('aiPanelOpen') === 'false' ? 0 : 30
+	let codePanelSize = 40 + (30 - aiPanelSize)
+	let storedAiPanelSize = aiPanelSize > 0 ? aiPanelSize : 30
 	let testPanelSize = 30
 	let storedTestPanelSize = testPanelSize
 	function toggleAiPanel() {
+		if (!$copilotInfo.enabled) return
 		if (aiPanelSize > 0) {
 			storedAiPanelSize = aiPanelSize
 			codePanelSize += aiPanelSize
 			aiPanelSize = 0
+			localStorage.setItem('aiPanelOpen', 'false')
 		} else {
 			codePanelSize -= storedAiPanelSize
 			aiPanelSize = storedAiPanelSize
+			localStorage.setItem('aiPanelOpen', 'true')
 		}
 	}
 
@@ -354,7 +367,7 @@
 					setCollaborationMode()
 				}
 			}}
-			customUi={customUi?.editorBar}
+			customUi={{ ...customUi?.editorBar, aiGen: false }}
 			collabLive={wsProvider?.shouldConnect}
 			{collabMode}
 			{validCode}
@@ -398,18 +411,33 @@
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-2 z-10 flex flex-row gap-2">
 					{#if aiPanelSize === 0}
-						<HideButton
-							hidden={true}
-							direction="right"
-							panelName="AI"
-							shortcut="L"
-							size="md"
-							customHiddenIcon={WandSparkles}
-							btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
-							on:click={() => {
-								toggleAiPanel()
-							}}
-						/>
+						{#if customUi?.editorBar?.aiGen != false}
+							<HideButton
+								hidden={true}
+								direction="right"
+								panelName="AI"
+								shortcut="L"
+								size="md"
+								usePopoverOverride={!$copilotInfo.enabled}
+								customHiddenIcon={WandSparkles}
+								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
+								on:click={() => {
+									toggleAiPanel()
+								}}
+							>
+								<svelte:fragment slot="popoverOverride">
+									<div class="text-sm">
+										Enable Windmill AI in the <a
+											href="{base}/workspace_settings?tab=ai"
+											target="_blank"
+											class="inline-flex flex-row items-center gap-1"
+										>
+											workspace settings <ExternalLink size={16} />
+										</a>
+									</div>
+								</svelte:fragment>
+							</HideButton>
+						{/if}
 						{#if testPanelSize === 0}
 							<HideButton
 								hidden={true}
@@ -472,13 +500,15 @@
 				{/key}
 			</div>
 		</Pane>
-		{#if lang}
-			<Pane bind:size={aiPanelSize} minSize={10}>
+		{#if lang && $copilotInfo.enabled}
+			<Pane bind:size={aiPanelSize} minSize={0}>
 				<AIChat
 					bind:this={aiChat}
 					{code}
 					{lang}
 					{error}
+					{args}
+					{path}
 					on:applyCode={(e) => {
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
@@ -508,14 +538,15 @@
 								on:click={() => {
 									toggleTestPanel()
 								}}
-								btnClasses="border border border-gray-200 dark:border-gray-600 bg-surface"
+								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+								color="marine"
 							/>
 						{/if}
 					</svelte:fragment>
 				</AIChat>
 			</Pane>
 		{/if}
-		<Pane bind:size={testPanelSize} minSize={10}>
+		<Pane bind:size={testPanelSize} minSize={0}>
 			<div class="flex flex-col h-full">
 				{#if showTabs}
 					<div transition:slide={{ duration: 200 }}>
@@ -630,6 +661,7 @@
 							on:fix={() => {
 								aiChat?.fix()
 							}}
+							fixChatMode
 							{lang}
 							previewJob={testJob}
 							{pastPreviews}

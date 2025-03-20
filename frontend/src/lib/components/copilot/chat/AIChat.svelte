@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { copilotInfo, copilotSessionModel, workspaceStore } from '$lib/stores'
+	import {
+		copilotInfo,
+		copilotSessionModel,
+		dbSchemas,
+		type DBSchema,
+		type DBSchemas
+	} from '$lib/stores'
 	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import {
@@ -7,54 +13,127 @@
 		prepareSystemMessage,
 		prepareUserMessage,
 		type AIChatContext,
-		type ContextConfig,
-		type DisplayMessage
+		type ContextElement,
+		type DisplayMessage,
+		type SelectedContext
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
+	import { langToExt } from '$lib/editorUtils'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	export let lang: ScriptLang
 	export let code: string
 	export let error: string | undefined
+	export let args: Record<string, any>
+	export let path: string | undefined
 
-	let contextConfig: ContextConfig = {
-		code: true,
-		error: false
-	}
-
-	let hasInitCode: boolean | null = null
-	$: lang && (hasInitCode = null)
+	let initializedWithInitCode: boolean | null = null
+	$: lang && (initializedWithInitCode = null)
 	function onCodeChange() {
-		if (hasInitCode === null && code) {
+		if (initializedWithInitCode === null && code) {
 			if (isInitialCode(code)) {
-				hasInitCode = true
-				contextConfig.code = false
+				initializedWithInitCode = true
 			} else {
-				hasInitCode = false
+				initializedWithInitCode = false
+				selectedContext = [
+					{
+						type: 'code',
+						title: contextCodePath
+					}
+				]
 			}
-		} else if (hasInitCode) {
-			contextConfig.code = true
+		} else if (initializedWithInitCode) {
+			// if the code was initial and was changed, add code context, then prevent it from being added again
+			selectedContext = [
+				{
+					type: 'code',
+					title: contextCodePath
+				}
+			]
+			initializedWithInitCode = false
 		}
 	}
 	$: code && onCodeChange()
-	$: !error && (contextConfig.error = false)
+
+	$: contextCodePath =
+		(path?.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
+
+	let db: { schema: DBSchema; resource: string } | undefined = undefined
+
+	function updateSchema(lang: ScriptLang, args: Record<string, any>, dbSchemas: DBSchemas) {
+		const schemaRes = lang === 'graphql' ? args.api : args.database
+		if (typeof schemaRes === 'string') {
+			const schemaPath = schemaRes.replace('$res:', '')
+			const schema = dbSchemas[schemaPath]
+			if (schema && schema.lang === lang) {
+				db = { schema, resource: schemaPath }
+			} else {
+				db = undefined
+			}
+		} else {
+			db = undefined
+		}
+	}
+	$: updateSchema(lang, args, $dbSchemas)
+
+	let selectedContext: SelectedContext[] = []
+
+	let availableContext: ContextElement[] = []
+
+	function updateAvailableContext(
+		contextCodePath: string,
+		code: string,
+		lang: ScriptLang,
+		error: string | undefined,
+		db: { schema: DBSchema; resource: string } | undefined
+	) {
+		availableContext = [
+			{
+				type: 'code',
+				title: contextCodePath,
+				content: code,
+				lang
+			}
+		]
+
+		if (error) {
+			availableContext = [
+				...availableContext,
+				{
+					type: 'error',
+					title: 'error',
+					content: error
+				}
+			]
+		}
+
+		if (db) {
+			availableContext = [
+				...availableContext,
+				{
+					type: 'db',
+					title: db.resource,
+					schema: db.schema
+				}
+			]
+		}
+	}
+
+	$: updateAvailableContext(contextCodePath, code, lang, error, db)
 
 	let instructions = ''
 	let loading = writable(false)
 	let currentReply: Writable<string> = writable('')
-	const codeStore = writable(code)
-
-	$: codeStore.set(code)
 
 	const dispatch = createEventDispatcher<{
 		applyCode: { code: string }
 	}>()
 
 	setContext<AIChatContext>('AIChatContext', {
-		originalCode: codeStore,
 		loading,
 		currentReply,
 		applyCode: (code: string) => {
@@ -70,11 +149,13 @@
 			displayMessages: DisplayMessage[]
 			title: string
 			id: string
+			lastModified: number
 		}
 	> = {}
+
 	$: pastChats = Object.values(savedChats)
 		.filter((c) => c.id !== currentChatId)
-		.reverse()
+		.sort((a, b) => b.lastModified - a.lastModified)
 
 	let messages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
 		prepareSystemMessage(lang)
@@ -85,9 +166,9 @@
 	function checkForInvalidModel() {
 		if (
 			!$copilotSessionModel ||
-			($copilotSessionModel && !$copilotInfo.ai_models.includes($copilotSessionModel))
+			($copilotSessionModel && !$copilotInfo.aiModels.includes($copilotSessionModel))
 		) {
-			$copilotSessionModel = $copilotInfo.ai_models[0]
+			$copilotSessionModel = $copilotInfo.aiModels[0]
 		}
 	}
 	$: $copilotInfo && checkForInvalidModel()
@@ -98,34 +179,43 @@
 		}
 		try {
 			loading.set(true)
+			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
-			displayMessages = [...displayMessages, { role: 'user', content: instructions, contextConfig }]
+
+			const contextElements: ContextElement[] = []
+
+			for (const selected of selectedContext) {
+				const el = availableContext.find(
+					(c) => c.type === selected.type && c.title === selected.title
+				)
+				if (el) {
+					contextElements.push(el)
+				}
+			}
+
+			displayMessages = [
+				...displayMessages,
+				{ role: 'user', content: instructions, contextElements, code, language: lang }
+			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, $workspaceStore!, {
-				code: contextConfig.code ? code : undefined,
-				error: contextConfig.error ? error : undefined
-			})
+			const userMessage = await prepareUserMessage(oldInstructions, lang, contextElements)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
 
 			$currentReply = ''
-			await chatRequest(messages, abortController, $copilotInfo.ai_provider, lang, (token) => {
+			await chatRequest(messages, abortController, lang, db, (token) => {
 				currentReply.update((prev) => prev + token)
 			})
 
-			// if (completion) {
-			// for await (const part of completion) {
-			// 	const token = getResponseFromEvent(part, $copilotInfo.ai_provider)
-			// 	currentReply.update((prev) => prev + token)
-			// }
-
 			messages.push({ role: 'assistant', content: $currentReply })
-			displayMessages = [...displayMessages, { role: 'assistant', content: $currentReply }]
+			displayMessages = [
+				...displayMessages,
+				{ role: 'assistant', content: $currentReply, code, language: lang }
+			]
 			currentReply.set('')
 			await saveChat()
-			// }
 		} catch (err) {
 			console.error(err)
 			if (err instanceof Error) {
@@ -149,15 +239,16 @@
 				actualMessages: messages,
 				displayMessages: displayMessages,
 				title: displayMessages[0].content.slice(0, 50),
-				id: currentChatId
+				id: currentChatId,
+				lastModified: Date.now()
 			}
 			savedChats = {
 				...savedChats,
 				[updatedChat.id]: updatedChat
 			}
 
-			if (db) {
-				await db.put('chats', updatedChat)
+			if (indexDB) {
+				await indexDB.put('chats', updatedChat)
 			}
 		}
 	}
@@ -171,7 +262,7 @@
 
 	function deletePastChat(id: string) {
 		savedChats = Object.fromEntries(Object.entries(savedChats).filter(([key]) => key !== id))
-		db?.delete('chats', id)
+		indexDB?.delete('chats', id)
 	}
 
 	function loadPastChat(id: string) {
@@ -180,20 +271,28 @@
 			messages = chat.actualMessages
 			displayMessages = chat.displayMessages
 			currentChatId = id
+			aiChatDisplay?.enableAutomaticScroll()
 		}
-		return []
 	}
 
 	export function fix() {
 		instructions = 'Fix the error'
-		contextConfig = {
-			code: true,
-			error: true
-		}
+
+		selectedContext = [
+			{
+				type: 'code',
+				title: contextCodePath
+			},
+			{
+				type: 'error',
+				title: 'error'
+			}
+		]
+
 		sendRequest()
 	}
 
-	interface ChatSchema extends DBSchema {
+	interface ChatSchema extends IDBSchema {
 		chats: {
 			key: string
 			value: {
@@ -201,40 +300,44 @@
 				actualMessages: { role: 'user' | 'assistant' | 'system'; content: string }[]
 				displayMessages: DisplayMessage[]
 				title: string
+				lastModified: number
 			}
 		}
 	}
 
-	let db: IDBPDatabase<ChatSchema> | undefined = undefined
-	async function initDB() {
-		db = await openDB<ChatSchema>('copilot-chat-history', 1, {
-			upgrade(db) {
-				if (!db.objectStoreNames.contains('chats')) {
-					db.createObjectStore('chats', { keyPath: 'id' })
+	let indexDB: IDBPDatabase<ChatSchema> | undefined = undefined
+	async function initIndexDB() {
+		indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
+			upgrade(indexDB) {
+				if (!indexDB.objectStoreNames.contains('chats')) {
+					indexDB.createObjectStore('chats', { keyPath: 'id' })
 				}
 			}
 		})
 
-		const chats = await db.getAll('chats')
+		const chats = await indexDB.getAll('chats')
 		savedChats = chats.reduce((acc, chat) => {
 			acc[chat.id] = chat
 			return acc
 		}, {} as typeof savedChats)
 	}
 
-	initDB()
+	initIndexDB()
 
 	onDestroy(() => {
-		db?.close()
+		indexDB?.close()
 	})
+
+	let aiChatDisplay: AIChatDisplay | undefined = undefined
 </script>
 
 <AIChatDisplay
+	bind:this={aiChatDisplay}
 	{pastChats}
-	{error}
-	bind:contextConfig
+	bind:selectedContext
+	{availableContext}
 	messages={$currentReply
-		? [...displayMessages, { role: 'assistant', content: $currentReply }]
+		? [...displayMessages, { role: 'assistant', content: $currentReply, code, language: lang }]
 		: displayMessages}
 	bind:instructions
 	on:sendRequest={sendRequest}

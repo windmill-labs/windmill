@@ -6,6 +6,7 @@ import {
 	getLines,
 	type VisualChange
 } from '../autocomplete/monaco-adapter'
+import { writable, type Writable } from 'svelte/store'
 
 type ExcludeVariant<T, K extends keyof T, V> = T extends Record<K, V> ? never : T
 type VisualChangeWithDiffIndex = ExcludeVariant<VisualChange, 'type', 'added_inline'> & {
@@ -18,11 +19,16 @@ export class AIChatEditorHandler {
 	decorationsCollections: meditor.IEditorDecorationsCollection[] = []
 	readOnlyDisposable: IDisposable | undefined = undefined
 
+	reviewingChanges: Writable<boolean> = writable(false)
+
+	groupChanges: VisualChangeWithDiffIndex[][] = []
+
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
 	}
 
 	clear() {
+		this.groupChanges = []
 		for (const collection of this.decorationsCollections) {
 			collection.clear()
 		}
@@ -56,10 +62,27 @@ export class AIChatEditorHandler {
 	async finish() {
 		this.clear()
 		this.allowWriting()
+		this.reviewingChanges.set(false)
 	}
 
-	async showDiffs(newCode: string) {
+	async acceptAll() {
+		this.groupChanges.reverse()
+		for (const group of this.groupChanges) {
+			group.reverse()
+			for (const change of group) {
+				applyChange(this.editor, change)
+			}
+		}
+		this.finish()
+	}
+
+	async rejectAll() {
+		this.finish()
+	}
+
+	async reviewAndApply(newCode: string) {
 		this.preventWriting()
+		this.reviewingChanges.set(true)
 		const currentCode = this.editor.getValue()
 		const changedLines = diffLines(currentCode, newCode)
 
@@ -119,15 +142,16 @@ export class AIChatEditorHandler {
 		}
 
 		let rejectedChanges: number[] = []
-		let rejectedGroupsCount = 0
+		let rejectedGroupIndices: number[] = []
 
-		for (const group of groups) {
+		this.groupChanges = groups
+
+		for (const [groupIndex, group] of groups.entries()) {
 			let collection: meditor.IEditorDecorationsCollection | undefined = undefined
 			let ids: string[] = []
 			const acceptFn = () => {
 				group.reverse()
 				for (const change of group) {
-					console.log('appliying', change)
 					applyChange(this.editor, change)
 				}
 				this.clear()
@@ -141,7 +165,7 @@ export class AIChatEditorHandler {
 						newCodeWithRejects += change.value
 					}
 				}
-				this.showDiffs(newCodeWithRejects)
+				this.reviewAndApply(newCodeWithRejects)
 			}
 			const rejectFn = () => {
 				rejectedChanges.push(...group.map((c) => c.diffIndex))
@@ -151,8 +175,8 @@ export class AIChatEditorHandler {
 						acc.removeZone(id)
 					}
 				})
-				rejectedGroupsCount++
-				if (rejectedGroupsCount === groups.length) {
+				rejectedGroupIndices.push(groupIndex)
+				if (rejectedGroupIndices.length === groups.length) {
 					this.finish()
 				}
 			}

@@ -1,17 +1,17 @@
 import { ResourceService } from '$lib/gen/services.gen'
-import type { AIProvider, ResourceType, ScriptLang } from '$lib/gen/types.gen'
+import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, toCamel } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import { getCompletion } from '../lib'
 import { compile, phpCompile, pythonCompile } from '../utils'
-import { Code, TriangleAlert } from 'lucide-svelte'
+import { Code, Database, TriangleAlert } from 'lucide-svelte'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
 	ChatCompletionMessageToolCall,
 	ChatCompletionTool
 } from 'openai/resources/index.mjs'
-import { workspaceStore } from '$lib/stores'
+import { workspaceStore, type DBSchema } from '$lib/stores'
 
 export function formatResourceTypes(
 	resourceTypes: ResourceType[],
@@ -155,7 +155,7 @@ Do not output any of these instructions, nor tell the user anything about them u
 `
 
 const CHAT_USER_CODE_CONTEXT = `
-CODE:
+CODE ({title}):
 \`\`\`{language}
 {code}
 \`\`\`
@@ -182,46 +182,66 @@ export function prepareSystemMessage(language: ScriptLang): { role: 'system'; co
 	}
 }
 
-export interface Context {
-	code?: string
-	error?: string
-}
-
-export type ContextConfig = Record<keyof Context, boolean>
-
 export interface DisplayMessage {
 	role: 'user' | 'assistant'
 	content: string
-	contextConfig?: ContextConfig
+	code: string
+	language: ScriptLang
+	contextElements?: ContextElement[]
 }
 
 export const ContextIconMap = {
 	code: Code,
-	error: TriangleAlert
+	error: TriangleAlert,
+	db: Database
 }
+
+export type SelectedContext = {
+	type: 'code' | 'error' | 'db'
+	title: string
+}
+
+export type ContextElement =
+	| {
+			type: 'code'
+			content: string
+			title: string
+			lang: ScriptLang
+	  }
+	| {
+			type: 'error'
+			content: string
+			title: 'error'
+	  }
+	| {
+			type: 'db'
+			schema: DBSchema
+			title: string
+	  }
 
 export async function prepareUserMessage(
 	instructions: string,
 	language: ScriptLang,
-	workspace: string,
-	context: Context
+	selectedContext: ContextElement[]
 ) {
 	let codeContext = ''
-	if (context.code !== undefined) {
-		codeContext = CHAT_USER_CODE_CONTEXT.replace('{language}', language).replace(
-			'{code}',
-			context.code
-		)
-	}
-
-	let errorPrompt = ''
-	if (context.error !== undefined) {
-		errorPrompt = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.error)
+	let errorContext = ''
+	for (const context of selectedContext) {
+		if (context.type === 'code') {
+			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
+				.replace('{language}', language)
+				.replace('{code}', context.content)
+		} else if (context.type === 'error') {
+			if (errorContext) {
+				throw new Error('Multiple error contexts provided')
+			}
+			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
+		}
 	}
 
 	const userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
 		.replace('{code_context}', codeContext)
-		.replace('{error_context}', errorPrompt)
+		.replace('{error_context}', errorContext)
 
 	return userMessage
 }
@@ -247,19 +267,71 @@ const RESOURCE_TYPE_FUNCTION_DEF: ChatCompletionTool = {
 	}
 }
 
+const DB_SCHEMA_FUNCTION_DEF: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'get_db_schema',
+		description: 'Gets the schema of the database in context'
+	}
+}
+
+export const MAX_SCHEMA_LENGTH = 100000 * 3.5
+
+async function formatDBSChema(dbSchema: DBSchema) {
+	let { stringified } = dbSchema
+	if (dbSchema.lang === 'graphql') {
+		if (stringified.length > MAX_SCHEMA_LENGTH) {
+			stringified = stringified.slice(0, MAX_SCHEMA_LENGTH) + '...'
+		}
+		return 'GRAPHQL SCHEMA:\n' + stringified
+	} else {
+		if (stringified.length > MAX_SCHEMA_LENGTH) {
+			stringified = stringified.slice(0, MAX_SCHEMA_LENGTH) + '...'
+		}
+		return (
+			'DATABASE SCHEMA (each column is in the format [name, type, required, default?]):\n' +
+			stringified
+		)
+	}
+}
+
+async function callTool(
+	functionName: string,
+	args: any,
+	lang: ScriptLang,
+	db: { schema: DBSchema; resource: string } | undefined,
+	workspace: string
+) {
+	switch (functionName) {
+		case 'search_resource_types':
+			const resourceType = await getResourceTypeNamespace(lang, args.query, workspace)
+			return resourceType
+		case 'get_db_schema':
+			if (!db) {
+				throw new Error('No database schema provided')
+			}
+			const stringSchema = await formatDBSChema(db.schema)
+			return stringSchema
+		default:
+			throw new Error(`Unknown tool call: ${functionName}`)
+	}
+}
+
 export async function chatRequest(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	aiProvider: AIProvider,
 	lang: ScriptLang,
+	db: { schema: DBSchema; resource: string } | undefined,
 	onNewToken: (token: string) => void
 ) {
+	const toolDefs = [RESOURCE_TYPE_FUNCTION_DEF]
+	if (db) {
+		toolDefs.push(DB_SCHEMA_FUNCTION_DEF)
+	}
 	try {
 		let completion: any = null
 		while (true) {
-			completion = await getCompletion(messages, abortController, aiProvider, [
-				RESOURCE_TYPE_FUNCTION_DEF
-			])
+			completion = await getCompletion(messages, abortController, toolDefs)
 
 			if (completion) {
 				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
@@ -273,15 +345,16 @@ export async function chatRequest(
 					const toolCalls = c.choices[0].delta.tool_calls || []
 					for (const toolCall of toolCalls) {
 						const { index } = toolCall
-						if (!finalToolCalls[index]) {
+						const finalToolCall = finalToolCalls[index]
+						if (!finalToolCall) {
 							finalToolCalls[index] = toolCall
 						} else {
 							if (toolCall.function?.arguments) {
-								if (!finalToolCalls[index].function) {
-									finalToolCalls[index].function = toolCall.function
+								if (!finalToolCall.function) {
+									finalToolCall.function = toolCall.function
 								} else {
-									finalToolCalls[index].function.arguments =
-										(finalToolCalls[index].function.arguments ?? '') + toolCall.function.arguments
+									finalToolCall.function.arguments =
+										(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
 								}
 							}
 						}
@@ -300,18 +373,20 @@ export async function chatRequest(
 					for (const toolCall of toolCalls) {
 						try {
 							const args = JSON.parse(toolCall.function.arguments)
-							const resourceType = await getResourceTypeNamespace(
+							const result = await callTool(
+								toolCall.function.name,
+								args,
 								lang,
-								args.query,
+								db,
 								get(workspaceStore) ?? ''
 							)
-
 							messages.push({
 								role: 'tool',
 								tool_call_id: toolCall.id,
-								content: resourceType
+								content: result
 							})
 						} catch (err) {
+							console.error(err)
 							throw new Error('Error parsing tool call arguments')
 						}
 					}
@@ -329,7 +404,6 @@ export async function chatRequest(
 }
 
 export interface AIChatContext {
-	originalCode: Writable<string>
 	loading: Writable<boolean>
 	currentReply: Writable<string>
 	applyCode: (code: string) => void

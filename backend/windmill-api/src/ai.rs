@@ -284,15 +284,13 @@ pub enum KeyCache {
 
 #[derive(Clone, Debug)]
 pub struct AICache {
-    pub path: String,
     pub cached_key: KeyCache,
     pub expires_at: std::time::Instant,
 }
 
 impl AICache {
-    pub fn new(path: String, cached_key: KeyCache) -> Self {
+    pub fn new(cached_key: KeyCache) -> Self {
         Self {
-            path,
             cached_key,
             expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
         }
@@ -303,10 +301,10 @@ impl AICache {
 }
 
 lazy_static! {
-    pub static ref AI_KEY_CACHE: Cache<String, AICache> = Cache::new(500);
+    pub static ref AI_KEY_CACHE: Cache<(String, AIProvider), AICache> = Cache::new(500);
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AIProvider {
     OpenAI,
@@ -353,10 +351,26 @@ impl TryFrom<&str> for AIProvider {
     }
 }
 
-#[derive(Deserialize, Debug)]
-pub struct AIResource {
-    pub path: Option<String>,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ProviderConfig {
+    pub resource_path: String,
+    pub models: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ProviderModel {
+    pub model: String,
     pub provider: AIProvider,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AIConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub providers: Option<HashMap<AIProvider, ProviderConfig>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<ProviderModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_completion_model: Option<ProviderModel>,
 }
 
 pub fn global_service() -> Router {
@@ -438,23 +452,24 @@ async fn proxy(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    let workspace_cache = AI_KEY_CACHE.get(&w_id);
+    let provider = headers
+        .get("X-Provider")
+        .map(|v| v.to_str().unwrap_or("").to_string());
+
+    let provider = match provider {
+        Some(provider) => AIProvider::try_from(provider.as_str())?,
+        None => return Err(Error::BadRequest("Provider is required".to_string())),
+    };
+
+    let workspace_cache = AI_KEY_CACHE.get(&(w_id.clone(), provider.clone()));
+
     let forced_resource_path = headers
         .get("X-Resource-Path")
         .map(|v| v.to_str().unwrap_or("").to_string());
-    let forced_api_key = headers
-        .get("X-Api-Key")
-        .map(|v| v.to_str().unwrap_or("").to_string());
     let ai_cache = match workspace_cache {
-        Some(cache)
-            if !cache.is_expired()
-                && forced_resource_path.is_none()
-                && forced_api_key.is_none() =>
-        {
-            cache.cached_key
-        }
+        Some(cache) if !cache.is_expired() && forced_resource_path.is_none() => cache.cached_key,
         _ => {
-            let (resource, resource_path, ai_provider) = if let Some(resource_path) =
+            let (resource, ai_provider, save_to_cache) = if let Some(resource_path) =
                 forced_resource_path
             {
                 // guess the provider from the resource type
@@ -473,54 +488,54 @@ async fn proxy(
 
                 (
                     record.value,
-                    Some(resource_path),
                     AIProvider::try_from(record.resource_type.as_str())?,
-                )
-            } else if let Some(forced_api_key) = forced_api_key {
-                (
-                    Some(serde_json::json!({
-                        "apiKey": forced_api_key
-                    })),
-                    None,
-                    AIProvider::CustomAI,
+                    false,
                 )
             } else {
-                let ai_resource = sqlx::query_scalar!(
-                    "SELECT ai_resource FROM workspace_settings WHERE workspace_id = $1",
+                let ai_config = sqlx::query_scalar!(
+                    "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
                     &w_id
                 )
                 .fetch_one(&db)
                 .await?;
 
-                if ai_resource.is_none() {
+                if ai_config.is_none() {
                     return Err(Error::internal_err(
                         "AI resource not configured".to_string(),
                     ));
                 }
 
-                let ai_resource = serde_json::from_value::<AIResource>(ai_resource.unwrap())
+                let ai_config = serde_json::from_value::<AIConfig>(ai_config.unwrap())
                     .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-                let path = ai_resource.path.unwrap_or("".to_string());
-                if path.is_empty() {
+                let provider_config = ai_config
+                    .providers
+                    .as_ref()
+                    .map(|providers| providers.get(&provider))
+                    .flatten()
+                    .ok_or_else(|| {
+                        Error::BadRequest(format!("Provider {:?} not configured", provider))
+                    })?;
+
+                if provider_config.resource_path.is_empty() {
                     return Err(Error::BadRequest("Resource path is empty".to_string()));
                 }
                 let resource = sqlx::query_scalar!(
                     "SELECT value
                     FROM resource
                     WHERE path = $1 AND workspace_id = $2",
-                    &path,
+                    &provider_config.resource_path,
                     &w_id
                 )
                 .fetch_optional(&db)
                 .await?
                 .ok_or_else(|| {
                     Error::NotFound(format!(
-                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", ai_resource.provider, path
+                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", provider, provider_config.resource_path
                     ))
                 })?;
 
-                (resource, Some(path), ai_resource.provider)
+                (resource, provider, true)
             };
 
             let Some(resource) = resource else {
@@ -531,7 +546,7 @@ async fn proxy(
             };
 
             let ai_cache = match ai_provider {
-                AIProvider::OpenAI => openai::get_cached_value(&db, &w_id, resource).await,
+                AIProvider::OpenAI => openai::get_cached_value(&db, &w_id, resource).await?,
                 _ => {
                     openai_api_compatible::get_cached_value(
                         &db,
@@ -539,12 +554,11 @@ async fn proxy(
                         resource,
                         ai_provider.get_base_url()?,
                     )
-                    .await
+                    .await?
                 }
             };
-            let ai_cache = ai_cache?;
-            if let Some(resource_path) = resource_path {
-                AI_KEY_CACHE.insert(w_id.clone(), AICache::new(resource_path, ai_cache.clone()));
+            if save_to_cache {
+                AI_KEY_CACHE.insert((w_id.clone(), ai_provider), AICache::new(ai_cache.clone()));
             }
             ai_cache
         }
@@ -566,7 +580,7 @@ async fn proxy(
         ActionKind::Execute,
         &w_id,
         Some(&authed.email),
-        Some([("ai_resource_path", &format!("{:?}", ai_path)[..])].into()),
+        Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
     )
     .await?;
     tx.commit().await?;
