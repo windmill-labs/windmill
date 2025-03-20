@@ -49,10 +49,7 @@ pub async fn register_metric_for_job(
     .await?
     .flatten();
     if exists.unwrap_or(false) {
-        return Err(error::Error::BadRequest(format!(
-            "Metric {} is already registered for job {}",
-            metric_id, job_id
-        )));
+        return Ok(metric_id);
     }
 
     let (scalar_int, scalar_float, timestamps, timeseries_int, timeseries_float) = match metric_kind
