@@ -5,6 +5,7 @@
 <script lang="ts">
 	import { pathToMeta, type Meta } from '$lib/common'
 
+	import { localeConcatAnd, pluralize } from '$lib/utils'
 	import {
 		AppService,
 		FlowService,
@@ -31,6 +32,7 @@
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -337,7 +339,6 @@
 		initialPath !== path
 
 	$: pathUsageInFlowsPromise =
-		displayPathChangedWarning &&
 		(kind == 'script' || kind == 'flow') &&
 		!!$workspaceStore &&
 		FlowService.listFlowPathsFromWorkspaceRunnable({
@@ -347,7 +348,6 @@
 		})
 
 	$: pathUsageInAppsPromise =
-		displayPathChangedWarning &&
 		(kind == 'script' || kind == 'flow') &&
 		!!$workspaceStore &&
 		AppService.listAppPathsFromWorkspaceRunnable({
@@ -357,7 +357,6 @@
 		})
 
 	$: pathUsageInScriptsPromise =
-		displayPathChangedWarning &&
 		kind == 'script' &&
 		!!$workspaceStore &&
 		ScriptService.listScriptPathsFromWorkspaceRunnable({
@@ -539,65 +538,60 @@
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
 		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
-			<Alert type="warning" class="mt-4" title="Looking for references ...">
-				<Loader2 class="animate-spin" />
-			</Alert>
-		{/await}
-		{#await pathUsageInScriptsPromise then pathUsageInScripts}
-			{#if pathUsageInScripts && pathUsageInScripts.length}
-				<Alert
-					type="warning"
-					class="mt-4"
-					title="Moving this item will break the following scripts referencing it:"
-				>
-					<ul class="list-disc">
-						{#each pathUsageInScripts as scriptPath}
-							<li>
-								<a href={`/scripts/edit/${scriptPath}`} class="text-blue-400" target="_blank">
-									{scriptPath}
-								</a>
-							</li>
-						{/each}
-					</ul>
-				</Alert>
-			{/if}
-		{/await}
-		{#await pathUsageInFlowsPromise then pathUsageInFlows}
-			{#if pathUsageInFlows && pathUsageInFlows.length}
-				<Alert
-					type="warning"
-					class="mt-4"
-					title="Moving this item will break the following flows referencing it:"
-				>
-					<ul class="list-disc">
-						{#each pathUsageInFlows as flowPath}
-							<li>
-								<a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
-									{flowPath}
-								</a>
-							</li>
-						{/each}
-					</ul>
-				</Alert>
-			{/if}
-		{/await}
-		{#await pathUsageInAppsPromise then pathUsageInApps}
-			{#if pathUsageInApps && pathUsageInApps.length}
-				<Alert
-					type="warning"
-					class="mt-4"
-					title="Moving this item will break the following apps referencing it:"
-				>
-					<ul class="list-disc">
-						{#each pathUsageInApps as appPath}
-							<li>
-								<a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
-									{appPath}
-								</a>
-							</li>
-						{/each}
-					</ul>
-				</Alert>
+			<Loader2 class="animate-spin" size={16} />
+		{:then [apps, flows, scripts]}
+			{#if (apps && apps.length) || (flows && flows.length) || (scripts && scripts.length)}
+				<p class="text-xs">
+					Used by {localeConcatAnd([
+						...(scripts && scripts.length ? [pluralize(scripts.length, 'script')] : []),
+						...(flows && flows.length ? [pluralize(flows.length, 'flow')] : []),
+						...(apps && apps.length ? [pluralize(apps.length, 'app')] : [])
+					])}
+					<Tooltip>
+						<ul>
+							{#each scripts || [] as path}
+								<li><a target="_blank" href="/scripts/edit/{path}">{path}</a></li>
+							{/each}
+							{#each flows || [] as path}
+								<li><a target="_blank" href="/flows/edit/{path}">{path}</a></li>
+							{/each}
+							{#each apps || [] as path}
+								<li><a target="_blank" href="/apps/edit/{path}">{path}</a></li>
+							{/each}
+						</ul>
+					</Tooltip>
+				</p>
+				{#if displayPathChangedWarning}
+					<Alert
+						type="warning"
+						class="mt-4"
+						title="Moving this item will break the following referencing it:"
+					>
+						<ul class="list-disc">
+							{#each scripts || [] as scriptPath}
+								<li>
+									<a href={`/scripts/edit/${scriptPath}`} class="text-blue-400" target="_blank">
+										{scriptPath}
+									</a>
+								</li>
+							{/each}
+							{#each flows || [] as flowPath}
+								<li>
+									<a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
+										{flowPath}
+									</a>
+								</li>
+							{/each}
+							{#each apps || [] as appPath}
+								<li>
+									<a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
+										{appPath}
+									</a>
+								</li>
+							{/each}
+						</ul>
+					</Alert>
+				{/if}
 			{/if}
 		{/await}
 	{:else if displayPathChangedWarning}
