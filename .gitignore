@@ -8,3 +8,4 @@ CaddyfileRemoteMalo
 **/.idea/
 .direnv
 .vscode
+.dev-docker-wrapper*
