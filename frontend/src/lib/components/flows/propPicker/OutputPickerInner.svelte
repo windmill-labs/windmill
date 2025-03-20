@@ -129,6 +129,7 @@
 						startIcon={{ icon: Pen }}
 						on:click={() => {
 							jsonView = true
+							tmpMock = { ...mock }
 						}}
 						disabled={!mock?.enabled || isConnecting}
 					/>
