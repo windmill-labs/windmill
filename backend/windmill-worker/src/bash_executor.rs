@@ -341,7 +341,7 @@ async fn handle_docker_job(
                                 tracing::error!("Error getting logs: {:?}", e);
                             }
                             _ => {
-                                tracing::error!("End of stream");
+                                tracing::info!("End of docker logs stream");
                                 return
                             }
                         };
