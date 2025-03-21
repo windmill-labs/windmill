@@ -3,7 +3,6 @@
 	import { Pin, History, Pen, Check, X, Loader2 } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
-	import ToggleSimple from '$lib/components/meltComponents/ToggleSimple.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { createEventDispatcher } from 'svelte'
@@ -127,44 +126,41 @@
 					</svelte:fragment>
 				</StatusBadge>
 			{:else}
-				<ToggleSimple
-					disabled={isConnecting}
-					pressed={mock?.enabled ?? false}
-					on:pressedChange={({ detail }) => {
-						if (mock?.enabled && !detail) {
+				<Button
+					color="light"
+					size="xs2"
+					variant="contained"
+					btnClasses={`bg-transparent ${
+						mock?.enabled
+							? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+							: ''
+					}`}
+					startIcon={{ icon: Pin }}
+					iconOnly
+					on:click={() => {
+						if (mock?.enabled) {
 							const newMock = {
 								enabled: false,
 								return_value: mock?.return_value
 							}
 							dispatch('updateMock', newMock)
-						} else if (detail && !!mock) {
+						} else {
 							let result = jsonData
+
 							if (selectedJob && 'result' in selectedJob) {
 								result = structuredClone(selectedJob.result)
 								selectedJob = undefined
+							} else if (jsonData === 'never tested this far') {
+								result = { example: 'value' }
 							}
 							const newMock = {
 								enabled: true,
-								return_value: result ?? { example: 'value' }
+								return_value: result
 							}
 							dispatch('updateMock', newMock)
 						}
 					}}
-				>
-					<Button
-						color="light"
-						size="xs2"
-						variant="contained"
-						btnClasses={`bg-transparent ${
-							mock?.enabled
-								? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-								: ''
-						}`}
-						startIcon={{ icon: Pin }}
-						iconOnly
-						nonCaptureEvent
-					/>
-				</ToggleSimple>
+				/>
 
 				{#if jsonView}
 					<Button
@@ -223,20 +219,24 @@
 			<div class="p-2">
 				<Loader2 class="animate-spin " />
 			</div>
-		{:else if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
+		{:else if selectedJob != undefined && 'result' in selectedJob}
 			<div class="break-words relative h-full p-2">
-				{#key selectedJob}
-					<DisplayResult
-						bind:forceJson
-						workspaceId={selectedJob?.workspace_id}
-						jobId={selectedJob?.id}
-						result={selectedJob?.result}
-					>
-						<svelte:fragment slot="copilot-fix">
-							<slot name="copilot-fix" />
-						</svelte:fragment>
-					</DisplayResult>
-				{/key}
+				{#if selectedJob.result != undefined}
+					{#key selectedJob}
+						<DisplayResult
+							bind:forceJson
+							workspaceId={selectedJob?.workspace_id}
+							jobId={selectedJob?.id}
+							result={selectedJob?.result}
+						>
+							<svelte:fragment slot="copilot-fix">
+								<slot name="copilot-fix" />
+							</svelte:fragment>
+						</DisplayResult>
+					{/key}
+				{:else}
+					null
+				{/if}
 			</div>
 		{:else if mock?.enabled}
 			<div class="break-words relative h-full p-2">
@@ -252,11 +252,7 @@
 		{/if}
 	{:else}
 		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
-			{#if !jsonData || jsonData === 'never tested this far'}
-				<div class="flex flex-col items-center justify-center h-full">
-					<p class="text-xs text-secondary">Test this step to see results</p>
-				</div>
-			{:else if isConnecting}
+			{#if isConnecting}
 				<ObjectViewer
 					json={{
 						[moduleId]: jsonData
@@ -303,6 +299,21 @@
 					topBrackets={false}
 					pureViewer={false}
 				/>
+			{:else if jsonData === 'never tested this far'}
+				<div class="flex flex-col items-center justify-center h-full">
+					<p class="text-xs text-secondary">
+						Test this step to see results or <button
+							class="text-blue-500 hover:text-blue-700 underline"
+							on:click={() => {
+								const newMock = {
+									enabled: true,
+									return_value: { example: 'value' }
+								}
+								dispatch('updateMock', newMock)
+							}}>mock<Pin size={16} class="inline" /></button
+						> output
+					</p>
+				</div>
 			{:else}
 				<ObjectViewer
 					json={{
