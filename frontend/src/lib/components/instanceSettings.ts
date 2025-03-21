@@ -30,7 +30,6 @@ export interface Setting {
 		| 'smtp_connect'
 		| 'indexer_rates'
 		| 'otel'
-		| 'git_installations'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -374,16 +373,6 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_stats',
 			fieldType: 'boolean',
 			storage: 'setting'
-		}
-	],
-
-	'Git App': [
-		{
-			label: 'Git Installations',
-			key: 'git_installations',
-			fieldType: 'git_installations',
-			storage: 'setting',
-			ee_only: 'Git Sync and Git Sync using the GitHub App are EE features'
 		}
 	]
 }

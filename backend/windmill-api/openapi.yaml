@@ -1333,21 +1333,53 @@ paths:
                 required:
                   - token
 
-  /w/{workspace}/github_app/connected_repositories:
-    get:
-      summary: get connected repositories
-      operationId: getConnectedRepositories
+  /w/{workspace}/github_app/install_from_workspace:
+    post:
       tags:
-        - git_sync
+        - Git Sync
+      summary: Install a GitHub installation from another workspace
+      operationId: installFromWorkspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source_workspace_id:
+                  type: string
+                  description: The ID of the workspace containing the installation to copy
+                installation_id:
+                  type: number
+                  description: The ID of the GitHub installation to copy
+              required:
+                - source_workspace_id
+                - installation_id
       responses:
         "200":
-          description: connected repositories
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GithubInstallations"
+          description: Installation successfully copied
+
+  /w/{workspace}/github_app/installation/{installation_id}:
+    delete:
+      summary: Delete a GitHub installation from a workspace
+      operationId: deleteFromWorkspace
+      description: Removes a GitHub installation from the specified workspace. Requires admin privileges.
+      tags:
+        - Git Sync
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: installation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The ID of the GitHub installation to delete
+      responses:
+        '200':
+          description: Installation successfully deleted
 
   /users/accept_invite:
     post:
@@ -15815,6 +15847,8 @@ components:
       items:
         type: object
         properties:
+          workspace_id:
+            type: string
           installation_id:
             type: number
           account_id:
