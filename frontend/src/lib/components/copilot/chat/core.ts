@@ -12,10 +12,11 @@ import type {
 	ChatCompletionTool
 } from 'openai/resources/index.mjs'
 import { workspaceStore, type DBSchema } from '$lib/stores'
+import { scriptLangToEditorLang } from '$lib/scripts'
 
 export function formatResourceTypes(
 	resourceTypes: ResourceType[],
-	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets'
+	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
 	if (lang === 'python3') {
 		const result = resourceTypes.map((resourceType) => {
@@ -74,11 +75,12 @@ You need to **redefine** the type of the resources that are needed before the ma
 Before defining each type, check if the class already exists using class_exists.
 The resource type name has to be exactly as specified.`
 
-function getLangContext(lang: ScriptLang) {
+function getLangContext(lang: ScriptLang | 'bunnative') {
 	switch (lang) {
+		case 'bunnative':
 		case 'nativets':
 			return (
-				'The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called `main`. You should use fetch and are not allowed to import any libraries.\n' +
+				'The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called `main`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n' +
 				TS_RESOURCE_TYPE_SYSTEM
 			)
 		case 'bun':
@@ -109,13 +111,38 @@ function getLangContext(lang: ScriptLang) {
 \`\`\`
 No need to require autoload, it is already done.`
 			)
+		case 'rust':
+			return `The user is coding in Rust. On Windmill, it is expected the script contains at least one function called \`main\` (without calling it) defined like this:
+\`\`\`rust
+pub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>
+\`\`\`
+Favor idiomatic Rust patterns, ensuring safe ownership and borrowing, robust error handling with \`Result\`, and concurrency if needed (\`async\`/\`tokio\` or std threading).
+Include only necessary imports and modules, and add comments explaining important operations. Provide at least one unit test using Rust's built-in test framework (\`#[cfg(test)] mod tests { ... }\`) to demonstrate correctness. Make the code well-formatted (similar to \`cargo fmt\` style). The generated code should be easily executable and testable in an integrated terminal.`
+		case 'go':
+			return `The user is coding in Go. On Windmill, it is expected the script exports a single function called \`main\`. Its return type has to be (\`{return_type}\`, error). The file package has to be "inner".`
+		case 'bash':
+			return `The user is coding in Bash. Do not include "#!/bin/bash". On Windmill, arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc..`
+		case 'postgresql':
+			return `The user is coding in PostgreSQL. On Windmill, arguments can be obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc... Name the parameters (without specifying the type) by adding comments at the beginning of the script before the statement like that: \`-- $1 name1\` or \`-- $2 name = default\` (one per row)`
+		case 'mysql':
+			return 'The user is coding in MySQL. On Windmill, arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)'
+		case 'bigquery':
+			return 'The user is coding in BigQuery. On Windmill, arguments can be obtained by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....'
+		case 'snowflake':
+			return 'The user is coding in Snowflake. On Windmill, arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)'
+		case 'mssql':
+			return 'The user is coding in Microsoft SQL Server. On Windmill, arguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)'
+		case 'graphql':
+			return 'The user is coding in GraphQL. If needed, add the needed arguments as query parameters.'
+		case 'powershell':
+			return 'The user is coding in PowerShell. On Windmill, arguments can be obtained by calling the param function on the first line of the script like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`'
 		default:
 			return ''
 	}
 }
 
-export async function getResourceTypeNamespace(
-	lang: ScriptLang,
+export async function getFormattedResourceTypes(
+	lang: ScriptLang | 'bunnative',
 	prompt: string,
 	workspace: string
 ) {
@@ -123,11 +150,12 @@ export async function getResourceTypeNamespace(
 		case 'deno':
 		case 'bun':
 		case 'nativets':
+		case 'bunnative':
 		case 'python3':
 		case 'php': {
 			const resourceTypes = await getResourceTypes(prompt, workspace)
 
-			const intro = `RESOURCE_TYPE_CONTEXT:\n`
+			const intro = `RESOURCE_TYPES:\n`
 
 			const resourceTypesText = formatResourceTypes(resourceTypes, lang)
 
@@ -140,7 +168,6 @@ export async function getResourceTypeNamespace(
 
 export const CHAT_SYSTEM_PROMPT = `
 You are a coding assistant on the Windmill platform. You are given a list of instructions to follow \`INSTRUCTIONS\` as well as the current code in the file \`CODE\`.
-{language_context}
 
 Please respond to the user's query. The user's query is never invalid.
 
@@ -170,23 +197,27 @@ export const CHAT_USER_PROMPT = `
 INSTRUCTIONS:
 {instructions}
 
+WINDMILL LANGUAGE CONTEXT:
+{lang_context}
+
 {code_context}
 {error_context}
 \`\`\`
 `
 
-export function prepareSystemMessage(language: ScriptLang): { role: 'system'; content: string } {
+export function prepareSystemMessage(): {
+	role: 'system'
+	content: string
+} {
 	return {
 		role: 'system',
-		content: CHAT_SYSTEM_PROMPT.replace('{language_context}', getLangContext(language))
+		content: CHAT_SYSTEM_PROMPT
 	}
 }
 
 export interface DisplayMessage {
 	role: 'user' | 'assistant'
 	content: string
-	code: string
-	language: ScriptLang
 	contextElements?: ContextElement[]
 }
 
@@ -206,7 +237,7 @@ export type ContextElement =
 			type: 'code'
 			content: string
 			title: string
-			lang: ScriptLang
+			lang: ScriptLang | 'bunnative'
 	  }
 	| {
 			type: 'error'
@@ -221,7 +252,7 @@ export type ContextElement =
 
 export async function prepareUserMessage(
 	instructions: string,
-	language: ScriptLang,
+	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[]
 ) {
 	let codeContext = ''
@@ -229,7 +260,7 @@ export async function prepareUserMessage(
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
-				.replace('{language}', language)
+				.replace('{language}', scriptLangToEditorLang(language))
 				.replace('{code}', context.content)
 		} else if (context.type === 'error') {
 			if (errorContext) {
@@ -240,6 +271,7 @@ export async function prepareUserMessage(
 	}
 
 	const userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
+		.replace('{lang_context}', getLangContext(language))
 		.replace('{code_context}', codeContext)
 		.replace('{error_context}', errorContext)
 
@@ -298,14 +330,14 @@ async function formatDBSChema(dbSchema: DBSchema) {
 async function callTool(
 	functionName: string,
 	args: any,
-	lang: ScriptLang,
+	lang: ScriptLang | 'bunnative',
 	db: { schema: DBSchema; resource: string } | undefined,
 	workspace: string
 ) {
 	switch (functionName) {
 		case 'search_resource_types':
-			const resourceType = await getResourceTypeNamespace(lang, args.query, workspace)
-			return resourceType
+			const formattedResourceTypes = await getFormattedResourceTypes(lang, args.query, workspace)
+			return formattedResourceTypes
 		case 'get_db_schema':
 			if (!db) {
 				throw new Error('No database schema provided')
@@ -320,7 +352,7 @@ async function callTool(
 export async function chatRequest(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	lang: ScriptLang,
+	lang: ScriptLang | 'bunnative',
 	db: { schema: DBSchema; resource: string } | undefined,
 	onNewToken: (token: string) => void
 ) {

@@ -321,11 +321,33 @@ function lineChangesToVisualChanges(changes: Change[], startLineNumber: number) 
 			}
 			removedLines = []
 		} else {
+			if (removedLines.length > 0) {
+				visualChanges.push({
+					type: 'deleted',
+					range: {
+						startLine: originalLineNumber - removedLines.length,
+						startColumn: 0,
+						endLine: originalLineNumber - 1,
+						endColumn: 10000
+					}
+				})
+			}
 			originalLineNumber += c.count!
 			removedLines = []
 		}
 	}
-	return { visualChanges }
+	if (removedLines.length > 0) {
+		visualChanges.push({
+			type: 'deleted',
+			range: {
+				startLine: originalLineNumber - removedLines.length,
+				startColumn: 0,
+				endLine: originalLineNumber - 1,
+				endColumn: 10000
+			}
+		})
+	}
+	return visualChanges
 }
 
 export let VISUAL_CHANGES_CSS = `.editor-ghost-text-replaced { background-color: var(--vscode-diffEditor-insertedTextBackground) !important; }\n.editor-ghost-text-removed { background-color: var(--vscode-diffEditor-removedTextBackground); }\n\n.editor-ghost-text { display: inline-block; background-color: var(--vscode-editor-background); color: gray;}`
@@ -432,19 +454,23 @@ export class Autocompletor {
 				column: number
 		  }
 		| undefined = undefined
-	removalReverts: {
-		position: {
-			line: number
-			column: number
-		}
-		text: string
-	}[] = []
 
 	abortController: AbortController | undefined = undefined
 	lastTs = Date.now()
 
 	lastCodeValue: string
 	patches: string[] = []
+
+	predictedChange:
+		| {
+				position: {
+					lineNumber: number
+					column: number
+				}
+				distance: number
+		  }
+		| undefined = undefined
+	tabWidget: meditor.IContentWidget | undefined = undefined
 
 	constructor(editor: meditor.IStandaloneCodeEditor, language: string) {
 		this.editor = editor
@@ -476,9 +502,136 @@ export class Autocompletor {
 		}
 	}
 
-	async autocomplete() {
+	async predict() {
 		this.reject()
+		await this.autocomplete()
+		this.computeNextPosition()
+		this.displayPrediction()
+	}
 
+	computeNextPosition() {
+		if (this.visualChanges.length > 0) {
+			const position = this.editor.getPosition()
+			if (!position) {
+				return
+			}
+
+			let closestPosition:
+				| {
+						lineNumber: number
+						column: number
+				  }
+				| undefined = undefined
+			let closestDistance = Infinity
+			for (const change of this.visualChanges) {
+				if (change.type === 'deleted') {
+					const distance = Math.min(
+						Math.abs(change.range.startLine - position.lineNumber) +
+							Math.abs(change.range.startColumn - position.column) / 10000,
+						Math.abs(change.range.endLine - position.lineNumber) +
+							Math.abs(change.range.endColumn - position.column) / 10000
+					)
+					if (distance < closestDistance) {
+						closestDistance = distance
+						closestPosition = {
+							lineNumber: change.range.startLine,
+							column: change.range.startColumn
+						}
+					}
+				} else if (change.type === 'added_block') {
+					const distance = Math.abs(change.position.afterLineNumber - position.lineNumber) + 1
+					if (distance < closestDistance) {
+						closestDistance = distance
+						closestPosition = {
+							lineNumber: change.position.afterLineNumber,
+							column: 10000
+						}
+					}
+				} else if (change.type === 'added_inline') {
+					const distance =
+						Math.abs(change.position.line - position.lineNumber) +
+						Math.abs(change.position.column - position.column) / 10000
+					if (distance < closestDistance) {
+						closestDistance = distance
+						closestPosition = {
+							lineNumber: change.position.line,
+							column: change.position.column
+						}
+					}
+				}
+			}
+			this.predictedChange = closestPosition
+				? { position: closestPosition, distance: closestDistance }
+				: undefined
+
+			console.log('predictedChange', this.predictedChange, this.visualChanges)
+		}
+	}
+
+	displayPrediction() {
+		if (this.predictedChange) {
+			if (this.predictedChange.distance < 4) {
+				this.predictedChange = undefined
+				this.displayVisualChanges()
+			} else {
+				// display tab icon
+				const el = document.createElement('div')
+				el.innerHTML = 'TAB'
+
+				Object.assign(el.style, {
+					position: 'relative',
+					background: '#e7e5e4',
+					color: 'black',
+					padding: '4px',
+					fontSize: '10px',
+					borderRadius: '4px',
+					textAlign: 'center',
+					transform: 'translateX(-50%)',
+					zIndex: 1000,
+					opacity: 0.8
+				})
+
+				// Create the arrow (pseudo-element trick doesn't work directly via JS,
+				// so we create a separate element to act like the arrow)
+				const arrow = document.createElement('div')
+				Object.assign(arrow.style, {
+					content: '""',
+					position: 'absolute',
+					top: '-6px',
+					left: '50%',
+					transform: 'translateX(-50%)',
+					width: '0',
+					height: '0',
+					borderLeft: '6px solid transparent',
+					borderRight: '6px solid transparent',
+					borderBottom: '6px solid #e7e5e4'
+				})
+
+				// Add arrow to box
+				el.appendChild(arrow)
+				this.tabWidget = {
+					getId: () => 'tab-widget',
+					getDomNode: () => el,
+					getPosition: () => {
+						if (!this.predictedChange) {
+							return null
+						}
+						return {
+							position: {
+								lineNumber: this.predictedChange.position.lineNumber,
+								column: this.predictedChange.position.column
+							},
+							preference: [2] // below
+						}
+					},
+					allowEditorOverflow: true
+				}
+				this.editor.addContentWidget(this.tabWidget)
+			}
+		}
+	}
+
+	async autocomplete() {
 		const position = this.editor.getPosition()
 		if (!position) {
 			return
@@ -506,18 +659,6 @@ export class Autocompletor {
 		this.abortController?.abort()
 		this.abortController = new AbortController()
 
-		let modifiableStart = Math.max(1, position.lineNumber - 3)
-		while (true) {
-			if (modifiableStart >= position.lineNumber) {
-				break
-			}
-			const line = model.getLineContent(modifiableStart)
-			if (line.trim().length > 0) {
-				break
-			}
-			modifiableStart++
-		}
-
 		let modifiableEnd = Math.min(model.getLineCount(), position.lineNumber + 7)
 		while (true) {
 			if (modifiableEnd <= position.lineNumber) {
@@ -528,6 +669,24 @@ export class Autocompletor {
 				break
 			}
 			modifiableEnd--
+		}
+
+		let modifiableStart = Math.max(1, position.lineNumber - 3)
+		while (true) {
+			if (modifiableStart >= modifiableEnd) {
+				break
+			}
+			const line = model.getLineContent(modifiableStart)
+			if (line.trim().length > 0) {
+				break
+			}
+			modifiableStart++
+		}
+
+		const newCursorLineNumber = Math.max(position.lineNumber, modifiableStart)
+		const newPos = {
+			lineNumber: newCursorLineNumber,
+			column: newCursorLineNumber === position.lineNumber ? position.column : 0
 		}
 
 		this.applyZone = {
@@ -552,13 +711,13 @@ export class Autocompletor {
 		const modifiablePrefix = model.getValueInRange({
 			startLineNumber: modifiableStart,
 			startColumn: 1,
-			endLineNumber: position.lineNumber,
-			endColumn: position.column
+			endLineNumber: newPos.lineNumber,
+			endColumn: newPos.column
 		})
 
 		const modifiableSuffix = model.getValueInRange({
-			startLineNumber: position.lineNumber,
-			startColumn: position.column,
+			startLineNumber: newPos.lineNumber,
+			startColumn: newPos.column,
 			endLineNumber: modifiableEnd,
 			endColumn: 10000
 		})
@@ -582,20 +741,44 @@ export class Autocompletor {
 		const editableCode = model.getValueInRange({
 			startLineNumber: modifiableStart,
 			startColumn: 1,
-			endLineNumber: modifiableEnd + 1,
-			endColumn: 1
+			endLineNumber: modifiableEnd,
+			endColumn: 10000
 		})
+		const numberOfLines = modifiableEnd - modifiableStart + 1
 
-		const changedLines = diffLines(editableCode, returnedCode)
+		let completionLines = getLines(returnedCode)
 
-		const { visualChanges } = lineChangesToVisualChanges(changedLines, modifiableStart)
-		if (visualChanges.length > 0) {
-			const { collection, ids } = await displayVisualChanges(this.editor, visualChanges)
+		let finalCompletionLines: string[] = []
+		if (completionLines.length > numberOfLines) {
+			const nextFirstNonEmptyLine = suffix.split('\n').find((line) => line.trim().length > 8)
+			if (nextFirstNonEmptyLine) {
+				for (const line of completionLines) {
+					if (line === nextFirstNonEmptyLine) {
+						break
+					} else {
+						finalCompletionLines.push(line)
+					}
+				}
+			} else {
+				finalCompletionLines = completionLines
+			}
+		} else {
+			finalCompletionLines = completionLines
+		}
+		this.modifiedCode = finalCompletionLines.join('\n')
+
+		const changedLines = diffLines(editableCode, this.modifiedCode)
+
+		this.visualChanges = lineChangesToVisualChanges(changedLines, modifiableStart)
+	}
+
+	async displayVisualChanges() {
+		if (this.visualChanges.length > 0) {
+			const { collection, ids } = await displayVisualChanges(this.editor, this.visualChanges)
 			this.decorationsCollection = collection
 			this.viewZoneIds = ids
-			this.modifiedCode = returnedCode
 
-			const lastAddChange = visualChanges
+			const lastAddChange = this.visualChanges
 				.reverse()
 				.find((c) => c.type === 'added_inline' || c.type === 'added_block')
 			if (lastAddChange) {
@@ -620,17 +803,21 @@ export class Autocompletor {
 	}
 
 	accept() {
+		if (this.predictedChange) {
+			this.editor.setPosition(this.predictedChange.position)
+		}
+
 		if (!this.modifiedCode || !this.applyZone) {
 			return
 		}
-		this.removalReverts = [] // make sure we don't revert the same changes twice
+
 		this.editor.executeEdits('completion', [
 			{
 				range: {
 					startLineNumber: this.applyZone.startLineNumber,
 					startColumn: 1,
-					endLineNumber: this.applyZone.endLineNumber + 1,
-					endColumn: 1
+					endLineNumber: this.applyZone.endLineNumber,
+					endColumn: 10000
 				},
 				text: this.modifiedCode
 			}
@@ -650,23 +837,11 @@ export class Autocompletor {
 			this.viewZoneIds = []
 		})
 		this.decorationsCollection?.clear()
-		this.visualChanges = []
 		this.modifiedCode = ''
-		if (this.removalReverts.length > 0) {
-			this.editor.executeEdits(
-				'completionRevert',
-				this.removalReverts.map((r) => ({
-					range: {
-						startLineNumber: r.position.line,
-						startColumn: r.position.column,
-						endLineNumber: r.position.line,
-						endColumn: r.position.column + r.text.length
-					},
-					text: r.text
-				}))
-			)
-		}
-		this.removalReverts = []
 		setAutocompleteGlobalCSS('')
+		this.predictedChange = undefined
+		this.tabWidget && this.editor.removeContentWidget(this.tabWidget)
+		this.tabWidget = undefined
+		this.visualChanges = []
 	}
 }

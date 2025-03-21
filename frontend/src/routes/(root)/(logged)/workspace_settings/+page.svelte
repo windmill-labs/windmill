@@ -1190,6 +1190,9 @@
 											create={false}
 											required={false}
 										/>
+										<p class="text-xs">
+											We highly recommend using Mistral's Codestral model for code completion.
+										</p>
 									</Label>
 								{/if}
 							</div>
@@ -1198,10 +1201,10 @@
 				{/if}
 
 				<Button
+					wrapperClasses="self-start"
 					disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
 						(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
 						(Object.keys(aiProviders).length > 0 && !defaultModel)}
-					size="sm"
 					on:click={editCopilotConfig}
 				>
 					Save

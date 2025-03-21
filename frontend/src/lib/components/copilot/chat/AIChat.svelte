@@ -19,7 +19,7 @@
 	import { langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
-	export let lang: ScriptLang
+	export let lang: ScriptLang | 'bunnative'
 	export let code: string
 	export let error: string | undefined
 	export let args: Record<string, any>
@@ -58,7 +58,11 @@
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 
-	function updateSchema(lang: ScriptLang, args: Record<string, any>, dbSchemas: DBSchemas) {
+	function updateSchema(
+		lang: ScriptLang | 'bunnative',
+		args: Record<string, any>,
+		dbSchemas: DBSchemas
+	) {
 		const schemaRes = lang === 'graphql' ? args.api : args.database
 		if (typeof schemaRes === 'string') {
 			const schemaPath = schemaRes.replace('$res:', '')
@@ -81,7 +85,7 @@
 	function updateAvailableContext(
 		contextCodePath: string,
 		code: string,
-		lang: ScriptLang,
+		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
 		db: { schema: DBSchema; resource: string } | undefined
 	) {
@@ -152,10 +156,28 @@
 		.sort((a, b) => b.lastModified - a.lastModified)
 
 	let messages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
-		prepareSystemMessage(lang)
+		prepareSystemMessage()
 	]
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
+
+	function updateSelectedContextElements() {
+		const contextElements: ContextElement[] = []
+		for (const selected of selectedContext) {
+			const el = availableContext.find(
+				(c) => c.type === selected.type && c.title === selected.title
+			)
+			if (el) {
+				contextElements.push(el)
+			}
+		}
+		return contextElements
+	}
+
+	let selectedContextElements: ContextElement[] = []
+	$: selectedContext &&
+		availableContext &&
+		(selectedContextElements = updateSelectedContextElements())
 
 	async function sendRequest() {
 		if (!instructions.trim()) {
@@ -166,24 +188,17 @@
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
 
-			const contextElements: ContextElement[] = []
-
-			for (const selected of selectedContext) {
-				const el = availableContext.find(
-					(c) => c.type === selected.type && c.title === selected.title
-				)
-				if (el) {
-					contextElements.push(el)
-				}
-			}
-
 			displayMessages = [
 				...displayMessages,
-				{ role: 'user', content: instructions, contextElements, code, language: lang }
+				{
+					role: 'user',
+					content: instructions,
+					contextElements: selectedContextElements
+				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, contextElements)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContextElements)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -196,7 +211,11 @@
 			messages.push({ role: 'assistant', content: $currentReply })
 			displayMessages = [
 				...displayMessages,
-				{ role: 'assistant', content: $currentReply, code, language: lang }
+				{
+					role: 'assistant',
+					content: $currentReply,
+					contextElements: selectedContextElements
+				}
 			]
 			currentReply.set('')
 			await saveChat()
@@ -241,7 +260,7 @@
 		await saveChat()
 		currentChatId = crypto.randomUUID()
 		displayMessages = []
-		messages = [prepareSystemMessage(lang)]
+		messages = [prepareSystemMessage()]
 	}
 
 	function deletePastChat(id: string) {
@@ -321,7 +340,14 @@
 	bind:selectedContext
 	{availableContext}
 	messages={$currentReply
-		? [...displayMessages, { role: 'assistant', content: $currentReply, code, language: lang }]
+		? [
+				...displayMessages,
+				{
+					role: 'assistant',
+					content: $currentReply,
+					contextElements: selectedContextElements
+				}
+		  ]
 		: displayMessages}
 	bind:instructions
 	on:sendRequest={sendRequest}

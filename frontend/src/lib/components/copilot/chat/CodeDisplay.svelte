@@ -5,7 +5,7 @@
 	import { getContext } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { initializeVscode } from '$lib/components/vscode'
-	import type { AIChatContext, DisplayMessage } from './core'
+	import type { AIChatContext, ContextElement, DisplayMessage } from './core'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
 		csharp,
@@ -20,6 +20,7 @@
 		typescript,
 		yaml
 	} from 'svelte-highlight/languages'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	const astNode = getAstNode()
 
@@ -30,6 +31,10 @@
 	} = getContext<AIChatContext>('AIChatContext')
 
 	const { message } = getContext<{ message: DisplayMessage }>('AssistantMessageContext')
+
+	$: codeContext = message.contextElements?.find((e) => e.type === 'code') as
+		| Extract<ContextElement, { type: 'code' }>
+		| undefined
 
 	function getSmartLang(lang: string) {
 		switch (lang) {
@@ -103,6 +108,9 @@
 	let diffEl: HTMLDivElement | undefined
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
 	async function setDiffEditor(diffEl: HTMLDivElement) {
+		if (!codeContext) {
+			return
+		}
 		await initializeVscode()
 
 		diffEditor = meditor.createDiffEditor(diffEl, {
@@ -127,8 +135,8 @@
 		})
 
 		diffEditor.setModel({
-			original: meditor.createModel(message.code, language),
-			modified: meditor.createModel(code ?? '', language)
+			original: meditor.createModel(codeContext.content, scriptLangToEditorLang(codeContext.lang)),
+			modified: meditor.createModel(code ?? '', language ? getSmartLang(language) : undefined)
 		})
 
 		const originalEditor = diffEditor.getOriginalEditor()
@@ -159,7 +167,8 @@
 
 	$: diffEl &&
 		language &&
-		getSmartLang(message.language) === getSmartLang(language) &&
+		codeContext &&
+		getSmartLang(codeContext.lang) === getSmartLang(language) &&
 		setDiffEditor(diffEl)
 </script>
 
@@ -179,11 +188,11 @@
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
-		{#if loading || !language}
+		{#if (loading && !code) || !language}
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>
-		{:else if getSmartLang(language) === getSmartLang(message.language)}
+		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language)}
 			<div bind:this={diffEl} class="w-full h-full" />
 		{:else}
 			<HighlightCode

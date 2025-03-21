@@ -348,7 +348,7 @@
 		}
 	}
 
-	export function append(code): void {
+	export function append(code: string): void {
 		if (editor) {
 			const lineCount = editor.getModel()?.getLineCount() || 0
 			const lastLineLength = editor.getModel()?.getLineLength(lineCount) || 0
@@ -614,46 +614,54 @@
 		reviewingChanges = aiChatEditorHandler.reviewingChanges
 	}
 
+	$: $reviewingChanges && autocompletor?.reject()
+
 	let completorDisposable: Disposable | undefined = undefined
+	let autocompletor: Autocompletor | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
 		console.log('adding super completor')
 		if (completorDisposable) {
 			completorDisposable.dispose()
 		}
-		const autocompletor = new Autocompletor(editor, lang)
+		autocompletor = new Autocompletor(editor, lang)
 
-		let lastTs = Date.now()
-		editor.onDidChangeModelContent((e) => {
-			const thisTs = Date.now()
-			lastTs = thisTs
-			setTimeout(() => {
-				if (thisTs === lastTs) {
-					autocompletor.savePatch()
-				}
-			}, 150)
-		})
+		// last user events (currently disabled):
+		// let lastTs = Date.now()
+		// editor.onDidChangeModelContent((e) => {
+		// 	const thisTs = Date.now()
+		// 	lastTs = thisTs
+		// 	setTimeout(() => {
+		// 		if (thisTs === lastTs) {
+		// 			autocompletor?.savePatch()
+		// 		}
+		// 	}, 150)
+		// })
 
-		completorDisposable = editor.onDidChangeModelContent((e) => {
-			autocompletor.reject()
+		completorDisposable = editor.onDidChangeCursorPosition((e) => {
+			autocompletor?.reject()
+			if ($reviewingChanges) {
+				return
+			}
 			const position = editor.getPosition()
 			if (!position) {
 				return
 			}
 			const upToText = editor.getModel()?.getValueInRange({
-				startLineNumber: 1,
-				startColumn: 1,
+				startLineNumber: position.lineNumber,
+				startColumn: 0,
 				endLineNumber: position.lineNumber,
 				endColumn: position.column
 			})
 			const lastChar = upToText ? upToText[upToText.length - 1] : ''
-			if (!lastChar || lastChar.match(/[\(\{\s:="',]/)) {
-				autocompletor.autocomplete()
+			if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
+				autocompletor?.predict()
 			}
 		})
+
 		editor.addCommand(KeyCode.Tab, () => {
-			if (autocompletor.hasChanges()) {
-				autocompletor.accept()
-				// autocompletor.autocomplete()
+			if (autocompletor?.hasChanges()) {
+				autocompletor?.accept()
+				autocompletor?.predict()
 			} else {
 				editor.trigger('keyboard', 'tab', {})
 			}
@@ -661,7 +669,7 @@
 
 		editor.onKeyDown((e) => {
 			if (e.keyCode === KeyCode.Escape) {
-				autocompletor.reject()
+				autocompletor?.reject()
 			}
 		})
 	}
