@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                 -- slack_team_id, \n                 -- slack_name, \n                 -- slack_command_script, \n                 -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,\n                 auto_invite_domain IS NOT NULL AS \"auto_invite_enabled!\",\n                 CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS \"auto_invite_as!\", \n                 CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS \"auto_invite_mode!\", \n                 webhook, \n                 deploy_to, \n                 error_handler, \n                 ai_resource, \n                 ai_models,\n                 code_completion_model,\n                 error_handler_extra_args, \n                 error_handler_muted_on_cancel, \n                 large_file_storage, \n                 git_sync,\n                 default_app,\n                 default_scripts,\n                 workspace.name,\n                 mute_critical_alerts,\n                 color,\n                 operator_settings\n             FROM workspace_settings\n             LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id\n             WHERE workspace_id = $1",
+  "query": "SELECT\n                 -- slack_team_id,\n                 -- slack_name,\n                 -- slack_command_script,\n                 -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,\n                 auto_invite_domain IS NOT NULL AS \"auto_invite_enabled!\",\n                 CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS \"auto_invite_as!\",\n                 CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS \"auto_invite_mode!\",\n                 webhook,\n                 deploy_to,\n                 error_handler,\n                 ai_config,\n                 error_handler_extra_args,\n                 error_handler_muted_on_cancel,\n                 large_file_storage,\n                 git_sync,\n                 default_app,\n                 default_scripts,\n                 workspace.name,\n                 mute_critical_alerts,\n                 color,\n                 operator_settings\n             FROM workspace_settings\n             LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id\n             WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -35,66 +35,56 @@
       },
       {
         "ordinal": 6,
-        "name": "ai_resource",
+        "name": "ai_config",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 7,
-        "name": "ai_models",
-        "type_info": "VarcharArray"
-      },
-      {
-        "ordinal": 8,
-        "name": "code_completion_model",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 9,
         "name": "error_handler_extra_args",
         "type_info": "Json"
       },
       {
-        "ordinal": 10,
+        "ordinal": 8,
         "name": "error_handler_muted_on_cancel",
         "type_info": "Bool"
       },
       {
-        "ordinal": 11,
+        "ordinal": 9,
         "name": "large_file_storage",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 12,
+        "ordinal": 10,
         "name": "git_sync",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 13,
+        "ordinal": 11,
         "name": "default_app",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 14,
+        "ordinal": 12,
         "name": "default_scripts",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 15,
+        "ordinal": 13,
         "name": "name",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 16,
+        "ordinal": 14,
         "name": "mute_critical_alerts",
         "type_info": "Bool"
       },
       {
-        "ordinal": 17,
+        "ordinal": 15,
         "name": "color",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 18,
+        "ordinal": 16,
         "name": "operator_settings",
         "type_info": "Jsonb"
       }
@@ -112,8 +102,6 @@
       true,
       true,
       true,
-      false,
-      true,
       true,
       false,
       true,
@@ -126,5 +114,5 @@
       true
     ]
   },
-  "hash": "dc165e2d3e6cfc52d92b48500b5ca7dd94b46263c58163071c0ded1c54535727"
+  "hash": "c12a0b0d423577afbb2772f971bffe2635785b53d31d0ceb3d72226a0c316e8a"
 }

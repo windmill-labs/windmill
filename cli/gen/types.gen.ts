@@ -2,9 +2,22 @@
 
 export type AIProvider = 'openai' | 'anthropic' | 'mistral' | 'deepseek' | 'googleai' | 'groq' | 'openrouter' | 'customai';
 
-export type AIResource = {
-    path: string;
+export type AIProviderModel = {
+    model: string;
     provider: AIProvider;
+};
+
+export type AIProviderConfig = {
+    resource_path: string;
+    models: Array<(string)>;
+};
+
+export type AIConfig = {
+    providers?: {
+        [key: string]: AIProviderConfig;
+    };
+    default_model?: AIProviderModel;
+    code_completion_model?: AIProviderModel;
 };
 
 export type Script = {
@@ -2538,9 +2551,7 @@ export type GetSettingsResponse = ({
     customer_id?: string;
     webhook?: string;
     deploy_to?: string;
-    ai_resource?: AIResource;
-    code_completion_model?: string;
-    ai_models: Array<(string)>;
+    ai_config?: AIConfig;
     error_handler?: string;
     error_handler_extra_args?: ScriptArgs;
     error_handler_muted_on_cancel: boolean;
@@ -2742,11 +2753,7 @@ export type EditCopilotConfigData = {
     /**
      * WorkspaceCopilotConfig
      */
-    requestBody: {
-        ai_resource?: AIResource;
-        code_completion_model?: string;
-        ai_models: Array<(string)>;
-    };
+    requestBody: AIConfig;
     workspace: string;
 };
 
@@ -2756,12 +2763,7 @@ export type GetCopilotInfoData = {
     workspace: string;
 };
 
-export type GetCopilotInfoResponse = ({
-    ai_provider?: AIProvider;
-    exists_ai_resource: boolean;
-    code_completion_model?: string;
-    ai_models: Array<(string)>;
-});
+export type GetCopilotInfoResponse = (AIConfig);
 
 export type EditErrorHandlerData = {
     /**

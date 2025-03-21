@@ -40,6 +40,7 @@
 	export let workspace: string | undefined = undefined
 	export let showCaptures: boolean = false
 	export let customUi: PreviewPanelUi | undefined = undefined
+	export let fixChatMode: boolean = false
 
 	type DrawerContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -140,6 +141,8 @@
 												<svelte:fragment slot="copilot-fix">
 													{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
 														<ScriptFix
+															on:fix
+															chatMode={fixChatMode}
 															error={JSON.stringify(previewJob.result.error)}
 															{lang}
 															{editor}

@@ -65,7 +65,7 @@
       },
       {
         "ordinal": 12,
-        "name": "ai_resource",
+        "name": "ai_config",
         "type_info": "Jsonb"
       },
       {
@@ -142,16 +142,6 @@
         "ordinal": 27,
         "name": "teams_team_name",
         "type_info": "Text"
-      },
-      {
-        "ordinal": 28,
-        "name": "ai_models",
-        "type_info": "VarcharArray"
-      },
-      {
-        "ordinal": 29,
-        "name": "code_completion_model",
-        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -187,8 +177,6 @@
       true,
       true,
       true,
-      true,
-      false,
       true
     ]
   },

@@ -65,7 +65,6 @@
 			return
 		}
 		savePrompt()
-		const aiProvider = $copilotInfo.ai_provider
 		try {
 			genLoading = true
 			blockPopupOpen = true
@@ -82,8 +81,7 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController,
-					aiProvider
+					abortController
 				)
 			} else {
 				await copilot(
@@ -96,8 +94,7 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController,
-					aiProvider
+					abortController
 				)
 			}
 			setupDiff()
@@ -238,16 +235,6 @@
 			}
 		}
 	}
-
-	function checkForInvalidModel() {
-		if (
-			!$copilotSessionModel ||
-			($copilotSessionModel && !$copilotInfo.ai_models.includes($copilotSessionModel))
-		) {
-			$copilotSessionModel = $copilotInfo.ai_models[0]
-		}
-	}
-	$: $copilotInfo && checkForInvalidModel()
 
 	function handlePublicOnlySelected({ detail }: { detail: string }) {
 		if (!dbSchema) return
@@ -403,7 +390,7 @@
 							<LoadingIcon />
 						{/if}
 					</div>
-				{:else if $copilotInfo.exists_ai_resource}
+				{:else if $copilotInfo.enabled}
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between items-center w-96 gap-2">
 							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode} let:item>
@@ -419,25 +406,27 @@
 
 							<div class="min-w-0">
 								<TooltipV2>
-									{#if $copilotInfo.ai_models.length > 1}
+									{#if $copilotInfo.aiModels.length > 1}
 										<select
 											bind:value={$copilotSessionModel}
 											class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
 										>
-											{#each $copilotInfo.ai_models as model}
-												<option value={model} class="pr-4">{model}</option>
+											{#each $copilotInfo.aiModels as providerModel}
+												<option value={providerModel.model} class="pr-4"
+													>{providerModel.model}</option
+												>
 											{/each}
 										</select>
-									{:else if $copilotInfo.ai_models.length === 1}
+									{:else if $copilotInfo.aiModels.length === 1}
 										<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
-											{$copilotInfo.ai_models[0]}
+											{$copilotInfo.aiModels[0].model}
 										</div>
 									{/if}
 									<svelte:fragment slot="text">
 										<span class="text-xs"
-											>{$copilotInfo.ai_models.length > 1
+											>{$copilotInfo.aiModels.length > 1
 												? $copilotSessionModel
-												: $copilotInfo.ai_models[0]}</span
+												: $copilotInfo.aiModels[0].model}</span
 										>
 									</svelte:fragment>
 								</TooltipV2>

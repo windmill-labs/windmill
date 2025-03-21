@@ -17,9 +17,11 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import type { LanguageType } from 'svelte-highlight/languages'
 
 	export let code: string = ''
 	export let language: Script['language'] | 'bunnative' | 'frontend' | undefined
+	export let highlightLanguage: LanguageType<string> | undefined = undefined
 	export let lines = false
 
 	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | undefined) {
@@ -63,18 +65,18 @@
 			case 'nu':
 				return python
 			case 'ansible':
-				return yaml;
+				return yaml
 			default:
 				return typescript
 		}
 	}
 
-	$: lang = getLang(language)
+	$: lang = highlightLanguage ?? getLang(language)
 </script>
 
 <HighlightTheme />
 
-<div class="relative overflow-x-auto">
+<div class="relative">
 	<Button
 		wrapperClasses="absolute top-2 right-2 z-20"
 		on:click={() => copyToClipboard(code)}
@@ -85,17 +87,19 @@
 		}}
 		iconOnly
 	/>
-	{#if code?.length < 10000}
-		{#if !lines}
-			<Highlight class="nowrap {$$props.class}" language={lang} {code} />
+	<div class="overflow-x-auto">
+		{#if code?.length < 10000}
+			{#if !lines}
+				<Highlight class="nowrap {$$props.class}" language={lang} {code} />
+			{:else}
+				<Highlight class="nowrap {$$props.class}" language={lang} {code} let:highlighted>
+					<LineNumbers {highlighted} />
+				</Highlight>
+			{/if}
 		{:else}
-			<Highlight class="nowrap {$$props.class}" language={lang} {code} let:highlighted>
-				<LineNumbers {highlighted} />
-			</Highlight>
+			<pre class="overflow-auto max-h-screen text-xs {$$props.class}"
+				><code class="language-{language}">{code}</code></pre
+			>
 		{/if}
-	{:else}
-		<pre class="overflow-auto max-h-screen text-xs {$$props.class}"
-			><code class="language-{language}">{code}</code></pre
-		>
-	{/if}
+	</div>
 </div>
