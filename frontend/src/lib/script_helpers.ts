@@ -945,18 +945,10 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 `
-const JAVA_INIT_CODE = `// <dependency>
-//     <groupId>com.google.code.gson</groupId>
-//     <artifactId>gson</artifactId>
-//     <version>2.8.9</version>
-// </dependency>
-// <dependency>
-// 	<groupId>com.github.ricksbrown</groupId>
-// 	<artifactId>cowsay</artifactId>
-// 	<version>1.1.0</version>
-// 	<!-- The "lib" classifier is optional, but it gives you a MUCH smaller jar which is all you need as a Java library -->
-// 	<classifier>lib</classifier>
-// </dependency>
+const JAVA_INIT_CODE = `//requirements:
+//com.google.code.gson:gson:2.8.9
+//com.github.ricksbrown:cowsay:1.1.0
+//com.github.ricksbrown:cowsay:1.1.0
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;

@@ -45,7 +45,6 @@ jobs:
 
       - name: Cargo build windows
         timeout-minutes: 90
-        # KJQXZ 
         run: |
           vcpkg.exe install openssl-windows:x64-windows
           vcpkg.exe install openssl:x64-windows-static
@@ -54,7 +53,7 @@ jobs:
           $env:OPENSSL_DIR="${Env:VCPKG_INSTALLATION_ROOT}\installed\x64-windows-static"
           mkdir frontend/build && cd backend
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
-          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,php,mysql,mssql,bigquery,oracledb,postgres_trigger,mqtt_trigger,websocket,python,smtp,csharp,static_frontend,rust,nu,java
+          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages
 
       - name: Rename binary with corresponding architecture
         run: |

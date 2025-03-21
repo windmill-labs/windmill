@@ -1043,6 +1043,7 @@ pub async fn par_install_language_dependencies<'a>(
     installer_executable_name: &'a str,
     platform_agnostic: bool,
     concurrent_downloads: usize,
+    stdout_on_err: bool,
     install_fn: InstallStrategy,
     postinstall_cb: impl AsyncFn(Vec<RequiredDependency>) -> Result<(), error::Error>,
     job_id: &'a Uuid,
@@ -1368,6 +1369,7 @@ pub async fn par_install_language_dependencies<'a>(
                 None,
                 false,
                 &mut None,
+                None,
             )
             .await
             {
@@ -1471,6 +1473,8 @@ pub async fn par_install_language_dependencies<'a>(
             let cmd = callback(not_pulled_copy.clone())?;
             tracing::debug!("{:?}", &cmd);
             let child = start_child_process(cmd, &installer_executable_name).await?;
+            let mut buf = "".to_owned();
+            let pipe_stdout = if stdout_on_err { Some(&mut buf) } else { None };
             if let Err(e) = crate::handle_child::handle_child(
                 // &job_id,
                 &Uuid::nil(),
@@ -1487,16 +1491,14 @@ pub async fn par_install_language_dependencies<'a>(
                 None,
                 false,
                 &mut None,
+                pipe_stdout,
             )
             .await
             {
-                windmill_queue::append_logs(
-                    &job_id,
-                    &w_id,
-                    format!("error while installing dependencies: {e:?}"),
-                    db.clone(),
-                )
-                .await;
+                bail!(format!(
+                    "error while installing dependencies: {e:?}\n{}\n\nNote: you may need to check your proxy and repository configurations",
+                    buf
+                ));
             } else {
                 postinstall_cb(not_pulled_copy.clone()).await?;
                 for RequiredDependency { path, custom_name, short_name } in

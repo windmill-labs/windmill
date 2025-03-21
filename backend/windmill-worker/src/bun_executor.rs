@@ -167,6 +167,7 @@ pub async fn gen_bun_lockfile(
                 None,
                 false,
                 occupancy_metrics,
+                None,
             )
             .await?;
         } else {
@@ -350,6 +351,7 @@ pub async fn install_bun_lockfile(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await?
     } else {
@@ -521,6 +523,7 @@ pub async fn generate_wrapper_mjs(
         timeout,
         false,
         occupancy_metrics,
+        None,
     )
     .await?;
     fs::rename(
@@ -571,6 +574,7 @@ pub async fn generate_bun_bundle(
             timeout,
             false,
             occupancy_metrics,
+            None,
         )
         .await?;
     } else {
@@ -1429,6 +1433,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 

@@ -2022,6 +2022,7 @@ async fn capture_dependency_job(
             )
             .await
         }
+        #[cfg(feature = "java")]
         ScriptLang::Java => {
             if raw_deps {
                 return Err(Error::ExecutionErr(
@@ -2029,20 +2030,9 @@ async fn capture_dependency_job(
                 ));
             }
 
-            #[cfg(feature = "java")]
             resolve(job_id, job_raw_code, job_dir, db, w_id).await
         }
-        ScriptLang::Postgresql => Ok("".to_owned()),
-        ScriptLang::Mysql => Ok("".to_owned()),
-        ScriptLang::Bigquery => Ok("".to_owned()),
-        ScriptLang::Snowflake => Ok("".to_owned()),
-        ScriptLang::Mssql => Ok("".to_owned()),
-        ScriptLang::Graphql => Ok("".to_owned()),
-        ScriptLang::OracleDB => Ok("".to_owned()),
-        ScriptLang::Bash => Ok("".to_owned()),
-        ScriptLang::Nu => Ok("".to_owned()),
-        ScriptLang::Powershell => Ok("".to_owned()),
-        ScriptLang::Nativets => Ok("".to_owned()),
         // KJQXZ
+        _ => Ok("".to_owned()),
     }
 }

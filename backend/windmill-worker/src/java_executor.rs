@@ -1,11 +1,11 @@
 use std::{collections::HashMap, path::PathBuf, process::Stdio, str::FromStr, sync::Arc};
 
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::{
-    fs::{create_dir_all, read_to_string, remove_dir_all, File},
+    fs::{create_dir_all, remove_dir_all, File},
     io::AsyncWriteExt,
     process::Command,
 };
@@ -16,7 +16,6 @@ use windmill_common::{
     utils::calculate_hash,
     worker::{copy_dir_recursively, save_cache, write_file},
 };
-use windmill_macros::annotations;
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
 use windmill_queue::{append_logs, CanceledBy};
@@ -34,7 +33,6 @@ lazy_static::lazy_static! {
     static ref JAVA_CONCURRENT_DOWNLOADS: usize = std::env::var("JAVA_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref JAVA_PATH: String = std::env::var("JAVA_PATH").unwrap_or_else(|_| "/usr/bin/java".to_string());
     static ref JAVAC_PATH: String = std::env::var("JAVAC_PATH").unwrap_or_else(|_| "/usr/bin/javac".to_string());
-    // static ref CS_PATH: String = std::env::var("COURSIER_PATH").unwrap_or_else(|_| "/usr/bin/cs".to_string());
     static ref CS_PATH: String = std::env::var("COURSIER_PATH").unwrap_or_else(|_| "/usr/bin/coursier".to_string());
     static ref HTTPS_PROXY_HOST: String = std::env::var("JAVA_HTTPS_PROXY_HOST").unwrap_or_default();
     static ref HTTPS_PROXY_PORT: String = std::env::var("JAVA_HTTPS_PROXY_PORT").unwrap_or_default();
@@ -198,8 +196,7 @@ pub async fn resolve<'a>(
         } else {
             JAVA_PATH.as_str()
         });
-        let output = cmd
-            .env_clear()
+        cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
             .envs(PROXY_ENVS.clone())
@@ -217,10 +214,18 @@ pub async fn resolve<'a>(
             ])
             .args(&get_repos().await)
             .args(&deps.split("\n").collect_vec())
-            .stderr(Stdio::piped())
-            .output()
-            .await?;
+            .stderr(Stdio::piped());
 
+        #[cfg(windows)]
+        {
+            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
+                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                );
+        }
+        let output = cmd.output().await?;
         // Check if the command was successful
         if output.status.success() {
             String::from_utf8(output.stdout).expect("Failed to convert output to String")
@@ -229,16 +234,6 @@ pub async fn resolve<'a>(
                 String::from_utf8(output.stderr).expect("Failed to convert error output to String");
             return Err(error::Error::internal_err(stderr));
         }
-        // #[cfg(windows)]
-        // {
-        //     cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-        //         .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-        //         .env(
-        //             "TMP",
-        //             std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-        //         );
-        // }
-        // start_child_process(cmd, "mvn").await?
     };
 
     sqlx::query!(
@@ -302,6 +297,7 @@ async fn install<'a>(
         "java",
         true,
         *JAVA_CONCURRENT_DOWNLOADS,
+        true,
         crate::common::InstallStrategy::AllAtOnce(Arc::new(move |dependencies| {
             let mut cmd = Command::new(if cfg!(windows) {
                 "java"
@@ -496,6 +492,7 @@ async fn compile<'a>(
             job.timeout,
             false,
             &mut Some(occupancy_metrics),
+            None,
         )
         .await?;
 
@@ -605,6 +602,7 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
+            // TODO: I don't think it works
             .envs(PROXY_ENVS.clone())
             .args(&[
                 &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_HOST),
@@ -640,6 +638,7 @@ async fn run<'a>(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await
 }

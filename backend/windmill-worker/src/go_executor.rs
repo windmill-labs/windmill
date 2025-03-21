@@ -213,6 +213,7 @@ func Run(req Req) (interface{{}}, error){{
             None,
             false,
             &mut Some(occupation_metrics),
+            None,
         )
         .await?;
 
@@ -317,6 +318,7 @@ func Run(req Req) (interface{{}}, error){{
         job.timeout,
         false,
         &mut Some(occupation_metrics),
+        None,
     )
     .await?;
 
@@ -381,6 +383,7 @@ pub async fn install_go_dependencies(
             None,
             false,
             &mut Some(occupation_metrics),
+            None,
         )
         .await?;
 
@@ -447,6 +450,7 @@ pub async fn install_go_dependencies(
         None,
         false,
         &mut Some(occupation_metrics),
+        None,
     )
     .await?;
 

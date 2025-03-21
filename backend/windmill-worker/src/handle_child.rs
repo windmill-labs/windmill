@@ -103,6 +103,7 @@ pub async fn handle_child(
     custom_timeout: Option<i32>,
     sigterm: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    pipe_stdout: Option<&mut String>,
 ) -> error::Result<()> {
     let start = Instant::now();
 
@@ -304,6 +305,8 @@ pub async fn handle_child(
         let mut log_total_size: u64 = 0;
         let pg_log_total_size = Arc::new(AtomicU32::new(0));
 
+        let mut pipe_stdout = pipe_stdout;
+
         while let Some(line) =  output.by_ref().next().await {
 
             let do_write_ = do_write.shared();
@@ -385,9 +388,12 @@ pub async fn handle_child(
 
             let worker_name = worker.to_string();
             let w_id2 = w_id.to_string();
-            (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, db.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
-
-
+            if let Some(buf) = &mut pipe_stdout {
+                buf.push_str(&joined);
+                (do_write, write_result) = tokio::spawn(async { }).remote_handle();
+            } else {
+                (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, db.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
+            }
 
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");

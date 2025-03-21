@@ -16,9 +16,8 @@ ENV DOTNET_ROOT="/opt/dotnet-sdk/bin"
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
 
 # Java
-RUN apt-get install -y default-jdk zip
-RUN wget https://dlcdn.apache.org/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.zip \
-	&& unzip apache-maven-3.9.9-bin.zip \
-	&& rm -rf apache-maven-3.9.9-bin.zip \
-	&& mv apache-maven-3.9.9/ /opt/maven
-RUN /bin/mvn dependency:help -q -Dmaven.repo.local="/tmp/windmill/cache_nomount/maven-plugins-repository"
+RUN apt-get -y update && apt-get install -y default-jdk 
+RUN curl -fLo coursier https://github.com/coursier/coursier/releases/download/v2.1.24/coursier \
+	&& mv ./coursier /usr/bin/coursier \
+	&& chmod +x /usr/bin/coursier
+RUN /usr/bin/java -jar /usr/bin/coursier about

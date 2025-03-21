@@ -159,6 +159,7 @@ pub async fn generate_deno_lock(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await?;
     } else {
@@ -416,6 +417,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());

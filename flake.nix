@@ -31,6 +31,13 @@
           pkg-config
           cmake
         ];
+        coursier = pkgs.fetchFromGitHub {
+          owner = "coursier";
+          repo = "launchers";
+          rev = "79d927f7586c09ca6d8cd01862adb0d9f9d88dff";
+          hash = "sha256-8E0WtDFc7RcqmftDigMyy1xXUkjgL4X4kpf7h1GdE48=";
+        };
+
         PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig"
           (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev ]);
         RUSTY_V8_ARCHIVE = let
@@ -86,7 +93,9 @@
             maven
             dotnet-sdk_9
             oracle-instantclient
+            # LSP/Local dev
             svelte-language-server
+            taplo
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
@@ -164,6 +173,7 @@
           MAVEN_PATH = "${pkgs.maven}/bin/mvn";
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
+          COURSIER_PATH = "${coursier}/coursier";
           # KJQXZ 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
@@ -244,7 +254,6 @@
             "cloud"
             "jemalloc"
             "tantivy"
-            "deno_core"
             "license"
             "http_trigger"
             "zip"
@@ -252,18 +261,10 @@
             "kafka"
             "otel"
             "dind"
-            "php"
-            "mysql"
-            "mssql"
-            "bigquery"
             "websocket"
-            "python"
             "smtp"
-            "csharp"
             "static_frontend"
-            "rust"
-            "java"
-            # KJQXZ 
+            "all_languages"
           ];
           doCheck = false;
 
