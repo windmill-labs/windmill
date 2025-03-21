@@ -94,7 +94,7 @@
 		{:else}
 			<Button
 				color="dark"
-				btnClasses="rounded-l-none"
+				btnClasses="!rounded-l-none"
 				wrapperClasses="h-full"
 				nonCaptureEvent
 				title="Test trigger"
