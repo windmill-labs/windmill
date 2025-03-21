@@ -39,6 +39,7 @@
 	let selectedJob: Job | undefined = undefined
 	let outputPicker: OutputPickerInner | undefined = undefined
 	let jobProgressReset: () => void
+	let fetchingLastJob = false
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
 		Object.keys(schema.properties ?? {}).map((k) => [
@@ -102,6 +103,10 @@
 	}
 
 	async function getLastJob(noLogs: boolean) {
+		if (fetchingLastJob) {
+			return
+		}
+		fetchingLastJob = true
 		// TODO: put this function higher in the component tree
 		const previousJobs = await JobService.listJobs({
 			workspace: $workspaceStore!,
@@ -120,6 +125,7 @@
 				selectedJob = job
 			}
 		}
+		fetchingLastJob = false
 	}
 
 	$: testJob && outputPicker?.selectJob(testJob)
@@ -192,8 +198,7 @@
 					mock={mod.mock}
 					bind:forceJson
 					bind:selectedJob
-					{testIsLoading}
-					{scriptProgress}
+					isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
 				>
 					<svelte:fragment slot="copilot-fix">
 						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
@@ -224,7 +229,7 @@
 						duration={selectedJob?.['duration_ms']}
 						mem={selectedJob?.['mem_peak']}
 						content={selectedJob?.logs}
-						isLoading={testIsLoading && selectedJob?.['running'] == false}
+						isLoading={(testIsLoading && selectedJob?.['running'] == false) || fetchingLastJob}
 						tag={selectedJob?.tag}
 					/>
 				{/if}

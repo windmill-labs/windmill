@@ -28,8 +28,7 @@
 	export let getLogs: boolean = false
 	export let selectedJob: Job | undefined = undefined
 	export let forceJson: boolean = false
-	export let testIsLoading: boolean = false
-	export let scriptProgress: boolean = false
+	export let isLoading: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		updateMock: { enabled: boolean; return_value?: unknown }
@@ -220,12 +219,10 @@
 	</div>
 
 	{#if fullResult && !jsonView}
-		{#if testIsLoading}
-			{#if !scriptProgress}
-				<div class="p-2">
-					<Loader2 class="animate-spin m-auto" />
-				</div>
-			{/if}
+		{#if isLoading}
+			<div class="p-2">
+				<Loader2 class="animate-spin " />
+			</div>
 		{:else if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
 			<div class="break-words relative h-full p-2">
 				{#key selectedJob}
