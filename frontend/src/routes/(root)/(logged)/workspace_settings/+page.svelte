@@ -1080,8 +1080,10 @@
 							<div class="flex flex-col gap-2">
 								<Toggle
 									options={{
-										right: label
+										right:
+											label + (provider === 'customai' && !$enterpriseLicense ? ' (EE only)' : '')
 									}}
+									disabled={provider === 'customai' && !$enterpriseLicense}
 									checked={!!aiProviders[provider]}
 									on:change={(e) => {
 										if (e.detail) {

@@ -52,6 +52,9 @@ use windmill_git_sync::handle_deployment_metadata;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
+#[cfg(not(feature = "enterprise"))]
+use crate::ai::AIProvider;
+
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
