@@ -129,7 +129,6 @@
 	}
 </script>
 
-
 <ConfirmationModal
 	open={unsavedModalOpen}
 	title="Unsaved changes detected"
@@ -198,6 +197,7 @@
 		{#if script}
 			{#key script.hash}
 				<ScriptEditor
+					showCaptures={false}
 					on:saveDraft={() => {
 						saveScript()
 					}}

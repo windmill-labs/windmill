@@ -9,6 +9,8 @@ mod snowflake_executor;
 mod ansible_executor;
 mod bash_executor;
 
+#[cfg(feature = "nu")]
+mod nu_executor;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 mod bun_executor;
@@ -29,6 +31,7 @@ mod js_eval;
 mod mysql_executor;
 #[cfg(feature = "oracledb")]
 mod oracledb_executor;
+mod otel_ee;
 mod pg_executor;
 #[cfg(feature = "php")]
 mod php_executor;
@@ -40,6 +43,8 @@ mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
+mod sanitized_sql_params;
+mod schema;
 
 pub use worker::*;
 

@@ -25,17 +25,18 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
 };
-use windmill_queue::CanceledBy;
+use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{AuthedClientBackgroundTask, MAX_RESULT_SIZE};
 use bytes::Buf;
 use lazy_static::lazy_static;
@@ -157,7 +158,7 @@ fn do_postgresql_inner<'a>(
 }
 
 pub async fn do_postgresql(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -290,6 +291,11 @@ pub async fn do_postgresql(
         (Some((client, handle)), None)
     };
 
+    let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
+
+    let (query, _) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args)?;
+
     let queries = parse_sql_blocks(query);
 
     let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
@@ -299,7 +305,6 @@ pub async fn do_postgresql(
         (client, None)
     };
 
-    let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
     let param_idx_to_arg_and_value = sig
         .args
         .iter()

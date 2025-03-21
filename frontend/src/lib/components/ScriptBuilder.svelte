@@ -109,9 +109,9 @@
 	}
 
 	// used for new scripts for captures
-	let fakeInitialPath =
+	const fakeInitialPath =
 		'u/' +
-		($userStore?.username?.includes('@')
+		($userStore!.username?.includes('@')
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 			: $userStore!.username!) +
 		'/' +
@@ -470,6 +470,17 @@
 					on_behalf_of_email: script.on_behalf_of_email
 				}
 			})
+
+			if (!initialPath) {
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: script.path
+					},
+					runnableKind: 'script'
+				})
+			}
 
 			const scheduleExists =
 				initialPath != '' &&
@@ -958,7 +969,7 @@
 													>
 														<LanguageIcon {lang} />
 														<span class="ml-2 py-2 truncate">{label}</span>
-														{#if lang === 'ansible'}
+														{#if lang === 'ansible' || lang === 'nu'}
 															<span class="text-tertiary !text-xs"> BETA </span>
 														{/if}
 													</Button>
@@ -1625,6 +1636,7 @@
 			bind:this={scriptEditor}
 			bind:schema={script.schema}
 			path={script.path}
+			stablePathForCaptures={initialPath || fakeInitialPath}
 			bind:code={script.content}
 			lang={script.language}
 			{initialArgs}
