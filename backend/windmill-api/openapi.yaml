@@ -13797,9 +13797,9 @@ components:
           - none
           - windmill
           - api_key
-          - basic
+          - basic_http
           - signature
-          - webhook
+          - webhook_auth
 
     HttpTrigger:
       allOf:

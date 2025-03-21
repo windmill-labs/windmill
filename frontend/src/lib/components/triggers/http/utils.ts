@@ -6,3 +6,5 @@ export function getHttpRoute(route_path: string | undefined, workspaced_route: b
         isCloudHosted() || workspaced_route ? workspace_id + '/' : ''
     }${route_path ?? ''}`
 }
+
+export const HTTP_TRIGGERS_QUERY_PARAM_NAMES = 'http_trigger_variables'

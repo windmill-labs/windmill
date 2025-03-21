@@ -106,15 +106,15 @@ impl TryFrom<&http::Method> for HttpMethod {
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[sqlx(type_name = "AUTHENTICATION_METHOD", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase", deserialize = "snake_case"))]
+#[sqlx(type_name = "AUTHENTICATION_METHOD", rename_all = "snake_case")]
+#[serde(rename_all(serialize = "snake_case", deserialize = "snake_case"))]
 pub enum AuthenticationMethod {
     None,
     Windmill,
     ApiKey,
-    Basic,
-    Webhook,
-    Signature,
+    BasicHttp,
+    WebhookAuth,
+    Signature
 }
 
 #[derive(Debug, Deserialize)]
@@ -966,6 +966,8 @@ async fn route_job(
                     &trigger.workspace_id,
                 )
                 .await;
+
+            println!("{:#?}", &authentication_method);
 
             let authentication_method = match authentication_method {
                 Ok(authentication_method) => authentication_method,

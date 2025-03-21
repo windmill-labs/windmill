@@ -5,13 +5,14 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { HttpTriggerService, type AuthenticationMethod } from '$lib/gen'
+	import { HttpTriggerService, VariableService, type AuthenticationMethod } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, Pipette } from 'lucide-svelte'
+	import { Loader2, Save, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
+	import VariableEditor from '../../VariableEditor.svelte'
 	import { json } from 'svelte-highlight/languages'
 	import { Highlight } from 'svelte-highlight'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
@@ -26,6 +27,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import ItemPicker from '../../ItemPicker.svelte'
+	import { Popover } from '$lib/components/meltComponents'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -56,7 +59,9 @@
 	let wrap_body = false
 	let drawerLoading = true
 	let authentication_resource_path: string = ''
-
+	let variablePicker: ItemPicker
+	let variableEditor: VariableEditor
+	let variable_path: string = ''
 	type AuthenticationOption = {
 		label: string
 		value: AuthenticationMethod
@@ -64,34 +69,46 @@
 		resource_type?: string
 	}
 
+	async function loadVariables() {
+		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
+	}
+
+	let signature_options_type: 'custom_script' | 'custom_signature' = 'custom_signature'
+
 	const authentication_options: AuthenticationOption[] = [
 		{
-			label: 'None',
+			label: 'No Auth',
 			value: 'none'
 		},
 		{
 			label: 'Windmill',
 			value: 'windmill',
-			tooltip: 'Requires authentication with read access on the route'
+			tooltip: 'Requires the user to be authenticated with read access to this route'
 		},
 		{
-			label: 'API key',
+			label: 'API Key',
 			value: 'api_key',
-			resource_type: 'api_key_auth'
+			resource_type: 'api_key_auth',
+			tooltip:
+				'Checks for a valid API key in a specified header. Header name can be configured in the resource.'
 		},
 		{
-			label: 'Basic',
-			value: 'basic',
-			resource_type: 'basic_http_auth'
+			label: 'Basic Auth',
+			value: 'basic_http',
+			resource_type: 'basic_http_auth',
+			tooltip:
+				'Uses base64-encoded Basic authentication. Defaults to the Authorization header, but a custom header can be configured in the resource.'
 		},
 		{
 			label: 'Signature',
-			value: 'signature'
+			value: 'signature',
+			tooltip: 'Use your own script to verify HMAC or signature-based authentication'
 		},
 		{
-			label: 'Webhook',
-			value: 'webhook',
-			resource_type: 'webhook_auth'
+			label: 'Webhook Auth',
+			value: 'webhook_auth',
+			resource_type: 'webhook_auth',
+			tooltip: 'Uses a Windmill webhook resource for signature or token-based validation'
 		}
 	]
 
@@ -139,6 +156,7 @@
 			is_static_website = false
 			workspaced_route = false
 			authentication_resource_path = ''
+			variable_path = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -483,16 +501,51 @@
 										let:item
 									>
 										{#each authentication_options as option}
-											<ToggleButton
-												label={option.label}
-												value={option.value}
-												tooltip={option.tooltip}
-												{item}
-											/>
+											{#if option.value === 'signature'}
+												<Popover>
+													<svelte:fragment slot="trigger">
+														<ToggleButton
+															label={option.label}
+															value={option.value}
+															tooltip={option.tooltip}
+															{item}
+														/>
+													</svelte:fragment>
+													<svelte:fragment slot="content">
+														<ToggleButtonGroup
+															class="w-auto h-full"
+															bind:selected={signature_options_type}
+															disabled={!can_write}
+															let:item
+														>
+															<ToggleButton
+																label="Custom signature"
+																value="custom_signature"
+																tooltip="Use a personalized signature"
+																{item}
+															/>
+															<ToggleButton
+																label="Custom script"
+																value="custom_script"
+																tooltip="Use your own script logic"
+																{item}
+															/>
+														</ToggleButtonGroup>
+													</svelte:fragment>
+												</Popover>
+											{:else}
+												<ToggleButton
+													label={option.label}
+													value={option.value}
+													tooltip={option.tooltip}
+													{item}
+												/>
+											{/if}
 										{/each}
 									</ToggleButtonGroup>
 								</svelte:fragment>
 							</Label>
+
 							{#each authentication_options as option}
 								{#if option.resource_type && authentication_method === option.value}
 									<ResourcePicker
@@ -501,6 +554,50 @@
 									/>
 								{/if}
 							{/each}
+
+							{#if authentication_method === 'signature'}
+								{#if signature_options_type === 'custom_signature'}
+									<ResourcePicker
+										bind:value={authentication_resource_path}
+										resourceType={'hmac_auth'}
+									/>
+								{:else if signature_options_type === 'custom_script'}
+									<p class="text-xs mt-3 mb-1 text-tertiary">
+										Pick a secret variable or create one which will be used as a secret key for your
+										custom script<Required required={true} /><br />
+									</p>
+									<div class="flex flex-row gap-2">
+										<div class="flex flex-row gap-2 w-full">
+											<input
+												type="text"
+												autocomplete="off"
+												bind:value={variable_path}
+												readonly
+												disabled={true}
+											/>
+											<Button
+												title="Add variable"
+												on:click={variablePicker.openDrawer}
+												size="xs"
+												color="dark"
+											>
+												+Variable
+											</Button>
+										</div>
+										{#if !emptyString(variable_path)}
+											<Button
+												color="dark"
+												size="xs"
+												href={itemKind === 'flow'
+													? '/flows/add?hub=62'
+													: `/scripts/add?secret_key_path=${variable_path}&hub=hub%2F11663`}
+												target="_blank">Create from template</Button
+											>
+										{/if}
+									</div>
+								{/if}
+							{/if}
+
 							<Label label="Raw body" class="w-full">
 								<svelte:fragment slot="header">
 									<Tooltip
@@ -540,3 +637,32 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
+
+<ItemPicker
+	bind:this={variablePicker}
+	pickCallback={(path, name) => {
+		variable_path = path
+	}}
+	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
+	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+	itemName="Variable"
+	extraField="path"
+	loadItems={loadVariables}
+	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+>
+	<div slot="submission" class="flex flex-row">
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
+			startIcon={{ icon: Plus }}
+			on:click={() => {
+				variableEditor.initNew()
+			}}
+		>
+			New variable
+		</Button>
+	</div>
+</ItemPicker>
+
+<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
