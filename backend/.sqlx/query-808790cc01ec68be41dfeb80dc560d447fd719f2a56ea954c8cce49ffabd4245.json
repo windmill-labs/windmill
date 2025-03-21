@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.path\n            FROM workspace_runnable_dependencies wru \n            JOIN flow f\n                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id\n            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "808790cc01ec68be41dfeb80dc560d447fd719f2a56ea954c8cce49ffabd4245"
+}

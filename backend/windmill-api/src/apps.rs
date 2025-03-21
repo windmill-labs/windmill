@@ -12,7 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
-    utils::WithStarredInfoQuery,
+    utils::{RunnableKind, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -89,6 +89,10 @@ pub fn workspaced_service() -> Router {
         .route("/history/p/*path", get(get_app_history))
         .route("/get_latest_version/*path", get(get_latest_version))
         .route("/history_update/a/:id/v/:version", post(update_app_history))
+        .route(
+            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route("/custom_path_exists/*custom_path", get(custom_path_exists))
 }
 
@@ -717,6 +721,28 @@ async fn get_secret_id(
     let hx = hex::encode(mc.encrypt_str_to_bytes(id.to_string()));
 
     Ok(hx)
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT a.path
+            FROM workspace_runnable_dependencies wru 
+            JOIN app a
+                ON wru.app_path = a.path AND wru.workspace_id = a.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+        path.to_path(),
+        matches!(runnable_kind, RunnableKind::Flow),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
 }
 
 async fn create_app(
