@@ -586,7 +586,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GithubInstallations"
-  
+
   /workspaces/list:
     get:
       summary: list all workspaces visible to me
@@ -1300,12 +1300,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
 
-  /w/{workspace}/github_app/get_github_app_token:
+  /w/{workspace}/github_app/token:
     post:
       summary: get github app token
       operationId: getGithubAppToken
       tags:
-        - git_sync
+        - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -1984,7 +1984,7 @@ paths:
               schema:
                 type: string
 
-  
+
   /w/{workspace}/workspaces/threshold_alert:
     get:
       summary: get threshold alert info
@@ -2108,7 +2108,7 @@ paths:
                       type: string
                     team_id:
                       type: string
-  
+
   /w/{workspace}/workspaces/available_teams_channels:
     get:
       summary: list available teams channels
@@ -2197,7 +2197,7 @@ paths:
                 properties:
                   job_uuid:
                     type: string
-  
+
   /w/{workspace}/workspaces/run_teams_message_test_job:
     post:
       summary: run a job that sends a message to Teams
@@ -3538,7 +3538,7 @@ paths:
                     type: array
                     items:
                       type: string
-                      
+
   /teams/sync:
     post:
       operationId: syncTeams
@@ -4437,7 +4437,7 @@ paths:
             type: string
         - name: last_parent_hash
           description: |
-            mask to filter scripts whom last parent in the chain has exact hash. 
+            mask to filter scripts whom last parent in the chain has exact hash.
             Beware that each script stores only a limited number of parents. Hence
             the last parent hash for a script is not necessarily its top-most parent.
             To find the top-most parent you will have to jump from last to last hash
@@ -4458,7 +4458,7 @@ paths:
             (default false)
             show only the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
-            are 
+            are
             ed.
           in: query
           schema:
@@ -8701,7 +8701,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NatsTrigger"
 
-  
+
   /w/{workspace}/nats_triggers/list:
     get:
       summary: list nats triggers
@@ -8736,7 +8736,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/NatsTrigger"
 
-  
+
   /w/{workspace}/nats_triggers/exists/{path}:
     get:
       summary: does nats trigger exists
@@ -8783,7 +8783,7 @@ paths:
               schema:
                 type: string
 
-  
+
   /w/{workspace}/nats_triggers/test:
     post:
       summary: test NATS connection
@@ -9269,7 +9269,7 @@ paths:
 
   /w/{workspace}/postgres_triggers/slot/create/{path}:
     post:
-      summary: create replication slot for postgres 
+      summary: create replication slot for postgres
       operationId: createPostgresReplicationSlot
       tags:
         - postgres_trigger
@@ -10143,7 +10143,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Folder"
-  
+
   /w/{workspace}/folders/exists/{name}:
     get:
       summary: exists folder
@@ -10710,7 +10710,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Capture"
-  
+
 
   /w/{workspace}/capture/move/{runnable_kind}/{path}:
     post:
@@ -12808,7 +12808,7 @@ components:
         permissioned_as:
           type: string
           description: |
-            The user (u/userfoo) or group (g/groupfoo) whom 
+            The user (u/userfoo) or group (g/groupfoo) whom
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
@@ -12915,7 +12915,7 @@ components:
         permissioned_as:
           type: string
           description: |
-            The user (u/userfoo) or group (g/groupfoo) whom 
+            The user (u/userfoo) or group (g/groupfoo) whom
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
           $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
@@ -13976,7 +13976,7 @@ components:
         wrap_body:
           type: boolean
         raw_string:
-          type: boolean 
+          type: boolean
 
       required:
         - path
@@ -14219,7 +14219,7 @@ components:
     MqttQoS:
       type: string
       enum: ['qos0', 'qos1', 'qos2']
-  
+
     MqttV3Config:
       type: object
       properties:
@@ -14289,7 +14289,7 @@ components:
       type: object
       properties:
         mqtt_resource_path:
-          type: string      
+          type: string
         subscribe_topics:
           type: array
           items:
@@ -14347,9 +14347,9 @@ components:
         - script_path
         - is_flow
         - enabled
-        - subscribe_topics  
+        - subscribe_topics
         - mqtt_resource_path
-    
+
     SqsTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14399,7 +14399,7 @@ components:
           type: boolean
       required:
         - queue_url
-        - aws_resource_path        
+        - aws_resource_path
         - path
         - script_path
         - is_flow
@@ -14425,7 +14425,7 @@ components:
           type: boolean
       required:
         - queue_url
-        - aws_resource_path      
+        - aws_resource_path
         - path
         - script_path
         - is_flow
@@ -14459,7 +14459,7 @@ components:
             type: string
       required:
         - transaction_to_track
-    
+
     TableToTrack:
       type: array
       items:
@@ -14507,7 +14507,7 @@ components:
         - postgres_resource_path
         - relations
         - language
-  
+
     PostgresTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14559,7 +14559,7 @@ components:
         - is_flow
         - enabled
         - postgres_resource_path
-  
+
     EditPostgresTrigger:
       type: object
       properties:
@@ -14697,7 +14697,7 @@ components:
           type: string
         enabled:
           type: boolean
-        
+
       required:
         - nats_resource_path
         - use_jetstream
@@ -14727,7 +14727,7 @@ components:
             type: string
         enabled:
           type: boolean
-        
+
       required:
         - path
         - script_path
@@ -14757,7 +14757,7 @@ components:
           type: string
         is_flow:
           type: boolean
-              
+
       required:
         - path
         - script_path
