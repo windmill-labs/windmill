@@ -1,12 +1,22 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { ScriptService, type Job } from '$lib/gen'
+	import { ScriptService, type InputTransform, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { Schema, SchemaProperty } from '$lib/common'
-	import SimpleEditor from '../SimpleEditor.svelte'
+	import PropPickerWrapper from '../flows/propPicker/PropPickerWrapper.svelte'
+	import InputTransformForm from '../InputTransformForm.svelte'
+	import type { FlowPropPickerConfig, PropPickerContext } from '../prop_picker'
+	import { setContext } from 'svelte'
+	import { writable } from 'svelte/store'
+	import type { PickableProperties } from '../flows/previousResults'
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
+
+	setContext<PropPickerContext>('PropPickerContext', {
+		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+	})
 
 	type GroupedJob = {
 		script_path: string
@@ -142,11 +152,27 @@
 				<PanelSection title="Inputs" class="" id="batch-rerun-options-args">
 					{#await selectedHashesPromise then selectedHashes}
 						{@const properties = computePropertyMap(selectedHashes)}
-
-						{#each properties.keys() as propertyName}
-							<p class="text-xs">{propertyName}</p>
-							<div class="w-full"><SimpleEditor autoHeight lang="javascript" /></div>
-						{/each}
+						<div class="w-full h-full">
+							<PropPickerWrapper
+								noFlowPlugConnect
+								displayContext={false}
+								pickableProperties={undefined}
+								on:select={({ detail }) => {}}
+							>
+								{#each properties.entries() as [propertyName, property]}
+									<InputTransformForm
+										class="items-start mb-4"
+										arg={{
+											type: 'javascript',
+											expr: ''
+										} as InputTransform}
+										argName={propertyName}
+										schema={{}}
+										previousModuleId={undefined}
+									/>
+								{/each}
+							</PropPickerWrapper>
+						</div>
 					{/await}
 				</PanelSection>
 			</Pane>

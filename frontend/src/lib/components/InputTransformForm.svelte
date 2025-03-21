@@ -370,8 +370,8 @@
 											staticTemplate
 												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 												: arg.value
-												? '(' + JSON.stringify(arg?.value, null, 4) + ')'
-												: ''
+													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
+													: ''
 										)
 									}
 									if (arg) {
