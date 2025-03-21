@@ -10,6 +10,7 @@ use crate::error;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 
 lazy_static::lazy_static! {
@@ -160,6 +161,10 @@ pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
 
 pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
+lazy_static::lazy_static! {
+    pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
+}
+
 pub async fn get_reserved_variables(
     db: &DB,
     w_id: &str,
@@ -199,6 +204,31 @@ pub async fn get_reserved_variables(
         } else {
             format!("u/{username}/tmp_state")
         }
+    };
+
+    let cached_envs_o = CUSTOM_ENVS_CACHE.get(w_id).and_then(|(ts, envs)| {
+        if ts > chrono::Utc::now().timestamp() - 60 {
+            Some(envs)
+        } else {
+            None
+        }
+    });
+
+    let custom_envs = if let Some(cached_envs) = cached_envs_o {
+        cached_envs
+    } else {
+        let custom_envs = sqlx::query_as::<_, (String, String)>(
+            "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+        CUSTOM_ENVS_CACHE.insert(
+            w_id.to_string(),
+            (chrono::Utc::now().timestamp(), custom_envs.clone()),
+        );
+        custom_envs
     };
 
     let joined_schedule_path = schedule_path
@@ -338,18 +368,11 @@ pub async fn get_reserved_variables(
             description: "name of the worker group the job is running on".to_string(),
             is_custom: false,
         },
-    ].into_iter().chain( sqlx::query_as::<_, (String, String)>(
-        "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
-    )
-    .bind(w_id)
-    .fetch_all(db)
-    .await
-    .unwrap_or_default()
-    .into_iter().map(|(name, value)| ContextualVariable {
+    ].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {
         name,
         value,
         description: "Custom workspace environment variable".to_string(),
         is_custom: true,
-    })).collect()
+    })
+).collect()
 }
-
