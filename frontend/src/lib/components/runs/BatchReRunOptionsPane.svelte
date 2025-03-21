@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import { ScriptService, type Job } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import type { Schema, SchemaProperty } from '$lib/common'
+	import SimpleEditor from '../SimpleEditor.svelte'
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
 
-	const groupedJobs: {
+	type GroupedJob = {
 		script_path: string
 		kind: 'script' | 'flow'
 		script_hashes: Set<string>
-	}[] = $derived.by(() => {
+	}
+
+	const groupedJobs: GroupedJob[] = $derived.by(() => {
 		const scriptGroup: Map<string, { script_hashes: Set<string> }> = new Map()
 		const flowGroup: Map<string, { script_hashes: Set<string> }> = new Map()
 
@@ -36,50 +42,73 @@
 			if (!group.script_hashes.has(job.script_hash)) group.script_hashes.add(job.script_hash)
 		}
 
-		const list: typeof groupedJobs = []
+		const list: GroupedJob[] = []
 		scriptGroup.forEach((v, k) => list.push({ script_path: k, kind: 'script', ...v }))
 		flowGroup.forEach((v, k) => list.push({ script_path: k, kind: 'flow', ...v }))
 		console.log(list)
 		return list
 	})
 
-	const eq = (a: typeof selected, b: typeof selected) =>
+	const eq = (a: GroupedJob | undefined, b: GroupedJob | undefined) =>
 		a?.kind === b?.kind && a?.script_path === b?.script_path
 
-	let selected: { script_path: string; kind: 'script' | 'flow' } | undefined = $state()
+	let selected: GroupedJob | undefined = $state()
 	$effect(() => {
 		if (groupedJobs.every((g) => !eq(g, selected))) selected = undefined
 		if (selected === undefined && groupedJobs.length) selected = groupedJobs[0]
 	})
-	// const allSchemas = $derived.by(async () => {
-	// 	const schemas = []
-	// 	if (!selectedJob || !selectedPath || !$workspaceStore) return undefined
-	// 	if (selectedJob.job_kind === 'flow') {
-	// 		// TODO : why only getFlowByPath; how to get by version too
-	// 		const flow = await FlowService.getFlowByPath({
-	// 			path: selectedPath,
-	// 			workspace: $workspaceStore
-	// 		})
-	// 		return { schema: flow.schema as Schema }
-	// 	}
-	// 	if (selectedJob.job_kind === 'script') {
-	// 		const script = selectedJob.script_hash
-	// 			? await ScriptService.getScriptByHash({
-	// 					hash: selectedJob.script_hash,
-	// 					workspace: $workspaceStore
-	// 				})
-	// 			: await ScriptService.getScriptByPath({
-	// 					path: selectedJob.script_path ?? '',
-	// 					workspace: $workspaceStore
-	// 				})
-	// 		return { schema: script.schema as Schema }
-	// 	}
-	// })
-	// let jobData: Awaited<typeof jobDataPromise> | undefined = $state()
-	// $effect(() => {
-	// 	jobData = undefined
-	// 	jobDataPromise.then((d) => (jobData = d))
-	// })
+
+	const selectedHashesPromise: Promise<{ schema: Schema; script_hash: string }[]> = $derived.by(
+		async () => {
+			if (!selected || !$workspaceStore) return []
+
+			// TODO : create routes to avoid many requests
+			if (selected.kind === 'script') {
+				let scripts = await Promise.all(
+					[...selected.script_hashes].map((hash) =>
+						ScriptService.getScriptByHash({ hash, workspace: $workspaceStore })
+					)
+				)
+				if (!scripts.length)
+					scripts = [
+						await ScriptService.getScriptByPath({
+							path: selected.script_path,
+							workspace: $workspaceStore
+						})
+					]
+				return scripts.map((script) => ({
+					schema: (script.schema as Schema) ?? {},
+					script_hash: script.hash
+				}))
+			}
+
+			// TODO : flows and create route for getFlowByVersion (hash to version?)
+			if (selected.kind === 'flow') {
+				return []
+			}
+
+			console.error('selected is neither flow or script')
+			return []
+		}
+	)
+
+	function computePropertyMap(
+		selectedHashes: { schema: Schema; script_hash: string }[]
+	): Map<string, { property: SchemaProperty; hashes: Set<string> }> {
+		const map: ReturnType<typeof computePropertyMap> = new Map()
+
+		for (const { schema, script_hash } of selectedHashes) {
+			for (const property in schema.properties) {
+				if (!map.has(property))
+					map.set(property, {
+						property: schema.properties[property],
+						hashes: new Set(script_hash)
+					})
+				else map.get(property)?.hashes.add(script_hash)
+			}
+		}
+		return map
+	}
 </script>
 
 <div class="flex-1 flex flex-col">
@@ -111,10 +140,14 @@
 			</Pane>
 			<Pane size={68}>
 				<PanelSection title="Inputs" class="" id="batch-rerun-options-args">
-					<!-- {#each Object.keys(jobData?.schema.properties ?? {}) as varName}
-						<p class="text-xs">{varName}</p>
-						<div class="w-full"><SimpleEditor autoHeight lang="javascript" /></div>
-					{/each} -->
+					{#await selectedHashesPromise then selectedHashes}
+						{@const properties = computePropertyMap(selectedHashes)}
+
+						{#each properties.keys() as propertyName}
+							<p class="text-xs">{propertyName}</p>
+							<div class="w-full"><SimpleEditor autoHeight lang="javascript" /></div>
+						{/each}
+					{/await}
 				</PanelSection>
 			</Pane>
 		</Splitpanes>
