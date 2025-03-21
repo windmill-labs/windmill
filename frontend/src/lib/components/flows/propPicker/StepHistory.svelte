@@ -3,7 +3,7 @@
 	import JobSchemaPicker from '$lib/components/schema/JobSchemaPicker.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getContext, createEventDispatcher } from 'svelte'
+	import { getContext, createEventDispatcher, onDestroy } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 
 	export let selected: string | undefined = undefined
@@ -56,6 +56,15 @@
 		selected = e.detail.id
 		dispatch('select', { ...e.detail })
 	}
+
+	export function deselect() {
+		selected = undefined
+		dispatch('select', undefined)
+	}
+
+	onDestroy(() => {
+		dispatch('select', undefined)
+	})
 </script>
 
 <InfiniteList bind:this={infiniteList} selectedItemId={selected} on:error on:select={handleselect}>
