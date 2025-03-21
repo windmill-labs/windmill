@@ -8,7 +8,6 @@
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Button from './common/button/Button.svelte'
-	import DisplayResult from './DisplayResult.svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import LogViewer from './LogViewer.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
@@ -38,7 +37,7 @@
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
 	let selectedJob: Job | undefined = undefined
-
+	let outputPicker: OutputPickerInner | undefined = undefined
 	let jobProgressReset: () => void
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
@@ -102,11 +101,8 @@
 		}
 	}
 
-	function selectJob(job: Job | undefined) {
-		selectedJob = job
-	}
-
 	async function getLastJob(noLogs: boolean) {
+		// TODO: put this function higher in the component tree
 		const previousJobs = await JobService.listJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: $pathStore + '/' + mod.id,
@@ -120,11 +116,13 @@
 				id: previousJobs[0].id ?? '',
 				noLogs
 			})
-			job && selectJob(job)
+			if (job) {
+				selectedJob = job
+			}
 		}
 	}
 
-	$: testJob && selectJob(testJob)
+	$: testJob && outputPicker?.selectJob(testJob)
 	$: !selectedJob && !mod.mock?.enabled && getLastJob(true)
 
 	let forceJson = false
@@ -172,75 +170,46 @@
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
+				{#if scriptProgress}
+					<JobProgressBar
+						job={testJob}
+						bind:scriptProgress
+						bind:reset={jobProgressReset}
+						compact={true}
+					/>
+				{/if}
+
 				<OutputPickerInner
+					bind:this={outputPicker}
 					fullResult
 					moduleId={mod.id}
 					closeOnOutsideClick={true}
-					on:selectJob={({ detail }) => {
-						selectJob(detail)
-					}}
 					getLogs
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
 						$flowStore = $flowStore
 					}}
 					mock={mod.mock}
+					bind:forceJson
+					bind:selectedJob
+					{testIsLoading}
+					{scriptProgress}
 				>
-					{#if scriptProgress}
-						<JobProgressBar
-							job={testJob}
-							bind:scriptProgress
-							bind:reset={jobProgressReset}
-							compact={true}
-						/>
-					{/if}
-					{#if mod.mock?.enabled}
-						<div class="break-words relative h-full p-2">
-							<DisplayResult
-								bind:forceJson
-								workspaceId={selectedJob?.workspace_id}
-								jobId={selectedJob?.id}
-								result={mod.mock.return_value}
+					<svelte:fragment slot="copilot-fix">
+						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
+							<ScriptFix
+								error={JSON.stringify(selectedJob.result.error)}
+								{lang}
+								{editor}
+								{diffEditor}
+								args={stepArgs}
 							/>
-						</div>
-					{:else if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
-						<div class="break-words relative h-full p-2">
-							{#key selectedJob}
-								<DisplayResult
-									bind:forceJson
-									workspaceId={selectedJob?.workspace_id}
-									jobId={selectedJob?.id}
-									result={selectedJob?.result}
-								>
-									<svelte:fragment slot="copilot-fix">
-										{#if lang && editor && diffEditor && stepArgs && typeof selectedJob?.result == 'object' && `error` in selectedJob?.result && selectedJob?.result.error}
-											<ScriptFix
-												error={JSON.stringify(selectedJob.result.error)}
-												{lang}
-												{editor}
-												{diffEditor}
-												args={stepArgs}
-											/>
-										{/if}
-									</svelte:fragment>
-								</DisplayResult>
-							{/key}
-						</div>
-					{:else}
-						<div class="p-2">
-							{#if testIsLoading}
-								{#if !scriptProgress}
-									<Loader2 class="animate-spin m-auto" />
-								{/if}
-							{:else}
-								Test to see the result here
-							{/if}
-						</div>
-					{/if}
+						{/if}
+					</svelte:fragment>
 				</OutputPickerInner>
 			</Pane>
 			<Pane size={50} minSize={10}>
-				{#if mod.mock?.enabled}
+				{#if mod.mock?.enabled && !selectedJob}
 					<LogViewer
 						small
 						content={undefined}
