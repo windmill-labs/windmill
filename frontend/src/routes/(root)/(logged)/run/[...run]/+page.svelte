@@ -755,7 +755,7 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'dependency', 'nu'].includes(job.tag)}
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
@@ -795,6 +795,21 @@
 										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 									>
 										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
+									>
+								</Tooltip>
+							</div>
+						{/if}
+						{#if job?.worker}
+							<div>
+								<Tooltip notClickable>
+									<svelte:fragment slot="text">
+										Executed on worker
+										<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+											{job.worker}
+										</a>
+									</svelte:fragment>
+									<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+										<Badge>Worker: {truncateRev(job?.worker, 20)}</Badge></a
 									>
 								</Tooltip>
 							</div>

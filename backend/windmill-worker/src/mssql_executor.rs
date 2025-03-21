@@ -8,14 +8,16 @@ use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row,
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
+use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::to_raw_value;
-use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
+use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClientBackgroundTask;
 
 #[derive(Deserialize)]
@@ -33,7 +35,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn do_mssql(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -131,8 +133,13 @@ pub async fn do_mssql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &mssql_args)?;
+
     let mut prepared_query = Query::new(query.to_owned());
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_v = mssql_args
             .get(&arg.name)

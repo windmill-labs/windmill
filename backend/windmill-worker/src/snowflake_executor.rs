@@ -10,15 +10,15 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
 
-use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
-use windmill_queue::{CanceledBy, HTTP_CLIENT};
+use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 #[derive(Serialize)]
@@ -124,15 +124,21 @@ fn do_snowflake_inner<'a>(
     skip_collect: bool,
     http_client: &'a Client,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
-    body.insert("statement".to_string(), json!(query));
-
-    let mut bindings = serde_json::Map::new();
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+
+    body.insert("statement".to_string(), json!(query));
+
+    let mut bindings = serde_json::Map::new();
+
     let mut i = 1;
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_v = job_args.get(&arg.name).cloned().unwrap_or(json!(""));
         let snowflake_v = convert_typ_val(arg_t, arg_v);
@@ -240,7 +246,7 @@ fn do_snowflake_inner<'a>(
 }
 
 pub async fn do_snowflake(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
