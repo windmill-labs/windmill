@@ -107,7 +107,7 @@
 						selectedJob = undefined
 					}}
 				>
-					Update pinned data ?
+					Override pinned ?
 					<svelte:fragment slot="action">
 						<Button
 							color="blue"
