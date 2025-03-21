@@ -251,8 +251,8 @@
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
 <div class="relative min-h-full grow" bind:clientHeight={appHeight}>
-	<div id="app-editor-top-level-drawer" />
-	<div id="app-editor-select" />
+	<div id="app-editor-top-level-drawer"></div>
+	<div id="app-editor-select"></div>
 
 	<div
 		class="{$$props.class} {lockedClasses} {width} h-full bg-surface {app.fullscreen

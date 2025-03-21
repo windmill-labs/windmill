@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, mount, onDestroy, unmount } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type {
 		AppViewerContext,
@@ -41,6 +41,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
+	import { withProps } from '$lib/svelte5Utils.svelte'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -201,8 +202,12 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = structuredClone(actions)
-			updateOptions()
+			// structuredClone did not work because it did not copy the array's
+			// prototype, causing deepEqual to return false although the objects were
+			// semantically the same
+			lastActions = [...actions]
+			// HACK: without setTimeout, the actions mount but aren't visible
+			setTimeout(updateOptions, 0.5)
 		}
 	}
 
@@ -246,58 +251,59 @@
 					.filter(Boolean) as TableAction[])
 			: actions
 
-		let ta = new AppAggridTableActions({
-			target: c.eGui,
-			props: {
-				p,
-				id: id,
-				actions: sortedActions,
-				rowIndex,
-				row,
-				render,
-				wrapActions: resolvedConfig.wrapActions,
-				selectRow: (p) => {
-					toggleRow(p)
-					p.node.setSelected(true)
-				},
-				onSet: (id, value, rowIndex) => {
-					if (!inputs[id]) {
-						inputs[id] = { [rowIndex]: value }
-					} else {
-						inputs[id] = { ...inputs[id], [rowIndex]: value }
-					}
-
-					outputs?.inputs.set(inputs, true)
-				},
-				onRemove: (id, rowIndex) => {
-					if (inputs?.[id] == undefined) {
-						return
-					}
-					delete inputs[id][rowIndex]
-					inputs[id] = { ...inputs[id] }
-					if (Object.keys(inputs?.[id] ?? {}).length == 0) {
-						delete inputs[id]
-						inputs = { ...inputs }
-					}
-					outputs?.inputs.set(inputs, true)
-				}
+		const taComponent = withProps(AppAggridTableActions, {
+			p,
+			id: id,
+			actions: sortedActions,
+			rowIndex,
+			row,
+			render,
+			wrapActions: resolvedConfig.wrapActions,
+			selectRow: (p) => {
+				toggleRow(p)
+				p.node.setSelected(true)
 			},
+			onSet: (id, value, rowIndex) => {
+				if (!inputs[id]) {
+					inputs[id] = { [rowIndex]: value }
+				} else {
+					inputs[id] = { ...inputs[id], [rowIndex]: value }
+				}
+
+				outputs?.inputs.set(inputs, true)
+			},
+			onRemove: (id, rowIndex) => {
+				if (inputs?.[id] == undefined) {
+					return
+				}
+				delete inputs[id][rowIndex]
+				inputs[id] = { ...inputs[id] }
+				if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+					delete inputs[id]
+					inputs = { ...inputs }
+				}
+				outputs?.inputs.set(inputs, true)
+			}
+		})
+		let ta = mount(taComponent.component, {
+			target: c.eGui,
+			props: taComponent.props,
 			context: componentContext
 		})
 
 		return {
-			destroy: () => {
-				ta.$destroy()
-			},
+			destroy: () => unmount(ta),
 			refresh(params) {
-				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data, p: params })
+				taComponent.props.rowIndex = params.node.rowIndex ?? 0
+				taComponent.props.row = params.data
+				taComponent.props.p = params
 			}
 		}
 	})
 
 	function getIdFromData(data: any): string {
 		return resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
-			? data?.[resolvedConfig?.rowIdCol] ?? data['__index']
+			? (data?.[resolvedConfig?.rowIdCol] ?? data['__index'])
 			: data['__index']
 	}
 	function mountGrid() {
@@ -453,6 +459,7 @@
 		}
 	}
 
+	let lastComputedColumnDefs: [Record<string, any>[] | undefined, TableAction[] | undefined]
 	function updateOptions() {
 		try {
 			const columnDefs =
@@ -473,6 +480,10 @@
 					...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 				})
 			}
+
+			// Don't update if the columns
+			if (deepEqual(lastComputedColumnDefs, [columnDefs, actions])) return
+			lastComputedColumnDefs = [columnDefs, actions]
 
 			api?.updateGridOptions({
 				rowData: value,
@@ -592,7 +603,7 @@
 									}
 								}
 							}}
-						/>
+						></div>
 					{:else}
 						<Loader2 class="animate-spin" />
 					{/if}

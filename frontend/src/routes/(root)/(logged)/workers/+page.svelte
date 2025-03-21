@@ -350,7 +350,7 @@
 						and can be seen as dedicated queues. Only the corresponding
 					</Tooltip></h4
 				>
-				<div />
+				<div></div>
 
 				{#if $superadmin}
 					<div class="flex flex-row items-center">
@@ -673,7 +673,7 @@
 					{/if}
 				{/if}
 			</div>
-			<div class="pb-20" />
+			<div class="pb-20"></div>
 			<AutoscalingEvents worker_group={selectedTab} />
 		{:else}
 			<div class="flex flex-col">

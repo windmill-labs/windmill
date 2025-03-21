@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Doughnut, Pie } from 'svelte-chartjs'
+	import { Doughnut, Pie } from '$lib/components/chartjs-wrappers/chartJs'
 	import {
 		Chart as ChartJS,
 		Title,

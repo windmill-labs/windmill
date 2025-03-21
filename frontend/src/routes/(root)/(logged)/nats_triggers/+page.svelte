@@ -251,7 +251,7 @@
 			<Alert title="Not compatible with multi-tenant cloud" type="warning">
 				NATS triggers are disabled in the multi-tenant cloud.
 			</Alert>
-			<div class="py-4" />
+			<div class="py-4"></div>
 		{/if}
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
