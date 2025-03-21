@@ -8,7 +8,6 @@
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Button from './common/button/Button.svelte'
-	import DisplayResult from './DisplayResult.svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import LogViewer from './LogViewer.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
@@ -19,6 +18,7 @@
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
 	import ScriptFix from './copilot/ScriptFix.svelte'
+	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema | { properties?: Record<string, any> }
@@ -36,8 +36,10 @@
 	let testJobLoader: TestJobLoader
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
-
+	let selectedJob: Job | undefined = undefined
+	let outputPicker: OutputPickerInner | undefined = undefined
 	let jobProgressReset: () => void
+	let fetchingLastJob = false
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
 		Object.keys(schema.properties ?? {}).map((k) => [
@@ -100,6 +102,35 @@
 		}
 	}
 
+	async function getLastJob(noLogs: boolean) {
+		if (fetchingLastJob) {
+			return
+		}
+		fetchingLastJob = true
+		// TODO: put this function higher in the component tree
+		const previousJobs = await JobService.listJobs({
+			workspace: $workspaceStore!,
+			scriptPathExact: $pathStore + '/' + mod.id,
+			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
+			page: 1,
+			perPage: 1
+		})
+		if (previousJobs.length > 0) {
+			const job = await JobService.getJob({
+				workspace: $workspaceStore ?? '',
+				id: previousJobs[0].id ?? '',
+				noLogs
+			})
+			if (job) {
+				selectedJob = job
+			}
+		}
+		fetchingLastJob = false
+	}
+
+	$: testJob && outputPicker?.selectJob(testJob)
+	$: !selectedJob && !mod.mock?.enabled && getLastJob(true)
+
 	let forceJson = false
 </script>
 
@@ -144,17 +175,6 @@
 	</Pane>
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>
-			<Pane size={50} minSize={10}>
-				<LogViewer
-					small
-					jobId={testJob?.id}
-					duration={testJob?.['duration_ms']}
-					mem={testJob?.['mem_peak']}
-					content={testJob?.logs}
-					isLoading={testIsLoading && testJob?.['running'] == false}
-					tag={testJob?.tag}
-				/>
-			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
 				{#if scriptProgress}
 					<JobProgressBar
@@ -164,37 +184,54 @@
 						compact={true}
 					/>
 				{/if}
-				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<div class="break-words relative h-full p-2">
-						<DisplayResult
-							bind:forceJson
-							workspaceId={testJob?.workspace_id}
-							jobId={testJob?.id}
-							result={testJob.result}
-						>
-							<svelte:fragment slot="copilot-fix">
-								{#if lang && editor && diffEditor && stepArgs && typeof testJob?.result == 'object' && `error` in testJob?.result && testJob?.result.error}
-									<ScriptFix
-										error={JSON.stringify(testJob.result.error)}
-										{lang}
-										{editor}
-										{diffEditor}
-										args={stepArgs}
-									/>
-								{/if}
-							</svelte:fragment>
-						</DisplayResult>
-					</div>
-				{:else}
-					<div class="p-2">
-						{#if testIsLoading}
-							{#if !scriptProgress}
-								<Loader2 class="animate-spin" />
-							{/if}
-						{:else}
-							Test to see the result here
+
+				<OutputPickerInner
+					bind:this={outputPicker}
+					fullResult
+					moduleId={mod.id}
+					closeOnOutsideClick={true}
+					getLogs
+					on:updateMock={({ detail }) => {
+						mod.mock = detail
+						$flowStore = $flowStore
+					}}
+					mock={mod.mock}
+					bind:forceJson
+					bind:selectedJob
+					isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
+				>
+					<svelte:fragment slot="copilot-fix">
+						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
+							<ScriptFix
+								error={JSON.stringify(selectedJob.result.error)}
+								{lang}
+								{editor}
+								{diffEditor}
+								args={stepArgs}
+							/>
 						{/if}
-					</div>
+					</svelte:fragment>
+				</OutputPickerInner>
+			</Pane>
+			<Pane size={50} minSize={10}>
+				{#if mod.mock?.enabled && !selectedJob}
+					<LogViewer
+						small
+						content={undefined}
+						isLoading={false}
+						tag={undefined}
+						customEmptyMessage="Using mock value"
+					/>
+				{:else}
+					<LogViewer
+						small
+						jobId={selectedJob?.id}
+						duration={selectedJob?.['duration_ms']}
+						mem={selectedJob?.['mem_peak']}
+						content={selectedJob?.logs}
+						isLoading={(testIsLoading && selectedJob?.['running'] == false) || fetchingLastJob}
+						tag={selectedJob?.tag}
+					/>
 				{/if}
 			</Pane>
 		</Splitpanes>

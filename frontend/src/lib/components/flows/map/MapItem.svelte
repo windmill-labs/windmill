@@ -43,6 +43,7 @@
 		newBranch: { module: FlowModule }
 		move: { module: FlowModule } | undefined
 		selectedIteration: { index: number; id: string }
+		updateMock: void
 	}>()
 
 	$: itemProps = {
@@ -53,7 +54,7 @@
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
 		cache: Boolean(mod.cache_ttl),
-		mock: Boolean(mod.mock?.enabled),
+		mock: mod.mock,
 		concurrency: Boolean(mod?.value?.['concurrent_limit'])
 	}
 
@@ -162,6 +163,10 @@
 					on:click={() => dispatch('select', mod.id)}
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
+					on:updateMock={({ detail }) => {
+						mod.mock = detail
+						dispatch('updateMock')
+					}}
 					deletable={insertable}
 					id={mod.id}
 					{...itemProps}
