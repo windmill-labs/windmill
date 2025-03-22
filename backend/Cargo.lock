@@ -1843,9 +1843,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.16"
+version = "1.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be714c154be609ec7f5dad223a33bf1482fff90472de28f7362806e6d4832b8c"
+checksum = "1fcb57c740ae1daf453ae85f16e37396f672b039e00d9d866e07ddb24e328e3a"
 dependencies = [
  "jobserver",
  "libc",
@@ -8873,7 +8873,7 @@ version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
- "zerocopy 0.8.23",
+ "zerocopy 0.8.24",
 ]
 
 [[package]]
@@ -9317,7 +9317,7 @@ checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.3",
- "zerocopy 0.8.23",
+ "zerocopy 0.8.24",
 ]
 
 [[package]]
@@ -9900,9 +9900,9 @@ dependencies = [
 
 [[package]]
 name = "rust_decimal"
-version = "1.37.0"
+version = "1.37.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c24af6e7ac43c88a8a458d1139d0246fdce2f6cd2f1ac6cb51eb88b29c978af"
+checksum = "faa7de2ba56ac291bd90c6b9bece784a52ae1411f9506544b3eae36dd2356d50"
 dependencies = [
  "arrayvec",
  "borsh",
@@ -13854,7 +13854,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -13898,7 +13898,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -13996,7 +13996,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -14011,7 +14011,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "chrono",
  "serde",
@@ -14024,7 +14024,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -14038,7 +14038,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -14099,7 +14099,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "regex",
  "serde",
@@ -14113,7 +14113,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -14136,7 +14136,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -14148,7 +14148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -14157,7 +14157,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14169,7 +14169,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14181,7 +14181,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -14193,7 +14193,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14205,7 +14205,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -14216,7 +14216,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -14227,7 +14227,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -14238,7 +14238,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14258,7 +14258,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -14275,7 +14275,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14287,7 +14287,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14305,7 +14305,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -14328,7 +14328,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14338,7 +14338,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14371,7 +14371,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -14381,7 +14381,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.478.1"
+version = "1.479.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15080,11 +15080,11 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.23"
+version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd97444d05a4328b90e75e503a34bad781f14e28a823ad3557f0750df1ebcbc6"
+checksum = "2586fea28e186957ef732a5f8b3be2da217d65c5969d4b1e17f973ebbe876879"
 dependencies = [
- "zerocopy-derive 0.8.23",
+ "zerocopy-derive 0.8.24",
 ]
 
 [[package]]
@@ -15100,9 +15100,9 @@ dependencies = [
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.23"
+version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6352c01d0edd5db859a63e2605f4ea3183ddbd15e2c4a9e7d32184df75e4f154"
+checksum = "a996a8f63c5c4448cd959ac1bab0aaa3306ccfd060472f85943ee0750f0169be"
 dependencies = [
  "proc-macro2",
  "quote",
