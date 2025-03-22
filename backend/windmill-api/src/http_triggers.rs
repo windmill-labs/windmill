@@ -1,4 +1,4 @@
-use crate::http_trigger_auth::{self, AuthenticateResponseType};
+use crate::http_trigger_auth::{self};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
@@ -113,8 +113,7 @@ pub enum AuthenticationMethod {
     Windmill,
     ApiKey,
     BasicHttp,
-    WebhookAuth,
-    Signature
+    Signature,
 }
 
 #[derive(Debug, Deserialize)]
@@ -928,7 +927,13 @@ async fn route_job(
     let args = try_from_request_body(
         request,
         &db,
-        Some(trigger.authentication_resource_path.is_some() || trigger.raw_string),
+        Some(
+            if let AuthenticationMethod::Signature = trigger.authentication_method {
+                true
+            } else {
+                trigger.raw_string
+            },
+        ),
         Some(trigger.wrap_body),
     )
     .await;
@@ -967,8 +972,6 @@ async fn route_job(
                 )
                 .await;
 
-            println!("{:#?}", &authentication_method);
-
             let authentication_method = match authentication_method {
                 Ok(authentication_method) => authentication_method,
                 Err(e) => return e.into_response(),
@@ -995,10 +998,8 @@ async fn route_job(
                 }
             };
 
-            match authentication_method.authenticate_incoming_request(&headers, &raw_payload) {
-                Ok(Some(response)) => match response {
-                    AuthenticateResponseType::Challenge(response) => return response,
-                },
+            match authentication_method.authenticate_http_request(&headers, &raw_payload) {
+                Ok(Some(response)) => return response,
                 Err(e) => return e.into_response(),
                 _ => {}
             }

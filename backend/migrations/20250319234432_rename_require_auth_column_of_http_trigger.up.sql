@@ -3,8 +3,7 @@ CREATE TYPE AUTHENTICATION_METHOD AS ENUM (
     'windmill',
     'api_key',
     'basic_http',
-    'signature',
-    'webhook_auth'
+    'signature'
 );
 
 ALTER TABLE http_trigger

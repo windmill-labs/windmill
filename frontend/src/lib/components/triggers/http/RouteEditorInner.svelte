@@ -102,13 +102,8 @@
 		{
 			label: 'Signature',
 			value: 'signature',
-			tooltip: 'Use your own script to verify HMAC or signature-based authentication'
-		},
-		{
-			label: 'Webhook Auth',
-			value: 'webhook_auth',
-			resource_type: 'webhook_auth',
-			tooltip: 'Uses a Windmill webhook resource for signature or token-based validation'
+			tooltip:
+				'Validates requests using HMAC or signature-based authentication. Can be custom or follow predefined formats from common providers.'
 		}
 	]
 
@@ -519,9 +514,9 @@
 															let:item
 														>
 															<ToggleButton
-																label="Custom signature"
+																label="Signature validation"
 																value="custom_signature"
-																tooltip="Use a personalized signature"
+																tooltip="Use a predefined or custom signature-based authentication scheme"
 																{item}
 															/>
 															<ToggleButton
@@ -559,7 +554,7 @@
 								{#if signature_options_type === 'custom_signature'}
 									<ResourcePicker
 										bind:value={authentication_resource_path}
-										resourceType={'hmac_auth'}
+										resourceType={'signature_auth'}
 									/>
 								{:else if signature_options_type === 'custom_script'}
 									<p class="text-xs mt-3 mb-1 text-tertiary">

@@ -13800,7 +13800,6 @@ components:
           - api_key
           - basic_http
           - signature
-          - webhook_auth
 
     HttpTrigger:
       allOf:
