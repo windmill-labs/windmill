@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                windmill_auth, \n                edited_by, \n                email,\n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website,\n                custom_auth_resource_path\n            FROM \n                http_trigger \n            WHERE \n                workspace_id = $1 AND \n                http_method = $2\n            ",
+  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                workspace_id, \n                is_async, \n                authentication_method  AS \"authentication_method: _\", \n                edited_by, \n                email,\n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website,\n                authentication_resource_path\n            FROM \n                http_trigger \n            WHERE \n                workspace_id = $1 AND \n                http_method = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -35,8 +35,21 @@
       },
       {
         "ordinal": 6,
-        "name": "windmill_auth",
-        "type_info": "Bool"
+        "name": "authentication_method: _",
+        "type_info": {
+          "Custom": {
+            "name": "authentication_method",
+            "kind": {
+              "Enum": [
+                "none",
+                "windmill",
+                "api_key",
+                "basic_http",
+                "signature"
+              ]
+            }
+          }
+        }
       },
       {
         "ordinal": 7,
@@ -75,7 +88,7 @@
       },
       {
         "ordinal": 14,
-        "name": "custom_auth_resource_path",
+        "name": "authentication_resource_path",
         "type_info": "Varchar"
       }
     ],
@@ -116,5 +129,5 @@
       true
     ]
   },
-  "hash": "44f7a475404d68b968a9c9d1b500e77107f419426a5fc7488d5a29cd37f62dde"
+  "hash": "927149213e0f8ae983652ef80464f646d6be80e702193f1acdd40dd6033652e4"
 }

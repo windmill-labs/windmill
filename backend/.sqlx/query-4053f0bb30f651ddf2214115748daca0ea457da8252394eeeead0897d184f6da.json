@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                custom_auth_resource_path,\n                workspace_id, \n                is_async, \n                windmill_auth, \n                edited_by, \n                email, \n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website\n            FROM \n                http_trigger \n            WHERE \n                http_method = $1\n            ",
+  "query": "\n            SELECT \n                path, \n                script_path, \n                is_flow, \n                route_path, \n                authentication_resource_path,\n                workspace_id, \n                is_async, \n                authentication_method  AS \"authentication_method: _\", \n                edited_by, \n                email, \n                static_asset_config AS \"static_asset_config: _\",\n                wrap_body,\n                raw_string,\n                workspaced_route,\n                is_static_website\n            FROM \n                http_trigger \n            WHERE \n                http_method = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       },
       {
         "ordinal": 4,
-        "name": "custom_auth_resource_path",
+        "name": "authentication_resource_path",
         "type_info": "Varchar"
       },
       {
@@ -40,8 +40,21 @@
       },
       {
         "ordinal": 7,
-        "name": "windmill_auth",
-        "type_info": "Bool"
+        "name": "authentication_method: _",
+        "type_info": {
+          "Custom": {
+            "name": "authentication_method",
+            "kind": {
+              "Enum": [
+                "none",
+                "windmill",
+                "api_key",
+                "basic_http",
+                "signature"
+              ]
+            }
+          }
+        }
       },
       {
         "ordinal": 8,
@@ -115,5 +128,5 @@
       false
     ]
   },
-  "hash": "f3305c5146ddab30012c8a8be52c2f5ff966de3ae240f0c836a81da97139dfa5"
+  "hash": "4053f0bb30f651ddf2214115748daca0ea457da8252394eeeead0897d184f6da"
 }
