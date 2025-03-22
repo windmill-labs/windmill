@@ -310,7 +310,7 @@
 				floatingConfig={{
 					placement: 'bottom'
 				}}
-				disabled={githubInstallations.length == 0}
+				disabled={workspaceGithubInstallations.length == 0}
 			>
 				<svelte:fragment slot="trigger">
 					<Button
