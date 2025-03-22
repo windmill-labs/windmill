@@ -41,6 +41,7 @@
                 "windmill",
                 "api_key",
                 "basic_http",
+                "custom_script",
                 "signature"
               ]
             }
