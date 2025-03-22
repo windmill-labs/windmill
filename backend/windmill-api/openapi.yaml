@@ -13791,6 +13791,17 @@ components:
         - edited_at
         - is_flow
 
+
+    AuthenticationMethod:
+      type: string
+      enum:
+          - none
+          - windmill
+          - api_key
+          - basic_http
+          - custom_script
+          - signature
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -13817,10 +13828,12 @@ components:
             - put
             - delete
             - patch
+        authentication_resource_path:
+          type: string
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         workspaced_route:
@@ -13833,7 +13846,7 @@ components:
       required:
         - route_path
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
         - workspaced_route
@@ -13872,10 +13885,12 @@ components:
             - put
             - delete
             - patch
+        authentication_resource_path:
+          type: string
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -13889,7 +13904,7 @@ components:
         - route_path
         - is_flow
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
 
@@ -13915,6 +13930,8 @@ components:
               type: string
           required:
             - s3
+        authentication_resource_path:
+          type: string
         is_flow:
           type: boolean
         http_method:
@@ -13927,8 +13944,8 @@ components:
             - patch
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -13941,7 +13958,7 @@ components:
         - is_flow
         - kind
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
 

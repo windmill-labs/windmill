@@ -11,5 +11,6 @@
   "remote.autoForwardPorts": true,
   "conventionalCommits.scopes": [
     "restructring triggers, decoding trigger message on work"
-  ]
+  ],
+  "rust-analyzer.cargo.features": ["http_trigger"]
 }

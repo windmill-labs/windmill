@@ -5,13 +5,14 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { HttpTriggerService } from '$lib/gen'
+	import { HttpTriggerService, VariableService, type AuthenticationMethod } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, Pipette } from 'lucide-svelte'
+	import { Loader2, Save, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
+	import VariableEditor from '../../VariableEditor.svelte'
 	import { json } from 'svelte-highlight/languages'
 	import { Highlight } from 'svelte-highlight'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
@@ -24,6 +25,10 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import ItemPicker from '../../ItemPicker.svelte'
+	import { Popover } from '$lib/components/meltComponents'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -40,13 +45,12 @@
 	let isValid = false
 	let dirtyRoutePath = false
 	let is_async = false
-	let requires_auth = false
+	let authentication_method: AuthenticationMethod = 'none'
 	let route_path = ''
 	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
 	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
-	let is_static_website = false
-
+	let is_static_website: boolean = false
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode = false
 	let s3Editor: SimpleEditor | undefined = undefined
@@ -54,6 +58,55 @@
 	let raw_string = false
 	let wrap_body = false
 	let drawerLoading = true
+	let authentication_resource_path: string = ''
+	let variablePicker: ItemPicker
+	let variableEditor: VariableEditor
+	let variable_path: string = ''
+	type AuthenticationOption = {
+		label: string
+		value: AuthenticationMethod
+		tooltip?: string
+		resource_type?: string
+	}
+
+	async function loadVariables() {
+		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
+	}
+
+	let signature_options_type: 'custom_script' | 'custom_signature' = 'custom_signature'
+
+	const authentication_options: AuthenticationOption[] = [
+		{
+			label: 'No Auth',
+			value: 'none'
+		},
+		{
+			label: 'Windmill',
+			value: 'windmill',
+			tooltip: 'Requires the user to be authenticated with read access to this route'
+		},
+		{
+			label: 'API Key',
+			value: 'api_key',
+			resource_type: 'api_key_auth',
+			tooltip:
+				'Checks for a valid API key in a specified header. Header name can be configured in the resource.'
+		},
+		{
+			label: 'Basic Auth',
+			value: 'basic_http',
+			resource_type: 'basic_http_auth',
+			tooltip:
+				'Uses base64-encoded Basic authentication. Defaults to the Authorization header, but a custom header can be configured in the resource.'
+		},
+		{
+			label: 'Signature',
+			value: 'signature',
+			tooltip:
+				'Validates requests using HMAC or signature-based authentication. Can be custom or follow predefined formats from common providers.'
+		}
+	]
+
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
 		try {
@@ -83,7 +136,7 @@
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
 			is_async = false
-			requires_auth = false
+			authentication_method = 'none'
 			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
 			http_method = defaultValues?.http_method ?? 'post'
@@ -97,6 +150,8 @@
 			dirtyPath = false
 			is_static_website = false
 			workspaced_route = false
+			authentication_resource_path = ''
+			variable_path = ''
 		} finally {
 			drawerLoading = false
 		}
@@ -118,10 +173,11 @@
 		route_path = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
-		requires_auth = s.requires_auth
+		authentication_method = s.authentication_method
 		workspaced_route = s.workspaced_route
 		wrap_body = s.wrap_body
 		raw_string = s.raw_string
+		authentication_resource_path = s.authentication_resource_path ?? ''
 
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
@@ -133,6 +189,9 @@
 	}
 
 	async function triggerScript(): Promise<void> {
+		if (authentication_method === 'signature' && signature_options_type === 'custom_script') {
+			authentication_method = 'custom_script'
+		}
 		if (edit) {
 			await HttpTriggerService.updateHttpTrigger({
 				workspace: $workspaceStore!,
@@ -142,12 +201,13 @@
 					script_path,
 					is_flow,
 					is_async,
-					requires_auth,
+					authentication_method: authentication_method,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
+					authentication_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -161,12 +221,13 @@
 					script_path,
 					is_flow,
 					is_async,
-					requires_auth,
+					authentication_method,
 					route_path,
 					http_method,
 					static_asset_config,
 					is_static_website,
 					workspaced_route,
+					authentication_resource_path,
 					wrap_body,
 					raw_string
 				}
@@ -181,6 +242,7 @@
 	}
 
 	let drawer: Drawer
+	let darkMode = false
 
 	let dirtyPath = false
 
@@ -198,6 +260,8 @@
 		readOnlyMode={false}
 	/>
 {/if}
+
+<DarkModeObserver bind:darkMode />
 
 <Drawer size="700px" bind:this={drawer}>
 	<DrawerContent
@@ -259,7 +323,7 @@
 									is_async = false
 									is_static_website = ev.detail === 'static_website'
 									if (is_static_website) {
-										requires_auth = false
+										authentication_method = 'none'
 									}
 								} else if (ev.detail === 'runnable') {
 									static_asset_config = undefined
@@ -349,31 +413,35 @@
 							</div>
 						</div>
 					{:else}
-						<p class="text-xs mt-0.5 mb-1 text-tertiary">
+						<p class="text-xs mt-3 mb-1 text-tertiary">
 							Pick a script or flow to be triggered<Required required={true} /><br />
 							To handle headers, query or path parameters, add a preprocessor to your runnable.
 						</p>
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
-								initialPath={fixedScriptPath || initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-							/>
+						<div class="flex flex-col gap-2">
+							<div class="flex flex-row mb-2">
+								<ScriptPicker
+									disabled={fixedScriptPath != '' || !can_write}
+									initialPath={fixedScriptPath || initialScriptPath}
+									kinds={['script']}
+									allowFlow={true}
+									bind:itemKind
+									bind:scriptPath={script_path}
+									allowRefresh={can_write}
+									allowEdit={!$userStore?.operator}
+								/>
 
-							{#if script_path === undefined}
-								<Button
-									btnClasses="ml-4 mt-2"
-									color="dark"
-									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=62' : '/scripts/add?hub=hub%2F11627'}
-									target="_blank">Create from template</Button
-								>
-							{/if}
+								{#if script_path === undefined}
+									<Button
+										btnClasses="ml-4 mt-2"
+										color="dark"
+										size="xs"
+										href={itemKind === 'flow'
+											? '/flows/add?hub=62'
+											: '/scripts/add?hub=hub%2F11627'}
+										target="_blank">Create from template</Button
+									>
+								{/if}
+							</div>
 						</div>
 					{/if}
 				</Section>
@@ -426,28 +494,113 @@
 								<svelte:fragment slot="action">
 									<ToggleButtonGroup
 										class="w-auto h-full"
-										selected={requires_auth ? 'required' : 'none'}
-										on:selected={({ detail }) => {
-											requires_auth = detail === 'required'
-										}}
+										bind:selected={authentication_method}
 										disabled={!can_write}
 										let:item
 									>
-										<ToggleButton label="None" value="none" {item} />
-										<ToggleButton
-											label="Required"
-											value="required"
-											tooltip="Requires authentication with read access on the route"
-											{item}
-										/>
+										{#each authentication_options as option}
+											{#if option.value === 'signature'}
+												<Popover>
+													<svelte:fragment slot="trigger">
+														<ToggleButton
+															label={option.label}
+															value={option.value}
+															tooltip={option.tooltip}
+															{item}
+														/>
+													</svelte:fragment>
+													<svelte:fragment slot="content">
+														<ToggleButtonGroup
+															class="w-auto h-full"
+															bind:selected={signature_options_type}
+															disabled={!can_write}
+															let:item
+														>
+															<ToggleButton
+																label="Signature validation"
+																value="custom_signature"
+																tooltip="Use a predefined or custom signature-based authentication scheme"
+																{item}
+															/>
+															<ToggleButton
+																label="Custom script"
+																value="custom_script"
+																tooltip="Use your own script logic"
+																{item}
+															/>
+														</ToggleButtonGroup>
+													</svelte:fragment>
+												</Popover>
+											{:else}
+												<ToggleButton
+													label={option.label}
+													value={option.value}
+													tooltip={option.tooltip}
+													{item}
+												/>
+											{/if}
+										{/each}
 									</ToggleButtonGroup>
 								</svelte:fragment>
 							</Label>
-							<Label label="Raw string" class="w-full">
+
+							{#each authentication_options as option}
+								{#if option.resource_type && authentication_method === option.value}
+									<ResourcePicker
+										bind:value={authentication_resource_path}
+										resourceType={option.resource_type}
+									/>
+								{/if}
+							{/each}
+
+							{#if authentication_method === 'signature'}
+								{#if signature_options_type === 'custom_signature'}
+									<ResourcePicker
+										bind:value={authentication_resource_path}
+										resourceType={'signature_auth'}
+									/>
+								{:else if signature_options_type === 'custom_script'}
+									<p class="text-xs mt-3 mb-1 text-tertiary">
+										Pick a secret variable or create one which will be used as a secret key for your
+										custom script<Required required={true} /><br />
+									</p>
+									<div class="flex flex-row gap-2">
+										<div class="flex flex-row gap-2 w-full">
+											<input
+												type="text"
+												autocomplete="off"
+												bind:value={variable_path}
+												readonly
+												disabled={true}
+											/>
+											<Button
+												title="Add variable"
+												on:click={variablePicker.openDrawer}
+												size="xs"
+												color="dark"
+											>
+												+Variable
+											</Button>
+										</div>
+										{#if !emptyString(variable_path)}
+											<Button
+												color="dark"
+												size="xs"
+												href={itemKind === 'flow'
+													? '/flows/add?hub=62'
+													: `/scripts/add?secret_key_path=${variable_path}&hub=hub%2F11663`}
+												target="_blank">Create from template</Button
+											>
+										{/if}
+									</div>
+								{/if}
+							{/if}
+
+							<Label label="Raw body" class="w-full">
 								<svelte:fragment slot="header">
 									<Tooltip
-										>Provides the raw JSON payload as a string under the 'raw_string' key, useful for
-										signature verification and other use cases.</Tooltip
+										>Provides the raw JSON payload as a string under the 'raw_string' key, useful
+										for signature verification and other use cases.</Tooltip
 									>
 								</svelte:fragment>
 								<svelte:fragment slot="action">
@@ -482,3 +635,32 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
+
+<ItemPicker
+	bind:this={variablePicker}
+	pickCallback={(path, name) => {
+		variable_path = path
+	}}
+	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
+	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+	itemName="Variable"
+	extraField="path"
+	loadItems={loadVariables}
+	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+>
+	<div slot="submission" class="flex flex-row">
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
+			startIcon={{ icon: Plus }}
+			on:click={() => {
+				variableEditor.initNew()
+			}}
+		>
+			New variable
+		</Button>
+	</div>
+</ItemPicker>
+
+<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />

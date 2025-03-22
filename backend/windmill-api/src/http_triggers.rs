@@ -1,5 +1,8 @@
+use crate::http_trigger_auth::{self};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
+use crate::resources::try_get_resource_from_db_as;
+use crate::utils::non_empty_str;
 use crate::{
     args::try_from_request_body,
     auth::{AuthCache, OptTokened},
@@ -26,6 +29,7 @@ use std::borrow::Cow;
 use std::{collections::HashMap, sync::Arc};
 use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
+use windmill_common::error::Error;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::{
@@ -101,6 +105,18 @@ impl TryFrom<&http::Method> for HttpMethod {
     }
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[sqlx(type_name = "AUTHENTICATION_METHOD", rename_all = "snake_case")]
+#[serde(rename_all(serialize = "snake_case", deserialize = "snake_case"))]
+pub enum AuthenticationMethod {
+    None,
+    Windmill,
+    ApiKey,
+    BasicHttp,
+    CustomScript,
+    Signature,
+}
+
 #[derive(Debug, Deserialize)]
 struct NewTrigger {
     path: String,
@@ -108,9 +124,10 @@ struct NewTrigger {
     script_path: String,
     is_flow: bool,
     is_async: bool,
-    requires_auth: bool,
-    http_method: HttpMethod,
+    authentication_resource_path: Option<String>,
+    authentication_method: AuthenticationMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
+    http_method: HttpMethod,
     workspaced_route: Option<bool>,
     is_static_website: bool,
     wrap_body: Option<bool>,
@@ -130,11 +147,12 @@ pub struct HttpTrigger {
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: serde_json::Value,
     pub is_async: bool,
-    pub requires_auth: bool,
+    pub authentication_method: AuthenticationMethod,
     pub http_method: HttpMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_asset_config: Option<sqlx::types::Json<S3Object>>,
     pub is_static_website: bool,
+    pub authentication_resource_path: Option<String>,
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
@@ -147,7 +165,9 @@ struct EditTrigger {
     script_path: String,
     is_flow: bool,
     is_async: bool,
-    requires_auth: bool,
+    authentication_method: AuthenticationMethod,
+    #[serde(deserialize_with = "non_empty_str")]
+    authentication_resource_path: Option<String>,
     http_method: HttpMethod,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     workspaced_route: Option<bool>,
@@ -190,9 +210,10 @@ async fn list_triggers(
             "edited_at",
             "extra_perms",
             "is_async",
-            "requires_auth",
+            "authentication_method",
             "static_asset_config",
             "is_static_website",
+            "authentication_resource_path",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -243,9 +264,10 @@ async fn get_trigger(
             edited_at, 
             extra_perms, 
             is_async, 
-            requires_auth, 
+            authentication_method as "authentication_method: _", 
             static_asset_config as "static_asset_config: _", 
             is_static_website,
+            authentication_resource_path,
             wrap_body,
             raw_string
         FROM 
@@ -313,12 +335,13 @@ async fn create_trigger(
             route_path, 
             route_path_key,
             workspaced_route,
+            authentication_resource_path,
             wrap_body,
             raw_string,
             script_path, 
             is_flow, 
             is_async, 
-            requires_auth, 
+            authentication_method, 
             http_method, 
             static_asset_config, 
             edited_by, 
@@ -327,20 +350,21 @@ async fn create_trigger(
             is_static_website
         ) 
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), $16
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), $17
         )
         "#,
         w_id,
         ct.path,
         ct.route_path,
         &route_path_key,
-        ct.workspaced_route.unwrap_or(false),
+        ct.workspaced_route,
+        ct.authentication_resource_path,
         ct.wrap_body.unwrap_or(false),
         ct.raw_string.unwrap_or(false),
         ct.script_path,
         ct.is_flow,
         ct.is_async,
-        ct.requires_auth,
+        ct.authentication_method as _,
         ct.http_method as _,
         ct.static_asset_config as _,
         &authed.username,
@@ -417,29 +441,31 @@ async fn update_trigger(
             SET 
                 route_path = $1, 
                 route_path_key = $2, 
-                workspaced_route = $3, 
+                workspaced_route = $3,
                 wrap_body = $4,
                 raw_string = $5,
-                script_path = $6, 
-                path = $7, 
-                is_flow = $8, 
-                http_method = $9, 
-                static_asset_config = $10, 
-                edited_by = $11, 
-                email = $12, 
-                is_async = $13, 
-                requires_auth = $14, 
+                authentication_resource_path = $6,
+                script_path = $7, 
+                path = $8, 
+                is_flow = $9, 
+                http_method = $10, 
+                static_asset_config = $11, 
+                edited_by = $12, 
+                email = $13, 
+                is_async = $14, 
+                authentication_method = $15, 
                 edited_at = now(), 
-                is_static_website = $15
+                is_static_website = $16
             WHERE 
-                workspace_id = $16 AND 
-                path = $17
+                workspace_id = $17 AND 
+                path = $18
             "#,
             route_path,
             &route_path_key,
             ct.workspaced_route,
             ct.wrap_body,
             ct.raw_string,
+            ct.authentication_resource_path,
             ct.script_path,
             ct.path,
             ct.is_flow,
@@ -448,7 +474,7 @@ async fn update_trigger(
             &authed.username,
             &authed.email,
             ct.is_async,
-            ct.requires_auth,
+            ct.authentication_method as _,
             ct.is_static_website,
             w_id,
             path,
@@ -470,7 +496,7 @@ async fn update_trigger(
                 edited_by = $6, 
                 email = $7, 
                 is_async = $8, 
-                requires_auth = $9, 
+                authentication_method = $9, 
                 edited_at = now(), 
                 is_static_website = $10
             WHERE 
@@ -485,7 +511,7 @@ async fn update_trigger(
             &authed.username,
             &authed.email,
             ct.is_async,
-            ct.requires_auth,
+            ct.authentication_method as _,
             ct.is_static_website,
             w_id,
             path,
@@ -652,6 +678,7 @@ async fn exists_route(
     Ok(Json(exists))
 }
 
+#[derive(Debug, Deserialize)]
 struct TriggerRoute {
     path: String,
     script_path: String,
@@ -659,11 +686,12 @@ struct TriggerRoute {
     route_path: String,
     workspace_id: String,
     is_async: bool,
-    requires_auth: bool,
+    authentication_method: AuthenticationMethod,
     edited_by: String,
     email: String,
     static_asset_config: Option<sqlx::types::Json<S3Object>>,
     is_static_website: bool,
+    authentication_resource_path: Option<String>,
     workspaced_route: bool,
     wrap_body: bool,
     raw_string: bool,
@@ -694,14 +722,15 @@ async fn get_http_route_trigger(
                 route_path, 
                 workspace_id, 
                 is_async, 
-                requires_auth, 
+                authentication_method  AS "authentication_method: _", 
                 edited_by, 
                 email,
                 static_asset_config AS "static_asset_config: _",
                 wrap_body,
                 raw_string,
                 workspaced_route,
-                is_static_website 
+                is_static_website,
+                authentication_resource_path
             FROM 
                 http_trigger 
             WHERE 
@@ -723,9 +752,10 @@ async fn get_http_route_trigger(
                 script_path, 
                 is_flow, 
                 route_path, 
+                authentication_resource_path,
                 workspace_id, 
                 is_async, 
-                requires_auth, 
+                authentication_method  AS "authentication_method: _", 
                 edited_by, 
                 email, 
                 static_asset_config AS "static_asset_config: _",
@@ -787,7 +817,7 @@ async fn get_http_route_trigger(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let username_override = if trigger.requires_auth {
+    let username_override = if let AuthenticationMethod::Windmill = trigger.authentication_method {
         let opt_authed = if let Some(token) = token {
             auth_cache
                 .get_authed(Some(trigger.workspace_id.clone()), token)
@@ -880,7 +910,7 @@ async fn route_job(
     request: Request,
 ) -> impl IntoResponse {
     let route_path = route_path.to_path().trim_end_matches("/");
-    let (trigger, called_path, params, authed) = match get_http_route_trigger(
+    let result = get_http_route_trigger(
         route_path,
         &auth_cache,
         token.as_ref(),
@@ -888,30 +918,93 @@ async fn route_job(
         user_db.clone(),
         &method,
     )
-    .await
-    {
-        Ok(trigger) => trigger,
+    .await;
+
+    let (trigger, called_path, params, authed) = match result {
+        Ok(result) => result,
         Err(e) => return e.into_response(),
     };
 
-    let result = try_from_request_body(
+    let args = try_from_request_body(
         request,
         &db,
-        Some(trigger.raw_string),
+        Some(match trigger.authentication_method {
+            AuthenticationMethod::CustomScript | AuthenticationMethod::Signature => true,
+            _ => trigger.raw_string,
+        }),
         Some(trigger.wrap_body),
     )
     .await;
 
-    let mut args = match result {
-        Ok(args) => match args
-            .to_push_args_owned(&authed, &db, &trigger.workspace_id)
-            .await
-        {
-            Ok(args) => args,
-            Err(e) => return e.into_response(),
-        },
+    let mut args = match args {
+        Ok(args) => {
+            match args
+                .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+                .await
+            {
+                Ok(args) => args,
+                Err(e) => return e.into_response(),
+            }
+        }
         Err(e) => return e.into_response(),
     };
+
+    match trigger.authentication_method {
+        AuthenticationMethod::None
+        | AuthenticationMethod::Windmill
+        | AuthenticationMethod::CustomScript => {}
+        _ => {
+            let resource_path = match trigger.authentication_resource_path {
+                Some(resource_path) => resource_path,
+                None => {
+                    return Error::BadRequest("Missing authentication resource path".to_string())
+                        .into_response()
+                }
+            };
+
+            let authentication_method =
+                try_get_resource_from_db_as::<http_trigger_auth::AuthenticationMethod>(
+                    authed.clone(),
+                    Some(user_db.clone()),
+                    &db,
+                    &resource_path,
+                    &trigger.workspace_id,
+                )
+                .await;
+
+            let authentication_method = match authentication_method {
+                Ok(authentication_method) => authentication_method,
+                Err(e) => return e.into_response(),
+            };
+
+            let raw_payload = serde_json::from_str::<String>(
+                &args
+                    .extra
+                    .as_ref()
+                    .unwrap()
+                    .get("raw_string")
+                    .unwrap()
+                    .to_string(),
+            );
+
+            let raw_payload = match raw_payload {
+                Ok(raw_payload) => raw_payload,
+                Err(e) => {
+                    return windmill_common::error::Error::SerdeJson {
+                        location: e.to_string(),
+                        error: e,
+                    }
+                    .into_response();
+                }
+            };
+
+            match authentication_method.authenticate_http_request(&headers, &raw_payload) {
+                Ok(Some(response)) => return response,
+                Err(e) => return e.into_response(),
+                _ => {}
+            }
+        }
+    }
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
@@ -1041,7 +1134,7 @@ async fn route_job(
 
     let run_query = RunJobQuery::default();
 
-    if trigger.is_flow {
+    let response = if trigger.is_flow {
         if trigger.is_async {
             run_flow_by_path_inner(
                 authed,
@@ -1097,5 +1190,7 @@ async fn route_job(
             .await
             .into_response()
         }
-    }
+    };
+
+    response
 }
