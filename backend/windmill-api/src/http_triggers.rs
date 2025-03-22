@@ -113,6 +113,7 @@ pub enum AuthenticationMethod {
     Windmill,
     ApiKey,
     BasicHttp,
+    CustomScript,
     Signature,
 }
 
@@ -927,13 +928,10 @@ async fn route_job(
     let args = try_from_request_body(
         request,
         &db,
-        Some(
-            if let AuthenticationMethod::Signature = trigger.authentication_method {
-                true
-            } else {
-                trigger.raw_string
-            },
-        ),
+        Some(match trigger.authentication_method {
+            AuthenticationMethod::CustomScript | AuthenticationMethod::Signature => true,
+            _ => trigger.raw_string,
+        }),
         Some(trigger.wrap_body),
     )
     .await;
@@ -952,7 +950,9 @@ async fn route_job(
     };
 
     match trigger.authentication_method {
-        AuthenticationMethod::None | AuthenticationMethod::Windmill => {}
+        AuthenticationMethod::None
+        | AuthenticationMethod::Windmill
+        | AuthenticationMethod::CustomScript => {}
         _ => {
             let resource_path = match trigger.authentication_resource_path {
                 Some(resource_path) => resource_path,

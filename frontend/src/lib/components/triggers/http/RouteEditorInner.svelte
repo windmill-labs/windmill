@@ -189,6 +189,9 @@
 	}
 
 	async function triggerScript(): Promise<void> {
+		if (authentication_method === 'signature' && signature_options_type === 'custom_script') {
+			authentication_method = 'custom_script'
+		}
 		if (edit) {
 			await HttpTriggerService.updateHttpTrigger({
 				workspace: $workspaceStore!,
@@ -198,7 +201,7 @@
 					script_path,
 					is_flow,
 					is_async,
-					authentication_method,
+					authentication_method: authentication_method,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
 					static_asset_config,

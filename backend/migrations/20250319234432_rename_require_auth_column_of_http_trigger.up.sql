@@ -3,6 +3,7 @@ CREATE TYPE AUTHENTICATION_METHOD AS ENUM (
     'windmill',
     'api_key',
     'basic_http',
+    'custom_script',
     'signature'
 );
 

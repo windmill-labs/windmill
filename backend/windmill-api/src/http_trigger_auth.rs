@@ -25,7 +25,7 @@ mod github {
         fn handle_challenge_request<'header>(
             &self,
             _: &'header HeaderMap,
-            _: &AuthenticationMethod,
+            _: &SignatureConfigData,
             _: &str,
         ) -> Result<Option<Response>, WebhookError> {
             Ok(None)
@@ -59,7 +59,7 @@ mod shopify {
         fn handle_challenge_request<'header>(
             &self,
             _: &'header HeaderMap,
-            _: &AuthenticationMethod,
+            _: &SignatureConfigData,
             _: &str,
         ) -> Result<Option<Response>, WebhookError> {
             Ok(None)
@@ -89,7 +89,7 @@ mod slack {
         fn handle_challenge_request<'header>(
             &self,
             _: &'header HeaderMap,
-            _: &AuthenticationMethod,
+            _: &SignatureConfigData,
             _: &str,
         ) -> Result<Option<Response>, WebhookError> {
             Ok(None)
@@ -124,7 +124,7 @@ mod stripe {
         fn handle_challenge_request<'header>(
             &self,
             _: &'header HeaderMap,
-            _: &AuthenticationMethod,
+            _: &SignatureConfigData,
             _: &str,
         ) -> Result<Option<Response>, WebhookError> {
             Ok(None)
@@ -167,7 +167,7 @@ mod tiktok {
         fn handle_challenge_request<'header>(
             &self,
             _: &'header HeaderMap,
-            _: &AuthenticationMethod,
+            _: &SignatureConfigData,
             _: &str,
         ) -> Result<Option<Response>, WebhookError> {
             Ok(None)
@@ -243,23 +243,11 @@ mod twitch {
         fn handle_challenge_request<'header>(
             &self,
             headers: &'header HeaderMap,
-            authentication_method: &AuthenticationMethod,
+            signature_config_data: &SignatureConfigData,
             raw_payload: &str,
         ) -> Result<Option<Response>, WebhookError> {
-            match &authentication_method {
-                AuthenticationMethod::Signature(hmac) => {
-                    let authentication_data =
-                        self.get_hmac_authentication_data(headers, raw_payload)?;
-                    verify_hmac_signature(
-                        authentication_data,
-                        &hmac.signature_config_data.secret_key,
-                    )?;
-                }
-                _ => {
-                    tracing::error!("Twitch webhook should only handle hmac authentication");
-                    return Ok(None);
-                }
-            }
+            let authentication_data = self.get_hmac_authentication_data(headers, raw_payload)?;
+            verify_hmac_signature(authentication_data, &signature_config_data.secret_key)?;
 
             let twitch_eventsub_message_type =
                 headers.try_get_webhook_header("Twitch-Eventsub-Message-Type")?;
@@ -308,7 +296,7 @@ mod zoom {
         fn handle_challenge_request<'header>(
             &self,
             _: &'header HeaderMap,
-            authentication_method: &AuthenticationMethod,
+            signature_config_data: &SignatureConfigData,
             raw_payload: &str,
         ) -> Result<Option<Response>, WebhookError> {
             let Ok(zoom_request_body) = serde_json::from_str::<ZoomChallengeResponse>(raw_payload)
@@ -320,29 +308,23 @@ mod zoom {
                 return Ok(None);
             }
 
-            match &authentication_method {
-                AuthenticationMethod::Signature(hmac) => {
-                    let hmac_signature = calculate_hmac_signature(
-                        HmacAlgorithm::Sha256,
-                        &hmac.signature_config_data.secret_key,
-                        &zoom_request_body.payload.plain_token,
-                    );
+            let hmac_signature = calculate_hmac_signature(
+                HmacAlgorithm::Sha256,
+                &signature_config_data.secret_key,
+                &zoom_request_body.payload.plain_token,
+            );
 
-                    let encoded_hmac_signature =
-                        encode_hmac_signature(Encoding::Hex, &hmac_signature);
+            let encoded_hmac_signature = encode_hmac_signature(Encoding::Hex, &hmac_signature);
 
-                    let response = (
-                        StatusCode::OK,
-                        Json(json!({
-                            "plainToken": zoom_request_body.payload.plain_token,
-                            "encryptedToken": encoded_hmac_signature
-                        })),
-                    );
+            let response = (
+                StatusCode::OK,
+                Json(json!({
+                    "plainToken": zoom_request_body.payload.plain_token,
+                    "encryptedToken": encoded_hmac_signature
+                })),
+            );
 
-                    Ok(Some(response.into_response()))
-                }
-                _ => return Ok(None),
-            }
+            Ok(Some(response.into_response()))
         }
 
         fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
@@ -428,7 +410,7 @@ pub trait WebhookHandler {
     fn handle_challenge_request<'header>(
         &self,
         headers: &'header HeaderMap,
-        autentication_method: &AuthenticationMethod,
+        signature_config_data: &SignatureConfigData,
         raw_payload: &str,
     ) -> Result<Option<Response>, WebhookError>;
 
@@ -461,7 +443,7 @@ pub struct SignatureAuthenticationMethod {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct SignatureConfigData {
+pub struct SignatureConfigData {
     secret_key: String,
 }
 
@@ -623,7 +605,13 @@ impl AuthenticationMethod {
                 let handler = signature_providers.get_webhook_handler();
 
                 let challenge_response = handler
-                    .map(|handler| handler.handle_challenge_request(headers, self, raw_payload))
+                    .map(|handler| {
+                        handler.handle_challenge_request(
+                            headers,
+                            signature_config_data,
+                            raw_payload,
+                        )
+                    })
                     .transpose()?
                     .flatten();
 
