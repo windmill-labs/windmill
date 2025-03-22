@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.479.0](https://github.com/windmill-labs/windmill/compare/v1.478.1...v1.479.0) (2025-03-22)
+
+
+### Features
+
+* add nu-lang support ([#5217](https://github.com/windmill-labs/windmill/issues/5217)) ([a3faea1](https://github.com/windmill-labs/windmill/commit/a3faea16e77796a1b989db4285b3fef722ac55b2))
+* unsafe parameters for sql queries (table names, column names) ([#5488](https://github.com/windmill-labs/windmill/issues/5488)) ([38ee018](https://github.com/windmill-labs/windmill/commit/38ee0183aaa014c740da7b54d66928ec851fb522))
+
+
+### Bug Fixes
+
+* **frontend:** use stable path for capture tables + nits ([#5495](https://github.com/windmill-labs/windmill/issues/5495)) ([e16d629](https://github.com/windmill-labs/windmill/commit/e16d6299f52564def484e78fb2f48e9bf39cbd3d))
+
+
+### Performance Improvements
+
+* cache workspace env variables to avoid one query ([#5499](https://github.com/windmill-labs/windmill/issues/5499)) ([a3f6db7](https://github.com/windmill-labs/windmill/commit/a3f6db7dca983a4dfd62b30423340f899c4d1da6))
+
 ## [1.478.1](https://github.com/windmill-labs/windmill/compare/v1.478.0...v1.478.1) (2025-03-20)
 
 
