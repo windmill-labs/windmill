@@ -180,8 +180,7 @@
 		if (s.authentication_method === 'custom_script') {
 			authentication_method = 'signature'
 			signature_options_type = 'custom_script'
-		}
-		else {
+		} else {
 			authentication_method = s.authentication_method
 		}
 		if (!isCloudHosted()) {
@@ -505,7 +504,7 @@
 									>
 										{#each authentication_options as option}
 											{#if option.value === 'signature'}
-												<Popover>
+												<Popover placement="bottom-end" usePointerDownOutside>
 													<svelte:fragment slot="trigger">
 														<ToggleButton
 															label={option.label}
